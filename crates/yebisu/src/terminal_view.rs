@@ -16,6 +16,9 @@ pub(crate) struct TerminalView {
     pub open: bool,
     pub compact: bool,
     pub size: Option<ConnectOptions>,
+    pub input: crate::terminal_input::TerminalInput,
+    pub geometry: crate::input_geometry::InputGeometry,
+    pub show_options: bool,
 }
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
@@ -23,6 +26,10 @@ impl Smoke {
             return;
         }
         let target = self.input.text.trim().to_owned();
+        self.terminal.input.discard();
+        self.terminal
+            .input
+            .sync(&Live::default(), self.terminal.link.generation, None);
         let generation = self.terminal.link.reset();
         self.terminal.live = Live::default();
         self.terminal.size = None;
@@ -56,16 +63,22 @@ impl Smoke {
             for text in live.clipboard.drain(..) {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
+            self.terminal
+                .input
+                .sync(&live, self.terminal.link.generation, self.terminal.size);
             self.terminal.live = live;
+            self.flush_terminal();
             cx.notify();
         }
     }
     pub(crate) fn render_terminal(
         &mut self,
-        window: &gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let insets = window.insets().safe_area;
+        let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
+        let input_entity = cx.entity();
         let entity = cx.entity();
         let generation = self.terminal.link.generation;
         let compact = self.terminal.compact;
@@ -79,16 +92,32 @@ impl Smoke {
         } else {
             self.terminal.live.status.clone()
         };
-        div().size_full().pt(insets.top).pb(insets.bottom).pl(insets.left).pr(insets.right).flex().flex_col().bg(rgb(0x101419)).text_color(rgb(0xd8dee9))
+        div().size_full().pt(insets.top).pb(insets.bottom.max(bottom)).pl(insets.left).pr(insets.right).flex().flex_col().bg(rgb(0x101419)).text_color(rgb(0xd8dee9))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::terminal_key_down))
+            .on_key_up(cx.listener(Self::terminal_key_up))
             .child(div().flex().gap_4().px_4().py_2()
                 .child(div().id("terminal-back").px_4().py_2().bg(rgb(0x3b4252)).child("Hosts").on_click(cx.listener(|this,_,_,cx| {
-                    this.terminal.link.reset();this.terminal.open=false;this.terminal.live=Live::default();cx.notify();
+                    this.terminal.input.discard();this.terminal.link.reset();this.terminal.open=false;this.terminal.live=Live::default();cx.notify();
                 })))
                 .child(div().id("terminal-density").px_4().py_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(|this,_,_,cx| {
                     this.terminal.compact = !this.terminal.compact;cx.notify();
                 })))
-                .child(div().child(format!("Read only · {status}"))))
-            .child(canvas(|_,_,_| (),move |bounds,_,window,cx| {
+                .child(div().id("input-options").px_2().py_2().bg(rgb(0x3b4252)).child("Input options").on_click(cx.listener(|this,_,_,cx| { this.terminal.show_options ^= true; cx.notify(); })))
+                .child(div().id("reconnect").px_2().py_2().bg(rgb(0x3b4252)).child("Reconnect").on_click(cx.listener(|this,_,_,cx| {
+                    if !this.terminal.live.connected && this.terminal.live.version_mismatch.is_none() { this.connect_terminal(cx); }
+                })))
+                .child(div().child(format!("P4 · {status}"))))
+            .when(self.terminal.show_options, |view| view.child(self.input_options(cx)))
+            .child(div().id("terminal-input").flex_1().min_h_0().w_full()
+                .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    if this.terminal.geometry.contains(event.position) {
+                        this.focus.focus(window, cx);
+                        this.terminal.input.fresh_gesture();
+                        window.request_virtual_keyboard();
+                    }
+                }))
+                .child(canvas(|_,_,_| (),move |bounds,_,window,cx| {
                 entity.update(cx,|this,cx| {
                     if !this.terminal.open || !this.terminal.link.current(generation) { return; }
                     let (font_size,line_height) = if compact {(12.,17.)}else{(14.,20.)};
@@ -96,6 +125,7 @@ impl Smoke {
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::default());
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
+                    terminal.geometry = crate::input_geometry::InputGeometry { grid: bounds, cell_width, cell_height: line_height };
                     let options = ConnectOptions {
                         surface_size: crate::terminal::viewport(f32::from(bounds.size.width),f32::from(bounds.size.height),cell_width,line_height),
                         cell_width_px: (cell_width*window.scale_factor()).round() as u32,
@@ -108,6 +138,7 @@ impl Smoke {
                             Err(e) => terminal.live.status=e.to_string(),
                         }
                     }
+                    terminal.input.sync(&terminal.live, generation, terminal.size);
                     if let (Some(snapshot),Some(surface)) = (&terminal.live.snapshot,&terminal.live.surface)
                         && crate::live::coherent(snapshot,surface) {
                         window.paint_layer(bounds,|window| {
@@ -116,10 +147,14 @@ impl Smoke {
                                 let origin = bounds.origin+crate::terminal::popup_origin(&surface.frame,&popup.frame,cell_width,line_height);
                                 terminal.painter.paint_frame(&popup.frame,origin,None,Ground::Opaque,cell_width,&face,&[],&[],None,None,window,cx);
                             }
+                            terminal.painter.paint_composition(&terminal.input.composition.text,
+                                terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
                         });
                         this.observation.record(serde_json::json!({"kind":"terminal","generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                 });
-            }).size_full()).into_any_element()
+                let focus = input_entity.read(cx).focus.clone();
+                window.handle_input(&focus, gpui::ElementInputHandler::new(bounds, input_entity), cx);
+            }).size_full())).into_any_element()
     }
 }

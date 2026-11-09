@@ -1,7 +1,7 @@
 //! UTF-16 input boundary for the P0 smoke field; no terminal commands are sent.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 use crate::app::Smoke;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 use gpui::{Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window};
 use std::ops::Range;
 
@@ -9,11 +9,11 @@ use std::ops::Range;
 pub(crate) struct Input {
     pub(crate) text: String,
     pub(crate) marked: Option<Range<usize>>,
-    selected: Range<usize>,
+    pub(crate) selected: Range<usize>,
 }
 
 impl Input {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", test))]
     pub(crate) fn set_text(&mut self, text: String) {
         let end = text.encode_utf16().count();
         self.text = text;
@@ -21,7 +21,7 @@ impl Input {
         self.selected = end..end;
     }
 
-    fn byte(&self, utf16: usize) -> usize {
+    pub(crate) fn byte(&self, utf16: usize) -> usize {
         let mut count = 0;
         for (index, ch) in self.text.char_indices() {
             if count >= utf16 {
@@ -31,7 +31,7 @@ impl Input {
         }
         self.text.len()
     }
-    fn replace(
+    pub(crate) fn replace(
         &mut self,
         range: Option<Range<usize>>,
         text: &str,
@@ -50,11 +50,45 @@ impl Input {
         self.selected = selected
             .map(|r| start + r.start.min(len)..start + r.end.max(r.start).min(len))
             .unwrap_or(start + len..start + len);
+        self.selected = self.text[..self.byte(self.selected.start)]
+            .encode_utf16()
+            .count()
+            ..self.text[..self.byte(self.selected.end)]
+                .encode_utf16()
+                .count();
     }
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
+impl Smoke {
+    fn active_input(&self) -> &Input {
+        if self.terminal.open {
+            &self.terminal.input.composition
+        } else {
+            &self.input
+        }
+    }
+    fn active_input_mut(&mut self) -> &mut Input {
+        if self.terminal.open {
+            &mut self.terminal.input.composition
+        } else {
+            &mut self.input
+        }
+    }
+}
+
+#[cfg(any(target_os = "ios", test))]
 impl EntityInputHandler for Smoke {
+    fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
+        if self.terminal.open {
+            self.terminal
+                .input
+                .accepts(self.focus.is_focused(window), false)
+        } else {
+            self.focus.is_focused(window) && (self.smoke_mode || !self.setup.busy)
+        }
+    }
+
     fn text_for_range(
         &mut self,
         range: Range<usize>,
@@ -62,13 +96,13 @@ impl EntityInputHandler for Smoke {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
-        let start = self.input.byte(range.start);
-        let end = self.input.byte(range.end.max(range.start));
+        let start = self.active_input().byte(range.start);
+        let end = self.active_input().byte(range.end.max(range.start));
         *actual = Some(
-            self.input.text[..start].encode_utf16().count()
-                ..self.input.text[..end].encode_utf16().count(),
+            self.active_input().text[..start].encode_utf16().count()
+                ..self.active_input().text[..end].encode_utf16().count(),
         );
-        Some(self.input.text[start..end].to_owned())
+        Some(self.active_input().text[start..end].to_owned())
     }
     fn selected_text_range(
         &mut self,
@@ -77,15 +111,18 @@ impl EntityInputHandler for Smoke {
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
         Some(UTF16Selection {
-            range: self.input.selected.clone(),
+            range: self.active_input().selected.clone(),
             reversed: false,
         })
     }
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.input.marked.clone()
+        self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.input.marked = None;
+        self.active_input_mut().marked = None;
+        if self.terminal.open {
+            self.terminal.input.composition = Input::default();
+        }
         window.notify_text_input_changed(&self.focus);
         cx.notify();
     }
@@ -96,6 +133,18 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        if self.terminal.open {
+            self.refresh_terminal_input();
+            if let Some(event) = self.terminal.input.commit(text) {
+                self.send_terminal(event);
+            }
+            window.notify_text_input_changed(&self.focus);
+            cx.notify();
+            return;
+        }
         if !self.smoke_mode && self.setup.busy {
             return;
         }
@@ -117,6 +166,16 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        if self.terminal.open {
+            self.refresh_terminal_input();
+            self.terminal.input.mark(text, selected);
+            window.notify_text_input_changed(&self.focus);
+            cx.notify();
+            return;
+        }
         if !self.smoke_mode && self.setup.busy {
             return;
         }
@@ -132,24 +191,52 @@ impl EntityInputHandler for Smoke {
     }
     fn bounds_for_range(
         &mut self,
-        _: Range<usize>,
+        range: Range<usize>,
         _: Bounds<Pixels>,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        // P0 deliberately withholds candidate geometry until shaped text is available.
-        None
+        if !self.terminal.open {
+            return None;
+        }
+        self.refresh_terminal_input();
+        self.terminal.input.destination.as_ref()?;
+        let t = &self.terminal;
+        let range = if t.input.options.caret_anchor {
+            range.start..range.start
+        } else {
+            range
+        };
+        Some(t.painter.composition_bounds(
+            &t.input.composition.text,
+            range,
+            t.geometry.cursor(t.live.surface.as_deref()),
+            t.geometry.area(t.live.surface.as_deref()),
+            &gpui::font("SauceCodePro Nerd Font Mono"),
+            window,
+        ))
     }
     fn character_index_for_point(
         &mut self,
-        _: Point<Pixels>,
-        _: &mut Window,
+        point: Point<Pixels>,
+        window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<usize> {
-        None
+        if !self.terminal.open || !self.terminal.geometry.contains(point) {
+            return None;
+        }
+        let t = &self.terminal;
+        t.painter.composition_index(
+            &t.input.composition.text,
+            point,
+            t.geometry.cursor(t.live.surface.as_deref()),
+            t.geometry.area(t.live.surface.as_deref()),
+            &gpui::font("SauceCodePro Nerd Font Mono"),
+            window,
+        )
     }
     fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
-        Some(self.input.text.encode_utf16().count())
+        Some(self.active_input().text.encode_utf16().count())
     }
     fn set_selected_text_range(
         &mut self,
@@ -157,10 +244,10 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let start = self.input.byte(range.start);
-        let end = self.input.byte(range.end.max(range.start));
-        self.input.selected = self.input.text[..start].encode_utf16().count()
-            ..self.input.text[..end].encode_utf16().count();
+        let start = self.active_input().byte(range.start);
+        let end = self.active_input().byte(range.end.max(range.start));
+        self.active_input_mut().selected = self.active_input().text[..start].encode_utf16().count()
+            ..self.active_input().text[..end].encode_utf16().count();
         window.notify_text_selection_changed(&self.focus);
         cx.notify();
     }

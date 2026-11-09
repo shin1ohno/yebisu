@@ -7,6 +7,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 #[derive(Clone, Default)]
 pub(crate) struct Live {
+    pub connected: bool,
     pub snapshot: Option<Arc<ClientShellSnapshot>>,
     pub pending_snapshot: Option<Arc<ClientShellSnapshot>>,
     pub surface: Option<Arc<PaneSurfaceFrame>>,
@@ -31,6 +32,7 @@ impl Live {
         self.dirty = true;
         match event {
             ClientEvent::Connected(welcome) => {
+                self.connected = true;
                 self.capabilities = welcome.capabilities;
                 self.version = welcome.server_version;
                 self.status = "Connected".into();
@@ -58,6 +60,7 @@ impl Live {
                 self.surface = None;
             }
             ClientEvent::Disconnected { reason, ssh: _ } => {
+                self.connected = false;
                 if self.version_mismatch.is_none() {
                     self.status = format!("Disconnected: {reason}");
                 }

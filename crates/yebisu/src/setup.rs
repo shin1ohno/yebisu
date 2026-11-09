@@ -20,7 +20,8 @@ pub(crate) struct Setup {
     pub(crate) pending: Option<(String, NewHostKey)>,
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) enum Job {
     Load,
     Key,
@@ -159,3 +160,11 @@ impl Setup {
 
 #[cfg(test)]
 mod tests;
+
+// Host UI adapter tests never access a real credential store or host.
+#[cfg(all(test, not(target_os = "ios")))]
+pub(crate) fn execute(_: Job) -> Result<Reply> {
+    Err(crate::Error::Ssh(
+        "native setup is unavailable in host UI tests".into(),
+    ))
+}

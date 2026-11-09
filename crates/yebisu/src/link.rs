@@ -127,3 +127,36 @@ impl HeldInput {
         self.fifo.pop_front()
     }
 }
+
+impl Link {
+    /// Recheck the reader's state at enqueue time, not only a UI polling copy.
+    pub(crate) fn send_verified(
+        &self,
+        destination: &crate::terminal_input::Destination,
+        event: sheprd_client::protocol::ClientPaneInputEvent,
+    ) -> crate::Result<()> {
+        let live = self
+            .inbox
+            .try_lock()
+            .map_err(|_| crate::Error::Ssh("Input state busy; input discarded".into()))?;
+        if crate::terminal_input::destination(&live, self.generation).as_ref() != Some(destination)
+        {
+            return Err(crate::Error::Ssh(
+                "Input target changed; input discarded".into(),
+            ));
+        }
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| crate::Error::Ssh("Disconnected; input discarded".into()))?;
+        match &destination.target {
+            crate::terminal::InputTarget::Pane(id) => {
+                handle.send_input(&destination.boot, id, [event])
+            }
+            crate::terminal::InputTarget::Popup(id) => {
+                handle.send_popup_input(&destination.boot, id, [event])
+            }
+        }
+        .map_err(|e| crate::Error::Ssh(e.to_string()))
+    }
+}

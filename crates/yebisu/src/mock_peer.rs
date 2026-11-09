@@ -8,14 +8,14 @@ pub(crate) const SNAPSHOT: &str = include_str!("../fixtures/endpoint-snapshot-v1
 const WELCOME: &str = include_str!("../fixtures/endpoint-welcome-v1.json");
 pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
     let lines = [
-        "yebisu P3 · private wire peer",
+        "yebisu P4 · private wire peer",
         "日本語 かな カナ 漢字",
         "┌──────────────┐",
         "│ box drawing  │",
         "└──────────────┘",
         "Nerd Font: \u{f120} \u{e0b0} \u{f013}",
         "ANSI palette and truecolour",
-        "Read only · rotate and change density",
+        "Type here · keyboard and IME",
     ];
     let width = 80;
     let height = 24;
@@ -61,7 +61,12 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
             width: width as u16,
             height: height as u16,
             cells,
-            cursor: None,
+            cursor: Some(CursorState {
+                x: 2,
+                y: 14,
+                visible: true,
+                shape: 1,
+            }),
             hyperlinks: vec![],
             graphics: vec![],
         },
@@ -71,7 +76,11 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
         graphics: SurfaceGraphicsScene::default(),
     }
 }
-fn serve(mut server: Stream, frames: u64) -> Result<(), Box<dyn std::error::Error>> {
+fn serve(
+    mut server: Stream,
+    frames: u64,
+    receipts: std::sync::mpsc::Sender<ClientMessage>,
+) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
     let mut welcome: serde_json::Value = serde_json::from_str(WELCOME)?;
@@ -104,9 +113,21 @@ fn serve(mut server: Stream, frames: u64) -> Result<(), Box<dyn std::error::Erro
     let mut serial = frames;
     loop {
         // Consume geometry updates from the real client; no external socket or host.
-        if let ClientMessage::ClientShellResize { surface_size, .. } =
-            read_message(&mut server, MAX_FRAME_SIZE)?
-        {
+        let message: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
+        let _ = receipts.send(message.clone());
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
+            use std::io::Write;
+            if let Some(home) = std::env::var_os("HOME")
+                && let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))
+            {
+                let _ = writeln!(file, "{}", serde_json::to_string(&message)?);
+            }
+        }
+        if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
             let mut frame = surface(7);
             let old = frame.frame.clone();
@@ -142,11 +163,17 @@ pub(crate) fn connect() -> crate::Result<Client> {
     connect_burst(1)
 }
 pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
+    connect_recorded(frames).map(|(client, _)| client)
+}
+pub(crate) fn connect_recorded(
+    frames: u64,
+) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    let (sender, receiver) = std::sync::mpsc::channel();
     let (local, server) = Stream::pair()?;
     std::thread::Builder::new()
         .name("yebisu-private-peer".into())
         .spawn(move || {
-            let _ = serve(server, frames);
+            let _ = serve(server, frames, sender);
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,
@@ -154,5 +181,6 @@ pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
         true,
         move |_, _| Ok(local),
     )
+    .map(|client| (client, receiver))
     .map_err(|e| crate::Error::Ssh(e.to_string()))
 }
