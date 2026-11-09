@@ -54,9 +54,12 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return;
         }
-        // A UI-owned press remains owned through UIKit's held repeats even
-        // after closing the palette or changing shortcut availability.
-        if self.actions.consumed.contains(&event.keystroke.key) {
+        // Only repeats belong to the previous UI-owned press. A new press
+        // recovers if its release was lost while another screen had focus.
+        if !event.is_held {
+            self.actions.consumed.remove(&event.keystroke.key);
+        }
+        if event.is_held && self.actions.consumed.contains(&event.keystroke.key) {
             cx.stop_propagation();
             window.prevent_default();
             return;

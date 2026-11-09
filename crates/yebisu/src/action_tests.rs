@@ -360,6 +360,15 @@ fn uikit_shifted_symbol_shortcuts_match_real_events() {
 
 #[gpui::test]
 fn palette_escape_press_repeats_and_release_send_nothing(cx: &mut TestAppContext) {
+    palette_escape_sequence(cx, false);
+}
+
+#[gpui::test]
+fn palette_escape_fresh_press_recovers_after_release_lost_on_hosts(cx: &mut TestAppContext) {
+    palette_escape_sequence(cx, true);
+}
+
+fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
     use gpui::{KeyDownEvent, KeyUpEvent, Modifiers};
     for report_all in [false, true] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
@@ -412,14 +421,32 @@ fn palette_escape_press_repeats_and_release_send_nothing(cx: &mut TestAppContext
                     assert!(!this.actions.palette);
                     assert!(this.actions.consumed.contains("escape"));
                 }
-                this.terminal_key_up(
-                    &KeyUpEvent {
-                        keystroke: key.clone(),
-                    },
-                    window,
-                    cx,
-                );
-                assert!(this.actions.consumed.is_empty());
+                if lose_release {
+                    // Mirror Hosts: blur, detach, then show setup. The terminal
+                    // element's key-up callback is absent on that screen.
+                    window.blur(cx);
+                    this.terminal.input.detach();
+                    this.board.selection = this.board.selection.wrapping_add(1);
+                    this.terminal.open = false;
+                    this.smoke_mode = false;
+                    assert!(!this.terminal_focus.is_focused(window));
+                    assert!(this.actions.consumed.contains("escape"));
+                    // Release happens here on setup, without terminal_key_up.
+                    this.select_host("sandbox");
+                    assert!(this.terminal.open);
+                    this.terminal_focus.focus(window, cx);
+                    this.refresh_terminal_input();
+                    assert!(this.terminal.input.ready);
+                } else {
+                    this.terminal_key_up(
+                        &KeyUpEvent {
+                            keystroke: key.clone(),
+                        },
+                        window,
+                        cx,
+                    );
+                    assert!(this.actions.consumed.is_empty());
+                }
                 assert!(this.terminal.input.next().is_none());
             })
         });
@@ -430,7 +457,7 @@ fn palette_escape_press_repeats_and_release_send_nothing(cx: &mut TestAppContext
                 "Escape leaked: {message:?}"
             );
         }
-        // A fresh press after release still reaches the terminal normally.
+        // A fresh press reaches the terminal even if setup swallowed its release.
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 let key = Keystroke {

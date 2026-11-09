@@ -405,3 +405,12 @@ with a gated private wire peer. None proves physical keyboard or Japanese IME.
 5. Record each result in PR QA. The Simulator R6 controls inject the exact
    UIKit-shaped GPUI events and verify private-peer receipts; they do not prove
    physical key delivery or real IME behavior.
+
+### R6 follow-up — lost release on Hosts
+
+After the R6 Escape-hold check, open the palette, press and hold Escape, tap
+Hosts while still holding it, then release on the setup screen. Return to the
+same sandbox terminal. A fresh Escape must reach the terminal immediately;
+its release is sent only in report-all mode. Repeat in both report-all modes,
+then repeat the ordinary palette press/held-repeat/release no-wire sequence.
+Record this result and device/keyboard details in PR #14 QA.
