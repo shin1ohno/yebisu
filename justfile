@@ -23,6 +23,12 @@ test:
     python3 -I -B -m unittest discover -s scripts/tests -p 'test_*.py'
     python3 -I -B -m unittest discover -s scripts/ios -p 'test_*.py'
 
+bump-fork REV:
+    python3 scripts/bump-fork.py {{REV}}
+
+triage-upstream:
+    python3 scripts/triage-upstream.py
+
 ios-sim wait="5":
     python3 scripts/guarded.py bash -c 'app=$(bash scripts/ios/bundle.sh --package yebisu --bin yebisu); bash scripts/ios/sim.sh --wait {{wait}} --expect-color 2e3440 --min 0.3 "$app"'
 

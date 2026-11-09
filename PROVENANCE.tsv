@@ -1,30 +1,35 @@
-kind	destination	source_repository	source_commit	source_path
-copy	scripts/ios/bundle.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/bundle.sh
-copy	scripts/ios/device.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/device.sh
-copy	scripts/ios/provision.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/provision.sh
-copy	scripts/ios/profile.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/profile.py
-copy	scripts/ios/devicectl.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/devicectl.py
-copy	scripts/ios/lib.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/lib.sh
-copy	scripts/ios/sim.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/sim.sh
-copy	scripts/ios/sim-runner.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/sim-runner.sh
-copy	scripts/ios/screenshot-color.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/screenshot-color.py
-copy	scripts/ios/Info.plist	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/Info.plist
-copy	scripts/ios/test_bundle.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_bundle.py
-copy	scripts/ios/test_device.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_device.py
-copy	scripts/ios/test_profile.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_profile.py
-copy	scripts/ios/test_lint.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_lint.py
-copy	scripts/ios/test_sim_runner.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_sim_runner.py
-copy	scripts/ios/test_screenshot_color.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_screenshot_color.py
-copy	scripts/check-file-size.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/check-file-size.sh
-copy	scripts/check-sorted.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/check-sorted.py
-copy	scripts/release/check-commit-messages.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/release/check-commit-messages.py
-copy	Cargo.lock	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	Cargo.lock
-copy	NOTICE	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	NOTICE
-copy	assets/fonts/SauceCodePro/LICENSE.txt	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/LICENSE.txt
-copy	assets/fonts/SauceCodePro/NERD-FONTS-LICENSE.txt	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/NERD-FONTS-LICENSE.txt
-copy	assets/fonts/SauceCodePro/PROVENANCE.md	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/PROVENANCE.md
-copy	assets/fonts/SauceCodePro/README.md	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/README.md
-copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Bold.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Bold.ttf
-copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-BoldItalic.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-BoldItalic.ttf
-copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Italic.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Italic.ttf
-copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Regular.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Regular.ttf
+kind	destination	source_repository	source_commit	source_path	modified	last_triaged	last_triaged_at
+copy	scripts/ios/bundle.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/bundle.sh	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/device.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/device.sh	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/provision.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/provision.sh	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/profile.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/profile.py	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/devicectl.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/devicectl.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/lib.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/lib.sh	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/sim.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/sim.sh	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/sim-runner.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/sim-runner.sh	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/screenshot-color.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/screenshot-color.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/Info.plist	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/Info.plist	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_bundle.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_bundle.py	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_device.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_device.py	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_profile.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_profile.py	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_lint.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_lint.py	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_sim_runner.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_sim_runner.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/ios/test_screenshot_color.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/ios/test_screenshot_color.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/check-file-size.sh	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/check-file-size.sh	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/check-sorted.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/check-sorted.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	scripts/release/check-commit-messages.py	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	scripts/release/check-commit-messages.py	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	Cargo.lock	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	Cargo.lock	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	NOTICE	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	NOTICE	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/LICENSE.txt	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/LICENSE.txt	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/NERD-FONTS-LICENSE.txt	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/NERD-FONTS-LICENSE.txt	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/PROVENANCE.md	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/PROVENANCE.md	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/README.md	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/README.md	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Bold.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Bold.ttf	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-BoldItalic.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-BoldItalic.ttf	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Italic.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Italic.ttf	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+copy	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Regular.ttf	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	assets/fonts/SauceCodePro/SauceCodeProNerdFontMono-Regular.ttf	no	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+model	crates/yebisu/src/app.rs	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	crates/sheprd-gpui/src/connection.rs	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+model	crates/yebisu/src/app.rs	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	crates/sheprd-gpui/src/state/projection.rs	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+model	crates/yebisu/src/input.rs	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	crates/sheprd-gpui/src/input.rs	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+model	crates/yebisu/src/input.rs	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	crates/sheprd-gpui/src/terminal.rs	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
+model	crates/yebisu/src/input.rs	https://github.com/shin1ohno/herdr-gpui	398c132a06723a0cc1494842a34666d173ec0200	crates/sheprd-gpui/src/window/render.rs	yes	398c132a06723a0cc1494842a34666d173ec0200	2026-11-10
