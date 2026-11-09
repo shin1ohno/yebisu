@@ -22,6 +22,7 @@ REQUIRED_IOS_COPIES = (
     "scripts/ios/device.sh",
     "scripts/ios/devicectl.py",
     "scripts/ios/lib.sh",
+    "scripts/ios/lint.sh",
     "scripts/ios/profile.py",
     "scripts/ios/provision.sh",
     "scripts/ios/screenshot-color.py",
