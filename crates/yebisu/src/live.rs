@@ -30,6 +30,9 @@ pub(crate) struct Live {
     pub failed_request: Option<String>,
     /// One correlated receipt survives later focus snapshots until the next move.
     pub completed_request: Option<String>,
+    pub navigation: Option<crate::board::Navigation>,
+    /// Reader-side history survives coalescing and focus moving on again.
+    pub observed_navigation: Option<(String, u64)>,
     pub dirty: bool,
 }
 
@@ -38,6 +41,24 @@ pub(crate) fn coherent(snapshot: &ClientShellSnapshot, surface: &PaneSurfaceFram
 }
 
 impl Live {
+    pub fn begin_navigation(&mut self, navigation: Option<crate::board::Navigation>) {
+        self.pending_request = navigation.as_ref().map(|n| n.request.clone());
+        self.navigation = navigation;
+        self.completed_request = None;
+        self.failed_request = None;
+        self.observed_navigation = None;
+        self.observe_navigation();
+    }
+    fn observe_navigation(&mut self) {
+        if let Some(nav) = &self.navigation
+            && let Some(s) = self.pending_snapshot.as_ref().or(self.snapshot.as_ref())
+            && nav.matches(s)
+            && self.observed_navigation.is_none()
+        {
+            self.observed_navigation = Some((nav.request.clone(), s.revision));
+        }
+    }
+
     pub fn apply(&mut self, event: ClientEvent) {
         let before = crate::terminal_input::destination(self, 0);
         self.dirty = true;
@@ -49,7 +70,10 @@ impl Live {
                 self.version = welcome.server_version;
                 self.status = "Connected".into();
             }
-            ClientEvent::Snapshot(snapshot) => self.receive_snapshot(snapshot),
+            ClientEvent::Snapshot(snapshot) => {
+                self.receive_snapshot(snapshot);
+                self.observe_navigation();
+            }
             ClientEvent::Surface(surface) => self.receive_surface(surface),
             ClientEvent::SurfaceImages(_) => {} // P8 restores the image catalog here.
             ClientEvent::Response {

@@ -21,6 +21,9 @@ pub(crate) struct TerminalView {
     pub geometry: crate::input_geometry::InputGeometry,
     pub show_options: bool,
     pub needs_focus: bool,
+    pub reconnect_pending: bool,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub late_reader_release: Option<std::sync::mpsc::Sender<()>>,
     pub navigating: Option<crate::board::Navigation>,
 }
 impl TerminalView {
@@ -69,15 +72,21 @@ impl Smoke {
         };
         terminal.restore_stop_reason();
         if terminal.live.version_mismatch.get().is_some() {
+            terminal.reconnect_pending = false;
             return;
         }
+        let Some(generation) = terminal.link.prepare_connection() else {
+            terminal.reconnect_pending = terminal.link.stop_reason.get().is_none();
+            terminal.restore_stop_reason();
+            return;
+        };
+        terminal.reconnect_pending = false;
         let host_generation = terminal.reconnect.begin(target.clone());
         let host = target.clone();
         terminal.input.discard();
         terminal
             .input
             .sync(&Live::default(), terminal.link.generation, None);
-        let generation = terminal.link.reset();
         self.observation.record(serde_json::json!({"kind":"reconnect","host":host,"selected":selected,"generation":generation,"automatic":terminal.reconnect.automatic}));
         terminal.live = Live::default();
         terminal.navigating = None;
@@ -128,6 +137,19 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        let mut pending = self
+            .board
+            .hidden
+            .iter()
+            .filter(|(_, t)| t.reconnect_pending && !t.reconnect.suspended)
+            .map(|(host, _)| host.clone())
+            .collect::<Vec<_>>();
+        if self.terminal.reconnect_pending && !self.terminal.reconnect.suspended {
+            pending.push(self.terminal.reconnect.target.clone());
+        }
+        for host in pending {
+            self.start_host_connection(host, cx);
+        }
         self.poll_hidden(cx);
         if !self.terminal.open || self.terminal.reconnect.suspended {
             return;

@@ -333,3 +333,44 @@ No new feel-based design fork was found for R4. Existing density and input varia
 8. Rotate with many tabs, toggle the board and palette, and check horizontal tab scrolling at narrow width. Record device/iPadOS version, keyboard model, prefix, preferred variant and each result separately from Simulator evidence.
 
 Simulator evidence uses the private in-process peer only. The Simulator gate creates a tab, splits it, focuses the original tab, opens the palette, and verifies API receipts plus coherent display/input destinations. It cannot establish hardware-keyboard routing or real IME behavior.
+
+## R5 — delayed move projection and delayed reader stop (owner)
+
+1. Locally unlock the login keychain using the system prompt, connect/unlock M5,
+   and run this command from the yebisu checkout. Never give the password to a worker:
+   ```sh
+   zsh -il -c '/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad'
+   ```
+   Record the PR head, device/iPadOS and hardware keyboard model. Use disposable,
+   already authorized sandbox peers only; do not use personal Herdr sessions.
+2. On a controlled sandbox peer, keep p1/revision 7 coherent. Tap p2 and let only
+   its correlated success response arrive. Hold the new snapshot/surface, type a
+   unique token, then deliver p2/revision 8 snapshot followed by its surface.
+   Inspect the sandbox's received messages: the early token must not reach p1
+   or be replayed. A fresh token must reach p2 exactly once after its display
+   appears. Repeat with the surface arriving before its snapshot.
+3. Repeat with p2 snapshot, success response, then p3 snapshot/surface all
+   arriving before the next UI update. Typing must resume at p3, and another
+   board move must work. Tap the already focused pane: its matching no-op ack
+   must release input. Reject a move with an API error: show the error and allow
+   a fresh gesture on the still focused pane. Repeat with Japanese composition;
+   cancelled marked text must never reach another pane.
+4. Keep Return: Automatic enabled. On the controlled sandbox, hold a version
+   mismatch in the old connection's event stream; background then foreground
+   the app, and release the mismatch only after foreground return starts.
+   Check that the exact mismatch reason remains visible and the sandbox's
+   connection counter has not increased. Repeat with this host hidden while
+   another compatible host is selected. Reconnect must also refuse the stopped
+   host; the compatible host must remain usable.
+5. Repeat ordinary lock/unlock without mismatch: after the old reader finishes,
+   automatic reconnect must recover. Check Tap reconnect as well. Repeat the
+   existing P4/P5/P6 physical keyboard, IME, host-switch and no-replay checks.
+   Record actual results in PR QA. Revert a device regression that cannot be
+   repaired within one business day.
+
+`just guarded python3 scripts/ios/r5-check.py` runs a Simulator-only reader
+that emits its mismatch after the Automatic return attempt, then checks OCR
+and absence of a dial receipt. `p6-check.py` verifies real Simulator board taps,
+focus/surface/input destinations and private peer API receipts. The precise
+response/single-poll/key/late-projection order is covered by the host regression
+with a gated private wire peer. None proves physical keyboard or Japanese IME.

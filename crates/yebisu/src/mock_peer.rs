@@ -169,7 +169,9 @@ fn serve(
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
-            if let Some(gate) = &gate {
+            if fault != "response-first"
+                && let Some(gate) = &gate
+            {
                 let _ = gate.recv_timeout(Duration::from_secs(5));
             }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
@@ -214,6 +216,11 @@ fn serve(
                 },
                 MAX_FRAME_SIZE,
             )?;
+            if fault == "response-first"
+                && let Some(gate) = &gate
+            {
+                let _ = gate.recv_timeout(Duration::from_secs(10));
+            }
             let method = request["method"].as_str().unwrap_or_default();
             let pane = if method == "workspace.focus" {
                 if request["params"]["workspace_id"] == "w2" {
@@ -420,4 +427,15 @@ pub(crate) fn connect_controlled() -> crate::Result<(
 )> {
     let (release, gate) = std::sync::mpsc::channel();
     connect_gated(1, false, "", Some(gate)).map(|(client, receipts)| (client, receipts, release))
+}
+
+#[cfg(test)]
+pub(crate) fn connect_response_first() -> crate::Result<(
+    Client,
+    std::sync::mpsc::Receiver<ClientMessage>,
+    std::sync::mpsc::Sender<()>,
+)> {
+    let (release, gate) = std::sync::mpsc::channel();
+    connect_gated(1, false, "response-first", Some(gate))
+        .map(|(client, receipts)| (client, receipts, release))
 }

@@ -58,3 +58,6 @@ mod actions;
 
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 mod mock_commands;
+
+#[cfg(test)]
+mod review_r5_tests;

@@ -286,6 +286,11 @@ fn navigation_waits_for_matching_focus_and_new_revision() {
     next.focused_pane_id = Some("w1:p2".into());
     terminal.live.apply(ClientEvent::Snapshot(Arc::new(next)));
     finish_navigation(&mut terminal);
+    assert!(terminal.navigating.is_some());
+    terminal
+        .live
+        .apply(ClientEvent::Surface(Arc::new(crate::mock_peer::surface(9))));
+    finish_navigation(&mut terminal);
     assert!(terminal.navigating.is_none());
 }
 
@@ -350,6 +355,7 @@ fn background_retires_hidden_inbox_without_replaying_it(cx: &mut gpui::TestAppCo
 #[test]
 fn focus_noop_waits_for_correlated_ack_not_an_old_error() {
     let mut state = live();
+    state.apply(ClientEvent::Surface(Arc::new(crate::mock_peer::surface(7))));
     state.status = "Previous unrelated error".into();
     state.pending_request = Some("request-1".into());
     let mut terminal = TerminalView {
@@ -404,7 +410,12 @@ fn api_error_releases_barrier_and_is_visible() {
 fn successful_move_then_other_focus_before_single_poll_releases_input() {
     let link = crate::link::Link::default();
     let mut state = live();
-    state.pending_request = Some("move".into());
+    state.begin_navigation(Some(Navigation {
+        boot: "boot-v1".into(),
+        revision: 7,
+        target: Target::Agent("w1:p2".into()),
+        request: "move".into(),
+    }));
     let mut moved = snapshot(&state)
         .cloned()
         .unwrap_or_else(|| panic!("snapshot"));
