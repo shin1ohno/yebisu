@@ -217,10 +217,16 @@ pub(crate) fn run() {
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
+            let weak = entity.downgrade();
+            cx.on_app_lifecycle(move |phase, cx| {
+                let _ = weak.update(cx, |this, cx| this.lifecycle(phase, cx));
+            })
+            .detach();
             entity.update(cx, |this, cx| this.start_job(crate::setup::Job::Load, cx));
             #[cfg(target_abi = "sim")]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
                 entity.update(cx, |this, cx| {
+                    this.terminal.reconnect.begin("qa@private-peer".into());
                     let generation = this.terminal.link.reset();
                     this.terminal
                         .link

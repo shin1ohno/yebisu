@@ -34,6 +34,9 @@ impl Smoke {
         if let Ok(Reply::Loaded(target, _)) = &result {
             self.setup_input.set_text(target.clone());
         }
+        if let Ok(Reply::Hosts(hosts, _)) = &result {
+            self.setup_input.set_text(hosts.selected.clone());
+        }
         self.setup.apply(result);
     }
 
@@ -41,7 +44,7 @@ impl Smoke {
         self.observation.record(serde_json::json!({
             "kind": "setup", "busy": self.setup.busy, "status": self.setup.status,
             "target": self.setup_input.text, "fingerprints": self.setup.fingerprints,
-            "key_line": self.setup.key_line,
+            "key_line": self.setup.key_line, "hosts": self.setup.hosts,
         }));
         let input_entity = cx.entity();
         let busy = self.setup.busy;
@@ -54,12 +57,39 @@ impl Smoke {
             .text_color(rgb(0xeceff4))
             .flex()
             .flex_col()
-            .justify_center()
+            .overflow_y_scroll()
             .items_center()
             .gap_4()
             .p_8()
             .track_focus(&self.focus)
-            .child(div().text_3xl().child("yebisu · Keys and hosts · P2"))
+            .child(div().text_3xl().child("yebisu · Saved hosts · P5"))
+            .children(
+                self.setup
+                    .hosts
+                    .clone()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, target)| {
+                        div()
+                            .id(("saved-host", i))
+                            .child(target.clone())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.setup.busy {
+                                    this.setup_input.set_text(target.clone());
+                                    this.setup.pending = None;
+                                    this.setup.fingerprints.clear();
+                                    cx.notify();
+                                }
+                            }))
+                    }),
+            )
+            .child(
+                button("host-save", "Save connection", busy).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.start_job(Job::Save(this.setup_input.text.trim().to_owned()), cx);
+                    },
+                )),
+            )
             .child(div().child("1. Create this installation's SSH key"))
             .child(
                 button("key-create", "Create / show public key", busy).on_click(cx.listener(
@@ -172,6 +202,13 @@ impl Smoke {
                     .id("setup-status")
                     .text_sm()
                     .child(self.setup.status.clone()),
+            )
+            .child(
+                button("save-failure", "Developer: simulate save failure", busy).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.start_job(Job::SaveFailure, cx);
+                    }),
+                ),
             )
             .child(
                 div()

@@ -11,6 +11,7 @@ use sheprd_client::{ConnectOptions, ConnectTarget};
 #[derive(Default)]
 pub(crate) struct TerminalView {
     pub link: Link,
+    pub reconnect: crate::reconnect::Reconnect,
     pub live: Live,
     pub painter: TerminalPainter,
     pub open: bool,
@@ -23,20 +24,31 @@ pub(crate) struct TerminalView {
 }
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
-        if self.setup.busy {
+        if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
-        let target = self.setup_input.text.trim().to_owned();
+        let target = if self.terminal.open {
+            self.terminal.reconnect.target.clone()
+        } else {
+            self.setup_input.text.trim().to_owned()
+        };
+        let host_generation = self.terminal.reconnect.begin(target.clone());
+        let host = target.clone();
         self.terminal.input.discard();
         self.terminal
             .input
             .sync(&Live::default(), self.terminal.link.generation, None);
         let generation = self.terminal.link.reset();
+        self.observation.record(serde_json::json!({"kind":"reconnect","generation":generation,"automatic":self.terminal.reconnect.automatic}));
         self.terminal.live = Live::default();
         self.terminal.size = None;
         self.terminal.open = true;
         self.terminal.needs_focus = true;
         let work = cx.background_executor().spawn(async move {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
+                return crate::mock_peer::connect();
+            }
             // Same P2 trust gate. The SSH bridge independently verifies pins again.
             let scan = sheprd_client::ssh::scan_host_key(&target)
                 .map_err(|e| crate::Error::Ssh(e.to_string()))?;
@@ -53,7 +65,11 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |this, cx| {
-                this.terminal.link.install(generation, result);
+                if this.terminal.reconnect.current(&host, host_generation) {
+                    this.terminal.link.install(generation, result);
+                } else if let Ok(client) = result {
+                    client.handle.disconnect();
+                }
                 cx.notify();
             });
         })
@@ -61,6 +77,9 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        if !self.terminal.open || self.terminal.reconnect.suspended {
+            return;
+        }
         if let Some(mut live) = self.terminal.link.take_update() {
             for text in live.clipboard.drain(..) {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -185,6 +204,7 @@ impl Smoke {
                                 this.terminal.input.discard();
                                 this.terminal.link.reset();
                                 this.terminal.open = false;
+                                this.smoke_mode = false;
                                 this.terminal.live = Live::default();
                                 cx.notify();
                             })),
@@ -228,7 +248,22 @@ impl Smoke {
                                 }
                             })),
                     )
-                    .child(div().child(format!("P4 · {status}"))),
+                    .child(div().child(format!("P5 · {status}"))),
+            )
+            .child(
+                div()
+                    .id("reconnect-policy")
+                    .px_4()
+                    .py_2()
+                    .child(if self.terminal.reconnect.automatic {
+                        "Return: Automatic"
+                    } else {
+                        "Return: Tap reconnect"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.terminal.reconnect.automatic ^= true;
+                        cx.notify();
+                    })),
             )
             .when(self.terminal.show_options, |view| {
                 view.child(self.input_options(cx))

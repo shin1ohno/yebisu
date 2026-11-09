@@ -249,3 +249,16 @@ These are owner checks; automation does not mark them complete.
 5. Repeat the P4 physical keyboard/IME/resize/reconnect checks above and record
    device model, iOS version and actual results in PR QA. Simulator callback
    checks do not establish physical Japanese IME or hardware-key routing.
+
+## P5 / M2: saved hosts and reconnect (owner required)
+
+Worker は実機署名・実機操作を行っていない。下記を実機の機種/iPadOS 版とともに PR QA に記録する。Simulator の結果は実機入力の証拠ではない。
+
+1. Mac mini の login keychain を本人が対話的に解錠し、M5 を接続・ロック解除する。repo で `zsh -il -c '/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad'` を実行する。パスワードはログやエージェントに渡さない。
+2. `Keys and hosts` で専用 sandbox SSH の target を入力し `Save connection`。別の sandbox を追加し、終了→再起動して両方が一覧に残ること、各行をタップすると入力欄が切り替わることを確認。保存自体は信頼を付与しない。新しい host は別途 fingerprint を実ホストで照合して Trust する。既存の稼働 Herdr セッションは使用しない。
+3. sandbox の terminal を開き `Return: Automatic` の状態で日本語を変換中に iPad をロック。ロック解除後に新しい接続の画面が出ること、変換が消えること、旧変換の確定・保留キー・切断中の文字が sandbox に届かないことを受信ログで確認。新たなタップの後の入力だけが一度届くことを確認。
+4. `Return: Automatic` をタップして `Return: Tap reconnect` に変更。ロック→解除し、接続が再開しないこと、`Reconnect` で再開することを確認。好みを docs/variants.md の二択として記録。
+5. sandbox に接続して Wi-Fi を切替、または通信を一時停止。切断理由の表示を確認。復旧後に背景→前景、または Reconnect で戻ること。切断中の入力が再送されないことを受信側ログで確認。
+6. sandbox 側だけで SSH host key を別鍵に交換して再起動し、背景→復帰する。鍵変更で拒否され、新鍵を自動 pin せず credentials を送らないことを sandbox ログと UI で確認。元の鍵を復元して再接続する。所有者の通常 host の鍵は変更しない。
+7. Hosts に戻り `Developer: simulate save failure` をタップ。`could not save or read the connection` と injected failure が画面に出て、保存済み一覧が変わらないことを確認。これは worker の失敗応答を UI まで通す故障注入であり、実際のディスク満杯の証明ではない。実 filesystem write 失敗と旧データ保持は host 自動テストで確認する。
+8. P4 の物理キーボード・IME 手順を再確認する。別 target への切替前後に旧 callback/marked text が送信されないこと。
