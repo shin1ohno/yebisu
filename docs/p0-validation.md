@@ -1,13 +1,40 @@
-# P0 validation
+# P0 validation after review corrections
 
-The Mac mini verified GPUI 0.3.12 using herdr-uikit revision a573fb3d90cec084e6211bc84473f2f0906f1731 (platform PR #6, unmerged). Both iOS targets pass Clippy. Host input-boundary tests and the copied iOS tooling tests pass. The physical-device step is pending the owner's interactive keychain unlock.
+D1: app.rs now converts source RGBA pixels to BGRA at the RenderImage upload boundary. The independent RGB expectations remain #ebcb8b and #b48ead from the source constants. Earlier acceptance of #ad8eb4 was wrong and is superseded by the regional gate.
 
-The smoke screen uses GPUI text, emoji, rounded bordered quads, underline and a checker image. Its field registers ElementInputHandler during paint, displays committed/marked text and logs input events. A background timer notifies the UI once per second. Candidate geometry is intentionally unavailable in P0; this is not a complete terminal/IME editor.
+D2: `just ios-sim` builds and launches the GPUI app, runs XCTest input/Home/rotation/idle actions, exports screenshots, copies the app-written Documents/p0-smoke.jsonl receipt log, and runs smoke_oracle.py. The app records actual painted bounds, viewport, rendered title/input/marked state and counter values. The bounded writer performs file I/O on a background thread; recording is enabled only for the smoke run. No accessibility text is assumed for Metal content.
 
-Screenshots under screenshots/ show input, background return, landscape rotation, a landscape frame with the keyboard dismissed, and input after at least 60 seconds idle. UI automation has separate sources in scripts/ios/smoke-qa; XcodeGen can generate that test project, then xcodebuild test can run it against the installed simulator app. Launch the app with simctl --stdout/--stderr first; the test activates the running app so its input log stays captured. Simulator checks do not prove physical IME or hardware keyboard behavior.
+Each screenshot is cropped using its paint receipt's bounds. Text requires #eceff4 in its own region, the quad requires #88c0d0, and the image requires both source RGB constants. The landscape keyboard can obscure lower content: the image's first two source rows are sampled there, and image-clear checks the full image after the keyboard is dismissed. Input pixels are also checked in portrait; receiving-side input strings and committed marked state are required at every stage. Counter progression is asserted across both Home return and at least 60 seconds idle. A stale/missing paint receipt fails the check.
 
-Dependency graphs are in dependency-graphs/{device,simulator,host}.txt. The iOS graphs include normal/build edges and the host graph includes dev edges. GPUI resolves to 0.3.12. Cargo.lock was seeded from Sheprd 398c132a06723a0cc1494842a34666d173ec0200, pruned, then updated for GPUI and its new ICU/benchmark dependencies and the registry embed-resource resolution. No blanket cargo update was run. The new P0 app has no connection dependencies yet.
+`python3 scripts/ios/smoke-negatives.py POSITIVE_DIR OUTPUT_DIR` blanks the text, quad and image independently in captured evidence, drops received input, and freezes the counter separately across backgrounding and idle. Each actual oracle invocation must return 1 with its specific diagnostic. These artifact mutations never switch faults on in product code. Unit tests exercise the same positive/negative contracts on host-shaped fixtures.
 
-The initial device-target cold development build took 38.88 s; a one-line label change rebuilt in 0.91 s. Development debug symbols and incremental compilation are disabled to bound disk use. The release device binary was also prebuilt without developer signing; just ipad uses incremental release builds and performs provisioning, signing, install and launch after the keychain is unlocked.
+D3: scripts/guarded.py uses nonblocking selector-based output rather than a forwarding thread. After SIGTERM it watches the process group independently of the leader and sends SIGKILL to remaining members after the grace period. The grandchild test ignores SIGTERM, retains stdout and writes a heartbeat; the fixed guard exits 86 and the writer stops. Its PID/heartbeat/elapsed evidence is in the worker output.
 
-The 6 GiB guard samples free space before the command and every five seconds, stopping only its process group. Tests simulate both refusal before launch and an in-flight disk drop, checking that the child no longer exists. The worker never deletes old app targets.
+## Resource measurements
+
+Measurement started 2026-11-09T17:59:00.957690+00:00 on the Mac mini. One build at a time; all builds used the 6 GiB guard. Raw command output and the exact one-line diff are retained in [p0-resource-3.txt](p0-resource-3.txt) and the execution report's check-3.txt.
+
+- Rust line count from `wc -l crates/yebisu/src/*.rs`: **433**, including test files.
+- Cold build: **39.15 s** in the initially absent target/p0-cold-3.
+- One-line rebuild: **1.23 s**, after adding one explanatory app.rs comment; runtime behavior stayed identical.
+- Both commands: pinned Rust 1.99.1, development debug=0, CARGO_INCREMENTAL=0. Registry/toolchain caches already existed.
+
+```sh
+just guarded env CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/p0-cold-3 \
+  /usr/bin/time -lp cargo build --locked --workspace --target aarch64-apple-ios
+```
+
+| Measured directory | du -sk (KiB) |
+|---|---:|
+| target/aarch64-apple-ios | 1523516 |
+| target/aarch64-apple-ios-sim | 1304880 |
+| target/debug | 1295244 |
+| target/p0-cold-3 | 985588 |
+
+The device, simulator and host rows describe their measured target directories, not an extrapolation from time. The additional cold target is reported separately. No old app targets were removed by this worker.
+
+## Physical device status
+
+Physical M5 signing/install/launch and signed-entitlement comparison remain pending the owner under the explicit worker restriction. `just ipad` remains the single provision/build/sign/install/launch command. Simulator results do not prove physical IME/hardware keyboard acceptance. The P0 field still does not supply candidate geometry; completing that editor is outside these review corrections.
+
+Dependency graphs in dependency-graphs/ are regenerated with the updated manifest. GPUI remains exactly 0.3.12 and herdr-uikit remains pinned to a573fb3d90cec084e6211bc84473f2f0906f1731 (unmerged PR #6). The only lock change is adding the already resolved serde_json as a direct iOS dependency for D2's structured receipts.

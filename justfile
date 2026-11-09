@@ -24,7 +24,7 @@ test:
     python3 -I -B -m unittest discover -s scripts/ios -p 'test_*.py'
 
 ios-sim wait="5":
-    python3 scripts/guarded.py bash -c 'app=$(bash scripts/ios/bundle.sh --package yebisu --bin yebisu); bash scripts/ios/sim.sh --wait {{wait}} --expect-color 2e3440 --min 0.3 "$app"'
+    python3 scripts/guarded.py python3 scripts/ios/smoke-check.py --wait {{wait}}
 
 ipad:
     python3 scripts/guarded.py env CARGO_INCREMENTAL=1 bash scripts/ios/device.sh --device M5 --bundle-id com.shin1ohno.yebisu --team AL9567565U

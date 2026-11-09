@@ -90,6 +90,7 @@ impl EntityInputHandler for Smoke {
     ) {
         self.input.replace(range, text, false, None);
         eprintln!("yebisu input committed chars={}", text.chars().count());
+        self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
         window.notify_text_input_changed(&self.focus);
         cx.notify();
     }
@@ -103,6 +104,7 @@ impl EntityInputHandler for Smoke {
     ) {
         self.input.replace(range, text, true, selected);
         eprintln!("yebisu input marked chars={}", text.chars().count());
+        self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
         window.notify_text_input_changed(&self.focus);
         cx.notify();
     }

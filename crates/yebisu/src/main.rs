@@ -9,3 +9,6 @@ fn main() {
     #[cfg(target_os = "ios")]
     app::run();
 }
+
+#[cfg(target_os = "ios")]
+mod observation;
