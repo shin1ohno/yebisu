@@ -229,14 +229,23 @@ fn mid_clause_rotation_keyboard_resize_share_paint_hit_and_candidate_geometry(
                 let cell_width = painter.cell_width(&font, window, cx);
                 let mut input = ready();
                 input.mark("kanakana", Some(2..4));
-                for (width, height) in [(300., 700.), (700., 300.), (300., 260.)] {
+                for (width, height) in [(120., 300.), (260., 140.), (120., 100.)] {
                     let geometry = InputGeometry {
                         grid: Bounds::new(point(px(20.), px(80.)), size(px(width), px(height))),
                         cell_width,
                         cell_height: 20.,
                     };
-                    let cursor = geometry.cursor(None);
-                    let area = geometry.area(None);
+                    let mut surface = mock_peer::surface(7);
+                    let col = (width / cell_width).floor() as u16 - 1;
+                    let row = (height / 20.).floor() as u16 - 1;
+                    surface.frame.cursor = Some(CursorState {
+                        x: col,
+                        y: row,
+                        visible: true,
+                        shape: 1,
+                    });
+                    let cursor = geometry.cursor(Some(&surface));
+                    let area = geometry.area(Some(&surface));
                     painter.paint_composition(
                         &input.composition.text,
                         cursor.origin,
@@ -261,7 +270,7 @@ fn mid_clause_rotation_keyboard_resize_share_paint_hit_and_candidate_geometry(
                         window,
                     );
                     assert!(
-                        clause.left() > cursor.left(),
+                        clause.left() < cursor.left(),
                         "candidate must follow mid-clause, not cursor cell"
                     );
                     assert!(
@@ -281,7 +290,16 @@ fn mid_clause_rotation_keyboard_resize_share_paint_hit_and_candidate_geometry(
                         "paint and hit-test differ"
                     );
                     assert!(geometry.contains(clause.origin));
-                    assert_eq!(clause.top(), geometry.grid.top());
+                    assert_eq!(
+                        clause.top(),
+                        px(80. + f32::from(row) * 20.),
+                        "rotation/keyboard resize must move candidate with painted row"
+                    );
+                    assert_eq!(
+                        end.right(),
+                        geometry.grid.right(),
+                        "rotation/keyboard resize must use the new right edge"
+                    );
                     assert_eq!(input.composition.selected, 2..4);
                 }
             },
@@ -354,7 +372,7 @@ fn uikit_handler_callbacks_preserve_mark_selection_and_setup_isolation(cx: &mut 
     });
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
-            this.focus.focus(window, cx);
+            this.terminal_focus.focus(window, cx);
             this.replace_and_mark_text_in_range(None, "a😀かな", Some(1..3), window, cx);
             assert_eq!(
                 this.selected_text_range(false, window, cx).map(|s| s.range),
@@ -374,6 +392,9 @@ fn uikit_handler_callbacks_preserve_mark_selection_and_setup_isolation(cx: &mut 
                 Some(3..4)
             );
             this.terminal.open = false;
+            this.replace_text_in_range(None, "stale terminal callback", window, cx);
+            assert_eq!(this.input.text, "", "terminal focus leaked into setup");
+            this.focus.focus(window, cx);
             this.replace_text_in_range(None, "user@host", window, cx);
             assert_eq!(this.input.text, "user@host");
             assert_eq!(
@@ -386,4 +407,73 @@ fn uikit_handler_callbacks_preserve_mark_selection_and_setup_isolation(cx: &mut 
             assert_eq!(this.input.text, "user@host");
         });
     });
+}
+
+#[test]
+fn mailbox_cannot_hide_a_target_switch_away_and_back() {
+    let mut live = live();
+    let mut input = TerminalInput::default();
+    input.sync(&live, 1, None);
+    input.mark("old composition", Some(1..2));
+    let original = live
+        .snapshot
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| panic!("snapshot"));
+    let mut other = original.clone();
+    other.revision += 1;
+    other.focused_pane_id = Some("w1:p2".into());
+    live.apply(ClientEvent::Snapshot(Arc::new(other.clone())));
+    let mut frame = mock_peer::surface(other.revision);
+    live.apply(ClientEvent::Surface(Arc::new(frame.clone())));
+    other.focused_pane_id = original.focused_pane_id;
+    other.revision += 1;
+    frame.projection_revision = other.revision;
+    live.apply(ClientEvent::Snapshot(Arc::new(other)));
+    live.apply(ClientEvent::Surface(Arc::new(frame)));
+    input.sync(&live, 1, None);
+    assert!(
+        input.composition.text.is_empty(),
+        "mailbox conflated away a target change"
+    );
+    assert!(input.commit("late").is_none());
+}
+
+#[test]
+fn popup_paint_and_candidate_use_the_same_center_and_cursor() {
+    let mut surface = mock_peer::surface(7);
+    let mut popup = surface.frame.clone();
+    popup.width = 20;
+    popup.height = 6;
+    popup.cursor = Some(CursorState {
+        x: 2,
+        y: 3,
+        visible: true,
+        shape: 1,
+    });
+    surface.popup = Some(Box::new(ClientShellPopupSurface {
+        terminal_id: "popup".into(),
+        title: "test".into(),
+        width: None,
+        height: None,
+        frame: popup,
+        mouse_reporting: false,
+        sgr_pixel_mouse: false,
+        pixel_width: 0,
+        pixel_height: 0,
+    }));
+    let geometry = InputGeometry {
+        grid: Bounds::new(point(px(20.), px(80.)), size(px(800.), px(480.))),
+        cell_width: 10.,
+        cell_height: 20.,
+    };
+    let area = geometry.area(Some(&surface));
+    assert_eq!(
+        area,
+        Bounds::new(point(px(320.), px(260.)), size(px(200.), px(120.)))
+    );
+    assert_eq!(
+        geometry.cursor(Some(&surface)),
+        Bounds::new(point(px(340.), px(320.)), size(px(10.), px(20.)))
+    );
 }

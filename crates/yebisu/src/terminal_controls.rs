@@ -41,19 +41,19 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.focus.is_focused(window) {
+        if !self.terminal_focus.is_focused(window) {
             return;
         }
         self.refresh_terminal_input();
         if let Some(input) = self
             .terminal
             .input
-            .key_down(event, self.terminal.live.keyboard_report_all)
+            .key_down(event, self.terminal.input.report_all)
         {
             self.send_terminal(input);
             cx.stop_propagation();
             window.prevent_default();
-            window.notify_text_input_changed(&self.focus);
+            window.notify_text_input_changed(&self.terminal_focus);
             cx.notify();
         }
     }
@@ -65,7 +65,7 @@ impl Smoke {
     ) {
         self.refresh_terminal_input();
         if let Some(release) = self.terminal.input.held.release(&event.keystroke.key)
-            && self.terminal.live.keyboard_report_all
+            && self.terminal.input.report_all
         {
             self.send_terminal(release);
             cx.stop_propagation();
@@ -140,5 +140,52 @@ impl Smoke {
                     })),
             )
             .into_any_element()
+    }
+}
+
+impl Smoke {
+    // Deterministic Simulator adapter exercise; never compiled into device UI.
+    pub(crate) fn input_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if std::env::var_os("YEBISU_INPUT_QA").is_some() {
+            use gpui::EntityInputHandler;
+            return Some(
+                div()
+                    .flex()
+                    .gap_4()
+                    .px_4()
+                    .child(
+                        div()
+                            .id("qa-mark")
+                            .p_2()
+                            .bg(rgb(0x3b4252))
+                            .child("QA mark")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.terminal_focus.focus(window, cx);
+                                this.terminal.input.fresh_gesture();
+                                this.replace_and_mark_text_in_range(
+                                    None,
+                                    "かな😀変換",
+                                    Some(2..4),
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("qa-commit")
+                            .p_2()
+                            .bg(rgb(0x3b4252))
+                            .child("QA commit")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.replace_text_in_range(None, "かな😀変換", window, cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let _ = cx;
+        None
     }
 }

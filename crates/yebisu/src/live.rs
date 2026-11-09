@@ -8,6 +8,8 @@ use std::{collections::VecDeque, sync::Arc};
 #[derive(Clone, Default)]
 pub(crate) struct Live {
     pub connected: bool,
+    /// Preserves target changes even when the latest-state mailbox skips a frame.
+    pub input_epoch: u64,
     pub snapshot: Option<Arc<ClientShellSnapshot>>,
     pub pending_snapshot: Option<Arc<ClientShellSnapshot>>,
     pub surface: Option<Arc<PaneSurfaceFrame>>,
@@ -29,6 +31,7 @@ pub(crate) fn coherent(snapshot: &ClientShellSnapshot, surface: &PaneSurfaceFram
 
 impl Live {
     pub fn apply(&mut self, event: ClientEvent) {
+        let before = crate::terminal_input::destination(self, 0);
         self.dirty = true;
         match event {
             ClientEvent::Connected(welcome) => {
@@ -102,6 +105,9 @@ impl Live {
                 | ServerMessage::PaneSurfacePatch(_)
                 | ServerMessage::EndpointControl { .. } => {}
             },
+        }
+        if before != crate::terminal_input::destination(self, 0) {
+            self.input_epoch = self.input_epoch.wrapping_add(1);
         }
     }
 

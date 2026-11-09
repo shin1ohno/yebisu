@@ -61,6 +61,13 @@ impl Input {
 
 #[cfg(any(target_os = "ios", test))]
 impl Smoke {
+    pub(crate) fn active_focus(&self) -> &gpui::FocusHandle {
+        if self.terminal.open {
+            &self.terminal_focus
+        } else {
+            &self.focus
+        }
+    }
     fn active_input(&self) -> &Input {
         if self.terminal.open {
             &self.terminal.input.composition
@@ -83,9 +90,9 @@ impl EntityInputHandler for Smoke {
         if self.terminal.open {
             self.terminal
                 .input
-                .accepts(self.focus.is_focused(window), false)
+                .accepts(self.active_focus().is_focused(window), false)
         } else {
-            self.focus.is_focused(window) && (self.smoke_mode || !self.setup.busy)
+            self.active_focus().is_focused(window) && (self.smoke_mode || !self.setup.busy)
         }
     }
 
@@ -123,7 +130,7 @@ impl EntityInputHandler for Smoke {
         if self.terminal.open {
             self.terminal.input.composition = Input::default();
         }
-        window.notify_text_input_changed(&self.focus);
+        window.notify_text_input_changed(self.active_focus());
         cx.notify();
     }
     fn replace_text_in_range(
@@ -133,7 +140,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.focus.is_focused(window) {
+        if !self.active_focus().is_focused(window) {
             return;
         }
         if self.terminal.open {
@@ -141,7 +148,7 @@ impl EntityInputHandler for Smoke {
             if let Some(event) = self.terminal.input.commit(text) {
                 self.send_terminal(event);
             }
-            window.notify_text_input_changed(&self.focus);
+            window.notify_text_input_changed(self.active_focus());
             cx.notify();
             return;
         }
@@ -155,7 +162,7 @@ impl EntityInputHandler for Smoke {
         }
         eprintln!("yebisu input committed chars={}", text.chars().count());
         self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
-        window.notify_text_input_changed(&self.focus);
+        window.notify_text_input_changed(self.active_focus());
         cx.notify();
     }
     fn replace_and_mark_text_in_range(
@@ -166,13 +173,13 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.focus.is_focused(window) {
+        if !self.active_focus().is_focused(window) {
             return;
         }
         if self.terminal.open {
             self.refresh_terminal_input();
             self.terminal.input.mark(text, selected);
-            window.notify_text_input_changed(&self.focus);
+            window.notify_text_input_changed(self.active_focus());
             cx.notify();
             return;
         }
@@ -186,7 +193,7 @@ impl EntityInputHandler for Smoke {
         }
         eprintln!("yebisu input marked chars={}", text.chars().count());
         self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
-        window.notify_text_input_changed(&self.focus);
+        window.notify_text_input_changed(self.active_focus());
         cx.notify();
     }
     fn bounds_for_range(
@@ -248,7 +255,7 @@ impl EntityInputHandler for Smoke {
         let end = self.active_input().byte(range.end.max(range.start));
         self.active_input_mut().selected = self.active_input().text[..start].encode_utf16().count()
             ..self.active_input().text[..end].encode_utf16().count();
-        window.notify_text_selection_changed(&self.focus);
+        window.notify_text_selection_changed(self.active_focus());
         cx.notify();
     }
 }

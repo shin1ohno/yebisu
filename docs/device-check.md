@@ -109,3 +109,87 @@ comment prefix.
    proves physical IME or hardware-keyboard behavior (P4).
 8. Record device model, iOS version, both density choices, rotation, disconnect,
    host trust and old-app coexistence results in the PR QA checklist.
+
+## P4 / M1 keyboard and IME — one sitting, owner only
+
+The rows below are **not yet checked**. Simulator receipts prove the adapter
+and semantic wire path only; they do not prove Japanese IME or hardware keys.
+P4 replaces the P3 read-only button with **Open terminal**. Do not run the old
+app against the same session while comparing viewport behavior.
+
+1. On the Mac mini, unlock the login keychain yourself in the local terminal
+   (never give the password to an agent). Unlock/connect M5. In an interactive
+   login shell, run:
+
+   ```sh
+   cd /Users/shin1ohno/ManagedProjects/yebisu
+   /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad
+   ```
+
+   This command includes the disk guard, build, sign, install and launch. If a
+   password prompt appears, enter it locally. Record device/iPadOS and PR SHA.
+2. Complete the P2 host/key setup above if this installation is new; the worker
+   has not installed a public key on any host. Open the intended disposable
+   Herdr 1 terminal. Tap the terminal once. Type `printf 'M1-once\n'` and press
+   Return: exactly one command and one output line must appear. Type letters,
+   punctuation, spaces and emoji. No doubling or dropped character is allowed.
+3. Run `cat` in the disposable shell. Type `abc`, arrows, Backspace and Return;
+   check editing and navigation in an interactive shell too. Ctrl-C must stop
+   `cat`. In a terminal editor enter insert mode, type a character, press Esc,
+   and check normal mode. Hold an arrow for two seconds: it repeats, then stops
+   on release. Release Ctrl before its letter and confirm no stuck modifier.
+4. For release-event proof, use a disposable shell with Python 3. Paste/run:
+
+   ```python
+   import os, select, termios, tty
+   fd = 0
+   old = termios.tcgetattr(fd)
+   try:
+       tty.setraw(fd)
+       os.write(1, b'\x1b[>11u')  # disambiguation + event types + all keys (1|2|8)
+       for _ in range(12):
+           if select.select([fd], [], [], 5)[0]:
+               data = os.read(fd, 4096)
+               os.write(1, repr(data).encode() + b'\r\n')
+   finally:
+       os.write(1, b'\x1b[<u')
+       termios.tcsetattr(fd, termios.TCSADRAIN, old)
+   ```
+
+   Hold/release an arrow and Ctrl-letter. Record press/repeat/release bytes
+   (`:2` repeat, `:3` release in negotiated CSI-u), and absence of extra presses.
+   If that host does not enable `ClientShellKeyboardReportAll`, mark release
+   **unverified** and use a host/TUI that does; do not count a visual repeat as
+   proof of a release message. The script restores terminal mode on exit.
+5. Switch iPad input to Japanese. In an empty shell command line type
+   `きょうはにほんごをにゅうりょくする`, convert, and move selection to a middle
+   clause before committing. The marked text must remain visible, and the
+   candidate window must follow that clause, not the terminal cursor or end.
+   Repeat with `a😀かな` and a long composition near the right edge. Confirm once:
+   the remote shell must receive only the confirmed string, exactly once.
+6. While a clause is selected, rotate portrait → landscape → portrait, then
+   show/hide the software keyboard and compare Standard/Compact density.
+   Composition and selected clause must survive; candidate placement and text
+   must agree with the new grid. Commit and check the remote result once.
+7. Start a composition; from a separate trusted desktop controller switch the
+   remote pane. The old marked text must disappear and a delayed confirmation
+   must not type into the new pane. Tap the new terminal and type fresh text.
+   Repeat while opening, replacing and closing a remote popup. In the popup,
+   composition and candidates must stay within its painted rectangle.
+8. Tap **Hosts** while composing. Before tapping its target field, terminal
+   input must not edit the host address. Tap the target field, type/edit an
+   address, and confirm nothing reaches the remote terminal. Return via Open
+   terminal and check fresh typing. Host trust is still explicit.
+9. Unplug the external keyboard while composing; continue with the software
+   keyboard, then reconnect it. Confirm caret/candidate position, Esc, Ctrl,
+   repeats and one-keypress/one-delivery again. Idle 60 seconds and type again.
+10. Start composing, then disable Wi-Fi (or disconnect only the disposable peer).
+    Wait for **Disconnected**. Confirm the composition: no text should arrive.
+    Restore connectivity and tap **Reconnect**. Only fresh input may arrive;
+    neither the old composition nor queued presses may replay. Retry an initial
+    connection failure the same way. Version mismatch remains a visible error.
+11. Open **Input options** and compare each pair in docs/variants.md, including
+    Option dead keys, Command-C, Esc during composition, and a middle-clause
+    candidate rectangle. Record the preferred values; they reset on app restart.
+12. Record each result and any failure in PR QA separately from automated tests.
+    Keep all physical boxes unchecked until these observations are made.

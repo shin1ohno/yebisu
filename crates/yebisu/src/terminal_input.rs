@@ -12,6 +12,7 @@ use sheprd_client::{ConnectOptions, protocol::ClientPaneInputEvent};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Destination {
     pub generation: u64,
+    pub epoch: u64,
     pub boot: String,
     pub target: InputTarget,
 }
@@ -31,6 +32,7 @@ pub(crate) fn destination(live: &Live, generation: u64) -> Option<Destination> {
     };
     Some(Destination {
         generation,
+        epoch: live.input_epoch,
         boot: snapshot.boot_id.clone(),
         target,
     })
@@ -53,10 +55,12 @@ pub(crate) struct TerminalInput {
     pending: Option<HeldInput>,
     cancelled: bool,
     pub ready: bool,
+    pub report_all: bool,
 }
 
 impl TerminalInput {
     pub fn sync(&mut self, live: &Live, generation: u64, size: Option<ConnectOptions>) {
+        self.report_all = live.keyboard_report_all;
         let next = destination(live, generation);
         if self.destination != next {
             self.discard();
@@ -78,6 +82,9 @@ impl TerminalInput {
     pub fn discard(&mut self) {
         self.cancelled |= !self.composition.text.is_empty();
         self.composition = Input::default();
+    }
+    pub fn requires_gesture(&self) -> bool {
+        self.cancelled
     }
     pub fn fresh_gesture(&mut self) {
         self.cancelled = false;

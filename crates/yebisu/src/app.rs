@@ -9,6 +9,7 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) focus: FocusHandle,
+    pub(crate) terminal_focus: FocusHandle,
     pub(crate) input: Input,
     pub(crate) key: String,
     pub(crate) setup: crate::setup::Setup,
@@ -64,6 +65,7 @@ impl Smoke {
         .detach();
         Self {
             focus,
+            terminal_focus: cx.focus_handle(),
             input: Input::default(),
             key: String::new(),
             setup: crate::setup::Setup::default(),
@@ -222,6 +224,7 @@ pub(crate) fn run() {
                         .link
                         .install(generation, crate::mock_peer::connect());
                     this.terminal.open = true;
+                    this.terminal.needs_focus = true;
                     cx.notify();
                 });
             }

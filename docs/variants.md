@@ -14,3 +14,22 @@ No rebuild or reconnect is needed. Geometry is recomputed from the same metrics
 used to paint and sent via the client resize API. The choice is session-local;
 restart returns to Standard. Compare CJK legibility and how much output fits in
 portrait and landscape. No alternatives were added for internal architecture.
+
+# Keyboard and IME variants (P4)
+
+Tap **Input options** in the terminal toolbar. Each button switches immediately;
+no rebuild or reconnect is needed. Choices last until the process exits.
+
+| Control | Default | Alternative | Compare on the device |
+|---|---|---|---|
+| Option | Native | Alt | Native lets UIKit produce layout characters/dead keys. Alt sends semantic Alt chords to the terminal. Try Option-P, Option-arrow and Japanese input. |
+| Command | Local | Ctrl | Local reserves Command for the platform. Ctrl maps delivered Command chords to terminal Ctrl chords. OS-reserved chords can still be intercepted by iPadOS. Try Command-C and Command-A in a disposable terminal. |
+| Esc | IME first | Clear + send | IME first leaves Esc to an active composition. Clear + send discards that composition and sends semantic Esc. With no composition both send Esc. |
+| Candidate | Clause | Caret | Clause supplies the selected clause's rectangle; Caret supplies a cell-width rectangle at that clause's start. Both use the painted shaped line, including its right-edge shift. Compare a middle clause and a long line near the right edge. |
+
+All four switches are visible together; changing options does not itself commit
+marked text. A fresh tap or hardware key starts input again after a remote
+target change cancelled a composition. Target changes never carry old text
+into the next pane or popup. The Simulator-only QA mark/commit buttons are
+shown only under `YEBISU_INPUT_QA`; these exercise callbacks and do not emulate
+Japanese candidate selection. They are absent from device builds.
