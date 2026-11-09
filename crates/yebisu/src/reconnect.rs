@@ -76,6 +76,20 @@ impl Smoke {
                     terminal.restore_stop_reason();
                 }
                 let returned = std::mem::replace(&mut self.terminal.reconnect.suspended, false);
+                // Capture only hosts suspended before connect_terminal creates new entries.
+                let hosts = self
+                    .board
+                    .hidden
+                    .iter_mut()
+                    .filter_map(|(host, t)| {
+                        let suspended = std::mem::replace(&mut t.reconnect.suspended, false);
+                        (returned
+                            && suspended
+                            && t.reconnect.automatic
+                            && t.live.version_mismatch.get().is_none())
+                        .then(|| host.clone())
+                    })
+                    .collect::<Vec<_>>();
                 if returned
                     && self.terminal.open
                     && self.terminal.reconnect.automatic
@@ -83,20 +97,8 @@ impl Smoke {
                 {
                     self.connect_terminal(cx);
                 }
-                if returned {
-                    let hosts = self
-                        .board
-                        .hidden
-                        .iter_mut()
-                        .filter_map(|(host, t)| {
-                            t.reconnect.suspended = false;
-                            (t.reconnect.automatic && t.live.version_mismatch.get().is_none())
-                                .then(|| host.clone())
-                        })
-                        .collect::<Vec<_>>();
-                    for host in hosts {
-                        self.start_host_connection(host, cx);
-                    }
+                for host in hosts {
+                    self.start_host_connection(host, cx);
                 }
             }
             AppLifecyclePhase::Foreground => {}
