@@ -1,0 +1,21 @@
+name: SmokeQA
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  SmokeQA:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shin1ohno.yebisu.smokeqa
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  SmokeQA:
+    build:
+      targets:
+        SmokeQA: [test]
+    test:
+      targets: [SmokeQA]

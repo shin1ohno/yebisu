@@ -1,0 +1,3 @@
+# Deferred device acceptance
+
+- P0 physical M5 verification awaits the owner. Reason: attempt 2 explicitly forbids device signing by the worker while the owner sleeps. First step: unlock the login keychain interactively, connect/unlock M5, then run `just ipad` from the repository (the report gives a standalone command using the provided just binary). Verify both apps launch, compare signed application identifiers and isolated Keychain groups, then check text/image/input, composition, background return, rotation and 60-second idle on the device. Close condition: Y6 has physical-device receiving-system evidence; delete this item in the resolving commit. All Simulator checks remain separate from physical IME/hardware-keyboard proof.

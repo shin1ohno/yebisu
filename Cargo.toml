@@ -1,0 +1,29 @@
+[workspace]
+members = ["crates/yebisu"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.99"
+version = "0.1.0"
+
+[workspace.dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "a573fb3d90cec084e6211bc84473f2f0906f1731" }
+image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+thiserror = "2"
+tracing = "0.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_qualifications = "deny"
+
+[workspace.lints.clippy]
+expect_used = "deny"
+unwrap_used = "deny"
+
+# Keep development artifacts small on the 8 GiB Mac mini.
+[profile.dev]
+debug = 0
+incremental = false
