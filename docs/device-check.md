@@ -306,3 +306,13 @@ visible reason persistence and that automatic return/manual tap do not dial.
 The strengthened P4 oracle additionally rejects any non-TextCommit peer event
 in its scripted composition/cancel/commit sequence. These checks do not prove
 physical IME/hardware keyboard behavior.
+
+## R4: P6 review repairs
+
+1. Locally unlock the login keychain without sharing its password. In the yebisu checkout run `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad` from `zsh -il`. Record the device model, iPadOS version and PR head.
+2. Use disposable sandbox daemons only. Start with pane p1 focused and tap p2. Immediately focus p3 from another sandbox client. After the board shows p3, type a unique token: it must reach p3 exactly once, and another board move must remain available. Repeat while composing Japanese text; the old composition must not reach p3.
+3. Keep a board row visible, restart its sandbox daemon (new boot, reuse the pane ID), and tap the old row before its redraw. It must refuse the old tap; after the redraw a fresh tap must work. Repeat after disconnect/reconnect with the same daemon boot to exercise connection-generation rejection.
+4. With at least two workspaces and panes, tap a workspace other than the focused one, then a different agent. Confirm each move changes the highlighted daemon focus, terminal contents and the destination receiving a unique typed token. Repeat with each host, while the other host continues updating.
+5. Repeat the P6 narrow-width, harness-mark, host-switch and Dense/Roomy checks above. Record the results in PR QA; Simulator output is not proof of physical keyboard or IME behavior.
+
+No new feel-based design fork was found for R4. Existing density and input variants remain in docs/variants.md.

@@ -23,6 +23,28 @@ def validate(records):
     print("P6 PASS: both hosts live, hidden hosts update, daemon states and harness marks")
 
 
+def validate_navigation(records):
+    moves = [(i, r) for i, r in enumerate(records) if r.get("kind") == "navigation"]
+    if len(moves) < 2:
+        raise ValueError("navigation evidence missing")
+    # These are the two targets selected by testP6Board from the peer fixture.
+    if [move["pane"] for _, move in moves] != ["w2:p2", "w1:p1"]:
+        raise ValueError("navigation target sequence differs from source-defined QA steps")
+    for i, move in moves:
+        expected = move["pane"]
+        marker = "2" if expected == "w2:p2" else "1"
+        before = [r for r in records[:i] if r.get("kind") == "terminal" and r.get("host") == move["host"]]
+        if not before or before[-1].get("pane") == expected:
+            raise ValueError("navigation did not select a different target")
+        after = [r for r in records[i+1:] if r.get("kind") == "terminal"
+                 and r.get("host") == move["host"] and r.get("boot") == move["boot"]
+                 and r.get("generation") == move["generation"] and r.get("projection", 0) > move["revision"]
+                 and r.get("pane") == expected and r.get("surface_marker") == marker and r.get("input_pane") == expected]
+        if not after:
+            raise ValueError("focus/surface/input destination did not move on current boot")
+    print("P6 PASS: received focus, rendered surface and input destination changed for both moves")
+
+
 def main():
     root = Path(__file__).resolve().parents[2]
     out = root / "target/ios-p6"
@@ -63,11 +85,13 @@ def main():
     shutil.copyfile(Path(container) / "Documents/p0-smoke.jsonl", out / "app.jsonl")
     records = [json.loads(line) for line in (out / "app.jsonl").read_text().splitlines()]
     validate(records)
+    validate_navigation(records)
     peer = Path(container) / "Documents/p4-peer.jsonl"
     messages = [json.loads(line) for line in peer.read_text().splitlines()]
-    methods = [json.loads(m["ClientShellEndpointRequest"]["request"])["method"] for m in messages if "ClientShellEndpointRequest" in m]
-    if not {"workspace.focus", "pane.focus"}.issubset(methods):
-        raise ValueError("board taps did not reach the peer API: " + repr(methods))
+    requests = [json.loads(m["ClientShellEndpointRequest"]["request"]) for m in messages if "ClientShellEndpointRequest" in m]
+    focus = [r for r in requests if r["method"] in {"workspace.focus", "pane.focus"}]
+    if [r["method"] for r in focus] != ["workspace.focus", "pane.focus"] or focus[0]["params"].get("workspace_id") != "w2" or focus[1]["params"].get("pane_id") != "w1:p1":
+        raise ValueError("board taps sent incorrect methods or targets: " + repr(focus))
     print("P6 PASS: board taps reached workspace.focus and pane.focus on private peer")
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ fn serve(
     frames: u64,
     receipts: std::sync::mpsc::Sender<ClientMessage>,
     board: bool,
+    fault: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
@@ -92,7 +93,7 @@ fn serve(
     let welcome = welcome.to_string();
     for (kind, data) in [
         (ENDPOINT_WELCOME_KIND, welcome.as_str()),
-        (ENDPOINT_SNAPSHOT_KIND, SNAPSHOT),
+        (ENDPOINT_SNAPSHOT_KIND, initial_snapshot()?.as_str()),
     ] {
         write_message(
             &mut server,
@@ -113,7 +114,7 @@ fn serve(
         )?;
     }
     let mut serial = frames;
-    let mut board_snapshot: ClientShellSnapshot = serde_json::from_str(SNAPSHOT)?;
+    let mut board_snapshot: ClientShellSnapshot = serde_json::from_str(&initial_snapshot()?)?;
     if board {
         server.set_read_timeout(Some(Duration::from_millis(500)))?;
     }
@@ -146,7 +147,7 @@ fn serve(
                 )?;
                 write_message(
                     &mut server,
-                    &ServerMessage::PaneSurface(next_surface(board_snapshot.revision, &mut serial)),
+                    &ServerMessage::PaneSurface(focused_surface(&board_snapshot, &mut serial)),
                     MAX_FRAME_SIZE,
                 )?;
                 continue;
@@ -160,13 +161,54 @@ fn serve(
             write_message(
                 &mut server,
                 &ServerMessage::ClientShellEndpointResponseChunk {
-                    boot_id: "boot-v1".into(),
+                    boot_id: if fault == "stale" {
+                        "stale-boot"
+                    } else {
+                        "boot-v1"
+                    }
+                    .into(),
                     request_id: id.clone(),
                     final_chunk: true,
                     data: serde_json::to_vec(&serde_json::json!({"id": id,"result":{}}))?,
                 },
                 MAX_FRAME_SIZE,
             )?;
+            let method = request["method"].as_str().unwrap_or_default();
+            let pane = if method == "workspace.focus" {
+                if request["params"]["workspace_id"] == "w2" {
+                    "w2:p2"
+                } else {
+                    "w1:p1"
+                }
+            } else {
+                request["params"]["pane_id"].as_str().unwrap_or("w1:p1")
+            };
+            let pane = if fault == "ignore" {
+                "w1:p1"
+            } else if fault == "wrong" {
+                "w1:p3"
+            } else {
+                pane
+            };
+            if fault == "stale" {
+                board_snapshot.boot_id = "stale-boot".into();
+            }
+            let workspace = if pane == "w2:p2" { "w2" } else { "w1" };
+            board_snapshot.focused_workspace_id = Some(workspace.into());
+            board_snapshot.focused_tab_id = Some(format!("{workspace}:t1"));
+            board_snapshot.focused_pane_id = Some(pane.into());
+            for p in &mut board_snapshot.panes {
+                p.focused = p.pane_id == pane;
+            }
+            for w in &mut board_snapshot.workspaces {
+                w.focused = w.workspace_id == workspace;
+            }
+            for t in &mut board_snapshot.tabs {
+                t.focused = Some(&t.tab_id) == board_snapshot.focused_tab_id.as_ref();
+            }
+            for a in &mut board_snapshot.agents {
+                a.focused = a.pane_id == pane;
+            }
             board_snapshot.revision += 1;
             write_message(
                 &mut server,
@@ -178,7 +220,7 @@ fn serve(
             )?;
             write_message(
                 &mut server,
-                &ServerMessage::PaneSurface(next_surface(board_snapshot.revision, &mut serial)),
+                &ServerMessage::PaneSurface(focused_surface(&board_snapshot, &mut serial)),
                 MAX_FRAME_SIZE,
             )?;
         }
@@ -196,7 +238,7 @@ fn serve(
         }
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
-            let mut frame = surface(board_snapshot.revision);
+            let mut frame = focused_surface(&board_snapshot, &mut serial);
             let old = frame.frame.clone();
             frame.surface_revision = serial;
             frame.frame.width = surface_size.cols;
@@ -235,21 +277,22 @@ pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
 pub(crate) fn connect_recorded(
     frames: u64,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
-    connect_mode(frames, false)
+    connect_mode(frames, false, "")
 }
 pub(crate) fn connect_board() -> crate::Result<Client> {
-    connect_mode(1, true).map(|(client, _)| client)
+    connect_mode(1, true, "").map(|(client, _)| client)
 }
 fn connect_mode(
     frames: u64,
     board: bool,
+    fault: &'static str,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let (local, server) = Stream::pair()?;
     std::thread::Builder::new()
         .name("yebisu-private-peer".into())
         .spawn(move || {
-            let _ = serve(server, frames, sender, board);
+            let _ = serve(server, frames, sender, board, fault);
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,
@@ -266,4 +309,50 @@ fn next_surface(revision: u64, serial: &mut u64) -> PaneSurfaceFrame {
     let mut frame = surface(revision);
     frame.surface_revision = *serial;
     frame
+}
+
+fn initial_snapshot() -> Result<String, serde_json::Error> {
+    let mut value: serde_json::Value = serde_json::from_str(SNAPSHOT)?;
+    let mut second: serde_json::Value = serde_json::from_str(
+        &SNAPSHOT
+            .replace("w1", "w2")
+            .replace("p1", "p2")
+            .replace("repo", "second")
+            .replace("reviewer", "second-agent"),
+    )?;
+    second["workspaces"][0]["number"] = 2.into();
+    for key in ["workspaces", "tabs", "panes", "agents"] {
+        if let (Some(dst), Some(src)) = (value[key].as_array_mut(), second[key].as_array()) {
+            dst.extend(src.iter().cloned().map(|mut item| {
+                item["focused"] = false.into();
+                item
+            }));
+        }
+    }
+    let mut third = value["panes"][0].clone();
+    third["pane_id"] = "w1:p3".into();
+    third["focused"] = false.into();
+    if let Some(panes) = value["panes"].as_array_mut() {
+        panes.push(third);
+    }
+    serde_json::to_string(&value)
+}
+fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurfaceFrame {
+    let mut frame = next_surface(snapshot.revision, serial);
+    frame.boot_id.clone_from(&snapshot.boot_id);
+    // A target-specific marker proves the surface changed along with metadata.
+    if let Some(cell) = frame.frame.cells.first_mut() {
+        cell.symbol = if snapshot.focused_pane_id.as_deref() == Some("w2:p2") {
+            "2"
+        } else {
+            "1"
+        }
+        .into();
+    }
+    frame
+}
+
+#[cfg(test)]
+pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
+    connect_mode(1, false, fault).map(|(client, _)| client)
 }

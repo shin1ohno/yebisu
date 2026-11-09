@@ -27,6 +27,8 @@ pub(crate) struct Live {
     pub clipboard: VecDeque<String>,
     pub pending_request: Option<String>,
     pub failed_request: Option<String>,
+    /// One correlated receipt survives later focus snapshots until the next move.
+    pub completed_request: Option<String>,
     pub dirty: bool,
 }
 
@@ -57,6 +59,8 @@ impl Live {
                     if let Some(error) = response.get("error") {
                         self.failed_request = Some(request_id);
                         self.status = format!("Navigation rejected: {error}");
+                    } else {
+                        self.completed_request = Some(request_id);
                     }
                 }
             }

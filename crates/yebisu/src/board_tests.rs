@@ -101,20 +101,20 @@ fn hidden_hosts_drain_and_old_host_update_cannot_replace_selection(cx: &mut gpui
 fn navigation_uses_endpoint_api_and_refuses_stale_target(cx: &mut gpui::TestAppContext) {
     check_navigation(
         cx,
-        Target::Agent("w1:p1".into()),
+        Target::Agent("w2:p2".into()),
         "pane.focus",
         "pane_id",
-        "w1:p1",
+        "w2:p2",
     );
 }
 #[gpui::test]
 fn space_navigation_uses_endpoint_api(cx: &mut gpui::TestAppContext) {
     check_navigation(
         cx,
-        Target::Space("w1".into()),
+        Target::Space("w2".into()),
         "workspace.focus",
         "workspace_id",
-        "w1",
+        "w2",
     );
 }
 fn check_navigation(
@@ -145,14 +145,27 @@ fn check_navigation(
     }
     view.update(cx, |this, _| {
         assert!(
-            this.navigate_board("A", Target::Agent("missing".into()))
-                .is_err()
+            this.navigate_board(
+                "A",
+                Target::Agent("missing".into()),
+                "boot-v1",
+                this.terminal.link.generation
+            )
+            .is_err()
         );
-        assert!(this.navigate_board("A", target).is_ok());
+        assert!(
+            this.navigate_board("A", target, "boot-v1", this.terminal.link.generation)
+                .is_ok()
+        );
         assert!(this.terminal.navigating.is_some());
         assert!(
-            this.navigate_board("A", Target::Space("w1".into()))
-                .is_err()
+            this.navigate_board(
+                "A",
+                Target::Space("w1".into()),
+                "boot-v1",
+                this.terminal.link.generation
+            )
+            .is_err()
         );
     });
     loop {
@@ -174,6 +187,28 @@ fn check_navigation(
             }
             _ => {}
         }
+    }
+    loop {
+        let moved = view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            let state = &this.terminal.live;
+            snapshot(state).is_some_and(|s| s.focused_pane_id.as_deref() == Some("w2:p2"))
+                && state
+                    .surface
+                    .as_ref()
+                    .is_some_and(|s| s.frame.cells[0].symbol == "2")
+                && crate::terminal_input::destination(state, this.terminal.link.generation)
+                    .is_some_and(|d| d.target == crate::terminal::InputTarget::Pane("w2:p2".into()))
+                && this.terminal.navigating.is_none()
+        });
+        if moved {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "focus, surface and input destination did not move"
+        );
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -363,4 +398,169 @@ fn api_error_releases_barrier_and_is_visible() {
     finish_navigation(&mut terminal);
     assert!(terminal.navigating.is_none());
     assert!(terminal.live.status.contains("missing target"));
+}
+
+#[test]
+fn successful_move_then_other_focus_before_single_poll_releases_input() {
+    let link = crate::link::Link::default();
+    let mut state = live();
+    state.pending_request = Some("move".into());
+    let mut moved = snapshot(&state)
+        .cloned()
+        .unwrap_or_else(|| panic!("snapshot"));
+    moved.revision = 8;
+    moved.focused_pane_id = Some("w1:p2".into());
+    state.apply(ClientEvent::Snapshot(Arc::new(moved.clone())));
+    state.apply(ClientEvent::Response {
+        request_id: "unrelated".into(),
+        response: serde_json::json!({"result":{}}),
+    });
+    assert!(state.completed_request.is_none());
+    state.apply(ClientEvent::Response {
+        request_id: "move".into(),
+        response: serde_json::json!({"result":{}}),
+    });
+    moved.revision = 9;
+    moved.focused_pane_id = Some("w1:p3".into());
+    state.apply(ClientEvent::Snapshot(Arc::new(moved)));
+    state.apply(ClientEvent::Surface(Arc::new(crate::mock_peer::surface(9))));
+    *link.inbox.lock().unwrap_or_else(|e| panic!("lock: {e}")) = state;
+    let mut terminal = TerminalView {
+        live: link.take_update().unwrap_or_else(|| panic!("update")),
+        navigating: Some(Navigation {
+            boot: "boot-v1".into(),
+            revision: 7,
+            target: Target::Agent("w1:p2".into()),
+            request: "move".into(),
+        }),
+        ..Default::default()
+    };
+    finish_navigation(&mut terminal);
+    assert!(terminal.navigating.is_none());
+    terminal.input.sync(&terminal.live, 0, None);
+    terminal.input.fresh_gesture();
+    assert!(terminal.input.commit("resumed").is_some());
+}
+
+#[gpui::test]
+fn stale_row_same_host_and_pane_sends_no_request(cx: &mut gpui::TestAppContext) {
+    let view = cx.new(Smoke::new);
+    let (client, receipts) =
+        crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+    view.update(cx, |this, _| {
+        this.select_host("A");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            snapshot(&this.terminal.live).is_some()
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    view.update(cx, |this, _| {
+        let generation = this.terminal.link.generation;
+        let mut state = live();
+        let mut changed = snapshot(&state)
+            .cloned()
+            .unwrap_or_else(|| panic!("snapshot"));
+        changed.boot_id = "boot-B".into();
+        state = Live::default();
+        state.connected = true;
+        state.apply(ClientEvent::Snapshot(Arc::new(changed)));
+        *this
+            .terminal
+            .link
+            .inbox
+            .lock()
+            .unwrap_or_else(|e| panic!("lock: {e}")) = state;
+        assert!(
+            this.navigate_board("A", Target::Agent("w1:p1".into()), "boot-v1", generation)
+                .is_err()
+        );
+        assert!(
+            this.navigate_board(
+                "A",
+                Target::Agent("w1:p1".into()),
+                "boot-B",
+                generation.wrapping_sub(1)
+            )
+            .is_err()
+        );
+    });
+    assert!(
+        receipts.recv_timeout(Duration::from_millis(150)).is_err(),
+        "stale row sent an API request"
+    );
+}
+
+#[test]
+fn peer_faults_cannot_pass_move_check() {
+    for fault in ["ignore", "wrong", "stale"] {
+        let mut link = crate::link::Link::default();
+        let generation = link.reset();
+        link.install(generation, crate::mock_peer::connect_fault(fault));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if link.take_update().is_some_and(|s| s.surface.is_some()) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let handle = link.handle.as_ref().unwrap_or_else(|| panic!("handle"));
+        let request = handle
+            .focus_pane("boot-v1", "w2:p2")
+            .unwrap_or_else(|e| panic!("focus: {e}"));
+        link.inbox
+            .lock()
+            .unwrap_or_else(|e| panic!("lock: {e}"))
+            .pending_request = Some(request);
+        loop {
+            let ready = {
+                let state = link.inbox.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+                if fault == "stale" {
+                    !state.connected && state.status.contains("response boot mismatch")
+                } else {
+                    state
+                        .snapshot
+                        .as_ref()
+                        .zip(state.surface.as_ref())
+                        .is_some_and(|(s, f)| s.revision > 7 && crate::live::coherent(s, f))
+                }
+            };
+            if ready {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "fault {fault} did not reach receiver"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let state = link.inbox.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        let moved = snapshot(&state).is_some_and(|s| {
+            s.boot_id == "boot-v1" && s.focused_pane_id.as_deref() == Some("w2:p2")
+        }) && state
+            .surface
+            .as_ref()
+            .is_some_and(|s| s.frame.cells[0].symbol == "2")
+            && crate::terminal_input::destination(&state, generation)
+                .is_some_and(|d| d.target == crate::terminal::InputTarget::Pane("w2:p2".into()));
+        assert!(!moved, "fault {fault} passed move check");
+        let focused = snapshot(&state).and_then(|s| s.focused_pane_id.as_deref());
+        assert_eq!(
+            focused,
+            Some(if fault == "wrong" { "w1:p3" } else { "w1:p1" })
+        );
+        println!(
+            "D3 negative {fault}: move check rejected peer; focus={focused:?}, status={}",
+            state.status
+        );
+    }
 }
