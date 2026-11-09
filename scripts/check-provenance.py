@@ -8,7 +8,8 @@ from pathlib import Path
 
 FIELDS = (
     "kind", "destination", "source_repository", "source_commit",
-    "source_path", "modified", "last_triaged", "last_triaged_at",
+    "source_path", "modified", "upstream_repository", "upstream_ref",
+    "upstream_path", "last_triaged", "last_triaged_at",
 )
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 REQUIRED_COPIES = (
@@ -61,6 +62,10 @@ def validate(root=Path(".")):
             errors.append("{}: last_triaged_at must be YYYY-MM-DD".format(label))
         if not row["source_repository"].startswith("https://github.com/"):
             errors.append("{}: source_repository must be a GitHub URL".format(label))
+        if not row["upstream_repository"].startswith("https://github.com/"):
+            errors.append("{}: upstream_repository must be a GitHub URL".format(label))
+        if not row["upstream_ref"] or not row["upstream_path"]:
+            errors.append("{}: upstream_ref and upstream_path are required".format(label))
         destination = Path(row["destination"])
         if destination.is_absolute() or ".." in destination.parts:
             errors.append("{}: destination must stay inside the repository".format(label))
@@ -80,7 +85,9 @@ def validate(root=Path(".")):
     ).splitlines()
     copied = {row["destination"] for row in rows if row["kind"] == "copy"}
     for path in tracked:
-        if path.startswith(("assets/fonts/", "upstream/")):
+        parts = Path(path).parts
+        crate_copy = len(parts) >= 5 and parts[0] == "crates" and parts[2:4] == ("src", "upstream")
+        if path.startswith(("assets/fonts/", "upstream/")) or crate_copy:
             if path not in copied:
                 errors.append("unregistered copy: {}".format(path))
     for path in REQUIRED_COPIES + REQUIRED_IOS_COPIES:

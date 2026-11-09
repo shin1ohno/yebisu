@@ -2,6 +2,7 @@
 """List source changes for provenance rows, following full-diff renames."""
 
 import csv
+import hashlib
 import os
 import subprocess
 import sys
@@ -11,7 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = (
     "kind", "destination", "source_repository", "source_commit",
-    "source_path", "modified", "last_triaged", "last_triaged_at",
+    "source_path", "modified", "upstream_repository", "upstream_ref",
+    "upstream_path", "last_triaged", "last_triaged_at",
 )
 
 
@@ -56,12 +58,15 @@ def advance_path(path, changes):
 
 
 def commits_between(repo, base, head):
-    return git(repo, "rev-list", "--first-parent", "--reverse", base + ".." + head).decode().splitlines()
+    return git(repo, "rev-list", "--topo-order", "--reverse", base + ".." + head).decode().splitlines()
 
 
 def inspect_row(repo, row, head):
-    path = row["source_path"]
+    path = row["upstream_path"]
     base = row["last_triaged"]
+    if subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, head],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0:
+        raise ValueError("refusing backwards or divergent triage position: {} -> {}".format(base, head))
     events = []
     for commit in commits_between(repo, base, head):
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).decode().split()
@@ -82,15 +87,16 @@ def guarded(*command):
     subprocess.run([sys.executable, str(ROOT / "scripts/guarded.py"), *command], cwd=ROOT, check=True)
 
 
-def source_checkout(url):
+def source_checkout(url, ref):
     configured = os.environ.get("HERDR_GPUI_REPO")
     if configured:
         return Path(configured).expanduser().resolve()
-    checkout = ROOT / "target" / "provenance-herdr-gpui"
+    cache_key = hashlib.sha256((url + "\n" + ref).encode()).hexdigest()[:16]
+    checkout = ROOT / "target" / ("provenance-" + cache_key)
     if not (checkout / ".git").exists():
-        guarded("git", "clone", "--filter=blob:none", "--no-checkout", "--single-branch", "--branch", "main", url, str(checkout))
+        guarded("git", "clone", "--filter=blob:none", "--no-checkout", "--single-branch", "--branch", ref, url, str(checkout))
     else:
-        guarded("git", "-C", str(checkout), "fetch", "--filter=blob:none", "origin", "main")
+        guarded("git", "-C", str(checkout), "fetch", "--filter=blob:none", "origin", "+refs/heads/{}:refs/remotes/origin/{}".format(ref, ref))
     return checkout
 
 
@@ -107,16 +113,16 @@ def main():
         rows = list(csv.DictReader(stream, delimiter="\t"))
     by_url = {}
     for row in rows:
-        by_url.setdefault(row["source_repository"], []).append(row)
+        by_url.setdefault((row["upstream_repository"], row["upstream_ref"]), []).append(row)
 
     candidate_sections = []
-    for url, source_rows in by_url.items():
-        repo = source_checkout(url)
-        head = git(repo, "rev-parse", "refs/remotes/origin/main").decode().strip()
+    for (url, ref), source_rows in by_url.items():
+        repo = source_checkout(url, ref)
+        head = git(repo, "rev-parse", "refs/remotes/origin/" + ref).decode().strip()
         changed = {}
         for row in source_rows:
             new_path, events = inspect_row(repo, row, head)
-            row["source_path"] = new_path
+            row["upstream_path"] = new_path
             row["last_triaged"] = head
             row["last_triaged_at"] = datetime.now(timezone.utc).date().isoformat()
             for commit, subject, before, after, deleted in events:

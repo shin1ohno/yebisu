@@ -6,8 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fork_manifest import FORK_URL, fork_dependencies, update_manifest
+
 ROOT = Path(__file__).resolve().parents[1]
-FORK_URL = "https://github.com/shin1ohno/herdr-gpui"
 REVISION = re.compile(r"[a-f0-9]{40}\Z")
 
 
@@ -17,6 +19,14 @@ def package_blocks(lock_text):
             name = re.search(r'^name = "([^"]+)"$', block, re.MULTILINE)
             if name:
                 yield name.group(1)
+
+
+def verify_lock(text, revision):
+    for block in re.split(r"(?=\[\[package\]\])", text):
+        if 'source = "git+' + FORK_URL in block:
+            source = re.search(r'^source = "([^"]+)"$', block, re.MULTILINE)
+            if not source or not source.group(1).endswith("#" + revision):
+                raise ValueError("fork lockfile revision mismatch")
 
 
 def guarded(*args):
@@ -31,28 +41,14 @@ def main(argv):
     manifests = [ROOT / "Cargo.toml"] + sorted((ROOT / "crates").glob("*/Cargo.toml"))
     originals = {path: path.read_bytes() for path in manifests if path.is_file()}
     replacements = {}
+    dependency_count = 0
     for path, raw in originals.items():
-        text = raw.decode("utf-8")
-        lines = text.splitlines(keepends=True)
-        updated = []
-        in_fork_table = False
-        for line in lines:
-            if line.lstrip().startswith("["):
-                in_fork_table = False
-            if FORK_URL in line:
-                in_fork_table = True
-            if in_fork_table and re.search(r"\brev\s*=", line):
-                line = re.sub(r'(\brev\s*=\s*")[^"]+("\s*[,}])', r"\g<1>" + revision + r"\g<2>", line)
-                in_fork_table = False
-            updated.append(line)
-        result = "".join(updated).encode("utf-8")
-        if result != raw:
-            replacements[path] = result
+        updated, count = update_manifest(raw.decode("utf-8"), revision)
+        dependency_count += count
+        if updated.encode("utf-8") != raw:
+            replacements[path] = updated.encode("utf-8")
 
-    if not replacements:
-        if any(FORK_URL in raw.decode("utf-8") for raw in originals.values()):
-            print("No Herdr fork revision fields found; refusing to change an ambiguous manifest.", file=sys.stderr)
-            return 1
+    if not dependency_count:
         print("No Herdr fork dependencies are pinned in this phase; nothing to bump.")
         return 0
 
@@ -65,7 +61,11 @@ def main(argv):
         for name in names:
             guarded("cargo", "update", "-p", name, "--precise", revision)
         guarded("cargo", "metadata", "--locked", "--format-version", "1")
-    except (OSError, subprocess.CalledProcessError):
+        for path in originals:
+            if any(dep.get("rev") != revision for dep in fork_dependencies(path.read_text())):
+                raise ValueError("fork dependency revision mismatch after Cargo update")
+        verify_lock(lock_path.read_text(), revision)
+    except (OSError, subprocess.CalledProcessError, ValueError):
         for path, content in originals.items():
             path.write_bytes(content)
         lock_path.write_bytes(lock_original)
