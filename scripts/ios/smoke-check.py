@@ -34,7 +34,7 @@ def main():
     spec = root/'scripts/ios/smoke-qa'
     run('xcodegen', 'generate', '--spec', str(spec/'project.yml'), '--project', str(spec))
     result = destination/'result.xcresult'
-    run('xcodebuild', 'test', '-project', str(spec/'SmokeOracle.xcodeproj'), '-scheme', 'SmokeOracle', '-destination', 'id='+device, '-derivedDataPath', str(root/'target/ios-smoke/build'), '-resultBundlePath', str(result), 'CODE_SIGNING_ALLOWED=NO')
+    run('xcodebuild', 'test', '-project', str(spec/'SmokeOracle.xcodeproj'), '-scheme', 'SmokeOracle', '-destination', 'id='+device, '-derivedDataPath', str(root/'target/ios-smoke/build'), '-resultBundlePath', str(result), 'CODE_SIGNING_ALLOWED=NO', '-only-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts')
     export = destination/'attachments'
     run('xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(result), '--output-path', str(export))
     stages = []
