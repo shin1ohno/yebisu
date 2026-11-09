@@ -1,0 +1,17 @@
+commands-close-pane = Close Pane
+commands-close-tab = Close Tab
+commands-command-palette = Command Palette
+commands-focus-down = Focus Down
+commands-focus-left = Focus Left
+commands-focus-right = Focus Right
+commands-focus-tab = Focus Tab { $number }
+commands-focus-up = Focus Up
+commands-new-tab = New Tab
+commands-next-pane = Next Pane
+commands-next-tab = Next Tab
+commands-previous-pane = Previous Pane
+commands-previous-tab = Previous Tab
+commands-split-down = Split Down
+commands-split-right = Split Right
+commands-toggle-sidebar = Toggle Sidebar
+commands-toggle-zoom = Toggle Pane Zoom

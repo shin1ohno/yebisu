@@ -7,7 +7,7 @@ use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::
 impl Smoke {
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if terminal.navigating.is_some() {
+        if terminal.navigating.is_some() || self.actions.palette {
             terminal.input.detach();
             return;
         }
@@ -28,7 +28,7 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
-        if self.terminal.navigating.is_some() {
+        if self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
         }
@@ -54,6 +54,29 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return;
         }
+        if self.actions.palette && event.keystroke.key == "escape" {
+            self.actions.palette = false;
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            cx.notify();
+            return;
+        }
+        if let Some(command) =
+            crate::actions::shortcut(&self.terminal, &self.actions, &event.keystroke)
+        {
+            if !event.is_held
+                && let Err(e) = self.run_action(command)
+            {
+                self.terminal.live.status = e.to_string();
+            }
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            window.notify_text_input_changed(&self.terminal_focus);
+            cx.notify();
+            return;
+        }
         self.refresh_terminal_input();
         if let Some(input) = self
             .terminal
@@ -73,6 +96,10 @@ impl Smoke {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.actions.consumed.remove(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
         self.refresh_terminal_input();
         if let Some(release) = self.terminal.input.key_up(&event.keystroke.key) {
             self.send_terminal(release);
@@ -114,6 +141,21 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal.input.options.command_control ^= true;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .id("shortcut-priority")
+                    .p_2()
+                    .bg(rgb(0x3b4252))
+                    .child(if self.actions.terminal_priority {
+                        "Shortcuts: Terminal priority"
+                    } else {
+                        "Shortcuts: App priority"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.actions.terminal_priority ^= true;
                         cx.notify();
                     })),
             )

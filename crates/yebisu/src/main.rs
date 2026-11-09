@@ -50,3 +50,11 @@ mod reconnect;
 
 #[cfg(any(target_os = "ios", test))]
 mod board;
+
+#[cfg(any(target_os = "ios", test))]
+mod action_view;
+#[cfg(any(target_os = "ios", test))]
+mod actions;
+
+#[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+mod mock_commands;

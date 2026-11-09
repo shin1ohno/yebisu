@@ -12,6 +12,7 @@ workspace = true
 thiserror.workspace = true
 herdr-ssh.workspace = true
 sheprd-client.workspace = true
+sheprd-commands.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
 tracing.workspace = true

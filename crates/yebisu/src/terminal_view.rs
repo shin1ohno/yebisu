@@ -24,6 +24,17 @@ pub(crate) struct TerminalView {
     pub navigating: Option<crate::board::Navigation>,
 }
 impl TerminalView {
+    pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
+        if self.navigating.is_some() || self.size == Some(options) {
+            return;
+        }
+        if let (Some(handle), Some(snapshot)) = (&self.link.handle, &self.live.snapshot) {
+            match handle.resize(&snapshot.boot_id, options) {
+                Ok(()) => self.size = Some(options),
+                Err(e) => self.live.status = e.to_string(),
+            }
+        }
+    }
     pub(crate) fn restore_stop_reason(&mut self) {
         self.live.version_mismatch = self.link.stop_reason.clone();
         if let Some(reason) = self.link.stop_reason.get() {
@@ -159,13 +170,7 @@ impl Smoke {
                         cell_width_px: (cell_width*window.scale_factor()).round() as u32,
                         cell_height_px: (line_height*window.scale_factor()).round() as u32,
                     };
-                    if terminal.size != Some(options)
-                        && let (Some(handle),Some(snapshot)) = (&terminal.link.handle,&terminal.live.snapshot) {
-                        match handle.resize(&snapshot.boot_id,options) {
-                            Ok(()) => terminal.size=Some(options),
-                            Err(e) => terminal.live.status=e.to_string(),
-                        }
-                    }
+                    terminal.resize_if_ready(options);
                     terminal.input.sync(&terminal.live, generation, terminal.size);
                     if let (Some(snapshot),Some(surface)) = (&terminal.live.snapshot,&terminal.live.surface)
                         && crate::live::coherent(snapshot,surface) {
@@ -178,7 +183,7 @@ impl Smoke {
                             terminal.painter.paint_composition(&terminal.input.composition.text,
                                 terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
                         });
-                        this.observation.record(serde_json::json!({"kind":"terminal","host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
+                        this.observation.record(serde_json::json!({"kind":"terminal","host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
                 });
@@ -294,7 +299,7 @@ impl Smoke {
                                 }
                             })),
                     )
-                    .child(div().child(format!("P6 · {status}"))),
+                    .child(div().child(format!("P7 · {status}"))),
             )
             .child(
                 div()
@@ -311,7 +316,10 @@ impl Smoke {
                         cx.notify();
                     })),
             )
-            .child(self.render_board(cx))
+            .when(!self.actions.board_hidden, |view| {
+                view.child(self.render_board(cx))
+            })
+            .child(self.render_actions(cx))
             .when(self.terminal.show_options, |view| {
                 view.child(self.input_options(cx))
             })

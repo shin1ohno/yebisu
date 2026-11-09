@@ -22,6 +22,7 @@ pub(crate) struct Live {
     /// Shared with Link and retired inboxes; UI polling cannot lose a stop.
     pub version_mismatch: Arc<OnceLock<VersionMismatch>>,
     pub capabilities: Vec<String>,
+    pub methods: Vec<String>,
     pub version: String,
     pub boot: Option<String>,
     pub clipboard: VecDeque<String>,
@@ -44,6 +45,7 @@ impl Live {
             ClientEvent::Connected(welcome) => {
                 self.connected = true;
                 self.capabilities = welcome.capabilities;
+                self.methods = welcome.methods;
                 self.version = welcome.server_version;
                 self.status = "Connected".into();
             }

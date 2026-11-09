@@ -22,3 +22,5 @@
 
 
 - R4 physical P6 repair acceptance awaits the owner. Reason: the locked login keychain prevents worker device signing, and physical input needs the iPad. First step: unlock locally, run the absolute just ipad command, then follow the R4 steps in docs/device-check.md against disposable sandbox daemons. Close condition: PR QA records success-then-other-focus input recovery, stale boot/generation tap rejection and changed focus/surface/input destination with device/iPadOS version; delete in the resolving commit.
+
+- P7 physical acceptance awaits the owner. Reason: signing requires the locally unlocked keychain, and hardware keyboard/prefix/IME behavior needs the physical iPad. First step: run the absolute just ipad command and perform the P7 sequence in docs/device-check.md against a sandbox daemon. Close condition: PR QA records device/iPadOS, hardware shortcut delivery, prefix non-collision, tab/pane input isolation and preferred runtime precedence variant; delete in the resolving commit.
