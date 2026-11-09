@@ -71,15 +71,19 @@ impl Smoke {
     fn active_input(&self) -> &Input {
         if self.terminal.open {
             &self.terminal.input.composition
-        } else {
+        } else if self.smoke_mode {
             &self.input
+        } else {
+            &self.setup_input
         }
     }
     fn active_input_mut(&mut self) -> &mut Input {
         if self.terminal.open {
             &mut self.terminal.input.composition
-        } else {
+        } else if self.smoke_mode {
             &mut self.input
+        } else {
+            &mut self.setup_input
         }
     }
 }
@@ -155,13 +159,13 @@ impl EntityInputHandler for Smoke {
         if !self.smoke_mode && self.setup.busy {
             return;
         }
-        self.input.replace(range, text, false, None);
+        self.active_input_mut().replace(range, text, false, None);
         if !self.smoke_mode {
             self.setup.pending = None;
             self.setup.fingerprints.clear();
         }
         eprintln!("yebisu input committed chars={}", text.chars().count());
-        self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
+        self.observation.record(serde_json::json!({"kind":"input", "input":self.active_input().text, "marked":self.active_input().marked}));
         window.notify_text_input_changed(self.active_focus());
         cx.notify();
     }
@@ -186,13 +190,13 @@ impl EntityInputHandler for Smoke {
         if !self.smoke_mode && self.setup.busy {
             return;
         }
-        self.input.replace(range, text, true, selected);
+        self.active_input_mut().replace(range, text, true, selected);
         if !self.smoke_mode {
             self.setup.pending = None;
             self.setup.fingerprints.clear();
         }
         eprintln!("yebisu input marked chars={}", text.chars().count());
-        self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
+        self.observation.record(serde_json::json!({"kind":"input", "input":self.active_input().text, "marked":self.active_input().marked}));
         window.notify_text_input_changed(self.active_focus());
         cx.notify();
     }

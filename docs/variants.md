@@ -33,3 +33,20 @@ target change cancelled a composition. Target changes never carry old text
 into the next pane or popup. The Simulator-only QA mark/commit buttons are
 shown only under `YEBISU_INPUT_QA`; these exercise callbacks and do not emulate
 Japanese candidate selection. They are absent from device builds.
+
+# R1 review repairs
+
+No new design fork affecting device feel was found. R1 only isolates the P0
+input, refuses malformed/oversize protocol cells, bounds retained glyph data,
+and tests the existing connection-generation guard. Existing P3 density and
+P4 input switches remain the available on-device comparisons.
+
+A cell symbol is limited to 128 UTF-8 bytes, enough for 32 four-byte scalars,
+including practical ZWJ emoji, variation selectors and combining marks. Control
+characters cannot be shaped as terminal glyphs. Excessively long combining
+sequences are deliberately refused, not truncated. Cache retention is bounded
+by 4,096 entries and a 16 MiB charged-byte budget. The byte charge includes two
+text copies, ShapedLine/LineLayout, run/glyph vector capacities and conservative
+per-entry map overhead. Fixed table headers and allocator metadata are outside
+that charge but bounded by the entry cap; GPUI's own text-system cache is not
+owned by this cache. Once full, valid cells still render without retention.

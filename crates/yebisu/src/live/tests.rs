@@ -121,7 +121,7 @@ fn startup_failure_is_visible_and_drained() {
     assert!(link.drained.load(std::sync::atomic::Ordering::Acquire));
 }
 #[test]
-fn reconnect_isolates_old_reader_and_paint_callback() {
+fn reconnect_isolates_old_reader() {
     let mut link = Link::default();
     let old_generation = link.reset();
     let old = link.inbox.clone();

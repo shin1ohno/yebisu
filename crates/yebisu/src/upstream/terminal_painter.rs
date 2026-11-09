@@ -765,6 +765,10 @@ impl TerminalPainter {
         let mut paint_errors = 0;
         for index in cell_ranges(frame, area).flatten() {
             let cell = &frame.cells[index];
+            if !glyphs::valid_symbol(&cell.symbol) {
+                paint_errors += 1;
+                continue;
+            }
             if cell.skip
                 || cell.symbol.is_empty()
                 || cell.symbol == " "
@@ -813,13 +817,14 @@ impl TerminalPainter {
             {
                 Some(line) => line,
                 None => {
-                    let line = self.shape(font, style, &cell.symbol, window);
-                    if cached && self.glyphs.has_room() {
-                        self.glyphs.insert(style, &cell.symbol, line)
-                    } else {
-                        newly_shaped = line;
-                        &newly_shaped
+                    newly_shaped = self.shape(font, style, &cell.symbol, window);
+                    if cached {
+                        self.glyphs
+                            .insert(style, &cell.symbol, newly_shaped.clone());
                     }
+                    self.glyphs
+                        .get(style, &cell.symbol)
+                        .unwrap_or(&newly_shaped)
                 }
             };
             let position = origin

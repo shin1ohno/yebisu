@@ -396,7 +396,7 @@ fn uikit_handler_callbacks_preserve_mark_selection_and_setup_isolation(cx: &mut 
             assert_eq!(this.input.text, "", "terminal focus leaked into setup");
             this.focus.focus(window, cx);
             this.replace_text_in_range(None, "user@host", window, cx);
-            assert_eq!(this.input.text, "user@host");
+            assert_eq!(this.setup_input.text, "user@host");
             assert_eq!(
                 this.terminal.input.composition.text, "a😀かな",
                 "setup edited terminal composition"
@@ -404,7 +404,7 @@ fn uikit_handler_callbacks_preserve_mark_selection_and_setup_isolation(cx: &mut 
             this.setup.busy = true;
             assert!(!this.accepts_text_input(window, cx));
             this.replace_text_in_range(None, "blocked", window, cx);
-            assert_eq!(this.input.text, "user@host");
+            assert_eq!(this.setup_input.text, "user@host");
         });
     });
 }
