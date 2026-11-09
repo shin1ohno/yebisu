@@ -250,6 +250,31 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testR6Shortcuts() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_R6_QA"] = "1"
+        app.launch()
+        sleep(3)
+        try tapText("Toggle Sidebar", in: app)
+        sleep(1)
+        try tapText("New Tab", in: app)
+        sleep(2)
+        save("r6-created")
+        try tapText("QA Next", in: app)
+        sleep(2)
+        save("r6-next")
+        try tapText("QA Previous", in: app)
+        sleep(2)
+        save("r6-previous")
+        try tapText("QA Escape", in: app)
+        sleep(2)
+        save("r6-escape")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     private func scrollBoard(in app: XCUIApplication) throws {
         let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
         let request = VNRecognizeTextRequest()

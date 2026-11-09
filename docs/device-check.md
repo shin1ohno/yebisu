@@ -374,3 +374,34 @@ and absence of a dial receipt. `p6-check.py` verifies real Simulator board taps,
 focus/surface/input destinations and private peer API receipts. The precise
 response/single-poll/key/late-projection order is covered by the host regression
 with a gated private wire peer. None proves physical keyboard or Japanese IME.
+
+
+## R6 — P7 UIKit symbol shortcuts and consumed Escape (owner)
+
+1. Unlock the login keychain locally in the system prompt; never share its password.
+   Connect/unlock M5, open an interactive login shell in the yebisu checkout and run:
+   ```sh
+   zsh -il -c 'cd /Users/shin1ohno/ManagedProjects/yebisu && /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad'
+   ```
+   Record PR head, device/iPadOS version and hardware keyboard model/layout.
+   Use an already authorized disposable sandbox only; do not use personal sessions
+   or change real authorized_keys for this check.
+2. Use a US hardware layout and App priority. Create three tabs with distinct
+   names/content. Press Command-Shift-] and Command-Shift-[ once each: focus must
+   move to the next/previous tab, wrap at the end and send one tab.focus per press.
+   Hold each for at least two seconds: no additional action or terminal input may
+   occur until release. Release and press again: exactly one new action must work.
+3. Check Command-Shift-D (split down), Command-Shift-Enter (zoom),
+   Command-Shift-P (palette), Command-Shift-W (close sandbox tab), and
+   Command-Option-[ / ] (pane focus). Extra Control must not invoke app actions.
+   Repeat the P7 prefix, Terminal priority/Command-as-Control, popup and composing
+   Japanese isolation checks above. Those policies must retain their behavior.
+4. In a sandbox recording semantic terminal input (test report-all both off/on),
+   open the palette and hold Escape for at least two seconds. It must close once;
+   the peer must receive no Escape press, repeats or release. Release Escape,
+   then press/release it with the palette closed: the ordinary Escape must reach
+   the terminal once, plus its release only when report-all is enabled. Repeat
+   after Command-Shift-P and after opening the palette by touch.
+5. Record each result in PR QA. The Simulator R6 controls inject the exact
+   UIKit-shaped GPUI events and verify private-peer receipts; they do not prove
+   physical key delivery or real IME behavior.
