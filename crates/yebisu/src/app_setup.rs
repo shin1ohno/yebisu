@@ -153,6 +153,14 @@ impl Smoke {
                 )),
             )
             .child(
+                button("terminal-connect", "Open terminal (read only)", busy).on_click(
+                    cx.listener(|this, _, window, cx| {
+                        window.dismiss_virtual_keyboard();
+                        this.connect_terminal(cx);
+                    }),
+                ),
+            )
+            .child(
                 div()
                     .id("setup-status")
                     .text_sm()

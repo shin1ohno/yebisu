@@ -63,6 +63,29 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP3Terminal() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        save("p3-standard")
+        try tapText("Standard 14/20", in: app)
+        sleep(2)
+        save("p3-compact")
+        try tapText("Compact 12/17", in: app)
+        sleep(2)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(3)
+        save("p3-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        sleep(2)
+        save("p3-returned")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     private func tapText(_ label: String, in app: XCUIApplication) throws {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
@@ -72,7 +95,10 @@ final class SmokeQA: XCTestCase {
         let observation = try XCTUnwrap(request.results?.first {
             $0.topCandidates(1).first?.string.contains(label) == true
         }, "Missing source-defined control: \(label)")
-        let box = observation.boundingBox
+        let candidate = try XCTUnwrap(observation.topCandidates(1).first)
+        let range = try XCTUnwrap(candidate.string.range(of: label))
+        let box = try XCTUnwrap(candidate.boundingBox(for: range)).boundingBox
+        print("OCR tap \(label) frame=\(app.frame) box=\(box)")
         app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
     }
 

@@ -13,6 +13,7 @@ pub(crate) struct Smoke {
     pub(crate) key: String,
     pub(crate) setup: crate::setup::Setup,
     pub(crate) smoke_mode: bool,
+    pub(crate) terminal: crate::terminal_view::TerminalView,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -39,10 +40,23 @@ impl Smoke {
                 if weak
                     .update(cx, |this, cx| {
                         this.ticks += 1;
-                        cx.notify();
+                        if this.smoke_mode {
+                            cx.notify();
+                        }
                     })
                     .is_err()
                 {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.spawn(async |weak, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(33))
+                    .await;
+                if weak.update(cx, |this, cx| this.poll_terminal(cx)).is_err() {
                     break;
                 }
             }
@@ -54,6 +68,7 @@ impl Smoke {
             key: String::new(),
             setup: crate::setup::Setup::default(),
             smoke_mode: std::env::var_os("YEBISU_SMOKE_OBSERVE").is_some(),
+            terminal: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -63,7 +78,10 @@ impl Smoke {
 }
 
 impl Render for Smoke {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.terminal.open {
+            return self.render_terminal(window, cx);
+        }
         if !self.smoke_mode {
             return self.render_setup(cx);
         }
@@ -194,6 +212,17 @@ pub(crate) fn run() {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
             entity.update(cx, |this, cx| this.start_job(crate::setup::Job::Load, cx));
+            #[cfg(target_abi = "sim")]
+            if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
+                entity.update(cx, |this, cx| {
+                    let generation = this.terminal.link.reset();
+                    this.terminal
+                        .link
+                        .install(generation, crate::mock_peer::connect());
+                    this.terminal.open = true;
+                    cx.notify();
+                });
+            }
             let focus = entity.read(cx).focus.clone();
             focus.focus(window, cx);
             entity

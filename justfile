@@ -43,3 +43,7 @@ graphs:
     cargo tree --locked --target aarch64-apple-ios -e normal,build > target/graphs/device.txt
     cargo tree --locked --target aarch64-apple-ios-sim -e normal,build > target/graphs/simulator.txt
     cargo tree --locked -e normal,build,dev > target/graphs/host.txt
+
+# Private wire peer, density switch, orientation attempt and colour oracle.
+ios-p3:
+    python3 scripts/guarded.py python3 scripts/ios/p3-check.py
