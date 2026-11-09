@@ -4531,6 +4531,7 @@ dependencies = [
  "gpui-pre",
  "herdr-uikit",
  "image",
+ "serde_json",
  "thiserror 2.0.21",
  "tracing",
 ]

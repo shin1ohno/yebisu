@@ -12,6 +12,7 @@ version = "0.1.0"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "a573fb3d90cec084e6211bc84473f2f0906f1731" }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 

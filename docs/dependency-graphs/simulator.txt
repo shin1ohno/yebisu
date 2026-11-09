@@ -684,5 +684,6 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │               ├── toml_write v0.1.2
 │               └── winnow v0.7.15
 ├── image v0.25.10 (*)
+├── serde_json v1.0.154 (*)
 ├── thiserror v2.0.21 (*)
 └── tracing v0.1.44 (*)
