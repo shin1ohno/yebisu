@@ -274,3 +274,35 @@ Worker は実機署名・実機操作を行っていない。下記を実機の�
 7. Lock/unlock with both hosts connected. With automatic return enabled, both must receive new snapshots. Disconnect one sandbox host: its heading must report disconnection while the other continues updating. Reconnect it; old queued input must not replay.
 
 Simulator coverage is separate: `just guarded python3 scripts/ios/p6-check.py` uses two private in-process peers, checks hidden-host snapshot updates, and observes workspace/pane endpoint requests. It does not prove physical IME, hardware keyboard or device update latency.
+
+## R3 review repairs (P5 and P4 check)
+
+1. Locally unlock the login keychain in the system prompt, connect/unlock M5,
+   then from this checkout run:
+   `zsh -il -c '/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad'`.
+   Do not send the password to a worker. Use only previously authorized sandbox
+   hosts; do not connect to existing personal Herdr sessions.
+2. On a disposable sandbox with an incompatible daemon, open its terminal and
+   immediately lock/unlock the iPad. Repeat with Return: Automatic and Return:
+   Tap reconnect. The toolbar must retain `Version mismatch:` and its daemon
+   version/reason after return; tapping Reconnect must not dial that host.
+   Check the sandbox connection log for no extra connection. Switch to a
+   compatible saved sandbox and verify it still connects. Repeat with the
+   incompatible host unselected in the board during lock/unlock.
+3. Enter a new sandbox target with a pre-existing authorized yebisu key, Scan,
+   compare its fingerprint on the sandbox, then Trust. Return to Hosts without
+   restarting: the new target must already be in the list. Authenticate it and
+   confirm the full list and selected target remain correct. Restart and check
+   both remain saved. Repeat the save-failure check from P5: no host may vanish.
+4. In a sandbox recording terminal input, compose Japanese text and press Esc:
+   the composition disappears and neither text nor semantic Esc reaches the
+   peer. Press Esc again without a composition and verify exactly one Esc.
+   Repeat the P4 physical IME/hardware keyboard and P5 lock/network/no-replay
+   checks above. Record device/iPadOS version and actual results in PR QA.
+
+R3 Simulator-only `YEBISU_R3_QA` injects a version mismatch into the inbox and
+never contacts a host. `just guarded python3 scripts/ios/r3-check.py` checks
+visible reason persistence and that automatic return/manual tap do not dial.
+The strengthened P4 oracle additionally rejects any non-TextCommit peer event
+in its scripted composition/cancel/commit sequence. These checks do not prove
+physical IME/hardware keyboard behavior.

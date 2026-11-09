@@ -37,3 +37,35 @@ fn invalid_key_is_not_displayed() {
     assert!(setup.key_line.is_none());
     assert!(setup.status.contains("unexpected key comment"));
 }
+
+fn saved_hosts(selected: &str) -> crate::hosts::SavedHosts {
+    crate::hosts::SavedHosts {
+        targets: vec!["existing@host".into(), selected.into()],
+        selected: selected.into(),
+    }
+}
+
+#[test]
+fn trust_reply_adds_host_to_setup_list_without_reload() {
+    let mut setup = Setup::default();
+    setup.apply(Ok(Reply::Saved(saved_hosts("trusted@host"), "pin".into())));
+    assert_eq!(setup.hosts, ["existing@host", "trusted@host"]);
+    assert_eq!(setup.target, "trusted@host");
+    assert_eq!(setup.fingerprints, "pin");
+    assert!(setup.status.contains("Host key trusted"));
+    assert!(setup.pending.is_none());
+}
+
+#[test]
+fn authentication_reply_adds_host_to_setup_list_without_reload() {
+    let mut setup = Setup::default();
+    setup.apply(Ok(Reply::Authenticated(
+        saved_hosts("authenticated@host"),
+        "SSH authenticated".into(),
+    )));
+    assert_eq!(setup.hosts, ["existing@host", "authenticated@host"]);
+    assert_eq!(setup.target, "authenticated@host");
+    assert_eq!(setup.status, "SSH authenticated");
+    setup.apply(Err(Error::Storage(std::io::Error::other("save failed"))));
+    assert_eq!(setup.hosts, ["existing@host", "authenticated@host"]);
+}

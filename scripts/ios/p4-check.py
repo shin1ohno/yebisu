@@ -33,6 +33,10 @@ def validate(records, messages):
             if body["pane_id"] != "w1:p1":
                 raise ValueError("input reached wrong pane")
             events.extend(body["events"])
+    # This scripted scenario sends text commits only. Cancellation is local;
+    # a semantic Esc (or any other key event) must never reach the peer.
+    if any(set(event) != {"TextCommit"} for event in events):
+        raise ValueError("P4 unexpected semantic event; cancellation must send nothing: " + repr(events))
     text = "".join(e["TextCommit"] for e in events if "TextCommit" in e)
     if text != "P4-onceかな😀変換":
         raise ValueError("P4 missing, duplicated or uncommitted wire text: " + repr(events))

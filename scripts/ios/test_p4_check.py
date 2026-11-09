@@ -22,6 +22,15 @@ class InputOracle(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicated"):
             p4.validate(self.records(), self.messages("P4-onceP4-onceかな😀変換"))
 
+    def test_extra_escape_on_cancel_fails(self):
+        messages = self.messages()
+        messages[0]["ClientShellPaneInput"]["events"].append(
+            {"Key": {"code": "Esc", "modifiers": 0, "kind": "Press",
+                     "repeat_count": 1, "shifted_codepoint": None, "generated_text": None,
+                     "tracks_release": False, "physical_key_id": None, "windows_record": None}})
+        with self.assertRaisesRegex(ValueError, "unexpected semantic event"):
+            p4.validate(self.records(), messages)
+
     def test_wrong_utf16_clause_fails_for_selection(self):
         records = self.records()
         records[0]["selected"] = [6, 6]

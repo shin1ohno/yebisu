@@ -68,3 +68,9 @@ switches remain available without rebuilding.
 ## P6 status board density
 
 Tap `Board: Dense` / `Board: Roomy` above the board to switch immediately, without a rebuild. Dense uses 4 pt vertical row padding and a 180 pt scrolling board; Roomy uses 12 pt padding and 260 pt. Both show the same snapshot states and textual harness marks. The board remains above the terminal; scroll it to reach every space and agent on every host. The switch is session-local. Compare tap accuracy, scan speed and remaining terminal space on M5 and at narrow width.
+
+## R3 review repairs
+
+No new design fork affecting device feel was found. R3 preserves the specified
+stop-on-version-mismatch behavior, displays its retained reason and refreshes
+the saved-host list. Existing reconnect, density and input switches remain.

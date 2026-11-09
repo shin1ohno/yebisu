@@ -3,7 +3,10 @@ use sheprd_client::{
     ClientEvent, VersionMismatch,
     protocol::{ClientShellSnapshot, PaneSurfaceFrame, ServerMessage},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, OnceLock},
+};
 
 #[derive(Clone, Default)]
 pub(crate) struct Live {
@@ -16,7 +19,8 @@ pub(crate) struct Live {
     future_surface: Option<Arc<PaneSurfaceFrame>>,
     pub keyboard_report_all: bool,
     pub status: String,
-    pub version_mismatch: Option<VersionMismatch>,
+    /// Shared with Link and retired inboxes; UI polling cannot lose a stop.
+    pub version_mismatch: Arc<OnceLock<VersionMismatch>>,
     pub capabilities: Vec<String>,
     pub version: String,
     pub boot: Option<String>,
@@ -65,12 +69,12 @@ impl Live {
             }
             ClientEvent::VersionMismatch(mismatch) => {
                 self.status = format!("Version mismatch: {mismatch:?}");
-                self.version_mismatch = Some(mismatch);
+                let _ = self.version_mismatch.set(mismatch);
                 self.surface = None;
             }
             ClientEvent::Disconnected { reason, ssh: _ } => {
                 self.connected = false;
-                if self.version_mismatch.is_none() {
+                if self.version_mismatch.get().is_none() {
                     self.status = format!("Disconnected: {reason}");
                 }
                 self.surface = None;

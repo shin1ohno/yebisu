@@ -154,6 +154,28 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testR3Mismatch() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_R3_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        try tapText("Version mismatch", in: app)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(3)
+        try tapText("Version mismatch", in: app)
+        try tapText("Reconnect", in: app)
+        sleep(2)
+        try tapText("Version mismatch", in: app)
+        save("r3-mismatch-returned")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP6Board() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()

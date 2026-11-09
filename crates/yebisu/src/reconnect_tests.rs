@@ -76,13 +76,105 @@ fn version_mismatch_never_automatically_reconnects(cx: &mut TestAppContext) {
     let view = cx.new(Smoke::new);
     view.update(cx, |this, cx| {
         this.terminal.open = true;
-        this.terminal.live.version_mismatch =
-            Some(sheprd_client::VersionMismatch::DaemonOutdated {
-                server_version: Some("0.8".into()),
-            });
-        this.lifecycle(AppLifecyclePhase::Background, cx);
+        this.terminal
+            .link
+            .inbox
+            .lock()
+            .unwrap_or_else(|e| panic!("lock {e}"))
+            .apply(ClientEvent::VersionMismatch(
+                sheprd_client::VersionMismatch::DaemonOutdated {
+                    server_version: Some("0.8".into()),
+                },
+            ));
+        assert!(this.terminal.live.version_mismatch.get().is_none());
+        this.lifecycle(AppLifecyclePhase::Inactive, cx);
         let generation = this.terminal.link.generation;
         this.lifecycle(AppLifecyclePhase::Active, cx);
+        assert_eq!(this.terminal.link.generation, generation);
+        assert!(this.terminal.live.status.contains("Version mismatch:"));
+        assert!(this.terminal.live.status.contains("0.8"));
+        this.connect_terminal(cx);
+        assert_eq!(this.terminal.link.generation, generation);
+    });
+}
+
+#[gpui::test]
+fn late_reader_mismatch_survives_pause_and_stale_completion(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.terminal.open = true;
+        this.terminal.reconnect.begin("a@host".into());
+        let old = this.terminal.link.inbox.clone();
+        let old_generation = this.terminal.link.generation;
+        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        old.lock()
+            .unwrap_or_else(|e| panic!("lock {e}"))
+            .apply(ClientEvent::VersionMismatch(
+                sheprd_client::VersionMismatch::DaemonOutdated {
+                    server_version: Some("late-0.8".into()),
+                },
+            ));
+        let generation = this.terminal.link.generation;
+        this.terminal.link.install(
+            old_generation,
+            Err(crate::Error::Ssh("late completion".into())),
+        );
+        this.lifecycle(AppLifecyclePhase::Active, cx);
+        this.poll_terminal(cx);
+        assert_eq!(this.terminal.link.generation, generation);
+        assert!(this.terminal.live.status.contains("late-0.8"));
+        assert!(!this.terminal.live.connected);
+        assert!(this.terminal.live.surface.is_none());
+    });
+}
+
+#[gpui::test]
+fn hidden_host_mismatch_is_retained_without_polling(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.terminal.reconnect.begin("selected@host".into());
+        let hidden = this.board.hidden.entry("hidden@host".into()).or_default();
+        hidden.reconnect.begin("hidden@host".into());
+        hidden
+            .link
+            .inbox
+            .lock()
+            .unwrap_or_else(|e| panic!("lock {e}"))
+            .apply(ClientEvent::VersionMismatch(
+                sheprd_client::VersionMismatch::DaemonOutdated {
+                    server_version: Some("hidden-0.8".into()),
+                },
+            ));
+        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        let generation = this.board.hidden["hidden@host"].link.generation;
+        this.lifecycle(AppLifecyclePhase::Active, cx);
+        let hidden = &this.board.hidden["hidden@host"];
+        assert_eq!(hidden.link.generation, generation);
+        assert!(hidden.live.status.contains("hidden-0.8"));
+    });
+}
+
+#[gpui::test]
+fn busy_inbox_does_not_block_pause_and_late_reason_reaches_ui(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.terminal.open = true;
+        this.terminal.reconnect.automatic = false;
+        let old = this.terminal.link.inbox.clone();
+        let mut reader = old.lock().unwrap_or_else(|e| panic!("lock {e}"));
+        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Active, cx);
+        this.poll_terminal(cx);
+        reader.apply(ClientEvent::VersionMismatch(
+            sheprd_client::VersionMismatch::DaemonOutdated {
+                server_version: Some("late-busy-0.8".into()),
+            },
+        ));
+        drop(reader);
+        this.poll_terminal(cx);
+        assert!(this.terminal.live.status.contains("late-busy-0.8"));
+        let generation = this.terminal.link.generation;
+        this.connect_terminal(cx);
         assert_eq!(this.terminal.link.generation, generation);
     });
 }
