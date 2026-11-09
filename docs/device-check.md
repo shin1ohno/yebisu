@@ -262,3 +262,15 @@ Worker は実機署名・実機操作を行っていない。下記を実機の�
 6. sandbox 側だけで SSH host key を別鍵に交換して再起動し、背景→復帰する。鍵変更で拒否され、新鍵を自動 pin せず credentials を送らないことを sandbox ログと UI で確認。元の鍵を復元して再接続する。所有者の通常 host の鍵は変更しない。
 7. Hosts に戻り `Developer: simulate save failure` をタップ。`could not save or read the connection` と injected failure が画面に出て、保存済み一覧が変わらないことを確認。これは worker の失敗応答を UI まで通す故障注入であり、実際のディスク満杯の証明ではない。実 filesystem write 失敗と旧データ保持は host 自動テストで確認する。
 8. P4 の物理キーボード・IME 手順を再確認する。別 target への切替前後に旧 callback/marked text が送信されないこと。
+
+## P6 — snapshot status board (owner)
+
+1. Unlock the login keychain locally; never give the password to a worker. From this checkout run `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad` in an interactive login shell. Use disposable/sandbox Herdr hosts, not existing personal sessions.
+2. Save two already trusted sandbox hosts and open a terminal. Verify both host headings and all spaces/agents appear in the scrolling board. No real authorized_keys changes were made by this phase.
+3. On each sandbox daemon change an agent between working, blocked, done and idle. Record the delay from the daemon snapshot to the board. Repeat for the unselected host, with its rows scrolled out of view. Returning to its rows must show the latest state, without waiting for a new event.
+4. Compare each textual harness mark (for example `[Claude]`) and state against that host's daemon snapshot. Unknown harness/status must remain explicit; terminal text alone must not alter a dot.
+5. Tap a space, then an agent on each host. Confirm the daemon focuses the requested workspace/pane. Switch hosts while an update is arriving; the terminal must stay on the newly selected host. Compose text before switching and confirm it is discarded, never delivered to the other host.
+6. Toggle `Board: Dense` and `Board: Roomy`. Compare row tap accuracy and terminal room. Repeat in narrow Split View and both orientations; scroll to the last host/agent and verify labels remain usable. Record preferred density, device/iPadOS version and any clipping.
+7. Lock/unlock with both hosts connected. With automatic return enabled, both must receive new snapshots. Disconnect one sandbox host: its heading must report disconnection while the other continues updating. Reconnect it; old queued input must not replay.
+
+Simulator coverage is separate: `just guarded python3 scripts/ios/p6-check.py` uses two private in-process peers, checks hidden-host snapshot updates, and observes workspace/pane endpoint requests. It does not prove physical IME, hardware keyboard or device update latency.

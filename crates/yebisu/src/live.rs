@@ -22,6 +22,7 @@ pub(crate) struct Live {
     pub boot: Option<String>,
     pub clipboard: VecDeque<String>,
     pub pending_request: Option<String>,
+    pub failed_request: Option<String>,
     pub dirty: bool,
 }
 
@@ -45,14 +46,19 @@ impl Live {
             ClientEvent::SurfaceImages(_) => {} // P8 restores the image catalog here.
             ClientEvent::Response {
                 request_id,
-                response: _,
+                response,
             } => {
                 if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
+                    if let Some(error) = response.get("error") {
+                        self.failed_request = Some(request_id);
+                        self.status = format!("Navigation rejected: {error}");
+                    }
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
                 if request_id == self.pending_request {
+                    self.failed_request = request_id;
                     self.pending_request = None;
                 }
                 self.status = reason.to_string();

@@ -64,3 +64,7 @@ switches remain available without rebuilding.
 - このラベルをタップして `Return: Tap reconnect` に切替。背景から戻った後は `Reconnect` をタップするまで接続しない。再ビルド不要、現在の起動中に保持。
 - 両方とも入力を再送しない。ネットワーク切替で失敗した場合は理由を表示し、Reconnect または次回の背景復帰で再試行。連続 retry はしない。VersionMismatch は自動再接続しない。
 - 保存ホストの内部構造には比較用 variant を作っていない。
+
+## P6 status board density
+
+Tap `Board: Dense` / `Board: Roomy` above the board to switch immediately, without a rebuild. Dense uses 4 pt vertical row padding and a 180 pt scrolling board; Roomy uses 12 pt padding and 260 pt. Both show the same snapshot states and textual harness marks. The board remains above the terminal; scroll it to reach every space and agent on every host. The switch is session-local. Compare tap accuracy, scan speed and remaining terminal space on M5 and at narrow width.

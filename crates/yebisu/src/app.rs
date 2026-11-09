@@ -16,6 +16,7 @@ pub(crate) struct Smoke {
     pub(crate) setup: crate::setup::Setup,
     pub(crate) smoke_mode: bool,
     pub(crate) terminal: crate::terminal_view::TerminalView,
+    pub(crate) board: crate::board::Board,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -73,6 +74,7 @@ impl Smoke {
             setup: crate::setup::Setup::default(),
             smoke_mode: std::env::var_os("YEBISU_SMOKE_OBSERVE").is_some(),
             terminal: Default::default(),
+            board: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -233,6 +235,15 @@ pub(crate) fn run() {
                         .install(generation, crate::mock_peer::connect());
                     this.terminal.open = true;
                     this.terminal.needs_focus = true;
+                    if std::env::var_os("YEBISU_BOARD_QA").is_some() {
+                        this.terminal.link.reset();
+                        this.terminal.reconnect.begin("qa-alpha".into());
+                        let generation = this.terminal.link.generation;
+                        this.terminal
+                            .link
+                            .install(generation, crate::mock_peer::connect_board());
+                        this.start_host_connection("qa-beta".into(), cx);
+                    }
                     cx.notify();
                 });
             }
