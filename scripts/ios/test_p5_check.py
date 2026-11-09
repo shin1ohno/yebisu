@@ -31,3 +31,20 @@ class P5Oracle(unittest.TestCase):
             records[3][key] = value
             with self.assertRaises(ValueError):
                 p5.validate(records)
+
+    def test_hidden_host_connections_do_not_count_as_selected_reconnects(self):
+        records = self.records() + [
+            {"kind": "reconnect", "generation": 1, "automatic": True,
+             "selected": False, "host": "qa@private-one"},
+            {"kind": "reconnect", "generation": 2, "automatic": True,
+             "selected": False, "host": "qa@private-two"},
+        ]
+        p5.validate(records)
+
+    def test_extra_selected_connection_still_fails(self):
+        records = self.records() + [
+            {"kind": "reconnect", "generation": 7, "automatic": True,
+             "selected": True, "host": "qa@private-peer"},
+        ]
+        with self.assertRaisesRegex(ValueError, "exactly automatic-return"):
+            p5.validate(records)

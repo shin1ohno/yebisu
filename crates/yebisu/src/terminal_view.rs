@@ -67,7 +67,7 @@ impl Smoke {
             .input
             .sync(&Live::default(), terminal.link.generation, None);
         let generation = terminal.link.reset();
-        self.observation.record(serde_json::json!({"kind":"reconnect","generation":generation,"automatic":terminal.reconnect.automatic}));
+        self.observation.record(serde_json::json!({"kind":"reconnect","host":host,"selected":selected,"generation":generation,"automatic":terminal.reconnect.automatic}));
         terminal.live = Live::default();
         terminal.navigating = None;
         terminal.size = None;
