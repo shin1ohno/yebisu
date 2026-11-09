@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -43,7 +44,10 @@ def main():
     result = out / "result.xcresult"
     if result.exists():
         shutil.rmtree(result)
-    tested = run("xcodebuild", "clean", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP6Board", "-destination", "id=" + device, "-derivedDataPath", str(out / "build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
+    # Isolate XCTest discovery from previous runs. Combined clean/test failed
+    # destination resolution for this test-only scheme; scope cleanup here.
+    with tempfile.TemporaryDirectory(prefix="runner-", dir=out) as build:
+        tested = run("xcodebuild", "test", "-sdk", "iphonesimulator", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP6Board", "-destination", "id=" + device, "-derivedDataPath", build, "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
     if "testP6Board]' passed" not in tested:
         raise RuntimeError("P6 XCTest did not execute")
     export = out / "attachments"
