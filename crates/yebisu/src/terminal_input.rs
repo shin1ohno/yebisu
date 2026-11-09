@@ -38,11 +38,17 @@ pub(crate) fn destination(live: &Live, generation: u64) -> Option<Destination> {
     })
 }
 
+/// A semantic event keeps the identity observed when it was generated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedInput {
+    pub destination: Destination,
+    pub event: ClientPaneInputEvent,
+}
+
 #[derive(Default)]
 pub(crate) struct InputOptions {
     pub option_alt: bool,
     pub command_control: bool,
-    pub escape_cancels: bool,
     pub caret_anchor: bool,
 }
 
@@ -96,27 +102,39 @@ impl TerminalInput {
         self.composition = Input::default();
         self.composition.replace(None, text, true, selected);
     }
-    pub fn commit(&mut self, text: &str) -> Option<ClientPaneInputEvent> {
+    pub fn replace(
+        &mut self,
+        range: Option<std::ops::Range<usize>>,
+        text: &str,
+    ) -> Option<GeneratedInput> {
+        if let (Some(range), Some(marked)) = (&range, &self.composition.marked)
+            && range.start <= range.end
+            && marked.start <= range.start
+            && range.end <= marked.end
+            && range != marked
+        {
+            // UIKit selection deletion/replacement edits uncommitted text.
+            self.composition
+                .replace(Some(range.clone()), text, false, None);
+            let end = self.composition.text.encode_utf16().count();
+            self.composition.marked = (end > 0).then_some(0..end);
+            return None;
+        }
+        self.commit(text)
+    }
+    pub fn commit(&mut self, text: &str) -> Option<GeneratedInput> {
         self.composition = Input::default();
         if self.cancelled || self.destination.is_none() || text.is_empty() {
             return None;
         }
-        Some(ClientPaneInputEvent::TextCommit(text.into()))
+        self.generated(ClientPaneInputEvent::TextCommit(text.into()))
     }
-    pub fn key_down(
-        &mut self,
-        event: &KeyDownEvent,
-        report_all: bool,
-    ) -> Option<ClientPaneInputEvent> {
+    pub fn key_down(&mut self, event: &KeyDownEvent, report_all: bool) -> Option<GeneratedInput> {
         self.held.forget(&event.keystroke.key);
         self.fresh_gesture();
         self.destination.as_ref()?;
         if !self.composition.text.is_empty() {
-            if event.keystroke.key == "escape" && self.options.escape_cancels {
-                self.discard();
-            } else {
-                return None;
-            }
+            return None;
         }
         let mut mapped = event.clone();
         if self.options.command_control && mapped.keystroke.modifiers.platform {
@@ -124,15 +142,32 @@ impl TerminalInput {
             mapped.keystroke.modifiers.control = true;
         }
         let event = crate::terminal::key_input(&mapped, self.options.option_alt)?;
-        Some(self.held.press(&mapped.keystroke.key, event, report_all))
+        let event = self.held.press(&mapped.keystroke.key, event, report_all);
+        self.generated(event)
     }
-    pub fn queue(&mut self, event: ClientPaneInputEvent) -> bool {
+    fn generated(&self, event: ClientPaneInputEvent) -> Option<GeneratedInput> {
+        Some(GeneratedInput {
+            destination: self.destination.clone()?,
+            event,
+        })
+    }
+    pub fn key_up(&mut self, key: &str) -> Option<GeneratedInput> {
+        let event = self.held.release(key)?;
+        if !self.report_all {
+            return None;
+        }
+        self.generated(event)
+    }
+    pub fn queue(&mut self, input: GeneratedInput) -> bool {
         let Some(target) = &self.destination else {
             return false;
         };
+        if target != &input.destination {
+            return false;
+        }
         self.pending
             .get_or_insert_with(|| HeldInput::new(target.boot.clone(), target.target.clone()))
-            .push(event)
+            .push(input.event)
     }
     pub fn next(&mut self) -> Option<ClientPaneInputEvent> {
         if !self.ready {

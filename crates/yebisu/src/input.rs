@@ -149,7 +149,7 @@ impl EntityInputHandler for Smoke {
         }
         if self.terminal.open {
             self.refresh_terminal_input();
-            if let Some(event) = self.terminal.input.commit(text) {
+            if let Some(event) = self.terminal.input.replace(range, text) {
                 self.send_terminal(event);
             }
             window.notify_text_input_changed(self.active_focus());

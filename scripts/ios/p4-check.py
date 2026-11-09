@@ -39,6 +39,20 @@ def validate(records, messages):
     print("P4 peer receipts PASS", text, "marked frames", len(marked), flush=True)
 
 
+def validate_r2(records):
+    paints = [r for r in records if r.get("kind") == "terminal"]
+    edited = [r for r in paints if r.get("marked") == "かな変換"]
+    if not edited or any(r["selected"] != [2, 2] for r in edited):
+        raise ValueError("R2 selected Backspace must preserve marked text and UTF-16 caret")
+    next_mark = min((r["time"] for r in paints
+                     if r.get("marked") == "かな😀変換" and r["time"] > edited[-1]["time"]),
+                    default=float("inf"))
+    if not any(not r.get("marked") and edited[-1]["time"] < r["time"] < next_mark
+               for r in paints):
+        raise ValueError("R2 UIKit Esc callback must clear composition")
+    print("R2 partial-delete and UIKit cancellation paint receipts PASS", flush=True)
+
+
 def main():
     directory = ROOT / "target/ios-p4" / time.strftime("%Y%m%d-%H%M%S")
     directory.mkdir(parents=True)
@@ -65,6 +79,7 @@ def main():
     records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]
     messages = [json.loads(line) for line in (directory / "peer.jsonl").read_text().splitlines()]
     validate(records, messages)
+    validate_r2(records)
     spec = importlib.util.spec_from_file_location("colors", Path(__file__).with_name("screenshot-color.py"))
     colors = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(colors)

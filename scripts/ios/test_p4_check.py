@@ -35,3 +35,33 @@ class InputOracle(unittest.TestCase):
     def test_missing_clear_fails_for_commit(self):
         with self.assertRaisesRegex(ValueError, "clear rendered composition"):
             p4.validate(self.records()[:1], self.messages())
+
+
+class R2Oracle(unittest.TestCase):
+    def records(self):
+        return [dict(kind="terminal", marked="かな変換", selected=[2, 2], time=1),
+                dict(kind="terminal", marked="", selected=[0, 0], time=2)]
+
+    def test_accepts_partial_edit_then_cancellation(self):
+        p4.validate_r2(self.records())
+
+    def test_erased_composition_fails(self):
+        with self.assertRaisesRegex(ValueError, "selected Backspace"):
+            p4.validate_r2(self.records()[1:])
+
+    def test_wrong_caret_fails(self):
+        records = self.records()
+        records[0]["selected"] = [4, 4]
+        with self.assertRaisesRegex(ValueError, "UTF-16 caret"):
+            p4.validate_r2(records)
+
+    def test_ignored_escape_fails(self):
+        with self.assertRaisesRegex(ValueError, "Esc callback"):
+            p4.validate_r2(self.records()[:1])
+
+    def test_later_commit_cannot_hide_ignored_escape(self):
+        records = self.records()[:1] + [
+            dict(kind="terminal", marked="かな😀変換", selected=[2, 4], time=2),
+            dict(kind="terminal", marked="", selected=[0, 0], time=3)]
+        with self.assertRaisesRegex(ValueError, "Esc callback"):
+            p4.validate_r2(records)
