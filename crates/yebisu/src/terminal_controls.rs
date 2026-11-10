@@ -1,6 +1,8 @@
-use crate::{app::Smoke, terminal_input::TerminalInput};
+use crate::{
+    app::Smoke,
+    terminal_input::{GeneratedInput, TerminalInput},
+};
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
-use sheprd_client::protocol::ClientPaneInputEvent;
 
 impl Smoke {
     pub(crate) fn refresh_terminal_input(&mut self) {
@@ -13,7 +15,7 @@ impl Smoke {
             terminal.input.ready = false;
         }
     }
-    pub(crate) fn send_terminal(&mut self, event: ClientPaneInputEvent) {
+    pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
         self.refresh_terminal_input();
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
@@ -64,9 +66,7 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         self.refresh_terminal_input();
-        if let Some(release) = self.terminal.input.held.release(&event.keystroke.key)
-            && self.terminal.input.report_all
-        {
+        if let Some(release) = self.terminal.input.key_up(&event.keystroke.key) {
             self.send_terminal(release);
             cx.stop_propagation();
         }
@@ -106,21 +106,6 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal.input.options.command_control ^= true;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("escape-mode")
-                    .p_2()
-                    .bg(rgb(0x3b4252))
-                    .child(if options.escape_cancels {
-                        "Esc: Clear + send"
-                    } else {
-                        "Esc: IME first"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.terminal.input.options.escape_cancels ^= true;
                         cx.notify();
                     })),
             )
@@ -180,6 +165,30 @@ impl Smoke {
                             .child("QA commit")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.replace_text_in_range(None, "かな😀変換", window, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("qa-delete")
+                            .p_2()
+                            .bg(rgb(0x3b4252))
+                            .child("QA delete")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let selected =
+                                    this.selected_text_range(false, window, cx).map(|s| s.range);
+                                this.replace_text_in_range(selected, "", window, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("qa-cancel")
+                            .p_2()
+                            .bg(rgb(0x3b4252))
+                            .child("QA cancel")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                // UIKit control_input's composing Esc callback.
+                                let marked = this.marked_text_range(window, cx);
+                                this.replace_text_in_range(marked, "", window, cx);
                             })),
                     )
                     .into_any_element(),

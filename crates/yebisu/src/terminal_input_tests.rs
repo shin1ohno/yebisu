@@ -110,7 +110,7 @@ fn popup_open_replace_and_close_each_discard_composition() {
 fn disconnect_then_reconnect_does_not_replay_commit_or_held_keys() {
     let mut input = marked();
     let mut live = live();
-    input.queue(ClientPaneInputEvent::TextCommit("queued".into()));
+    queue_text(&mut input, "queued");
     live.apply(ClientEvent::Disconnected {
         reason: "test".into(),
         ssh: None,
@@ -136,11 +136,13 @@ fn printable_key_and_commit_arrive_once_with_repeat_and_release() {
     let mut input = ready();
     assert!(input.key_down(&key("a", false), true).is_none());
     assert_eq!(
-        input.commit("a"),
+        input.commit("a").map(|input| input.event),
         Some(ClientPaneInputEvent::TextCommit("a".into()))
     );
     for (held, kind) in [(false, ClientKeyKind::Press), (true, ClientKeyKind::Repeat)] {
-        let event = input.key_down(&key("ctrl-c", held), true);
+        let event = input
+            .key_down(&key("ctrl-c", held), true)
+            .map(|input| input.event);
         assert!(
             matches!(event, Some(ClientPaneInputEvent::Key {kind: k, tracks_release: true, ..}) if k == kind)
         );
@@ -158,7 +160,7 @@ fn printable_key_and_commit_arrive_once_with_repeat_and_release() {
     assert!(input.held.release("left").is_none());
 }
 #[test]
-fn option_command_and_escape_variants_change_semantics() {
+fn option_and_command_variants_change_semantics() {
     let mut input = ready();
     assert!(input.key_down(&key("alt-p", false), false).is_none());
     input.options.option_alt = true;
@@ -166,21 +168,14 @@ fn option_command_and_escape_variants_change_semantics() {
     assert!(input.key_down(&key("cmd-c", false), false).is_none());
     input.options.command_control = true;
     assert!(matches!(
-        input.key_down(&key("cmd-c", false), false),
+        input
+            .key_down(&key("cmd-c", false), false)
+            .map(|input| input.event),
         Some(ClientPaneInputEvent::Key { modifiers: 2, .. })
     ));
     input.mark("かな", Some(0..1));
     assert!(input.key_down(&key("escape", false), false).is_none());
     assert_eq!(input.composition.text, "かな");
-    input.options.escape_cancels = true;
-    assert!(matches!(
-        input.key_down(&key("escape", false), false),
-        Some(ClientPaneInputEvent::Key {
-            code: ClientKeyCode::Esc,
-            ..
-        })
-    ));
-    assert!(input.composition.text.is_empty());
 }
 #[test]
 fn keyboard_resize_keeps_composition_and_fifo_only_for_same_target() {
@@ -198,8 +193,8 @@ fn keyboard_resize_keeps_composition_and_fifo_only_for_same_target() {
     );
     assert_eq!(input.composition.text, "a😀かな");
     assert_eq!(input.composition.selected, 1..3);
-    input.queue(ClientPaneInputEvent::TextCommit("first".into()));
-    input.queue(ClientPaneInputEvent::TextCommit("second".into()));
+    queue_text(&mut input, "first");
+    queue_text(&mut input, "second");
     assert!(input.next().is_none());
     input.sync(&live, 1, None);
     assert_eq!(
@@ -211,9 +206,9 @@ fn keyboard_resize_keeps_composition_and_fifo_only_for_same_target() {
         Some(ClientPaneInputEvent::TextCommit("second".into()))
     );
     for _ in 0..64 {
-        assert!(input.queue(ClientPaneInputEvent::TextCommit("x".into())));
+        assert!(queue_text(&mut input, "x"));
     }
-    assert!(!input.queue(ClientPaneInputEvent::TextCommit("overflow".into())));
+    assert!(!queue_text(&mut input, "overflow"));
 }
 #[gpui::test]
 fn mid_clause_rotation_keyboard_resize_share_paint_hit_and_candidate_geometry(
@@ -476,4 +471,156 @@ fn popup_paint_and_candidate_use_the_same_center_and_cursor() {
         geometry.cursor(Some(&surface)),
         Bounds::new(point(px(340.), px(320.)), size(px(10.), px(20.)))
     );
+}
+
+fn queue_text(input: &mut TerminalInput, text: &str) -> bool {
+    let event = input
+        .generated(ClientPaneInputEvent::TextCommit(text.into()))
+        .unwrap_or_else(|| panic!("missing destination"));
+    input.queue(event)
+}
+
+#[test]
+fn generated_event_rejects_each_changed_identity_at_queue() {
+    let mut input = ready();
+    let generated = input.commit("A").unwrap_or_else(|| panic!("event"));
+    for field in ["generation", "epoch", "boot", "target"] {
+        let mut changed = generated.clone();
+        match field {
+            "generation" => changed.destination.generation += 1,
+            "epoch" => changed.destination.epoch += 1,
+            "boot" => changed.destination.boot = "other-boot".into(),
+            _ => changed.destination.target = InputTarget::Popup("other-popup".into()),
+        }
+        assert!(!input.queue(changed), "accepted stale {field}");
+        assert!(input.next().is_none(), "queued stale {field}");
+    }
+    assert!(input.queue(generated));
+    assert_eq!(
+        input.next(),
+        Some(ClientPaneInputEvent::TextCommit("A".into()))
+    );
+}
+
+#[gpui::test]
+fn target_change_between_generation_and_send_discards_commit_ctrl_and_release(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = cx.add_window_view(|_, cx| crate::app::Smoke::new(cx));
+    view.update(cx, |this, _| {
+        for kind in ["commit", "ctrl", "release"] {
+            let mut first = live();
+            first.keyboard_report_all = true;
+            *this
+                .terminal
+                .link
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = first;
+            this.terminal.input = TerminalInput::default();
+            this.refresh_terminal_input();
+            let generated = match kind {
+                "commit" => this.terminal.input.commit("A"),
+                "ctrl" => this.terminal.input.key_down(&key("ctrl-c", false), true),
+                _ => {
+                    this.terminal.input.key_down(&key("ctrl-c", false), true);
+                    this.terminal.input.key_up("c")
+                }
+            }
+            .unwrap_or_else(|| panic!("missing {kind}"));
+            // The reader publishes B between the callback's sync and send's sync.
+            let mut second = live();
+            let mut snapshot = second
+                .snapshot
+                .as_deref()
+                .cloned()
+                .unwrap_or_else(|| panic!("snapshot"));
+            snapshot.focused_pane_id = Some("w1:p2".into());
+            second.snapshot = Some(Arc::new(snapshot));
+            *this
+                .terminal
+                .link
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = second;
+            this.send_terminal(generated);
+            assert_eq!(
+                this.terminal.input.destination.as_ref().map(|d| &d.target),
+                Some(&InputTarget::Pane("w1:p2".into()))
+            );
+            assert_eq!(
+                this.terminal.live.status, "Input refused: disconnected or queue full",
+                "{kind} rebound to B"
+            );
+            assert!(this.terminal.input.next().is_none());
+        }
+    });
+}
+
+#[gpui::test]
+fn uikit_selected_backspace_and_escape_callbacks_edit_then_cancel(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| crate::app::Smoke::new(cx));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal.open = true;
+            *this
+                .terminal
+                .link
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = live();
+            this.terminal_focus.focus(window, cx);
+            this.replace_and_mark_text_in_range(None, "かな😀変換", Some(2..4), window, cx);
+            // Pinned UIKit editing.rs delete_in_handler uses the selected range.
+            let selected = this
+                .selected_text_range(false, window, cx)
+                .unwrap_or_else(|| panic!("selection"));
+            this.replace_text_in_range(Some(selected.range), "", window, cx);
+            assert_eq!(this.terminal.input.composition.text, "かな変換");
+            assert_eq!(this.marked_text_range(window, cx), Some(0..4));
+            assert_eq!(
+                this.selected_text_range(false, window, cx).map(|s| s.range),
+                Some(2..2)
+            );
+            assert!(
+                this.terminal.input.next().is_none(),
+                "Backspace committed composition"
+            );
+            this.replace_text_in_range(Some(1..2), "名", window, cx);
+            assert_eq!(this.terminal.input.composition.text, "か名変換");
+            assert_eq!(this.marked_text_range(window, cx), Some(0..4));
+            // Plain Esc goes UIKit-first. control_input cancels via this callback,
+            // returns false and never dispatches a GPUI KeyDown for that Esc.
+            let marked = this
+                .marked_text_range(window, cx)
+                .unwrap_or_else(|| panic!("marked"));
+            this.replace_text_in_range(Some(marked), "", window, cx);
+            assert!(this.terminal.input.composition.text.is_empty());
+            assert_eq!(this.marked_text_range(window, cx), None);
+            assert!(
+                this.terminal.input.next().is_none(),
+                "composition Esc leaked to terminal"
+            );
+        });
+    });
+}
+
+#[test]
+fn uikit_unmark_commits_remaining_composition_once_after_partial_edit() {
+    let mut input = ready();
+    input.mark("かな😀変換", Some(2..4));
+    assert!(input.replace(Some(2..4), "").is_none());
+    assert_eq!(input.composition.text, "かな変換");
+    // editing.rs::unmark_text reads the whole marked range and replaces it.
+    let marked = input.composition.marked.clone();
+    let text = input.composition.text.clone();
+    let commit = input
+        .replace(marked, &text)
+        .unwrap_or_else(|| panic!("commit"));
+    assert_eq!(
+        commit.event,
+        ClientPaneInputEvent::TextCommit("かな変換".into())
+    );
+    assert!(input.composition.marked.is_none());
+    assert!(input.composition.text.is_empty());
 }

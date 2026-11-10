@@ -189,7 +189,7 @@ app against the same session while comparing viewport behavior.
     neither the old composition nor queued presses may replay. Retry an initial
     connection failure the same way. Version mismatch remains a visible error.
 11. Open **Input options** and compare each pair in docs/variants.md, including
-    Option dead keys, Command-C, Esc during composition, and a middle-clause
+    Option dead keys, Command-C, and a middle-clause
     candidate rectangle. Record the preferred values; they reset on app restart.
 12. Record each result and any failure in PR QA separately from automated tests.
     Keep all physical boxes unchecked until these observations are made.
@@ -225,3 +225,27 @@ These are owner checks; automation does not mark them complete.
 5. Record device/iOS version and each actual result in PR QA. Leave physical
    checks unchecked until performed. Existing P4 IME and hardware-keyboard
    checks above remain separate owner acceptance.
+
+## R2 review repairs (P4)
+
+1. Locally unlock the login keychain, connect/unlock M5, and run the absolute
+   `just ipad` command in the R1 section from an interactive login shell.
+   Keep the password in the local system prompt only.
+2. In an already authorized disposable terminal, compose `かな😀変換`, select
+   just the emoji clause (UTF-16 2..4), and press Backspace. Confirm `かな変換`
+   remains marked, the caret is between `な` and `変`, and no text has reached
+   the remote program. Continue editing, then confirm once; the remaining
+   composition must arrive exactly once. Repeat with a partial replacement.
+3. While composing, press plain Esc. Confirm marked text disappears and the
+   remote program receives neither composition text nor Esc. Press Esc again
+   without composition and confirm the remote program receives one Esc.
+   **Input options** now has Option, Command and Candidate only: the former
+   Clear + send choice was removed because UIKit consumes composing Esc.
+4. While composing or holding Ctrl-C, change the disposable peer's focused
+   pane or popup remotely. Confirm old text, presses and releases do not land
+   in the new target. Start a fresh gesture and confirm new input works.
+   The host regression deterministically inserts the switch between event
+   generation and send; this manual sequence complements that timing test.
+5. Repeat the P4 physical keyboard/IME/resize/reconnect checks above and record
+   device model, iOS version and actual results in PR QA. Simulator callback
+   checks do not establish physical Japanese IME or hardware-key routing.
