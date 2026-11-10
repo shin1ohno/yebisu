@@ -418,7 +418,7 @@ Record this result and device/keyboard details in PR #14 QA.
 ## SH1-146 / SH1-147 maintenance acceptance
 
 herdr-uikit is pinned to main merge commit
-`439ebbc1606e807f45118d59f0f01f8c7721b71c`. Normal startup now enables a
+`b2fa7811fa9fad9592f47b06d851fc0c33facb16`. Normal startup now enables a
 bounded yebisu diagnostics file writer. Its single container-relative path
 is in `crates/yebisu/src/log-location.txt`; Rust and device.sh read that file.
 No existing old-app data is moved. See `docs/logging.md` for the privacy and
