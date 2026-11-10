@@ -80,3 +80,9 @@ the saved-host list. Existing reconnect, density and input switches remain.
 No new design fork affecting device feel was found. R4 retains the navigation
 barrier contract and rejects stale rows. Existing board density and input
 switches remain available without rebuilding.
+
+## P7: shortcut precedence with Command-as-Control
+
+Open **Input options** in the terminal toolbar. **Shortcuts: App priority** is the default: the catalog's Command chords (Command-T/D/B/1–9/Shift-P and pane navigation) perform app actions. Plain Control-B/D/T and all unmatched modifiers continue to the terminal. No prefix sequence is synthesized.
+
+Tap that control to select **Shortcuts: Terminal priority**. With **Command: Ctrl** enabled beside it, all Command keys bypass app shortcuts and use the existing terminal Control mapping (e.g. Command-B becomes Control-B for a prefix, Command-D becomes Control-D). The tab strip, action buttons and palette button remain usable by touch. With **Command: Local**, both precedence modes keep the catalog bindings. Switch at runtime without rebuilding; this experimental preference is session-local. Compare both with your shell/editor and prefix configuration before choosing a default.

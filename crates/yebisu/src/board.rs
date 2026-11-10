@@ -14,6 +14,7 @@ pub(crate) struct Board {
 pub(crate) enum Target {
     Space(String),
     Agent(String),
+    Command,
 }
 pub(crate) struct Navigation {
     pub boot: String,
@@ -102,6 +103,7 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
             && match &nav.target {
                 Target::Space(id) => s.focused_workspace_id.as_ref() == Some(id),
                 Target::Agent(id) => s.focused_pane_id.as_ref() == Some(id),
+                Target::Command => false,
             }
     });
     if confirmed
@@ -193,9 +195,10 @@ impl Smoke {
         let request = match &target {
             Target::Space(id) => handle.focus_workspace(&s.boot_id, id),
             Target::Agent(id) => handle.focus_pane(&s.boot_id, id),
+            Target::Command => return Err(crate::Error::Ssh("Not a board target".into())),
         }
         .map_err(|e| crate::Error::Ssh(e.to_string()))?;
-        self.observation.record(serde_json::json!({"kind":"navigation", "host":host, "boot":s.boot_id, "generation":generation, "revision":s.revision, "pane": match &target { Target::Space(id) => s.panes.iter().find(|p| &p.workspace_id == id).map(|p| p.pane_id.as_str()).unwrap_or_default(), Target::Agent(id) => id.as_str() }}));
+        self.observation.record(serde_json::json!({"kind":"navigation", "host":host, "boot":s.boot_id, "generation":generation, "revision":s.revision, "pane": match &target { Target::Space(id) => s.panes.iter().find(|p| &p.workspace_id == id).map(|p| p.pane_id.as_str()).unwrap_or_default(), Target::Agent(id) => id.as_str(), Target::Command => "" }}));
         terminal.navigating = Some(Navigation {
             boot: s.boot_id.clone(),
             revision: s.revision,

@@ -82,13 +82,24 @@ fn serve(
     receipts: std::sync::mpsc::Sender<ClientMessage>,
     board: bool,
     fault: &str,
+    gate: Option<std::sync::mpsc::Receiver<()>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
     let mut welcome: serde_json::Value = serde_json::from_str(WELCOME)?;
     welcome["server_version"] = sheprd_client::MIN_HERDR_VERSION.into();
-    welcome["methods"] =
-        serde_json::json!(["client_shell.surface.set", "pane.focus", "workspace.focus"]);
+    welcome["methods"] = serde_json::json!([
+        "client_shell.surface.set",
+        "pane.focus",
+        "workspace.focus",
+        "tab.focus",
+        "tab.create",
+        "pane.split",
+        "pane.focus_direction",
+        "pane.zoom",
+        "pane.close",
+        "tab.close"
+    ]);
     welcome["capabilities"] = serde_json::json!(["surface_interest", "presentation_effects_fence"]);
     let welcome = welcome.to_string();
     for (kind, data) in [
@@ -158,6 +169,36 @@ fn serve(
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
+            if let Some(gate) = &gate {
+                let _ = gate.recv_timeout(Duration::from_secs(5));
+            }
+            if crate::mock_commands::apply(&mut board_snapshot, &request) {
+                write_message(
+                    &mut server,
+                    &ServerMessage::EndpointControl {
+                        kind: ENDPOINT_SNAPSHOT_KIND.into(),
+                        data: serde_json::to_string(&board_snapshot)?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                write_message(
+                    &mut server,
+                    &ServerMessage::PaneSurface(focused_surface(&board_snapshot, &mut serial)),
+                    MAX_FRAME_SIZE,
+                )?;
+                write_message(
+                    &mut server,
+                    &ServerMessage::ClientShellEndpointResponseChunk {
+                        boot_id: "boot-v1".into(),
+                        request_id: id.clone(),
+                        final_chunk: true,
+                        data: serde_json::to_vec(&serde_json::json!({"id":id,"result":{}}))?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                record(&message)?;
+                continue;
+            }
             write_message(
                 &mut server,
                 &ServerMessage::ClientShellEndpointResponseChunk {
@@ -224,18 +265,7 @@ fn serve(
                 MAX_FRAME_SIZE,
             )?;
         }
-        #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
-            use std::io::Write;
-            if let Some(home) = std::env::var_os("HOME")
-                && let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))
-            {
-                let _ = writeln!(file, "{}", serde_json::to_string(&message)?);
-            }
-        }
+        record(&message)?;
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
             let mut frame = focused_surface(&board_snapshot, &mut serial);
@@ -287,12 +317,20 @@ fn connect_mode(
     board: bool,
     fault: &'static str,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_gated(frames, board, fault, None)
+}
+fn connect_gated(
+    frames: u64,
+    board: bool,
+    fault: &'static str,
+    gate: Option<std::sync::mpsc::Receiver<()>>,
+) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let (local, server) = Stream::pair()?;
     std::thread::Builder::new()
         .name("yebisu-private-peer".into())
         .spawn(move || {
-            let _ = serve(server, frames, sender, board, fault);
+            let _ = serve(server, frames, sender, board, fault, gate);
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,
@@ -355,4 +393,31 @@ fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurf
 #[cfg(test)]
 pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
     connect_mode(1, false, fault).map(|(client, _)| client)
+}
+
+fn record(message: &ClientMessage) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
+        use std::io::Write;
+        if let Some(home) = std::env::var_os("HOME")
+            && let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))
+        {
+            let _ = writeln!(file, "{}", serde_json::to_string(&message)?);
+        }
+    }
+    let _ = message;
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn connect_controlled() -> crate::Result<(
+    Client,
+    std::sync::mpsc::Receiver<ClientMessage>,
+    std::sync::mpsc::Sender<()>,
+)> {
+    let (release, gate) = std::sync::mpsc::channel();
+    connect_gated(1, false, "", Some(gate)).map(|(client, receipts)| (client, receipts, release))
 }

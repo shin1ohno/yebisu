@@ -316,3 +316,20 @@ physical IME/hardware keyboard behavior.
 5. Repeat the P6 narrow-width, harness-mark, host-switch and Dense/Roomy checks above. Record the results in PR QA; Simulator output is not proof of physical keyboard or IME behavior.
 
 No new feel-based design fork was found for R4. Existing density and input variants remain in docs/variants.md.
+
+## P7 — tabs, panes and hardware shortcuts (owner, not yet run)
+
+1. Unlock the login keychain locally; never enter its password in this report or a remote prompt. In the yebisu checkout run:
+   ```sh
+   /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad
+   ```
+   Use a disposable sandbox daemon and the already approved P2 trust flow. Do not use a running personal Herdr session for these destructive close checks.
+2. Connect a hardware keyboard. Press Command-T once: one new tab appears and has focus. Hold it: there must not be repeated creation. Press Command-1 and Command-2, then tap the corresponding tab strip entries; title, terminal contents and typed text must agree. Add nine tabs and check Command-1 through Command-9 by position, including after closing an earlier tab.
+3. Press Command-D and Command-Shift-D: split right and down respectively. Use Command-Option-arrow keys and Command-Option-[ / ] to focus panes. Type a unique label into each. Command-Shift-Enter toggles zoom. Command-W / Command-Shift-W close only the intended sandbox pane/tab.
+4. Command-B hides/shows the board. Command-Shift-P opens/closes the action palette. Use its actions by touch; unavailable actions are grey. Escape closes it. Ordinary text or IME commits while it is open must never enter a terminal. P12 will add native menus and the Command-hold list; their absence here is expected.
+5. In **Input options**, compare both P7 shortcut-priority variants described in `docs/variants.md`. With Command-as-Control plus Terminal priority, verify Command-B reaches your actual configured prefix and Command-D reaches the shell. With App priority, verify the app operations. In both modes, plain Control-B and your actual daemon prefix must reach the terminal exactly once; test your editor's own chords too.
+6. Start Japanese composition, press shortcuts, cancel/commit, then change tab/pane. Confirm no leftover marked text or duplicated commit reaches the new target. Open a daemon popup and check its keys stay with the popup. Unplug/replug the hardware keyboard and repeat Command-T/B/Shift-P.
+7. Against a deliberately slow sandbox peer, create a tab or split, immediately resize/rotate and type, and attempt another focus change before the reply. No input may leak to the old/new pane; after the reply, geometry updates and a fresh gesture enables typing. Disconnect or switch host during the request and confirm no stale reply changes the selected host.
+8. Rotate with many tabs, toggle the board and palette, and check horizontal tab scrolling at narrow width. Record device/iPadOS version, keyboard model, prefix, preferred variant and each result separately from Simulator evidence.
+
+Simulator evidence uses the private in-process peer only. The Simulator gate creates a tab, splits it, focuses the original tab, opens the palette, and verifies API receipts plus coherent display/input destinations. It cannot establish hardware-keyboard routing or real IME behavior.

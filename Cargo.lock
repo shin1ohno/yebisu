@@ -4874,6 +4874,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sheprd-commands"
+version = "0.1.0"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a06723a0cc1494842a34666d173ec0200"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sheprd-client",
+]
+
+[[package]]
 name = "sheprd-credentials"
 version = "0.1.0"
 source = "git+https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a06723a0cc1494842a34666d173ec0200"
@@ -6384,6 +6394,7 @@ dependencies = [
  "image",
  "serde_json",
  "sheprd-client",
+ "sheprd-commands",
  "thiserror 2.0.21",
  "tracing",
  "unicode-width",

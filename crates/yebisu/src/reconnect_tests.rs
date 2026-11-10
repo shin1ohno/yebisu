@@ -178,3 +178,31 @@ fn busy_inbox_does_not_block_pause_and_late_reason_reaches_ui(cx: &mut TestAppCo
         assert_eq!(this.terminal.link.generation, generation);
     });
 }
+
+#[gpui::test]
+fn first_foreground_begins_each_new_hidden_host_once(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.select_host("selected@invalid.test");
+        this.setup.hosts = vec![
+            "selected@invalid.test".into(),
+            "hidden-a@invalid.test".into(),
+            "hidden-b@invalid.test".into(),
+        ];
+        assert!(this.board.hidden.is_empty());
+        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Active, cx);
+        for host in &this.setup.hosts {
+            let terminal = if *host == this.terminal.reconnect.target {
+                &this.terminal
+            } else {
+                &this.board.hidden[host]
+            };
+            assert!(terminal.reconnect.current(host, 1), "one begin for {host}");
+        }
+        this.lifecycle(AppLifecyclePhase::Active, cx);
+        for terminal in this.board.hidden.values() {
+            assert!(terminal.reconnect.current(&terminal.reconnect.target, 1));
+        }
+    });
+}

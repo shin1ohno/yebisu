@@ -203,6 +203,31 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP7Tabs() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launch()
+        sleep(3)
+        try tapText("Toggle Sidebar", in: app)
+        sleep(1)
+        save("p7-initial")
+        try tapText("New Tab", in: app)
+        sleep(2)
+        save("p7-tab")
+        try tapText("Split Right", in: app)
+        sleep(2)
+        save("p7-split")
+        try tapText("main", in: app)
+        sleep(2)
+        save("p7-return")
+        try tapText("Command Palette", in: app)
+        sleep(1)
+        save("p7-palette")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     private func scrollBoard(in app: XCUIApplication) throws {
         let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
         let request = VNRecognizeTextRequest()
