@@ -73,7 +73,7 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
         panes: vec![],
         splits: vec![],
         popup: None,
-        graphics: SurfaceGraphicsScene::default(),
+        graphics: handoff_graphics(),
     }
 }
 fn serve(
@@ -132,7 +132,8 @@ fn serve(
 
     loop {
         // Consume geometry updates from the real client; no external socket or host.
-        let message: ClientMessage = match read_message(&mut server, MAX_FRAME_SIZE) {
+        let message: ClientMessage = match read_message(&mut server, MAX_CLIPBOARD_IMAGE_FRAME_SIZE)
+        {
             Ok(message) => message,
             Err(e)
                 if board
@@ -438,4 +439,47 @@ pub(crate) fn connect_response_first() -> crate::Result<(
     let (release, gate) = std::sync::mpsc::channel();
     connect_gated(1, false, "response-first", Some(gate))
         .map(|(client, receipts)| (client, receipts, release))
+}
+
+fn handoff_graphics() -> SurfaceGraphicsScene {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    if std::env::var_os("YEBISU_HANDOFF_QA").is_some() {
+        let key = SurfaceGraphicsAssetKey {
+            source: SurfaceGraphicsSource::Terminal {
+                target: SurfaceGraphicsTarget::Pane {
+                    pane_id: "w1:p1".into(),
+                },
+                image_id: 1,
+            },
+            image_width: 8,
+            image_height: 8,
+            format: SurfaceGraphicsFormat::Rgba,
+            data_len: 256,
+            data_fingerprint: 1,
+        };
+        return SurfaceGraphicsScene {
+            assets: vec![SurfaceGraphicsAsset {
+                key: key.clone(),
+                data: [255, 0, 170, 255].repeat(64),
+            }],
+            placements: vec![SurfaceGraphicsPlacement {
+                asset: key,
+                logical_placement_id: 1,
+                x: 30,
+                y: 2,
+                cols: 8,
+                rows: 3,
+                source_x: 0,
+                source_y: 0,
+                source_width: 0,
+                source_height: 0,
+                x_offset: 0,
+                y_offset: 0,
+                z: 1,
+                scrollback_offset: 0,
+            }],
+            retained_assets: vec![],
+        };
+    }
+    SurfaceGraphicsScene::default()
 }

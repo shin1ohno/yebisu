@@ -63,3 +63,13 @@ mod mock_commands;
 
 #[cfg(test)]
 mod review_r5_tests;
+
+#[cfg(any(target_os = "ios", test))]
+mod handoff;
+#[cfg(any(target_os = "ios", test))]
+mod handoff_clipboard;
+#[cfg(any(target_os = "ios", test))]
+mod handoff_view;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod handoff_qa;

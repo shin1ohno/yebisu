@@ -141,6 +141,8 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
 
 impl Smoke {
     pub(crate) fn select_host(&mut self, host: &str) {
+        self.handoff.cancel();
+        self.handoff.selection = None;
         if self.terminal.reconnect.target == host {
             self.terminal.open = true;
             return;

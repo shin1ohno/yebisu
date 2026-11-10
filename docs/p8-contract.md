@@ -13,8 +13,8 @@ or leaving the terminal invalidates selection and asynchronous paste work.
 
 Pastes reserve FIFO order before acquisition. Normal paste prefers text;
 image-only paste ignores text. UIKit access stays on the main thread. Image
-decoding/encoding and transfer execute off-thread. At most four outstanding
-pastes and 256 held input events are accepted. Keys made after an unfinished
+decoding/encoding and transfer execute off-thread. One outstanding paste preparation (below the reference ceiling of four) and
+256 held input events are accepted. A second paste is visibly refused while busy; only input after that refusal is discarded. Keys made after an unfinished
 paste wait behind it. Failed or cancelled paste discards its following held
 input. No completion can borrow the newly selected host's handle. Before
 publication, recheck host selection epoch and reader destination; cancellation
@@ -33,3 +33,7 @@ GraphicsFile path. OSC 52 remains the existing bounded UTF-8-only, one-shot queu
 
 Runtime choices: explicit Select mode versus double-click/drag initiation;
 manual Copy versus Copy on selection. Both remain local and share cancellation.
+
+The canvas uses a content mask, not an enclosing paint layer: the painter owns
+its background/text/image layers, so images must not inherit an earlier parent
+draw order below the backgrounds.

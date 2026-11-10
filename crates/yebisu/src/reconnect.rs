@@ -47,6 +47,8 @@ impl Smoke {
                 if self.terminal.reconnect.suspended {
                     return;
                 }
+                self.handoff.cancel();
+                self.handoff.selection = None;
                 self.terminal.reconnect.suspended = true;
                 for terminal in self.board.hidden.values_mut() {
                     terminal.reconnect_pending = false;

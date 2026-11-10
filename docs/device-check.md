@@ -445,3 +445,35 @@ retention contract.
    Deterministic missing/delayed/transfer-error tests run without a device.
 5. Record the actual physical results in PR QA. Simulator container/file and
    privacy tests do not prove device signing or hardware/IME behavior.
+
+## P8 / M5 selection and clipboard (owner, physical M5)
+
+Use an already authorized sandbox daemon; never an existing working Herdr session.
+Unlock the login keychain locally, connect/unlock M5, then run the provided absolute
+just binary with `ipad` in this repository. Record device/iPadOS and this PR head.
+
+1. Print `日本語 ABC` in the sandbox. Tap **Select**, then drag with the trackpad
+   across the text. Confirm highlighted cells match the drag, press **Copy**, and
+   paste into Notes. Confirm CJK characters appear once and no terminal input ran.
+2. Repeat with a finger. Compare **Start: Select / double tap** with **Start: Drag**.
+   Turn **Copy: On selection** on/off and compare Notes' pasteboard result after
+   releasing the drag. Choose the preferred feel without rebuilding.
+3. End selection, focus the terminal and copy `P8-text-かな` in Notes. Use the native
+   **Paste** edit menu, then Command-V; each action must paste exactly once. Confirm
+   multiline text is sent as semantic paste, not individual key presses.
+4. Copy an image in Photos/Files. Use **Paste image**. For an item offering both
+   text and image, ordinary **Paste** prefers text and **Paste image** chooses image.
+5. Copy a large PNG (encoded size above 16 MiB, below 128 MiB, dimensions below
+   64 Mi pixels). Paste image; confirm the sandbox receives an image, UI stays
+   responsive and subsequent typing follows the paste. Confirm transfer payload
+   fits the protocol's 16 MiB cap after resizing. Copy malformed/unsupported data
+   and confirm refusal without sending any path or opening a local file.
+6. During image preparation switch hosts, panes, open Hosts or background the app.
+   Confirm neither old paste nor held typing reaches the new target. Reconnect and
+   paste fresh text successfully. A second paste during preparation must report busy.
+7. Start IME composition, enter selection and copy; confirm no uncommitted text
+   reaches the daemon. Print replacement output over a selection and confirm the
+   selection clears. Display a Kitty image from the sandbox and check it renders.
+
+Simulator receipt checks are separate from trackpad, touch, native menu and physical
+large-image acceptance. No physical checks above have been marked complete.
