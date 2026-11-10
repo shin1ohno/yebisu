@@ -418,7 +418,7 @@ Record this result and device/keyboard details in PR #14 QA.
 ## SH1-146 / SH1-147 maintenance acceptance
 
 herdr-uikit is pinned to main merge commit
-`439ebbc1606e807f45118d59f0f01f8c7721b71c`. Normal startup now enables a
+`b2fa7811fa9fad9592f47b06d851fc0c33facb16`. Normal startup now enables a
 bounded yebisu diagnostics file writer. Its single container-relative path
 is in `crates/yebisu/src/log-location.txt`; Rust and device.sh read that file.
 No existing old-app data is moved. See `docs/logging.md` for the privacy and
@@ -517,3 +517,65 @@ Option-Command-C/V must reach the sandbox as Ctrl-Alt-C/V, without copying or
 pasting. Command-Shift-C is also an unmatched chord. With Command: Local, unmatched
 Command chords remain platform-local. Native Copy/Paste must retain their separate
 behavior. Record keyboard layout and the modifiers iPadOS actually delivers.
+
+## P9 / M6 — Herdr 2 terminals
+
+Worker validation uses a private socketpair core wire peer. It does not establish
+physical keyboard/IME behavior or contact any running owner service. The current
+UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
+
+1. Unlock the login keychain locally, connect/unlock M5, then run from the yebisu
+   checkout in an interactive login shell:
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+   Never send the password to an agent. Record device model and iPadOS version.
+2. Use an explicitly authorized disposable host with `herdr-core serve` running
+   and the `hc connect` bridge available in its SSH command environment. Select
+   its saved SSH target, verify its fingerprint through the existing Trust flow,
+   and tap **Open Herdr 2**. Confirm the remote shell and host identity.
+3. Type ASCII and Japanese through the software keyboard. Compose multiple
+   clauses, move the selected clause, delete part of an emoji clause, commit once,
+   and cancel composition with Escape. Confirm no uncommitted text reaches the
+   shell. Rotate with a clause open: candidate position must track painted text.
+4. Attach a hardware keyboard. Under **Input options**, exercise all combinations
+   of Option Native/Alt, Command Local/Ctrl, Candidate Clause/Caret and Shortcuts
+   App/Terminal priority. Check arrows, Escape, Control-G, Command-G, Option-X,
+   repeats and release; confirm one delivery. Paste plain text using Command-V
+   and the native Paste action; Command: Ctrl with Terminal priority must deliver
+   Control-V instead of reading the clipboard. Herdr 2 supports text paste;
+   image paste remains a Herdr 1 operation. Repeat with a program requesting
+   kitty key reports and after unplug/replug. Candidate options are visual only.
+5. Tap **Split (2 panes)**. Both remote terminals must remain visible. Tap
+   **Pane 1** and **Pane 2**, type distinct markers, and confirm routing only to
+   the selected pane. Toggle split direction to compare stacked and side-by-side
+   layouts without rebuilding. Rotation must resize both programs.
+6. Tap **Detach**. The remote programs must keep running. Tap **Reconnect** and
+   confirm both saved terminal IDs, active pane and split direction are restored.
+   Relaunch the app and open the same saved host; verify the same workspace.
+7. During a slow connection to host A, return to **Hosts**, select disposable host
+   B and tap **Open Herdr 2**. Complete/fail A's connection afterwards. B's text,
+   status and input destination must remain B. Repeat A → B → A and detach while
+   connecting; there must be no input replay or unexpected remote terminal spawn.
+8. Background/lock then return. Compare the existing Automatic and Tap reconnect
+   policies; verify fresh input after reattach and no replay of queued IME text.
+   Also reopen a Herdr 1 host using its normal Connect control to check regression.
+
+Record results and preferred split direction in PR QA. Two panes are the explicit
+P9 workspace limit. Splits use client layout; remote terminals outlive detach.
+
+### P9 review regression checks
+
+1. In Herdr 2 with App shortcut priority, press Command-Shift-P. No hidden
+   palette may open; immediately type text and use native Paste. Both must reach
+   the selected pane. Also open Herdr 2 after leaving a Herdr 1 palette open.
+2. On a disposable Herdr 1 host, delay a tab-create response. Return to Hosts
+   and open Herdr 2 on the same host before that response arrives. After the
+   first frame, type a marker and rotate: input and terminal resize must work.
+3. Split two core panes and run `exit` in Pane 1. Its last output and the
+   `ended: 1` status must remain visible. Select Pane 2, type a marker and rotate:
+   the second program must receive input and redraw without Reconnect.
+
+4. On a disposable host with an incompatible Herdr 1 daemon but a compatible
+   core, open Herdr 2 after the Herdr 1 mismatch. Background and return with
+   Automatic enabled; verify reconnection and fresh text input. Repeat while
+   delaying the old Herdr 1 mismatch until after opening core. The old mismatch
+   must not disable core Reconnect or background return.

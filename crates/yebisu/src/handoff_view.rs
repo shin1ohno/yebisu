@@ -74,6 +74,10 @@ impl Smoke {
         self.terminal.input.discard();
         self.terminal.input.fresh_gesture();
         self.flush_terminal();
+        if self.terminal.core_mode {
+            self.paste_core(stamp.destination, image_only, cx);
+            return;
+        }
         let target = match &stamp.destination.target {
             crate::terminal::InputTarget::Pane(id) => {
                 sheprd_client::protocol::ClientClipboardImageTarget::Pane(id.clone())
@@ -269,6 +273,7 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn handoff_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+        let core_mode = self.terminal.core_mode;
         div()
             .flex()
             .flex_wrap()
@@ -305,6 +310,7 @@ impl Smoke {
                     ),
                 ]
                 .into_iter()
+                .filter(move |(id, _)| !core_mode || *id != "paste-image")
                 .map(|(id, label)| {
                     div()
                         .id(id)

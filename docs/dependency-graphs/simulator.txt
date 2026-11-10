@@ -13,7 +13,8 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   └── uuid v1.28.0
 │   │       ├── getrandom v0.4.3
 │   │       │   ├── cfg-if v1.0.5
-│   │       │   └── libc v0.2.189
+│   │       │   ├── libc v0.2.189
+│   │       │   └── rand_core v0.10.1
 │   │       ├── serde_core v1.0.229
 │   │       └── sha1_smol v1.0.1
 │   ├── anyhow v1.0.104
@@ -40,6 +41,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   │   └── memchr v2.8.3
 │   │   └── rustc-demangle v0.1.28
 │   ├── bitflags v2.13.2
+│   │   └── serde_core v1.0.229
 │   ├── chrono v0.4.45
 │   │   ├── iana-time-zone v0.1.65
 │   │   │   └── core-foundation-sys v0.8.7
@@ -355,7 +357,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   │   └── pxfm v0.1.30
 │   │   ├── num-traits v0.2.19 (*)
 │   │   ├── png v0.18.1
-│   │   │   ├── bitflags v2.13.2
+│   │   │   ├── bitflags v2.13.2 (*)
 │   │   │   ├── crc32fast v1.5.2
 │   │   │   │   └── cfg-if v1.0.5
 │   │   │   ├── fdeflate v0.3.7
@@ -399,11 +401,11 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   ├── num_cpus v1.17.0
 │   │   └── libc v0.2.189
 │   ├── objc2-core-foundation v0.3.2
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   └── objc2 v0.6.5
 │   │       └── objc2-encode v4.1.0
 │   ├── objc2-core-video v0.3.2
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   └── objc2-core-foundation v0.3.2 (*)
 │   ├── parking v2.2.1
 │   ├── parking_lot v0.12.5 (*)
@@ -483,7 +485,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   │   ├── roxmltree v0.21.1
 │   │   │   │   └── memchr v2.8.3
 │   │   │   ├── rustybuzz v0.20.1
-│   │   │   │   ├── bitflags v2.13.2
+│   │   │   │   ├── bitflags v2.13.2 (*)
 │   │   │   │   ├── bytemuck v1.25.2
 │   │   │   │   ├── core_maths v0.1.1 (*)
 │   │   │   │   ├── log v0.4.34 (*)
@@ -547,7 +549,377 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │           ├── toml_parser v1.1.3+spec-1.1.0 (*)
 │           ├── toml_writer v1.1.2+spec-1.1.0
 │           └── winnow v1.0.4
-├── herdr-uikit v0.1.0 (https://github.com/shin1ohno/herdr-uikit?rev=439ebbc1606e807f45118d59f0f01f8c7721b71c#439ebbc1)
+├── herdr-ssh v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   ├── base64 v0.23.1
+│   ├── russh v0.65.0
+│   │   ├── aes v0.9.3
+│   │   │   ├── cipher v0.5.2
+│   │   │   │   ├── block-buffer v0.12.1
+│   │   │   │   │   └── hybrid-array v0.4.15
+│   │   │   │   │       ├── ctutils v0.4.6
+│   │   │   │   │       │   ├── cmov v0.5.4
+│   │   │   │   │       │   └── subtle v2.6.1
+│   │   │   │   │       ├── subtle v2.6.1
+│   │   │   │   │       ├── typenum v1.20.1
+│   │   │   │   │       └── zeroize v1.9.1
+│   │   │   │   ├── crypto-common v0.2.2
+│   │   │   │   │   ├── getrandom v0.4.3 (*)
+│   │   │   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   │   │   └── rand_core v0.10.1
+│   │   │   │   └── inout v0.2.2
+│   │   │   │       ├── block-padding v0.4.2
+│   │   │   │       │   └── hybrid-array v0.4.15 (*)
+│   │   │   │       └── hybrid-array v0.4.15 (*)
+│   │   │   ├── cpubits v0.1.1
+│   │   │   ├── cpufeatures v0.3.1
+│   │   │   │   └── libc v0.2.189
+│   │   │   └── zeroize v1.9.1
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── block-padding v0.4.2 (*)
+│   │   ├── byteorder v1.5.0
+│   │   ├── bytes v1.12.1
+│   │   ├── cbc v0.2.1
+│   │   │   └── cipher v0.5.2 (*)
+│   │   ├── cipher v0.5.2 (*)
+│   │   ├── crypto-bigint v0.7.10
+│   │   │   ├── cpubits v0.1.1
+│   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   ├── getrandom v0.4.3 (*)
+│   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   ├── num-traits v0.2.19 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── subtle v2.6.1
+│   │   │   └── zeroize v1.9.1
+│   │   ├── ctr v0.10.1
+│   │   │   └── cipher v0.5.2 (*)
+│   │   ├── curve25519-dalek v5.0.0
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   ├── digest v0.11.3
+│   │   │   │   ├── block-buffer v0.12.1 (*)
+│   │   │   │   ├── const-oid v0.10.2
+│   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   └── ctutils v0.4.6 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── subtle v2.6.1
+│   │   │   └── zeroize v1.9.1
+│   │   │   [build-dependencies]
+│   │   │   └── rustc_version v0.4.1 (*)
+│   │   ├── data-encoding v2.11.1
+│   │   ├── delegate v0.13.5 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v2.0.119 (*)
+│   │   ├── der v0.8.2
+│   │   │   ├── const-oid v0.10.2
+│   │   │   ├── pem-rfc7468 v1.0.0
+│   │   │   │   └── base64ct v1.8.3
+│   │   │   └── zeroize v1.9.1
+│   │   ├── digest v0.11.3 (*)
+│   │   ├── ecdsa v0.17.0
+│   │   │   ├── der v0.8.2 (*)
+│   │   │   ├── digest v0.11.3 (*)
+│   │   │   ├── elliptic-curve v0.14.1
+│   │   │   │   ├── base16ct v1.0.0
+│   │   │   │   ├── crypto-bigint v0.7.10 (*)
+│   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   ├── digest v0.11.3 (*)
+│   │   │   │   ├── ff v0.14.0
+│   │   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   │   └── subtle v2.6.1
+│   │   │   │   ├── group v0.14.0
+│   │   │   │   │   ├── ff v0.14.0 (*)
+│   │   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   │   └── subtle v2.6.1
+│   │   │   │   ├── hkdf v0.13.0
+│   │   │   │   │   └── hmac v0.13.0
+│   │   │   │   │       └── digest v0.11.3 (*)
+│   │   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   │   ├── pem-rfc7468 v1.0.0 (*)
+│   │   │   │   ├── pkcs8 v0.11.0
+│   │   │   │   │   ├── der v0.8.2 (*)
+│   │   │   │   │   ├── pkcs5 v0.8.1
+│   │   │   │   │   │   ├── aes v0.9.3 (*)
+│   │   │   │   │   │   ├── aes-gcm v0.11.1
+│   │   │   │   │   │   │   ├── aead v0.6.1
+│   │   │   │   │   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   │   │   │   │   └── inout v0.2.2 (*)
+│   │   │   │   │   │   │   ├── aes v0.9.3 (*)
+│   │   │   │   │   │   │   ├── cipher v0.5.2 (*)
+│   │   │   │   │   │   │   ├── ctr v0.10.1 (*)
+│   │   │   │   │   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   │   │   │   │   ├── ghash v0.6.0
+│   │   │   │   │   │   │   │   ├── polyval v0.7.3
+│   │   │   │   │   │   │   │   │   ├── cpubits v0.1.1
+│   │   │   │   │   │   │   │   │   ├── cpufeatures v0.3.1 (*)
+│   │   │   │   │   │   │   │   │   ├── universal-hash v0.6.1
+│   │   │   │   │   │   │   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   │   │   │   │   │   │   └── ctutils v0.4.6 (*)
+│   │   │   │   │   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   │   │   ├── cbc v0.2.1 (*)
+│   │   │   │   │   │   ├── der v0.8.2 (*)
+│   │   │   │   │   │   ├── pbkdf2 v0.13.0
+│   │   │   │   │   │   │   ├── digest v0.11.3 (*)
+│   │   │   │   │   │   │   └── hmac v0.13.0 (*)
+│   │   │   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   │   │   ├── scrypt v0.12.0
+│   │   │   │   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   │   │   │   ├── pbkdf2 v0.13.0 (*)
+│   │   │   │   │   │   │   ├── salsa20 v0.11.0
+│   │   │   │   │   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   │   │   │   │   └── cipher v0.5.2 (*)
+│   │   │   │   │   │   │   └── sha2 v0.11.1
+│   │   │   │   │   │   │       ├── cfg-if v1.0.5
+│   │   │   │   │   │   │       ├── cpufeatures v0.3.1 (*)
+│   │   │   │   │   │   │       └── digest v0.11.3 (*)
+│   │   │   │   │   │   ├── sha2 v0.11.1 (*)
+│   │   │   │   │   │   └── spki v0.8.1
+│   │   │   │   │   │       └── der v0.8.2 (*)
+│   │   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   │   └── spki v0.8.1 (*)
+│   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   ├── sec1 v0.8.1
+│   │   │   │   │   ├── base16ct v1.0.0
+│   │   │   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   │   │   ├── der v0.8.2 (*)
+│   │   │   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   │   │   ├── subtle v2.6.1
+│   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   ├── subtle v2.6.1
+│   │   │   │   └── zeroize v1.9.1
+│   │   │   ├── rfc6979 v0.6.0
+│   │   │   │   ├── crypto-bigint v0.7.10 (*)
+│   │   │   │   └── hmac v0.13.0 (*)
+│   │   │   ├── signature v3.0.0
+│   │   │   │   ├── digest v0.11.3 (*)
+│   │   │   │   └── rand_core v0.10.1
+│   │   │   ├── spki v0.8.1 (*)
+│   │   │   └── zeroize v1.9.1
+│   │   ├── ed25519-dalek v3.0.0
+│   │   │   ├── curve25519-dalek v5.0.0 (*)
+│   │   │   ├── ed25519 v3.0.0
+│   │   │   │   ├── pkcs8 v0.11.0 (*)
+│   │   │   │   └── signature v3.0.0 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── sha2 v0.11.1 (*)
+│   │   │   ├── signature v3.0.0 (*)
+│   │   │   ├── subtle v2.6.1
+│   │   │   └── zeroize v1.9.1
+│   │   ├── elliptic-curve v0.14.1 (*)
+│   │   ├── enum_dispatch v0.3.13 (proc-macro)
+│   │   │   ├── once_cell v1.21.4
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v2.0.119 (*)
+│   │   ├── futures v0.3.34 (*)
+│   │   ├── generic-array v1.4.5
+│   │   │   ├── generic-array v0.14.7
+│   │   │   │   └── typenum v1.20.1
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── version_check v0.9.5
+│   │   │   ├── rustversion v1.0.23 (proc-macro)
+│   │   │   └── typenum v1.20.1
+│   │   ├── getrandom v0.4.3 (*)
+│   │   ├── ghash v0.6.0 (*)
+│   │   ├── hex-literal v1.1.0
+│   │   ├── hmac v0.13.0 (*)
+│   │   ├── inout v0.2.2 (*)
+│   │   ├── keccak v0.2.2
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   └── cpufeatures v0.3.1 (*)
+│   │   ├── log v0.4.34 (*)
+│   │   ├── md5 v0.8.1
+│   │   ├── ml-kem v0.3.3
+│   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   ├── kem v0.3.0
+│   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   └── rand_core v0.10.1
+│   │   │   ├── module-lattice v0.2.3
+│   │   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   │   ├── hybrid-array v0.4.15 (*)
+│   │   │   │   └── num-traits v0.2.19 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── sha3 v0.12.0
+│   │   │   │   ├── digest v0.11.3 (*)
+│   │   │   │   ├── keccak v0.2.2 (*)
+│   │   │   │   └── sponge-cursor v0.1.0
+│   │   │   └── shake v0.1.0
+│   │   │       ├── digest v0.11.3 (*)
+│   │   │       ├── keccak v0.2.2 (*)
+│   │   │       └── sponge-cursor v0.1.0
+│   │   ├── module-lattice v0.2.3 (*)
+│   │   ├── num-bigint v0.5.1
+│   │   │   ├── num-integer v0.1.47
+│   │   │   │   └── num-traits v0.2.19 (*)
+│   │   │   ├── num-traits v0.2.19 (*)
+│   │   │   ├── rand v0.10.3
+│   │   │   │   ├── chacha20 v0.10.2
+│   │   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   │   ├── cipher v0.5.2 (*)
+│   │   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   ├── getrandom v0.4.3 (*)
+│   │   │   │   └── rand_core v0.10.1
+│   │   │   └── rand_core v0.10.1
+│   │   ├── p256 v0.14.0
+│   │   │   ├── ecdsa v0.17.0 (*)
+│   │   │   ├── elliptic-curve v0.14.1 (*)
+│   │   │   ├── primefield v0.14.0
+│   │   │   │   ├── crypto-bigint v0.7.10 (*)
+│   │   │   │   ├── crypto-common v0.2.2 (*)
+│   │   │   │   ├── ff v0.14.0 (*)
+│   │   │   │   ├── rand_core v0.10.1
+│   │   │   │   ├── subtle v2.6.1
+│   │   │   │   └── zeroize v1.9.1
+│   │   │   ├── primeorder v0.14.0
+│   │   │   │   ├── elliptic-curve v0.14.1 (*)
+│   │   │   │   ├── primefield v0.14.0 (*)
+│   │   │   │   └── wnaf v0.14.1
+│   │   │   │       ├── ff v0.14.0 (*)
+│   │   │   │       ├── group v0.14.0 (*)
+│   │   │   │       ├── hybrid-array v0.4.15 (*)
+│   │   │   │       └── primefield v0.14.0 (*)
+│   │   │   └── sha2 v0.11.1 (*)
+│   │   ├── p384 v0.14.0
+│   │   │   ├── ecdsa v0.17.0 (*)
+│   │   │   ├── elliptic-curve v0.14.1 (*)
+│   │   │   ├── primefield v0.14.0 (*)
+│   │   │   ├── primeorder v0.14.0 (*)
+│   │   │   └── sha2 v0.11.1 (*)
+│   │   ├── p521 v0.14.0
+│   │   │   ├── base16ct v1.0.0
+│   │   │   ├── ecdsa v0.17.0 (*)
+│   │   │   ├── elliptic-curve v0.14.1 (*)
+│   │   │   ├── primefield v0.14.0 (*)
+│   │   │   ├── primeorder v0.14.0 (*)
+│   │   │   └── sha2 v0.11.1 (*)
+│   │   ├── pbkdf2 v0.13.0 (*)
+│   │   ├── pkcs1 v0.8.0-rc.4
+│   │   │   ├── der v0.8.2 (*)
+│   │   │   └── spki v0.8.1 (*)
+│   │   ├── pkcs5 v0.8.1 (*)
+│   │   ├── pkcs8 v0.11.0 (*)
+│   │   ├── polyval v0.7.3 (*)
+│   │   ├── rand v0.10.3 (*)
+│   │   ├── rand_core v0.10.1
+│   │   ├── ring v0.17.14
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   ├── getrandom v0.2.17
+│   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   └── libc v0.2.189
+│   │   │   ├── libc v0.2.189
+│   │   │   └── untrusted v0.9.0
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.4.7 (*)
+│   │   ├── rsa v0.10.0-rc.18
+│   │   │   ├── const-oid v0.10.2
+│   │   │   ├── crypto-bigint v0.7.10 (*)
+│   │   │   ├── crypto-primes v0.7.2
+│   │   │   │   ├── crypto-bigint v0.7.10 (*)
+│   │   │   │   └── rand_core v0.10.1
+│   │   │   ├── digest v0.11.3 (*)
+│   │   │   ├── pkcs1 v0.8.0-rc.4 (*)
+│   │   │   ├── pkcs8 v0.11.0 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── sha2 v0.11.1 (*)
+│   │   │   ├── signature v3.0.0 (*)
+│   │   │   ├── spki v0.8.1 (*)
+│   │   │   └── zeroize v1.9.1
+│   │   ├── russh-cryptovec v0.62.0
+│   │   │   ├── log v0.4.34 (*)
+│   │   │   ├── nix v0.31.3
+│   │   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   └── libc v0.2.189
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── cfg_aliases v0.2.2
+│   │   │   └── ssh-encoding v0.3.0
+│   │   │       ├── base64ct v1.8.3
+│   │   │       ├── bytes v1.12.1
+│   │   │       ├── crypto-bigint v0.7.10 (*)
+│   │   │       ├── ctutils v0.4.6 (*)
+│   │   │       ├── digest v0.11.3 (*)
+│   │   │       ├── pem-rfc7468 v1.0.0 (*)
+│   │   │       └── zeroize v1.9.1
+│   │   ├── russh-util v0.52.0
+│   │   │   └── tokio v1.54.1
+│   │   │       ├── bytes v1.12.1
+│   │   │       ├── libc v0.2.189
+│   │   │       ├── mio v1.2.4
+│   │   │       │   └── libc v0.2.189
+│   │   │       ├── pin-project-lite v0.2.17
+│   │   │       ├── signal-hook-registry v1.4.8
+│   │   │       │   ├── errno v0.3.14
+│   │   │       │   │   └── libc v0.2.189
+│   │   │       │   └── libc v0.2.189
+│   │   │       ├── socket2 v0.6.5
+│   │   │       │   └── libc v0.2.189
+│   │   │       └── tokio-macros v2.7.2 (proc-macro)
+│   │   │           ├── proc-macro2 v1.0.107 (*)
+│   │   │           ├── quote v1.0.47 (*)
+│   │   │           └── syn v3.0.6 (*)
+│   │   ├── salsa20 v0.11.0 (*)
+│   │   ├── scrypt v0.12.0 (*)
+│   │   ├── sec1 v0.8.1 (*)
+│   │   ├── sha1 v0.11.0
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   ├── cpufeatures v0.3.1 (*)
+│   │   │   └── digest v0.11.3 (*)
+│   │   ├── sha2 v0.11.1 (*)
+│   │   ├── sha3 v0.12.0 (*)
+│   │   ├── signature v3.0.0 (*)
+│   │   ├── spki v0.8.1 (*)
+│   │   ├── ssh-encoding v0.3.0 (*)
+│   │   ├── ssh-key v0.7.0-rc.11
+│   │   │   ├── argon2 v0.6.0
+│   │   │   │   ├── base64ct v1.8.3
+│   │   │   │   └── blake2 v0.11.0
+│   │   │   │       └── digest v0.11.3 (*)
+│   │   │   ├── bcrypt-pbkdf v0.11.0
+│   │   │   │   ├── blowfish v0.10.0
+│   │   │   │   │   ├── byteorder v1.5.0
+│   │   │   │   │   └── cipher v0.5.2 (*)
+│   │   │   │   ├── pbkdf2 v0.13.0 (*)
+│   │   │   │   └── sha2 v0.11.1 (*)
+│   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   ├── ed25519-dalek v3.0.0 (*)
+│   │   │   ├── hex v0.4.3
+│   │   │   ├── hmac v0.13.0 (*)
+│   │   │   ├── p256 v0.14.0 (*)
+│   │   │   ├── p384 v0.14.0 (*)
+│   │   │   ├── p521 v0.14.0 (*)
+│   │   │   ├── rand_core v0.10.1
+│   │   │   ├── rsa v0.10.0-rc.18 (*)
+│   │   │   ├── sec1 v0.8.1 (*)
+│   │   │   ├── sha1 v0.11.0 (*)
+│   │   │   ├── sha2 v0.11.1 (*)
+│   │   │   ├── signature v3.0.0 (*)
+│   │   │   ├── ssh-cipher v0.3.0
+│   │   │   │   ├── aead v0.6.1 (*)
+│   │   │   │   ├── aes v0.9.3 (*)
+│   │   │   │   ├── aes-gcm v0.11.1 (*)
+│   │   │   │   ├── chacha20 v0.10.2 (*)
+│   │   │   │   ├── cipher v0.5.2 (*)
+│   │   │   │   ├── ctutils v0.4.6 (*)
+│   │   │   │   ├── poly1305 v0.9.1
+│   │   │   │   │   ├── universal-hash v0.6.1 (*)
+│   │   │   │   │   └── zeroize v1.9.1
+│   │   │   │   ├── ssh-encoding v0.3.0 (*)
+│   │   │   │   └── zeroize v1.9.1
+│   │   │   ├── ssh-encoding v0.3.0 (*)
+│   │   │   └── zeroize v1.9.1
+│   │   ├── subtle v2.6.1
+│   │   ├── thiserror v2.0.21 (*)
+│   │   ├── tokio v1.54.1 (*)
+│   │   ├── typenum v1.20.1
+│   │   ├── universal-hash v0.6.1 (*)
+│   │   └── zeroize v1.9.1
+│   ├── sha2 v0.11.1 (*)
+│   ├── thiserror v2.0.21 (*)
+│   ├── tokio v1.54.1 (*)
+│   └── tracing v0.1.44 (*)
+├── herdr-uikit v0.1.0 (https://github.com/shin1ohno/herdr-uikit?rev=b2fa7811fa9fad9592f47b06d851fc0c33facb16#b2fa7811)
 │   ├── anyhow v1.0.104
 │   ├── block2 v0.6.2
 │   │   └── objc2 v0.6.5 (*)
@@ -555,10 +927,10 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   ├── core-foundation-sys v0.8.7
 │   │   └── libc v0.2.189
 │   ├── core-graphics v0.24.0
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   ├── core-foundation v0.10.0 (*)
 │   │   ├── core-graphics-types v0.2.0
-│   │   │   ├── bitflags v2.13.2
+│   │   │   ├── bitflags v2.13.2 (*)
 │   │   │   ├── core-foundation v0.10.0 (*)
 │   │   │   └── libc v0.2.189
 │   │   ├── foreign-types v0.5.0
@@ -574,7 +946,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   │   ├── foreign-types v0.5.0 (*)
 │   │   └── libc v0.2.189
 │   ├── dispatch2 v0.3.1
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   └── objc2 v0.6.5 (*)
 │   ├── etagere v0.2.15 (*)
 │   ├── foreign-types v0.5.0 (*)
@@ -583,7 +955,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   ├── gpui-pre v0.3.12 (*)
 │   ├── image v0.25.10 (*)
 │   ├── metal v0.33.0
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   ├── block v0.1.6
 │   │   ├── core-graphics-types v0.2.0 (*)
 │   │   ├── foreign-types v0.5.0 (*)
@@ -596,19 +968,19 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   ├── objc2 v0.6.5 (*)
 │   ├── objc2-core-foundation v0.3.2 (*)
 │   ├── objc2-foundation v0.3.2
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   └── objc2 v0.6.5 (*)
 │   ├── objc2-quartz-core v0.3.2
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   ├── objc2 v0.6.5 (*)
 │   │   ├── objc2-core-foundation v0.3.2 (*)
 │   │   ├── objc2-foundation v0.3.2 (*)
 │   │   └── objc2-metal v0.3.2
-│   │       ├── bitflags v2.13.2
+│   │       ├── bitflags v2.13.2 (*)
 │   │       ├── objc2 v0.6.5 (*)
 │   │       └── objc2-foundation v0.3.2 (*)
 │   ├── objc2-ui-kit v0.3.2
-│   │   ├── bitflags v2.13.2
+│   │   ├── bitflags v2.13.2 (*)
 │   │   ├── block2 v0.6.2 (*)
 │   │   ├── objc2 v0.6.5 (*)
 │   │   ├── objc2-core-foundation v0.3.2 (*)
@@ -626,7 +998,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │   ├── tracing v0.1.44 (*)
 │   ├── uuid v1.28.0 (*)
 │   └── zed-font-kit v0.14.1-zed
-│       ├── bitflags v2.13.2
+│       ├── bitflags v2.13.2 (*)
 │       ├── byteorder v1.5.0
 │       ├── core-foundation v0.10.0 (*)
 │       ├── core-graphics v0.24.0 (*)
@@ -684,6 +1056,118 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │               ├── toml_write v0.1.2
 │               └── winnow v0.7.15
 ├── image v0.25.10 (*)
+├── objc2 v0.6.5 (*)
+├── objc2-foundation v0.3.2 (*)
+├── objc2-ui-kit v0.3.2 (*)
 ├── serde_json v1.0.154 (*)
+├── sheprd-backend v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   ├── serde v1.0.229 (*)
+│   ├── sheprd-protocol v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   │   ├── base64 v0.23.1
+│   │   ├── bincode v2.0.1
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   └── unty v0.0.4
+│   │   ├── serde v1.0.229 (*)
+│   │   ├── serde_json v1.0.154 (*)
+│   │   └── thiserror v2.0.21 (*)
+│   └── thiserror v2.0.21 (*)
+├── sheprd-client v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   ├── base64 v0.23.1
+│   ├── crossbeam-channel v0.5.17
+│   │   └── crossbeam-utils v0.8.23
+│   ├── herdr-ssh v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   ├── rustix v1.1.6
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── errno v0.3.14 (*)
+│   │   └── libc v0.2.189
+│   ├── serde v1.0.229 (*)
+│   ├── serde_json v1.0.154 (*)
+│   ├── sheprd-chat-protocol v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   │   ├── serde v1.0.229 (*)
+│   │   ├── serde_json v1.0.154 (*)
+│   │   ├── thiserror v2.0.21 (*)
+│   │   └── uuid v1.28.0 (*)
+│   ├── sheprd-credentials v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   │   ├── core-foundation v0.10.0 (*)
+│   │   ├── rustix v1.1.6 (*)
+│   │   ├── secrecy v0.10.3
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   └── zeroize v1.9.1
+│   │   ├── security-framework v3.7.0
+│   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   ├── core-foundation v0.10.0 (*)
+│   │   │   ├── core-foundation-sys v0.8.7
+│   │   │   ├── libc v0.2.189
+│   │   │   └── security-framework-sys v2.17.0
+│   │   │       ├── core-foundation-sys v0.8.7
+│   │   │       └── libc v0.2.189
+│   │   ├── security-framework-sys v2.17.0 (*)
+│   │   ├── thiserror v2.0.21 (*)
+│   │   ├── tracing v0.1.44 (*)
+│   │   └── zeroize v1.9.1
+│   ├── sheprd-protocol v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   ├── tempfile v3.27.0
+│   │   ├── fastrand v2.5.0
+│   │   ├── getrandom v0.4.3 (*)
+│   │   ├── once_cell v1.21.4
+│   │   └── rustix v1.1.6 (*)
+│   ├── thiserror v2.0.21 (*)
+│   └── tracing v0.1.44 (*)
+├── sheprd-commands v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   ├── serde v1.0.229 (*)
+│   ├── serde_json v1.0.154 (*)
+│   └── sheprd-client v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+├── sheprd-core-client v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   ├── crossbeam-channel v0.5.17 (*)
+│   ├── rustix v1.1.6 (*)
+│   ├── serde v1.0.229 (*)
+│   ├── serde_json v1.0.154 (*)
+│   ├── sheprd-backend v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   ├── sheprd-client v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   ├── sheprd-terminal v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a)
+│   │   ├── alacritty_terminal v0.26.0
+│   │   │   ├── base64 v0.22.1
+│   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   ├── home v0.5.12
+│   │   │   ├── libc v0.2.189
+│   │   │   ├── log v0.4.34 (*)
+│   │   │   ├── parking_lot v0.12.5 (*)
+│   │   │   ├── polling v3.11.0
+│   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   └── rustix v1.1.6 (*)
+│   │   │   ├── regex-automata v0.4.18 (*)
+│   │   │   ├── rustix v1.1.6 (*)
+│   │   │   ├── rustix-openpty v0.2.0
+│   │   │   │   ├── errno v0.3.14 (*)
+│   │   │   │   ├── libc v0.2.189
+│   │   │   │   └── rustix v1.1.6 (*)
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   ├── signal-hook v0.4.6
+│   │   │   │   ├── libc v0.2.189
+│   │   │   │   └── signal-hook-registry v1.4.8 (*)
+│   │   │   ├── unicode-width v0.2.3
+│   │   │   └── vte v0.15.0
+│   │   │       ├── arrayvec v0.7.8
+│   │   │       ├── bitflags v2.13.2 (*)
+│   │   │       ├── cursor-icon v1.2.0
+│   │   │       ├── log v0.4.34 (*)
+│   │   │       ├── memchr v2.8.3
+│   │   │       └── serde v1.0.229 (*)
+│   │   ├── sheprd-backend v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   │   ├── sheprd-protocol v0.1.0 (https://github.com/shin1ohno/herdr-gpui?rev=398c132a06723a0cc1494842a34666d173ec0200#398c132a) (*)
+│   │   └── thiserror v2.0.21 (*)
+│   ├── thiserror v2.0.21 (*)
+│   ├── toml v1.1.6+spec-1.1.0
+│   │   ├── serde_core v1.0.229
+│   │   ├── serde_spanned v1.1.1
+│   │   │   └── serde_core v1.0.229
+│   │   ├── toml_datetime v1.1.1+spec-1.1.0
+│   │   │   └── serde_core v1.0.229
+│   │   ├── toml_parser v1.1.3+spec-1.1.0
+│   │   │   └── winnow v1.0.4
+│   │   ├── toml_writer v1.1.2+spec-1.1.0
+│   │   └── winnow v1.0.4
+│   └── tracing v0.1.44 (*)
 ├── thiserror v2.0.21 (*)
-└── tracing v0.1.44 (*)
+├── tracing v0.1.44 (*)
+└── unicode-width v0.2.3

@@ -82,3 +82,11 @@ mod handoff_resume_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod native_edit_qa;
+
+#[cfg(any(target_os = "ios", test))]
+mod core;
+#[cfg(any(target_os = "ios", test))]
+mod core_view;
+
+#[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+mod core_mock;

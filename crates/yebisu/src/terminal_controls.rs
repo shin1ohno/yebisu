@@ -44,7 +44,12 @@ impl Smoke {
             let Some(target) = &self.terminal.input.destination else {
                 break;
             };
-            if let Err(error) = self.terminal.link.send_verified(target, event) {
+            let result = if let Some(core) = &self.terminal.core {
+                core.send(crate::core::Command::Input(target.clone(), event))
+            } else {
+                self.terminal.link.send_verified(target, event)
+            };
+            if let Err(error) = result {
                 self.terminal.live.status = error.to_string();
                 let options = std::mem::take(&mut self.terminal.input.options);
                 self.terminal.input = TerminalInput::default();

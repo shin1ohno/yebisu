@@ -1,6 +1,6 @@
 # Upstream tracking
 
-P0 pins herdr-uikit to its unmerged GPUI 0.3.12 port. Do not merge the platform PR automatically.
+P9 pins herdr-uikit to main merge commit `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (PR #7). Historical entries below retain the revisions originally measured.
 
 `PROVENANCE.tsv` keeps the original `source_repository`, `source_commit`
 and `source_path` immutable. Separate `upstream_repository`, `upstream_ref`

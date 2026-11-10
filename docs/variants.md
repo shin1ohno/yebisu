@@ -120,3 +120,11 @@ Command-Shift-V (image-only). Command-Shift-C and any added Option, Control or
 Function fall through to the existing terminal path without reading or writing
 the clipboard. Command: Ctrl plus Terminal priority still bypasses these physical
 clipboard shortcuts; native editing actions remain independent of these settings.
+
+## P9: Herdr 2 split direction
+
+After **Open Herdr 2 → Split (2 panes)**, tap **Toggle split direction** to switch
+between side-by-side (default) and stacked panes. No rebuild is needed. The
+choice and active pane are saved per SSH target and default core session.
+Compare both orientations with touch, hardware keyboard and rotation. Existing
+Input options and display density switches also apply to Herdr 2.

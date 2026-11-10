@@ -51,3 +51,7 @@ ios-p3:
 # Real input callbacks and semantic wire receipts against a private peer.
 ios-p4:
     python3 scripts/guarded.py python3 scripts/ios/p4-check.py
+
+# Private Herdr 2 wire, UIKit callbacks, split identities and reattachment.
+ios-p9:
+    python3 scripts/guarded.py python3 scripts/ios/p9-check.py

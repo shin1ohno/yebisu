@@ -129,6 +129,38 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP9Core() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_CORE_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
+        app.launch()
+        sleep(3)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("P9-native\n")
+        try tapText("QA mark", in: app)
+        try tapText("QA delete", in: app)
+        try tapText("QA commit", in: app)
+        try tapText("Split (2 panes)", in: app)
+        sleep(2)
+        try tapText("Toggle split direction", in: app)
+        sleep(2)
+        try tapText("Pane 2", in: app)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("P9-pane2\n")
+        save("p9-split")
+        try tapText("Detach", in: app)
+        sleep(1)
+        try tapText("Reconnect", in: app)
+        sleep(3)
+        try tapText("Pane 1", in: app)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("P9-pane1\n")
+        save("p9-reattached")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP4Input() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -335,21 +367,35 @@ final class SmokeQA: XCTestCase {
     }
 
     private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true) throws {
-        let screenshot = XCUIScreen.main.screenshot()
-        let image = try XCTUnwrap(screenshot.image.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        let observation = try XCTUnwrap(request.results?.first {
-            $0.topCandidates(1).first?.string.contains(label) == true
-        }, "Missing source-defined control: \(label)")
-        let candidate = try XCTUnwrap(observation.topCandidates(1).first)
-        let range = try XCTUnwrap(candidate.string.range(of: label))
-        let box = try XCTUnwrap(candidate.boundingBox(for: range)).boundingBox
-        print("OCR tap \(label) frame=\(app.frame) box=\(box)")
-        if tap {
-            app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+        // GPUI controls have no UIKit accessibility nodes. Match source labels,
+        // allowing Vision alternatives and a bounded wait for the next paint.
+        for attempt in 0..<3 {
+            let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.customWords = [label]
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            // Controls precede the terminal surface. Prefer the uppermost
+            // match so shell output containing e.g. "Detach" cannot steal taps.
+            let candidates = (request.results ?? [])
+                .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+                .flatMap { $0.topCandidates(5) }
+            for candidate in candidates {
+                guard let range = candidate.string.range(of: label),
+                      let observation = try candidate.boundingBox(for: range) else { continue }
+                let box = observation.boundingBox
+                print("OCR tap \(label) frame=\(app.frame) box=\(box)")
+                if tap {
+                    app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                }
+                return
+            }
+            print("OCR attempt \(attempt): \(candidates.map { $0.string })")
+            sleep(1)
         }
+        save("missing-control")
+        XCTFail("Missing source-defined control: \(label)")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 1)
     }
 
     private func save(_ name: String) {

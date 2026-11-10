@@ -52,6 +52,7 @@ impl Smoke {
                 self.terminal.reconnect.suspended = true;
                 for terminal in self.board.hidden.values_mut() {
                     terminal.reconnect_pending = false;
+                    terminal.core.take();
                     terminal.link.pause();
                     terminal.input.detach();
                     terminal.live.connected = false;
@@ -67,6 +68,7 @@ impl Smoke {
                 if self.terminal.open || !self.terminal.reconnect.target.is_empty() {
                     let mismatch = self.terminal.link.stop_reason.clone();
                     self.terminal.reconnect_pending = false;
+                    self.terminal.core.take();
                     self.terminal.link.pause();
                     self.terminal
                         .input
