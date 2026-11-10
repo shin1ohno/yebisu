@@ -29,10 +29,9 @@ impl Smoke {
                 if let Ok(mut inbox)=this.terminal.link.inbox.lock() { inbox.keyboard_report_all=true; }
                 this.refresh_terminal_input();
                 this.sync_handoff();
-                if step%6==1 || step%6==2 || (step%6==5 && !(this.terminal.input.options.command_control && this.actions.terminal_priority)) {
-                    if let Some(surface)=&this.terminal.live.surface {
-                        this.handoff.selection=Some(Selection {frame:Arc::new(surface.frame.clone()),anchor:(1,2),end:(6,2),dragging:false});
-                    }
+                if (step%6==1 || step%6==2 || (step%6==5 && !(this.terminal.input.options.command_control && this.actions.terminal_priority)))
+                    && let Some(surface)=&this.terminal.live.surface {
+                    this.handoff.selection=Some(Selection {frame:Arc::new(surface.frame.clone()),anchor:(1,2),end:(6,2),dragging:false});
                 }
                 cx.write_to_clipboard(ClipboardItem::new_string(format!("native-text-{step}")));
                 this.native_marker(format!("native-start-{step}"));
@@ -80,7 +79,7 @@ fn schedule_selector(action: &str) -> bool {
                 .to_string_lossy()
                 .contains("::GPUITextInputView");
             if matches {
-                let _: () = msg_send![view,performSelector:selector withObject:std::ptr::null::<AnyObject>() afterDelay:0.1f64];
+                let _: () = msg_send![view,performSelector:selector, withObject:std::ptr::null::<AnyObject>(), afterDelay:0.1f64];
                 return true;
             }
             let children: Retained<NSArray<AnyObject>> = msg_send![view, subviews];
