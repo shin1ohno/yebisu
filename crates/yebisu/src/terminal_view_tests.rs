@@ -5,9 +5,17 @@ use std::time::{Duration, Instant};
 
 #[gpui::test]
 fn stale_paint_callback_cannot_resize_new_connection(cx: &mut TestAppContext) {
+    check_stale_paint(cx, false);
+}
+#[gpui::test]
+fn old_host_paint_cannot_resize_selected_host_with_same_generation(cx: &mut TestAppContext) {
+    check_stale_paint(cx, true);
+}
+fn check_stale_paint(cx: &mut TestAppContext, switch: bool) {
     let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
     let view = cx.new(Smoke::new);
     let stale = view.update(cx, |this, cx| {
+        this.select_host("A");
         this.terminal.open = true;
         let a = this.terminal.link.reset();
         this.terminal.link.install(a, mock_peer::connect());
@@ -16,7 +24,13 @@ fn stale_paint_callback_cannot_resize_new_connection(cx: &mut TestAppContext) {
     let (client, receipts) =
         mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("private peer: {e}"));
     view.update(cx, |this, _| {
+        if switch {
+            this.select_host("B");
+        }
         let b = this.terminal.link.reset();
+        if switch {
+            assert_eq!(b, this.board.hidden["A"].link.generation);
+        }
         this.terminal.link.install(b, Ok(client));
         this.terminal.size = None;
         // Wait for the actual reader, without depending on the UI poll timer.

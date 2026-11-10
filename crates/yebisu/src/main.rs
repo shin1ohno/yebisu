@@ -47,3 +47,6 @@ mod terminal_input;
 
 #[cfg(any(target_os = "ios", test))]
 mod reconnect;
+
+#[cfg(any(target_os = "ios", test))]
+mod board;

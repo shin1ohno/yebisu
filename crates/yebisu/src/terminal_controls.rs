@@ -7,6 +7,10 @@ use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::
 impl Smoke {
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
+        if terminal.navigating.is_some() {
+            terminal.input.detach();
+            return;
+        }
         if let Ok(live) = terminal.link.inbox.try_lock() {
             terminal
                 .input
@@ -24,6 +28,10 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
+        if self.terminal.navigating.is_some() {
+            self.terminal.input.detach();
+            return;
+        }
         while let Some(event) = self.terminal.input.next() {
             let Some(target) = &self.terminal.input.destination else {
                 break;

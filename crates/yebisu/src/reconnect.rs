@@ -41,7 +41,17 @@ impl Smoke {
                     return;
                 }
                 self.terminal.reconnect.suspended = true;
-                if self.terminal.open {
+                for terminal in self.board.hidden.values_mut() {
+                    terminal.link.reset();
+                    terminal.input.detach();
+                    terminal.live.connected = false;
+                    terminal.live.status = "Paused".into();
+                    terminal.reconnect.suspended = true;
+                    terminal.navigating = None;
+                    terminal.link.inbox =
+                        std::sync::Arc::new(std::sync::Mutex::new(terminal.live.clone()));
+                }
+                if self.terminal.open || !self.terminal.reconnect.target.is_empty() {
                     let mismatch = self.terminal.live.version_mismatch.clone();
                     self.terminal.link.reset();
                     self.terminal
@@ -64,6 +74,21 @@ impl Smoke {
                     && self.terminal.live.version_mismatch.is_none()
                 {
                     self.connect_terminal(cx);
+                }
+                if returned {
+                    let hosts = self
+                        .board
+                        .hidden
+                        .iter_mut()
+                        .filter_map(|(host, t)| {
+                            t.reconnect.suspended = false;
+                            (t.reconnect.automatic && t.live.version_mismatch.is_none())
+                                .then(|| host.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    for host in hosts {
+                        self.start_host_connection(host, cx);
+                    }
                 }
             }
             AppLifecyclePhase::Foreground => {}

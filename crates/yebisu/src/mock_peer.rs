@@ -80,12 +80,14 @@ fn serve(
     mut server: Stream,
     frames: u64,
     receipts: std::sync::mpsc::Sender<ClientMessage>,
+    board: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
     let mut welcome: serde_json::Value = serde_json::from_str(WELCOME)?;
     welcome["server_version"] = sheprd_client::MIN_HERDR_VERSION.into();
-    welcome["methods"] = serde_json::json!(["client_shell.surface.set"]);
+    welcome["methods"] =
+        serde_json::json!(["client_shell.surface.set", "pane.focus", "workspace.focus"]);
     welcome["capabilities"] = serde_json::json!(["surface_interest", "presentation_effects_fence"]);
     let welcome = welcome.to_string();
     for (kind, data) in [
@@ -111,10 +113,75 @@ fn serve(
         )?;
     }
     let mut serial = frames;
+    let mut board_snapshot: ClientShellSnapshot = serde_json::from_str(SNAPSHOT)?;
+    if board {
+        server.set_read_timeout(Some(Duration::from_millis(500)))?;
+    }
+
     loop {
         // Consume geometry updates from the real client; no external socket or host.
-        let message: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
+        let message: ClientMessage = match read_message(&mut server, MAX_FRAME_SIZE) {
+            Ok(message) => message,
+            Err(e)
+                if board
+                    && matches!(
+                        e.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+            {
+                board_snapshot.revision += 1;
+                board_snapshot.agents[0].agent_status = if board_snapshot.revision.is_multiple_of(2)
+                {
+                    AgentStatus::Working
+                } else {
+                    AgentStatus::Blocked
+                };
+                write_message(
+                    &mut server,
+                    &ServerMessage::EndpointControl {
+                        kind: ENDPOINT_SNAPSHOT_KIND.into(),
+                        data: serde_json::to_string(&board_snapshot)?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                write_message(
+                    &mut server,
+                    &ServerMessage::PaneSurface(next_surface(board_snapshot.revision, &mut serial)),
+                    MAX_FRAME_SIZE,
+                )?;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
         let _ = receipts.send(message.clone());
+        if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
+            let request: serde_json::Value = serde_json::from_str(request)?;
+            let id = request["id"].as_str().unwrap_or_default().to_owned();
+            write_message(
+                &mut server,
+                &ServerMessage::ClientShellEndpointResponseChunk {
+                    boot_id: "boot-v1".into(),
+                    request_id: id.clone(),
+                    final_chunk: true,
+                    data: serde_json::to_vec(&serde_json::json!({"id": id,"result":{}}))?,
+                },
+                MAX_FRAME_SIZE,
+            )?;
+            board_snapshot.revision += 1;
+            write_message(
+                &mut server,
+                &ServerMessage::EndpointControl {
+                    kind: ENDPOINT_SNAPSHOT_KIND.into(),
+                    data: serde_json::to_string(&board_snapshot)?,
+                },
+                MAX_FRAME_SIZE,
+            )?;
+            write_message(
+                &mut server,
+                &ServerMessage::PaneSurface(next_surface(board_snapshot.revision, &mut serial)),
+                MAX_FRAME_SIZE,
+            )?;
+        }
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
             use std::io::Write;
@@ -129,7 +196,7 @@ fn serve(
         }
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
-            let mut frame = surface(7);
+            let mut frame = surface(board_snapshot.revision);
             let old = frame.frame.clone();
             frame.surface_revision = serial;
             frame.frame.width = surface_size.cols;
@@ -168,12 +235,21 @@ pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
 pub(crate) fn connect_recorded(
     frames: u64,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(frames, false)
+}
+pub(crate) fn connect_board() -> crate::Result<Client> {
+    connect_mode(1, true).map(|(client, _)| client)
+}
+fn connect_mode(
+    frames: u64,
+    board: bool,
+) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let (local, server) = Stream::pair()?;
     std::thread::Builder::new()
         .name("yebisu-private-peer".into())
         .spawn(move || {
-            let _ = serve(server, frames, sender);
+            let _ = serve(server, frames, sender, board);
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,
@@ -183,4 +259,11 @@ pub(crate) fn connect_recorded(
     )
     .map(|client| (client, receiver))
     .map_err(|e| crate::Error::Ssh(e.to_string()))
+}
+
+fn next_surface(revision: u64, serial: &mut u64) -> PaneSurfaceFrame {
+    *serial += 1;
+    let mut frame = surface(revision);
+    frame.surface_revision = *serial;
+    frame
 }

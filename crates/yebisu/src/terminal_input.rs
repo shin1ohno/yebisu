@@ -85,6 +85,13 @@ impl TerminalInput {
     pub fn accepts(&self, focused: bool, setup: bool) -> bool {
         focused && !setup && self.destination.is_some()
     }
+    /// Fence selection/API changes, including queued keys and late IME callbacks.
+    pub fn detach(&mut self) {
+        let options = std::mem::take(&mut self.options);
+        *self = Self::default();
+        self.options = options;
+        self.cancelled = true;
+    }
     pub fn discard(&mut self) {
         self.cancelled |= !self.composition.text.is_empty();
         self.composition = Input::default();

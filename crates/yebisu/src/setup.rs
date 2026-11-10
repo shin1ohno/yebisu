@@ -33,6 +33,7 @@ pub(crate) enum Job {
     Authenticate(String),
 }
 
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) enum Reply {
     Loaded(String, String),
     Hosts(crate::hosts::SavedHosts, String),

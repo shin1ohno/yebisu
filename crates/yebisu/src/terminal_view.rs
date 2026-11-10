@@ -21,6 +21,7 @@ pub(crate) struct TerminalView {
     pub geometry: crate::input_geometry::InputGeometry,
     pub show_options: bool,
     pub needs_focus: bool,
+    pub navigating: Option<crate::board::Navigation>,
 }
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
@@ -32,22 +33,42 @@ impl Smoke {
         } else {
             self.setup_input.text.trim().to_owned()
         };
-        let host_generation = self.terminal.reconnect.begin(target.clone());
+        self.select_host(&target);
+        self.start_host_connection(target, cx);
+        for host in self.setup.hosts.clone() {
+            if host != self.terminal.reconnect.target && !self.board.hidden.contains_key(&host) {
+                self.start_host_connection(host, cx);
+            }
+        }
+    }
+    pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        let selected = target == self.terminal.reconnect.target;
+        let terminal = if selected {
+            &mut self.terminal
+        } else {
+            self.board.hidden.entry(target.clone()).or_default()
+        };
+        let host_generation = terminal.reconnect.begin(target.clone());
         let host = target.clone();
-        self.terminal.input.discard();
-        self.terminal
+        terminal.input.discard();
+        terminal
             .input
-            .sync(&Live::default(), self.terminal.link.generation, None);
-        let generation = self.terminal.link.reset();
-        self.observation.record(serde_json::json!({"kind":"reconnect","generation":generation,"automatic":self.terminal.reconnect.automatic}));
-        self.terminal.live = Live::default();
-        self.terminal.size = None;
-        self.terminal.open = true;
-        self.terminal.needs_focus = true;
+            .sync(&Live::default(), terminal.link.generation, None);
+        let generation = terminal.link.reset();
+        self.observation.record(serde_json::json!({"kind":"reconnect","generation":generation,"automatic":terminal.reconnect.automatic}));
+        terminal.live = Live::default();
+        terminal.navigating = None;
+        terminal.size = None;
+        terminal.open = true;
+        terminal.needs_focus = true;
         let work = cx.background_executor().spawn(async move {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
-                return crate::mock_peer::connect();
+                return if std::env::var_os("YEBISU_BOARD_QA").is_some() {
+                    crate::mock_peer::connect_board()
+                } else {
+                    crate::mock_peer::connect()
+                };
             }
             // Same P2 trust gate. The SSH bridge independently verifies pins again.
             let scan = sheprd_client::ssh::scan_host_key(&target)
@@ -65,8 +86,15 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |this, cx| {
-                if this.terminal.reconnect.current(&host, host_generation) {
-                    this.terminal.link.install(generation, result);
+                let terminal = if this.terminal.reconnect.target == host {
+                    Some(&mut this.terminal)
+                } else {
+                    this.board.hidden.get_mut(&host)
+                };
+                if let Some(terminal) =
+                    terminal.filter(|t| t.reconnect.current(&host, host_generation))
+                {
+                    terminal.link.install(generation, result);
                 } else if let Ok(client) = result {
                     client.handle.disconnect();
                 }
@@ -77,6 +105,7 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        self.poll_hidden(cx);
         if !self.terminal.open || self.terminal.reconnect.suspended {
             return;
         }
@@ -88,6 +117,8 @@ impl Smoke {
                 .input
                 .sync(&live, self.terminal.link.generation, self.terminal.size);
             self.terminal.live = live;
+            crate::board::finish_navigation(&mut self.terminal);
+            self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
             self.flush_terminal();
             cx.notify();
         }
@@ -101,9 +132,10 @@ impl Smoke {
         let entity = cx.entity();
         let generation = self.terminal.link.generation;
         let compact = self.terminal.compact;
+        let selection = self.board.selection;
         move |bounds, _, window, cx| {
             let current = entity.update(cx,|this,cx| {
-                    if !this.terminal.open || !this.terminal.link.current(generation) { return false; }
+                    if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
                     let (font_size,line_height) = if compact {(12.,17.)}else{(14.,20.)};
                     let face = font("SauceCodePro Nerd Font Mono");
                     let terminal = &mut this.terminal;
@@ -166,7 +198,9 @@ impl Smoke {
         } else {
             "Standard 14/20"
         };
-        let status = if self.terminal.live.connected && self.terminal.input.requires_gesture() {
+        let status = if self.terminal.navigating.is_some() {
+            "Navigating… · input paused".to_owned()
+        } else if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             "Composition discarded · tap terminal to type".to_owned()
         } else if self.terminal.live.status.is_empty() {
             "Connecting…".to_owned()
@@ -189,7 +223,8 @@ impl Smoke {
             .child(
                 div()
                     .flex()
-                    .gap_4()
+                    .flex_wrap()
+                    .gap_2()
                     .px_4()
                     .py_2()
                     .child(
@@ -201,11 +236,10 @@ impl Smoke {
                             .child("Hosts")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 window.blur(cx);
-                                this.terminal.input.discard();
-                                this.terminal.link.reset();
+                                this.terminal.input.detach();
+                                this.board.selection = this.board.selection.wrapping_add(1);
                                 this.terminal.open = false;
                                 this.smoke_mode = false;
-                                this.terminal.live = Live::default();
                                 cx.notify();
                             })),
                     )
@@ -248,7 +282,7 @@ impl Smoke {
                                 }
                             })),
                     )
-                    .child(div().child(format!("P5 · {status}"))),
+                    .child(div().child(format!("P6 · {status}"))),
             )
             .child(
                 div()
@@ -265,6 +299,7 @@ impl Smoke {
                         cx.notify();
                     })),
             )
+            .child(self.render_board(cx))
             .when(self.terminal.show_options, |view| {
                 view.child(self.input_options(cx))
             })
