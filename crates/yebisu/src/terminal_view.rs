@@ -368,6 +368,10 @@ impl Smoke {
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.selection_up(cx)),
                     )
+                    .on_mouse_up_out(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.selection_up(cx)),
+                    )
                     .child(canvas(|_, _, _| (), self.terminal_paint_callback(cx)).size_full()),
             )
             .into_any_element()

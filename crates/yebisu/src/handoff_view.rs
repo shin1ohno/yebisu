@@ -40,6 +40,10 @@ impl Smoke {
     pub(crate) fn copy_selection(&mut self, cx: &mut Context<Self>) {
         self.sync_handoff();
         if let Some(text) = self.handoff.selection.as_ref().and_then(Selection::text) {
+            #[cfg(test)]
+            {
+                self.handoff.clipboard_writes += 1;
+            }
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             self.terminal.live.status = "Selection copied".into();
         }
@@ -94,6 +98,10 @@ impl Smoke {
         let serial = self.handoff.serial;
         let inbox = self.terminal.link.inbox.clone();
         let destination = stamp.destination.clone();
+        #[cfg(test)]
+        {
+            self.handoff.clipboard_reads += 1;
+        }
         let payload = crate::handoff_clipboard::read(image_only, cx);
         let work = cx
             .background_executor()
@@ -224,6 +232,9 @@ impl Smoke {
         ))
     }
     pub(crate) fn selection_move(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
+        if event.pressed_button != Some(gpui::MouseButton::Left) {
+            return;
+        }
         self.sync_handoff();
         let cell = self.selection_cell(event.position);
         if let Some(selection) = &mut self.handoff.selection
@@ -235,9 +246,13 @@ impl Smoke {
         }
     }
     pub(crate) fn selection_up(&mut self, cx: &mut Context<Self>) {
-        if let Some(selection) = &mut self.handoff.selection {
-            selection.dragging = false;
+        let Some(selection) = &mut self.handoff.selection else {
+            return;
+        };
+        if !selection.dragging {
+            return;
         }
+        selection.dragging = false;
         if self.handoff.copy_on_select {
             self.copy_selection(cx);
         }

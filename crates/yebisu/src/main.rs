@@ -73,3 +73,6 @@ mod handoff_view;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod handoff_qa;
+
+#[cfg(test)]
+mod handoff_review_tests;

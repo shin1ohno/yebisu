@@ -477,3 +477,15 @@ just binary with `ipad` in this repository. Record device/iPadOS and this PR hea
 
 Simulator receipt checks are separate from trackpad, touch, native menu and physical
 large-image acceptance. No physical checks above have been marked complete.
+
+### P8 review repairs: shortcut precedence and outside release
+
+1. With a hardware keyboard, try all four combinations of **Command: Ctrl / Super**
+   and **Shortcuts: Terminal priority / App priority**. With Ctrl and Terminal
+   priority together, Command-C/V must reach the sandbox as Ctrl-C/V without
+   reading or changing the clipboard. In the other combinations, Command-C copies
+   the selection and Command-V pastes once; neither sends terminal key events.
+2. Enable **Copy: On selection**, begin a trackpad selection and release outside
+   the terminal. Paste into Notes and confirm the selected text was copied once.
+   Move back over the terminal without pressing a button: selection must not grow.
+   Repeat with automatic copy disabled: release still ends the drag, without copy.

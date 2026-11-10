@@ -21,6 +21,10 @@ pub(crate) struct Stamp {
 }
 #[derive(Default)]
 pub(crate) struct Handoff {
+    #[cfg(test)]
+    pub clipboard_reads: usize,
+    #[cfg(test)]
+    pub clipboard_writes: usize,
     pub stamp: Option<Stamp>,
     pub selection: Option<Selection>,
     pub select_mode: bool,

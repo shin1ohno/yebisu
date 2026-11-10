@@ -62,7 +62,10 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return;
         }
-        if event.keystroke.modifiers.platform && matches!(event.keystroke.key.as_str(), "c" | "v") {
+        if event.keystroke.modifiers.platform
+            && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
+            && matches!(event.keystroke.key.as_str(), "c" | "v")
+        {
             if !event.is_held {
                 if event.keystroke.key == "c" {
                     self.copy_selection(cx);
