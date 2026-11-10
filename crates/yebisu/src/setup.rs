@@ -133,6 +133,7 @@ impl Setup {
         self.busy = false;
         match reply {
             Err(e) => {
+                crate::diagnostics::record("setup_error");
                 self.status = e.to_string();
                 self.pending = None;
             }

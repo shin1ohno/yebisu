@@ -414,3 +414,34 @@ same sandbox terminal. A fresh Escape must reach the terminal immediately;
 its release is sent only in report-all mode. Repeat in both report-all modes,
 then repeat the ordinary palette press/held-repeat/release no-wire sequence.
 Record this result and device/keyboard details in PR #14 QA.
+
+## SH1-146 / SH1-147 maintenance acceptance
+
+herdr-uikit is pinned to main merge commit
+`439ebbc1606e807f45118d59f0f01f8c7721b71c`. Normal startup now enables a
+bounded yebisu diagnostics file writer. Its single container-relative path
+is in `crates/yebisu/src/log-location.txt`; Rust and device.sh read that file.
+No existing old-app data is moved. See `docs/logging.md` for the privacy and
+retention contract.
+
+1. In the Mac mini's local terminal, unlock the login keychain yourself using
+   `security unlock-keychain ~/Library/Keychains/login.keychain-db`. Never
+   share the password. Connect and unlock the paired M5.
+2. In an interactive login shell in this checkout, run
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+   Record PR head, device model, iPadOS version and launch PID. Verify the
+   summary says `state: running` and prints the copied local log path
+   `target/ios-device/yebisu/yebisu.jsonl`.
+3. Open that local JSONL file. Verify this launch's PID and a `startup` and
+   `window_opened` event, with timestamps after this launch. Background and
+   foreground the app, then connect and disconnect a disposable sandbox host;
+   rerun log collection and verify corresponding state event codes. Arbitrary
+   host errors, terminal output and typed/IME/clipboard content must not be
+   present. Do not use live personal secrets for this check.
+4. If startup could not yet produce the file, collection retries at most six
+   times, with a 5-second timeout per copy and 1-second intervals. Verify the
+   plain `log file does not exist yet` message and that the separate launched /
+   running state is preserved. Other transfer errors are reported separately.
+   Deterministic missing/delayed/transfer-error tests run without a device.
+5. Record the actual physical results in PR QA. Simulator container/file and
+   privacy tests do not prove device signing or hardware/IME behavior.

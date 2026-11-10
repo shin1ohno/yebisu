@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "ios", test))]
+mod diagnostics;
 mod error;
 #[cfg(any(target_os = "ios", test))]
 mod hosts;

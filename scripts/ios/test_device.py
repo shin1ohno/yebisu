@@ -24,6 +24,7 @@ devicectl = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(devicectl)
 
 BUNDLE = "com.shin1ohno.yebisu"
+LOG_SOURCE = (SCRIPT.parents[2] / "crates/yebisu/src/log-location.txt").read_text().strip()
 
 
 def device(name, identifier, udid, device_type="iPad", tunnel="connected",
@@ -165,7 +166,21 @@ class DeviceScriptTests(unittest.TestCase):
                     running.append({"processIdentifier": 4242})
                 write_json({"result": {"runningProcesses": running}})
             elif command == ["device", "copy", "from"]:
-                pathlib.Path(option("--destination")).write_text('{"level":"INFO"}\n')
+                attempts = state.with_suffix(".copies")
+                count = int(attempts.read_text()) if attempts.exists() else 0
+                attempts.write_text(str(count + 1))
+                missing = int(os.environ.get("HERDR_DEVICE_TEST_MISSING", "0"))
+                failure = os.environ.get("HERDR_DEVICE_TEST_COPY_ERROR")
+                if count < missing or failure:
+                    code = int(failure or "7000")
+                    pathlib.Path(option("--destination")).write_text("partial transfer")
+                    if not os.environ.get("HERDR_DEVICE_TEST_NO_JSON"):
+                        write_json({"error": {"code": code}})
+                    print(f"ERROR: CoreDeviceError error {code}", file=sys.stderr)
+                    sys.exit(1)
+                empty = int(os.environ.get("HERDR_DEVICE_TEST_EMPTY", "0"))
+                pathlib.Path(option("--destination")).write_text(
+                    "" if count < empty else '{"level":"INFO"}\n')
             else:
                 sys.exit(64)
         ''').lstrip())
@@ -197,14 +212,55 @@ class DeviceScriptTests(unittest.TestCase):
         self.assertEqual(launch[-1], BUNDLE)
         self.assertIn("--terminate-existing", launch)
         copy = self.calls("device", "copy", "from")[0]
+        self.assertEqual(copy[copy.index("--timeout") + 1], "5")
         self.assertEqual(copy[copy.index("--domain-type") + 1], "appDataContainer")
         self.assertEqual(copy[copy.index("--domain-identifier") + 1], BUNDLE)
         self.assertEqual(
             copy[copy.index("--source") + 1],
-            "Library/Application Support/herdr/gpui/logs/yebisu.jsonl",
+            LOG_SOURCE,
         )
         self.assertTrue((self.out / "yebisu.jsonl").read_text())
         self.assertIn("running (pid 4242)", result.stdout)
+
+    def test_missing_log_has_plain_message_and_launch_is_preserved(self):
+        self.env["HERDR_DEVICE_TEST_MISSING"] = "99"
+        result = self.run_app()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("log file does not exist yet", result.stdout)
+        self.assertIn("running (pid 4242)", result.stdout)
+        self.assertNotIn("CoreDeviceError", result.stdout + result.stderr)
+        self.assertEqual(len(self.calls("device", "copy", "from")), 6)
+        self.assertFalse((self.out / "yebisu.jsonl").exists())
+        print("MISSING-FILE receiving summary:", result.stdout)
+
+    def test_delayed_log_is_retried_and_copied(self):
+        self.env["HERDR_DEVICE_TEST_MISSING"] = "2"
+        result = self.run_app()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls("device", "copy", "from")), 3)
+        self.assertTrue((self.out / "yebisu.jsonl").read_text())
+        self.assertNotIn("does not exist yet", result.stdout)
+
+    def test_missing_log_without_json_still_has_plain_message(self):
+        self.env["HERDR_DEVICE_TEST_NO_JSON"] = "1"
+        self.test_missing_log_has_plain_message_and_launch_is_preserved()
+
+    def test_empty_copy_is_not_reported_as_collected(self):
+        self.env["HERDR_DEVICE_TEST_EMPTY"] = "99"
+        result = self.run_app()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("log file is still empty", result.stdout)
+        self.assertIn("running (pid 4242)", result.stdout)
+        self.assertEqual(len(self.calls("device", "copy", "from")), 6)
+        self.assertFalse((self.out / "yebisu.jsonl").exists())
+
+    def test_transfer_error_is_not_mislabeled_as_missing(self):
+        self.env["HERDR_DEVICE_TEST_COPY_ERROR"] = "4000"
+        result = self.run_app()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("transfer failed", result.stdout)
+        self.assertIn("running (pid 4242)", result.stdout)
+        self.assertEqual(len(self.calls("device", "copy", "from")), 1)
 
     def test_device_option_chooses_among_several_ipads(self):
         self.devices.write_text(json.dumps(listing(IPAD, OTHER_IPAD)))
@@ -308,6 +364,9 @@ class DeviceScriptTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         for name in ("device.sh", "devicectl.py"):
             shutil.copy(SCRIPT.with_name(name), scripts / name)
+        location = tree / "crates/yebisu/src/log-location.txt"
+        location.parent.mkdir(parents=True)
+        shutil.copy(SCRIPT.parents[2] / "crates/yebisu/src/log-location.txt", location)
         self.script_log = self.root / "scripts.jsonl"
         self.env["HERDR_DEVICE_TEST_SCRIPTS"] = str(self.script_log)
         self.env["HERDR_DEVICE_TEST_APP"] = str(self.app)

@@ -64,6 +64,7 @@ impl Live {
         self.dirty = true;
         match event {
             ClientEvent::Connected(welcome) => {
+                crate::diagnostics::record("connected");
                 self.connected = true;
                 self.capabilities = welcome.capabilities;
                 self.methods = welcome.methods;
@@ -83,6 +84,7 @@ impl Live {
                 if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
                     if let Some(error) = response.get("error") {
+                        crate::diagnostics::record("command_rejected");
                         self.failed_request = Some(request_id);
                         self.status = format!("Navigation rejected: {error}");
                     } else {
@@ -91,6 +93,7 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
+                crate::diagnostics::record("command_rejected");
                 if request_id == self.pending_request {
                     self.failed_request = request_id;
                     self.pending_request = None;
@@ -98,11 +101,13 @@ impl Live {
                 self.status = reason.to_string();
             }
             ClientEvent::VersionMismatch(mismatch) => {
+                crate::diagnostics::record("version_mismatch");
                 self.status = format!("Version mismatch: {mismatch:?}");
                 let _ = self.version_mismatch.set(mismatch);
                 self.surface = None;
             }
             ClientEvent::Disconnected { reason, ssh: _ } => {
+                crate::diagnostics::record("disconnected");
                 self.connected = false;
                 if self.version_mismatch.get().is_none() {
                     self.status = format!("Disconnected: {reason}");

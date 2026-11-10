@@ -1,0 +1,1 @@
+Library/Application Support/yebisu/logs/yebisu.jsonl

@@ -225,14 +225,40 @@ fi
 # runs, as it matters most after a crash.
 log=$out/yebisu.jsonl
 rm -f "$log"
-log_state=$log
-if ! xcrun devicectl device copy from --device "$identifier" \
-  --domain-type appDataContainer --domain-identifier "$bundle_id" \
-  --source "Library/Application Support/herdr/gpui/logs/yebisu.jsonl" \
-  --destination "$log" >"$work/copy.log" 2>&1; then
-  cat "$work/copy.log" >&2
-  log_state="not copied (see the error above)"
-fi
+# Shared with Rust include_str!: never maintain a second container path.
+log_source=$(cat "$root/crates/yebisu/src/log-location.txt")
+log_state="not copied"
+for attempt in 1 2 3 4 5 6; do
+  rm -f "$work/copy.json"
+  if xcrun devicectl device copy from --device "$identifier" \
+    --domain-type appDataContainer --domain-identifier "$bundle_id" \
+    --timeout 5 --json-output "$work/copy.json" --source "$log_source" \
+    --destination "$log" >"$work/copy.log" 2>&1; then
+    if [[ -s $log ]]; then
+      log_state=$log
+      break
+    fi
+    code=empty
+  else
+    code=$("${devicectl_py[@]}" error-code "$work/copy.json" 2>/dev/null || true)
+  fi
+  # A failed/empty copy must never be reported as this run's diagnostics.
+  rm -f "$log"
+  if [[ -z $code ]] && grep -q "CoreDeviceError error 7000" "$work/copy.log"; then
+    code=7000
+  fi
+  if [[ $code != 7000 && $code != empty ]]; then
+    cat "$work/copy.log" >&2
+    log_state="not copied: device log transfer failed"
+    break
+  fi
+  if [[ $code == empty ]]; then
+    log_state="log file is still empty: $log_source (6 attempts)"
+  else
+    log_state="log file does not exist yet: $log_source (6 attempts; 5s command timeout, 1s retry interval)"
+  fi
+  if ((attempt < 6)); then sleep 1; fi
+done
 
 cat <<EOF
 app:        $app
