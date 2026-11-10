@@ -188,16 +188,35 @@ final class SmokeQA: XCTestCase {
         try tapText("Board: Dense", in: app)
         sleep(2)
         save("p6-roomy")
-        try tapText("qa-beta", in: app)
-        sleep(3)
-        save("p6-beta")
-        try tapText("Space 1", in: app)
+        try tapText("Board: Roomy", in: app)
+        sleep(1)
+        try tapText("Space 2", in: app)
         sleep(2)
         save("p6-space")
         try tapText("reviewer", in: app)
         sleep(2)
         save("p6-agent")
+        try scrollBoard(in: app)
+        try tapText("qa-beta", in: app)
+        sleep(3)
+        save("p6-beta")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    private func scrollBoard(in app: XCUIApplication) throws {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        let header = try XCTUnwrap(request.results?.first {
+            $0.topCandidates(1).first?.string.contains("Board: Dense") == true
+        })
+        // The source defines a 180 pt Dense board immediately below this header.
+        let top = 1 - header.boundingBox.minY + 10 / app.frame.height
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 140 / app.frame.height))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 20 / app.frame.height))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        sleep(1)
     }
 
     private func tapText(_ label: String, in app: XCUIApplication) throws {

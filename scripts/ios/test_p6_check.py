@@ -41,3 +41,48 @@ class BoardOracleTests(unittest.TestCase):
             r["rows"] = ["reviewer"]
         with self.assertRaisesRegex(ValueError, "harness mark"):
             p6.validate(records)
+
+
+class NavigationOracleTests(unittest.TestCase):
+    def records(self):
+        records = []
+        for before, after, rev in [("w1:p1", "w2:p2", 8), ("w2:p2", "w1:p1", 10)]:
+            common = dict(host="qa-beta", boot="boot-v1", generation=1)
+            records.extend([dict(kind="terminal", pane=before, **common),
+                            dict(kind="navigation", pane=after, revision=rev, **common),
+                            dict(kind="terminal", pane=after, projection=rev+1, input_pane=after,
+                                 surface_marker="2" if after == "w2:p2" else "1", **common)])
+        return records
+
+    def test_positive(self):
+        p6.validate_navigation(self.records())
+
+    def test_peer_ignores_focus(self):
+        records = self.records()
+        records[2]["pane"] = "w1:p1"
+        with self.assertRaisesRegex(ValueError, "did not move"):
+            p6.validate_navigation(records)
+
+    def test_peer_wrong_target(self):
+        records = self.records()
+        records[2]["pane"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "did not move"):
+            p6.validate_navigation(records)
+
+    def test_peer_stale_boot(self):
+        records = self.records()
+        records[2]["boot"] = "stale"
+        with self.assertRaisesRegex(ValueError, "did not move"):
+            p6.validate_navigation(records)
+
+    def test_unchanged_surface(self):
+        records = self.records()
+        records[2]["surface_marker"] = "1"
+        with self.assertRaisesRegex(ValueError, "did not move"):
+            p6.validate_navigation(records)
+
+    def test_unchanged_input(self):
+        records = self.records()
+        records[2]["input_pane"] = "w1:p1"
+        with self.assertRaisesRegex(ValueError, "did not move"):
+            p6.validate_navigation(records)

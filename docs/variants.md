@@ -74,3 +74,9 @@ Tap `Board: Dense` / `Board: Roomy` above the board to switch immediately, witho
 No new design fork affecting device feel was found. R3 preserves the specified
 stop-on-version-mismatch behavior, displays its retained reason and refreshes
 the saved-host list. Existing reconnect, density and input switches remain.
+
+## R4 review repairs
+
+No new design fork affecting device feel was found. R4 retains the navigation
+barrier contract and rejects stale rows. Existing board density and input
+switches remain available without rebuilding.
