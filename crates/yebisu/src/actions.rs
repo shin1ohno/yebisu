@@ -107,12 +107,29 @@ pub(crate) fn shortcut(
         .find(|a| {
             a.available
                 && a.shortcuts.iter().any(|s| {
-                    Keystroke::parse(s).is_ok_and(|binding| {
+                    Keystroke::parse(s).is_ok_and(|mut binding| {
+                        normalize_shortcut(&mut binding);
                         binding.key == key.key && binding.modifiers == key.modifiers
                     })
                 })
         })
         .map(|a| a.info.command)
+}
+// UIKit names shifted symbols by their resulting US-layout character and
+// clears Shift before dispatch (herdr-uikit a573fb3, keymap.rs). Letters and named
+// keys retain Shift. Normalize catalog bindings, never incoming text events.
+fn normalize_shortcut(binding: &mut Keystroke) {
+    if !binding.modifiers.shift {
+        return;
+    }
+    let shifted = match binding.key.as_str() {
+        "[" => "{",
+        "]" => "}",
+        // These are the only shifted-symbol defaults in the supported catalog.
+        _ => return,
+    };
+    binding.key = shifted.into();
+    binding.modifiers.shift = false;
 }
 impl Smoke {
     pub(crate) fn run_action(&mut self, command: Command) -> crate::Result<()> {

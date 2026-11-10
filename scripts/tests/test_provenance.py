@@ -46,7 +46,12 @@ class ProvenanceTests(unittest.TestCase):
         errors, rows = checker.validate(ROOT)
         self.assertEqual(errors, [])
         self.assertEqual({r["kind"] for r in rows}, {"copy", "model"})
-        self.assertEqual({r["upstream_repository"] for r in rows}, {UPSTREAM})
+        self.assertEqual({r["upstream_repository"] for r in rows},
+                         {UPSTREAM, "https://github.com/shin1ohno/herdr-uikit"})
+        uikit = [r for r in rows if r["upstream_repository"].endswith("/herdr-uikit")]
+        self.assertEqual({r["upstream_ref"] for r in uikit}, {"feat/gpui-0.3.12"})
+        self.assertEqual({r["source_path"] for r in uikit},
+                         {"src/window/text_input/keymap.rs", "src/window/text_input/keys.rs"})
 
     def test_missing_model_and_unregistered_crate_copy_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

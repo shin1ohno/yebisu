@@ -208,67 +208,79 @@ fn stale_tab_and_unimplemented_action_send_nothing(cx: &mut TestAppContext) {
 #[gpui::test]
 fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestAppContext) {
     use gpui::{KeyDownEvent, KeyUpEvent};
-    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, receipts, release) =
-        mock_peer::connect_controlled().unwrap_or_else(|e| panic!("peer {e}"));
-    view.update(cx, |this, _| {
-        this.select_host("sandbox");
-        let g = this.terminal.link.reset();
-        this.terminal.link.install(g, Ok(client));
-    });
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        if view.update(cx, |this, cx| {
-            this.poll_terminal(cx);
-            this.terminal.live.surface.is_some()
-        }) {
-            break;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    cx.update(|window, cx| {
-        view.update(cx, |this, cx| {
-            this.terminal_focus.focus(window, cx);
-            let keystroke = Keystroke::parse("cmd-t").unwrap_or_else(|e| panic!("key {e}"));
-            this.terminal_key_down(
-                &KeyDownEvent {
-                    keystroke: keystroke.clone(),
-                    is_held: false,
-                    prefer_character_input: false,
-                },
-                window,
-                cx,
-            );
-            assert!(this.terminal.navigating.is_some());
-            this.terminal_key_down(
-                &KeyDownEvent {
-                    keystroke: keystroke.clone(),
-                    is_held: true,
-                    prefer_character_input: false,
-                },
-                window,
-                cx,
-            );
-            this.terminal_key_up(&KeyUpEvent { keystroke }, window, cx);
-            assert!(this.actions.consumed.is_empty());
-        })
-    });
-    loop {
-        match receipts.recv_timeout(Duration::from_secs(2)) {
-            Ok(ClientMessage::ClientShellEndpointRequest { request, .. }) => {
-                let request: serde_json::Value =
-                    serde_json::from_str(&request).unwrap_or_else(|e| panic!("request {e}"));
-                assert_eq!(request["method"], "tab.create");
+    for (name, method) in [("t", "tab.create"), ("{", "tab.focus"), ("}", "tab.focus")] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, receipts, release) =
+            mock_peer::connect_controlled().unwrap_or_else(|e| panic!("peer {e}"));
+        view.update(cx, |this, _| {
+            this.select_host("sandbox");
+            let g = this.terminal.link.reset();
+            this.terminal.link.install(g, Ok(client));
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if view.update(cx, |this, cx| {
+                this.poll_terminal(cx);
+                this.terminal.live.surface.is_some()
+            }) {
                 break;
             }
-            // The real view laid out once before the keydown.
-            Ok(ClientMessage::ClientShellResize { .. }) => {}
-            other => panic!("unexpected wire event {other:?}"),
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
         }
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.terminal_focus.focus(window, cx);
+                let keystroke = Keystroke {
+                    key: name.into(),
+                    key_char: None,
+                    modifiers: gpui::Modifiers {
+                        platform: true,
+                        ..Default::default()
+                    },
+                };
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                assert!(this.terminal.navigating.is_some());
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: true,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                this.terminal_key_up(&KeyUpEvent { keystroke }, window, cx);
+                assert!(this.actions.consumed.is_empty());
+            })
+        });
+        loop {
+            match receipts.recv_timeout(Duration::from_secs(2)) {
+                Ok(ClientMessage::ClientShellEndpointRequest { request, .. }) => {
+                    let request: serde_json::Value =
+                        serde_json::from_str(&request).unwrap_or_else(|e| panic!("request {e}"));
+                    assert_eq!(request["method"], method);
+                    if method == "tab.focus" {
+                        assert_eq!(request["params"]["tab_id"], "w1:t1");
+                    }
+                    break;
+                }
+                // The real view laid out once before the keydown.
+                Ok(ClientMessage::ClientShellResize { .. }) => {}
+                other => panic!("unexpected wire event {other:?}"),
+            }
+        }
+        assert!(receipts.recv_timeout(Duration::from_millis(100)).is_err());
+        release.send(()).unwrap_or_else(|e| panic!("release {e}"));
     }
-    assert!(receipts.recv_timeout(Duration::from_millis(100)).is_err());
-    release.send(()).unwrap_or_else(|e| panic!("release {e}"));
 }
 #[test]
 fn command_barrier_requires_its_reply_and_rejection_is_visible() {
@@ -300,5 +312,174 @@ fn command_barrier_requires_its_reply_and_rejection_is_visible() {
         if failure {
             assert!(t.live.status.contains("denied"));
         }
+    }
+}
+
+// UIKit a573fb3 keymap.rs clears Shift for symbols, but keeps it for letters
+// and named keys. Expected events below are platform constants, not parse().
+#[test]
+fn uikit_shifted_symbol_shortcuts_match_real_events() {
+    use gpui::Modifiers;
+    let mut t = terminal();
+    t.live
+        .methods
+        .extend(["pane.focus", "pane.zoom", "pane.close", "tab.close"].map(String::from));
+    for (name, shift, alt, command) in [
+        ("}", false, false, Command::NextTab),
+        ("{", false, false, Command::PreviousTab),
+        ("]", false, true, Command::NextPane),
+        ("[", false, true, Command::PreviousPane),
+        ("d", true, false, Command::SplitDown),
+        ("p", true, false, Command::Palette),
+        ("enter", true, false, Command::Zoom),
+        ("w", true, false, Command::CloseTab),
+    ] {
+        let key = Keystroke {
+            key: name.into(),
+            key_char: None,
+            modifiers: Modifiers {
+                platform: true,
+                shift,
+                alt,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            shortcut(&t, &Actions::default(), &key),
+            Some(command),
+            "{name}"
+        );
+        let mut extra = key.clone();
+        extra.modifiers.control = true;
+        assert_eq!(shortcut(&t, &Actions::default(), &extra), None);
+        let mut missing_command = key;
+        missing_command.modifiers.platform = false;
+        assert_eq!(shortcut(&t, &Actions::default(), &missing_command), None);
+    }
+}
+
+#[gpui::test]
+fn palette_escape_press_repeats_and_release_send_nothing(cx: &mut TestAppContext) {
+    palette_escape_sequence(cx, false);
+}
+
+#[gpui::test]
+fn palette_escape_fresh_press_recovers_after_release_lost_on_hosts(cx: &mut TestAppContext) {
+    palette_escape_sequence(cx, true);
+}
+
+fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
+    use gpui::{KeyDownEvent, KeyUpEvent, Modifiers};
+    for report_all in [false, true] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, receipts) =
+            mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer {e}"));
+        view.update(cx, |this, _| {
+            this.select_host("sandbox");
+            let g = this.terminal.link.reset();
+            this.terminal.link.install(g, Ok(client));
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if view.update(cx, |this, cx| {
+                this.poll_terminal(cx);
+                this.terminal.live.surface.is_some()
+            }) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.terminal_focus.focus(window, cx);
+                this.terminal
+                    .link
+                    .inbox
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .keyboard_report_all = report_all;
+                this.terminal.size = None;
+                this.refresh_terminal_input();
+                assert!(this.terminal.input.ready);
+                this.actions.palette = true;
+                let key = Keystroke {
+                    key: "escape".into(),
+                    key_char: None,
+                    modifiers: Modifiers::default(),
+                };
+                for is_held in [false, true, true, true] {
+                    this.terminal_key_down(
+                        &KeyDownEvent {
+                            keystroke: key.clone(),
+                            is_held,
+                            prefer_character_input: false,
+                        },
+                        window,
+                        cx,
+                    );
+                    assert!(!this.actions.palette);
+                    assert!(this.actions.consumed.contains("escape"));
+                }
+                if lose_release {
+                    // Mirror Hosts: blur, detach, then show setup. The terminal
+                    // element's key-up callback is absent on that screen.
+                    window.blur(cx);
+                    this.terminal.input.detach();
+                    this.board.selection = this.board.selection.wrapping_add(1);
+                    this.terminal.open = false;
+                    this.smoke_mode = false;
+                    assert!(!this.terminal_focus.is_focused(window));
+                    assert!(this.actions.consumed.contains("escape"));
+                    // Release happens here on setup, without terminal_key_up.
+                    this.select_host("sandbox");
+                    assert!(this.terminal.open);
+                    this.terminal_focus.focus(window, cx);
+                    this.refresh_terminal_input();
+                    assert!(this.terminal.input.ready);
+                } else {
+                    this.terminal_key_up(
+                        &KeyUpEvent {
+                            keystroke: key.clone(),
+                        },
+                        window,
+                        cx,
+                    );
+                    assert!(this.actions.consumed.is_empty());
+                }
+                assert!(this.terminal.input.next().is_none());
+            })
+        });
+        // Layout may resize once; no semantic input may reach the wire.
+        while let Ok(message) = receipts.recv_timeout(Duration::from_millis(120)) {
+            assert!(
+                matches!(message, ClientMessage::ClientShellResize { .. }),
+                "Escape leaked: {message:?}"
+            );
+        }
+        // A fresh press reaches the terminal even if setup swallowed its release.
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                let key = Keystroke {
+                    key: "escape".into(),
+                    key_char: None,
+                    modifiers: Modifiers::default(),
+                };
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: key.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                this.terminal_key_up(&KeyUpEvent { keystroke: key }, window, cx);
+            })
+        });
+        assert!(matches!(
+            receipts.recv_timeout(Duration::from_secs(2)),
+            Ok(ClientMessage::ClientShellPaneInput { .. })
+        ));
     }
 }
