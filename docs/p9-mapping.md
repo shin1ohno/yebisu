@@ -28,6 +28,9 @@ running services. Physical input/IME, split, detach/reattach remain owner QA.
 - `crates/yebisu/src/core/screen.rs`: split compositor feeding the existing painter.
 - `crates/yebisu/src/core/tests.rs`: all 32 input switch/reporting combinations,
   late tunnel completion, split, stale input and persisted reattachment.
+  The matrix includes candidate bounds, physical Command-V precedence and the
+  native Paste entry point; text paste uses the same FIFO and destination fence
+  as keys, while unsupported core image paste is rejected before acquisition.
 - `scripts/ios/smoke-qa/Tests/SmokeQA.swift`: `testP9Core()` drives UIKit typing,
   composition callbacks, split direction and detach/reattach on Simulator.
 

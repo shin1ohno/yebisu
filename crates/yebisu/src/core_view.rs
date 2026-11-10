@@ -64,6 +64,39 @@ impl Smoke {
         }
         cx.notify();
     }
+    pub(crate) fn paste_core(
+        &mut self,
+        destination: crate::terminal_input::Destination,
+        image_only: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if image_only {
+            self.terminal.live.status =
+                "Herdr 2 accepts text paste; image paste requires Herdr 1".into();
+            cx.notify();
+            return;
+        }
+        #[cfg(test)]
+        {
+            self.handoff.clipboard_reads += 1;
+        }
+        match crate::handoff_clipboard::read(false, cx) {
+            Ok(crate::handoff::Payload::Text(text)) if text.len() <= crate::handoff::TEXT_LIMIT => {
+                // Acquisition is bounded on the UI thread; mode-aware encoding
+                // and wire publication run in the same FIFO worker as keys.
+                self.send_terminal(crate::terminal_input::GeneratedInput {
+                    destination,
+                    event: sheprd_backend::ClientPaneInputEvent::Paste(text),
+                });
+            }
+            Ok(_) => {
+                self.terminal.live.status =
+                    "Herdr 2 paste needs text within the clipboard limit".into()
+            }
+            Err(error) => self.terminal.live.status = error.to_string(),
+        }
+        cx.notify();
+    }
     fn core_command(&mut self, command: Command) {
         self.terminal.input.detach();
         self.handoff.cancel();

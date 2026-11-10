@@ -122,6 +122,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
             assert!(Instant::now() < deadline, "no frame bits={bits}");
             std::thread::sleep(Duration::from_millis(5));
         }
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("core-clipboard".into()));
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 this.terminal_focus.focus(window, cx);
@@ -189,6 +190,37 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                     );
                     this.terminal_key_up(&KeyUpEvent { keystroke }, window, cx);
                 }
+                let paste = Keystroke {
+                    key: "v".into(),
+                    key_char: Some("v".into()),
+                    modifiers: Modifiers {
+                        platform: true,
+                        ..Modifiers::default()
+                    },
+                };
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: paste.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                this.terminal_key_up(&KeyUpEvent { keystroke: paste }, window, cx);
+                // The UIKit native Paste selector is routed to this same entry,
+                // independently of Command-as-Control and shortcut priority.
+                this.start_paste(false, cx);
+                assert_eq!(
+                    this.handoff.clipboard_reads,
+                    if bits & 10 == 10 { 1 } else { 2 }
+                );
+                let reads = this.handoff.clipboard_reads;
+                this.start_paste(true, cx);
+                assert_eq!(
+                    this.handoff.clipboard_reads, reads,
+                    "unsupported image must not be acquired"
+                );
                 // Fence all prior bytes with a final UIKit text commit.
                 this.replace_text_in_range(None, "END", window, cx);
             })
@@ -221,7 +253,16 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                 b"\x07"
             });
         }
-        expected.extend_from_slice(b"END");
+        if bits & 10 == 10 {
+            expected.extend_from_slice(if report {
+                b"\x1b[118;5u\x1b[118;5:3u"
+            } else {
+                b"\x16"
+            });
+        } else {
+            expected.extend_from_slice(b"core-clipboard");
+        }
+        expected.extend_from_slice(b"core-clipboardEND");
         assert_eq!(bytes, expected, "option bits={bits}");
         view.update(cx, |this, _| {
             this.terminal.core.take();

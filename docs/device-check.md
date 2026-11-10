@@ -539,7 +539,10 @@ UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
 4. Attach a hardware keyboard. Under **Input options**, exercise all combinations
    of Option Native/Alt, Command Local/Ctrl, Candidate Clause/Caret and Shortcuts
    App/Terminal priority. Check arrows, Escape, Control-G, Command-G, Option-X,
-   repeats and release; confirm one delivery. Repeat with a program requesting
+   repeats and release; confirm one delivery. Paste plain text using Command-V
+   and the native Paste action; Command: Ctrl with Terminal priority must deliver
+   Control-V instead of reading the clipboard. Herdr 2 supports text paste;
+   image paste remains a Herdr 1 operation. Repeat with a program requesting
    kitty key reports and after unplug/replug. Candidate options are visual only.
 5. Tap **Split (2 panes)**. Both remote terminals must remain visible. Tap
    **Pane 1** and **Pane 2**, type distinct markers, and confirm routing only to
