@@ -1,0 +1,21 @@
+name: SmokeOracle
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  SmokeOracle:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shin1ohno.yebisu.smokeoracle
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  SmokeOracle:
+    build:
+      targets:
+        SmokeOracle: [test]
+    test:
+      targets: [SmokeOracle]
