@@ -50,3 +50,10 @@ and shortcut priority: Paste starts normal paste; Copy and Cut copy the selectio
 Select All is a no-op. Neither edge of a native action sends terminal keys.
 Physical Command-C/V retain the runtime Command/priority rule. Selection keeps
 native editing focus; text callbacks themselves enforce selection/input isolation.
+
+Physical clipboard chords match exact modifier sets: Command-C copies;
+Command-V pastes text (falling back to image); Command-Shift-V pastes only an
+image. Command-Shift-C is not a clipboard chord. Adding Option, Control or Function
+to any chord bypasses clipboard access and follows the existing terminal path.
+The Command: Ctrl plus Terminal priority exclusion still applies to all physical
+clipboard chords. Native edit actions retain their independent SDK-origin route.

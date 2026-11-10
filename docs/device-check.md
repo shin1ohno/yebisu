@@ -507,3 +507,13 @@ large-image acceptance. No physical checks above have been marked complete.
    The SDK sends insertText and IME commits through the same
    `replace_text_in_range(None, text)` without composition identity. Confirm that
    commits during selection are rejected and commits after this boundary arrive.
+
+### P8 extra-modifier regression
+
+In each Command: Local / Ctrl × Shortcuts: App / Terminal priority combination,
+check plain Command-C/V and Command-Shift-V, then add Option, Control and Function.
+Only the exact clipboard chords may access the clipboard. With Command: Ctrl,
+Option-Command-C/V must reach the sandbox as Ctrl-Alt-C/V, without copying or
+pasting. Command-Shift-C is also an unmatched chord. With Command: Local, unmatched
+Command chords remain platform-local. Native Copy/Paste must retain their separate
+behavior. Record keyboard layout and the modifiers iPadOS actually delivers.

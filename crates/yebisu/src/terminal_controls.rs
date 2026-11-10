@@ -75,8 +75,12 @@ impl Smoke {
             return;
         }
         if event.keystroke.modifiers.platform
+            && !event.keystroke.modifiers.alt
+            && !event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.function
+            && (event.keystroke.key == "v"
+                || (event.keystroke.key == "c" && !event.keystroke.modifiers.shift))
             && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
-            && matches!(event.keystroke.key.as_str(), "c" | "v")
         {
             if !event.is_held {
                 if event.keystroke.key == "c" {

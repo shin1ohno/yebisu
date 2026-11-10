@@ -4,8 +4,37 @@ fn rejected_image_is_not_published() {
     assert!(prepare(Payload::Image(b"not an image".to_vec())).is_err());
 }
 #[test]
-fn large_image_is_bounded() {
-    assert!(prepare(Payload::Image(vec![0; IMAGE_LIMIT + 1])).is_err());
+fn large_image_is_bounded() -> crate::Result<()> {
+    // JPEG COM segments are valid, ignored metadata, each with a 16-bit length.
+    // They exceed the encoded-byte cap without exceeding the pixel/decode limits.
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(1, 1)
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .map_err(|e| crate::Error::Ssh(e.to_string()))?;
+    let jpeg = jpeg.into_inner();
+    assert_eq!(&jpeg[..2], &[0xff, 0xd8]); // JPEG SOI
+    let mut oversized = jpeg[..2].to_vec();
+    while oversized.len() + jpeg.len() - 2 <= IMAGE_LIMIT {
+        oversized.extend_from_slice(&[0xff, 0xfe, 0xff, 0xff]); // COM, length 65535
+        oversized.resize(oversized.len() + usize::from(u16::MAX) - 2, 0);
+    }
+    oversized.extend_from_slice(&jpeg[2..]);
+    assert!(oversized.len() > IMAGE_LIMIT);
+    let decoded =
+        image::load_from_memory(&oversized).map_err(|e| crate::Error::Ssh(e.to_string()))?;
+    assert_eq!((decoded.width(), decoded.height()), (1, 1));
+    eprintln!(
+        "valid oversized JPEG: bytes={} cap={IMAGE_LIMIT} decoded=1x1",
+        oversized.len()
+    );
+    match prepare(Payload::Image(oversized)) {
+        Err(crate::Error::Ssh(message)) => {
+            assert_eq!(message, "Paste refused: image exceeds 128 MiB")
+        }
+        Ok(_) => panic!("valid over-cap image was accepted"),
+        Err(error) => panic!("wrong image rejection: {error}"),
+    }
+    Ok(())
 }
 #[test]
 fn host_switch_cancels_late_paste_and_following_input() {

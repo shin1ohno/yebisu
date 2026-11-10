@@ -114,3 +114,9 @@ The terminal's handoff strip switches these immediately, without a rebuild:
 
 Paste and Paste image are explicit commands, not alternative implementations.
 A single preparation is allowed at a time to bound memory; busy pastes are refused.
+
+P8 physical clipboard chords accept exactly Command-C, Command-V and
+Command-Shift-V (image-only). Command-Shift-C and any added Option, Control or
+Function fall through to the existing terminal path without reading or writing
+the clipboard. Command: Ctrl plus Terminal priority still bypasses these physical
+clipboard shortcuts; native editing actions remain independent of these settings.

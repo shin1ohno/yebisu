@@ -17,8 +17,20 @@ use std::{
 fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppContext) {
     for command_control in [false, true] {
         for terminal_priority in [false, true] {
-            for key in ["c", "v"] {
-                let terminal_route = command_control && terminal_priority;
+            for (key, bits) in ["c", "v"]
+                .into_iter()
+                .flat_map(|key| (0..16).map(move |bits| (key, bits)))
+            {
+                let modifiers = Modifiers {
+                    platform: true,
+                    shift: bits & 1 != 0,
+                    alt: bits & 2 != 0,
+                    control: bits & 4 != 0,
+                    function: bits & 8 != 0,
+                };
+                let clipboard_route = (bits == 0 || (key == "v" && bits == 1))
+                    && !(command_control && terminal_priority);
+                let terminal_route = !clipboard_route && command_control;
                 let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
                 let (client, receipts) =
                     mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
@@ -53,7 +65,7 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                         this.terminal.size = None;
                         this.refresh_terminal_input();
                         this.sync_handoff();
-                        if !terminal_route && key == "c" {
+                        if clipboard_route && key == "c" {
                             let frame = this
                                 .terminal
                                 .live
@@ -72,10 +84,7 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                         let keystroke = Keystroke {
                             key: key.into(),
                             key_char: None,
-                            modifiers: Modifiers {
-                                platform: true,
-                                ..Default::default()
-                            },
+                            modifiers,
                         };
                         this.terminal_key_down(
                             &KeyDownEvent {
@@ -100,13 +109,13 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                 view.update(cx, |this, _| {
                     assert_eq!(
                         this.handoff.clipboard_reads,
-                        usize::from(!terminal_route && key == "v"),
-                        "read: Ctrl={command_control} priority={terminal_priority} key={key}"
+                        usize::from(clipboard_route && key == "v"),
+                        "read: Ctrl={command_control} priority={terminal_priority} key={key} bits={bits}"
                     );
                     assert_eq!(
                         this.handoff.clipboard_writes,
-                        usize::from(!terminal_route && key == "c"),
-                        "write: Ctrl={command_control} priority={terminal_priority} key={key}"
+                        usize::from(clipboard_route && key == "c"),
+                        "write: Ctrl={command_control} priority={terminal_priority} key={key} bits={bits}"
                     );
                     // A wire barrier proves the no-extra-event assertions after both key edges.
                     this.terminal
@@ -125,7 +134,7 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                     cx.read_from_clipboard()
                         .and_then(|item| item.text())
                         .as_deref(),
-                    Some(if !terminal_route && key == "c" {
+                    Some(if clipboard_route && key == "c" {
                         "日本語"
                     } else {
                         "clipboard-sentinel"
@@ -170,13 +179,16 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                             *code,
                             ClientKeyCode::Char(if key == "c" { 'c' } else { 'v' })
                         );
-                        assert_eq!(*modifiers, 2); // protocol Ctrl bit (terminal.rs)
+                        assert_eq!(
+                            *modifiers,
+                            2 | u8::from(bits & 1 != 0) | (u8::from(bits & 2 != 0) << 2)
+                        ); // protocol Ctrl/Shift/Alt bits
                         assert_eq!(*kind, expected_kind);
                     }
                 } else {
                     assert_eq!(
                         events,
-                        if key == "v" {
+                        if clipboard_route && key == "v" && bits == 0 {
                             vec![ClientPaneInputEvent::Paste("clipboard-sentinel".into())]
                         } else {
                             vec![]
@@ -187,7 +199,7 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                     this.terminal.link.pause();
                 });
                 eprintln!(
-                    "D1 PASS Ctrl={command_control} terminal_priority={terminal_priority} key={key}"
+                    "D1 PASS Ctrl={command_control} terminal_priority={terminal_priority} key={key} bits={bits}"
                 );
             }
         }
