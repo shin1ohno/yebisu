@@ -80,7 +80,15 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             cx.run_until_parked();
-            if view.update(cx, |this, _| !this.handoff.preparing) {
+            if view.update(cx, |this, _| {
+                // Rendering requests a viewport resize, but this peer intentionally keeps
+                // its fixed fixture dimensions. Drain the normal input queue before a
+                // direct wire barrier; otherwise the barrier can overtake size-held text.
+                this.terminal.size = None;
+                this.refresh_terminal_input();
+                this.flush_terminal();
+                !this.handoff.preparing && this.terminal.input.ready
+            }) {
                 break;
             }
             assert!(Instant::now() < deadline, "paste timeout");
