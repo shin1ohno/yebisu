@@ -1,5 +1,15 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Herdr 2: {0}")]
+    Core(#[from] sheprd_core_client::Error),
+    #[error("terminal backend: {0}")]
+    Backend(#[from] sheprd_backend::Error),
+    #[error("Herdr 2 input queue is full or disconnected")]
+    CoreQueue,
+    #[error("invalid saved Herdr 2 workspace")]
+    CoreState,
+    #[error("Herdr 2 program ended; reattach or open a new terminal")]
+    CoreEnded,
     #[error("app log HOME is unavailable")]
     LogHome,
     #[error("app log subscriber is already installed")]

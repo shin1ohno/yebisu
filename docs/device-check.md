@@ -517,3 +517,44 @@ Option-Command-C/V must reach the sandbox as Ctrl-Alt-C/V, without copying or
 pasting. Command-Shift-C is also an unmatched chord. With Command: Local, unmatched
 Command chords remain platform-local. Native Copy/Paste must retain their separate
 behavior. Record keyboard layout and the modifiers iPadOS actually delivers.
+
+## P9 / M6 — Herdr 2 terminals
+
+Worker validation uses a private socketpair core wire peer. It does not establish
+physical keyboard/IME behavior or contact any running owner service. The current
+UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
+
+1. Unlock the login keychain locally, connect/unlock M5, then run from the yebisu
+   checkout in an interactive login shell:
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+   Never send the password to an agent. Record device model and iPadOS version.
+2. Use an explicitly authorized disposable host with `herdr-core serve` running
+   and the `hc connect` bridge available in its SSH command environment. Select
+   its saved SSH target, verify its fingerprint through the existing Trust flow,
+   and tap **Open Herdr 2**. Confirm the remote shell and host identity.
+3. Type ASCII and Japanese through the software keyboard. Compose multiple
+   clauses, move the selected clause, delete part of an emoji clause, commit once,
+   and cancel composition with Escape. Confirm no uncommitted text reaches the
+   shell. Rotate with a clause open: candidate position must track painted text.
+4. Attach a hardware keyboard. Under **Input options**, exercise all combinations
+   of Option Native/Alt, Command Local/Ctrl, Candidate Clause/Caret and Shortcuts
+   App/Terminal priority. Check arrows, Escape, Control-G, Command-G, Option-X,
+   repeats and release; confirm one delivery. Repeat with a program requesting
+   kitty key reports and after unplug/replug. Candidate options are visual only.
+5. Tap **Split (2 panes)**. Both remote terminals must remain visible. Tap
+   **Pane 1** and **Pane 2**, type distinct markers, and confirm routing only to
+   the selected pane. Toggle split direction to compare stacked and side-by-side
+   layouts without rebuilding. Rotation must resize both programs.
+6. Tap **Detach**. The remote programs must keep running. Tap **Reconnect** and
+   confirm both saved terminal IDs, active pane and split direction are restored.
+   Relaunch the app and open the same saved host; verify the same workspace.
+7. During a slow connection to host A, return to **Hosts**, select disposable host
+   B and tap **Open Herdr 2**. Complete/fail A's connection afterwards. B's text,
+   status and input destination must remain B. Repeat A → B → A and detach while
+   connecting; there must be no input replay or unexpected remote terminal spawn.
+8. Background/lock then return. Compare the existing Automatic and Tap reconnect
+   policies; verify fresh input after reattach and no replay of queued IME text.
+   Also reopen a Herdr 1 host using its normal Connect control to check regression.
+
+Record results and preferred split direction in PR QA. Two panes are the explicit
+P9 workspace limit. Splits use client layout; remote terminals outlive detach.

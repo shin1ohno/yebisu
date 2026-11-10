@@ -147,6 +147,11 @@ impl Smoke {
             self.terminal.open = true;
             return;
         }
+        self.terminal.core.take();
+        if self.terminal.core_mode {
+            self.terminal.link.reset();
+            self.terminal.live = Live::default();
+        }
         self.terminal.input.detach();
         let next = self.board.hidden.remove(host).unwrap_or_default();
         let mut previous = std::mem::replace(&mut self.terminal, next);

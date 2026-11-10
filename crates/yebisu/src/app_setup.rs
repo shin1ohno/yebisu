@@ -62,7 +62,14 @@ impl Smoke {
             .gap_4()
             .p_8()
             .track_focus(&self.focus)
-            .child(div().text_3xl().child("yebisu · Saved hosts · P5"))
+            .child(div().text_3xl().child("yebisu · Saved hosts · P9"))
+            .child(
+                button("core-connect", "Open Herdr 2", busy).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.connect_core(cx);
+                    },
+                )),
+            )
             .children(
                 self.setup
                     .hosts

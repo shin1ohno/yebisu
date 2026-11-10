@@ -279,6 +279,14 @@ pub(crate) fn run() {
                     cx.notify();
                 });
             }
+            #[cfg(target_abi = "sim")]
+            if std::env::var_os("YEBISU_CORE_QA").is_some() {
+                entity.update(cx, |this, cx| {
+                    this.setup.busy = false;
+                    this.setup_input.set_text("qa@private-core".into());
+                    this.connect_core(cx);
+                });
+            }
             let focus = entity.read(cx).focus.clone();
             focus.focus(window, cx);
             entity

@@ -11,6 +11,8 @@ use sheprd_client::{ConnectOptions, ConnectTarget};
 #[derive(Default)]
 pub(crate) struct TerminalView {
     pub link: Link,
+    pub core: Option<crate::core::Session>,
+    pub core_mode: bool,
     pub reconnect: crate::reconnect::Reconnect,
     pub live: Live,
     pub painter: TerminalPainter,
@@ -29,6 +31,17 @@ pub(crate) struct TerminalView {
 impl TerminalView {
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
         if self.navigating.is_some() || self.size == Some(options) {
+            return;
+        }
+        if let Some(core) = &self.core {
+            if let Ok(size) =
+                sheprd_backend::Size::new(options.surface_size.cols, options.surface_size.rows)
+            {
+                match core.send(crate::core::Command::Resize(size)) {
+                    Ok(()) => self.size = Some(options),
+                    Err(e) => self.live.status = e.to_string(),
+                }
+            }
             return;
         }
         if let (Some(handle), Some(snapshot)) = (&self.link.handle, &self.live.snapshot) {
@@ -50,12 +63,17 @@ impl Smoke {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
+        let from_setup = !self.terminal.open;
         let target = if self.terminal.open {
             self.terminal.reconnect.target.clone()
         } else {
             self.setup_input.text.trim().to_owned()
         };
         self.select_host(&target);
+        if from_setup {
+            self.terminal.core.take();
+            self.terminal.core_mode = false;
+        }
         self.start_host_connection(target, cx);
         for host in self.setup.hosts.clone() {
             if host != self.terminal.reconnect.target && !self.board.hidden.contains_key(&host) {
@@ -64,6 +82,13 @@ impl Smoke {
         }
     }
     pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        if self.terminal.core_mode && self.terminal.reconnect.target == target {
+            self.connect_core(cx);
+            return;
+        }
+        if self.board.hidden.get(&target).is_some_and(|t| t.core_mode) {
+            return;
+        }
         let selected = target == self.terminal.reconnect.target;
         let terminal = if selected {
             &mut self.terminal
@@ -324,7 +349,7 @@ impl Smoke {
                                 }
                             })),
                     )
-                    .child(div().child(format!("P8 · {status}"))),
+                    .child(div().child(format!("P9 · {status}"))),
             )
             .child(
                 div()
@@ -341,10 +366,16 @@ impl Smoke {
                         cx.notify();
                     })),
             )
-            .when(!self.actions.board_hidden, |view| {
-                view.child(self.render_board(cx))
+            .when(
+                !self.terminal.core_mode && !self.actions.board_hidden,
+                |view| view.child(self.render_board(cx)),
+            )
+            .when(!self.terminal.core_mode, |view| {
+                view.child(self.render_actions(cx))
             })
-            .child(self.render_actions(cx))
+            .when(self.terminal.core_mode, |view| {
+                view.child(self.render_core_controls(cx))
+            })
             .when(self.terminal.show_options, |view| {
                 view.child(self.input_options(cx))
             })
