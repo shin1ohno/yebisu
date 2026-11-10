@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def validate(records):
-    connects = [r for r in records if r.get("kind") == "reconnect"]
+    connects = [r for r in records if r.get("kind") == "reconnect" and r.get("selected", True)]
     if len(connects) != 2 or [r["automatic"] for r in connects] != [True, False]:
         raise ValueError("expected exactly automatic-return then manual-tap reconnect")
     paints = [r for r in records if r.get("kind") == "terminal"]

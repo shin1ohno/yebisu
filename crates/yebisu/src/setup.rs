@@ -39,8 +39,8 @@ pub(crate) enum Reply {
     Hosts(crate::hosts::SavedHosts, String),
     Key(String),
     Scanned(String, HostKeyScan, String),
-    Saved(String, String),
-    Authenticated(String),
+    Saved(crate::hosts::SavedHosts, String),
+    Authenticated(crate::hosts::SavedHosts, String),
 }
 
 #[cfg(target_os = "ios")]
@@ -105,7 +105,10 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             let store = store()?;
             // Failure is displayed even when pins were saved but the target was not.
             store.save(&target)?;
-            Ok(Reply::Saved(target.clone(), store.fingerprints(&target)?))
+            Ok(Reply::Saved(
+                store.load_hosts()?,
+                store.fingerprints(&target)?,
+            ))
         }
         Job::Authenticate(target) => {
             // Scan sends no credentials. The authenticated probe independently checks
@@ -115,10 +118,12 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             if let ssh::HostProbe::SshFailed(failure) = probe {
                 return Err(Error::Ssh(format!("authentication refused: {failure:?}")));
             }
-            store()?.save(&target)?;
-            Ok(Reply::Authenticated(format!(
-                "SSH authenticated: {probe:?}"
-            )))
+            let store = store()?;
+            store.save(&target)?;
+            Ok(Reply::Authenticated(
+                store.load_hosts()?,
+                format!("SSH authenticated: {probe:?}"),
+            ))
         }
     }
 }
@@ -166,13 +171,16 @@ impl Setup {
                     }
                 }
             }
-            Ok(Reply::Saved(target, fingerprints)) => {
-                self.target = target;
+            Ok(Reply::Saved(hosts, fingerprints)) => {
+                self.target = hosts.selected;
+                self.hosts = hosts.targets;
                 self.pending = None;
                 self.fingerprints = fingerprints;
                 self.status = "Host key trusted and connection saved.".into();
             }
-            Ok(Reply::Authenticated(message)) => {
+            Ok(Reply::Authenticated(hosts, message)) => {
+                self.target = hosts.selected;
+                self.hosts = hosts.targets;
                 self.status = message;
             }
         }

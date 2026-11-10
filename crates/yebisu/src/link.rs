@@ -2,27 +2,46 @@
 use crate::live::Live;
 use sheprd_client::{Client, ClientEvent, ClientHandle};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::JoinHandle;
 
-#[derive(Default)]
 pub(crate) struct Link {
     pub generation: u64,
+    pub stop_reason: Arc<OnceLock<sheprd_client::VersionMismatch>>,
     pub reader: Option<JoinHandle<()>>,
     pub inbox: Arc<Mutex<Live>>,
     pub drained: Arc<AtomicBool>,
     pub handle: Option<ClientHandle>,
 }
+impl Default for Link {
+    fn default() -> Self {
+        let live = Live::default();
+        Self {
+            generation: 0,
+            stop_reason: live.version_mismatch.clone(),
+            reader: None,
+            inbox: Arc::new(Mutex::new(live)),
+            drained: Arc::default(),
+            handle: None,
+        }
+    }
+}
 impl Link {
     pub fn reset(&mut self) -> u64 {
+        self.stop_reason = Arc::default();
+        self.pause()
+    }
+    /// Invalidate callbacks and payloads without losing the reader's stop reason.
+    pub fn pause(&mut self) -> u64 {
         if let Some(handle) = self.handle.take() {
             handle.disconnect();
         }
         self.reader.take(); // Never join on the UI thread.
         self.generation = self.generation.wrapping_add(1);
         let mut live = Live::default();
+        live.version_mismatch = self.stop_reason.clone();
         live.status = "Connecting…".into();
         live.dirty = true;
         self.inbox = Arc::new(Mutex::new(live));
@@ -71,6 +90,13 @@ impl Link {
     }
     pub fn take_update(&self) -> Option<Live> {
         let mut live = self.inbox.try_lock().ok()?;
+        if let Some(reason) = self.stop_reason.get() {
+            let status = format!("Version mismatch: {reason:?}");
+            if live.status != status {
+                live.status = status;
+                live.dirty = true;
+            }
+        }
         if !live.dirty {
             return None;
         }

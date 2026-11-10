@@ -18,7 +18,7 @@ pub(crate) struct Destination {
 }
 
 pub(crate) fn destination(live: &Live, generation: u64) -> Option<Destination> {
-    if !live.connected || live.version_mismatch.is_some() {
+    if !live.connected || live.version_mismatch.get().is_some() {
         return None;
     }
     let snapshot = live.snapshot.as_ref()?;

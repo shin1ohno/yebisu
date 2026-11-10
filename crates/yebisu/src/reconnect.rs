@@ -42,18 +42,21 @@ impl Smoke {
                 }
                 self.terminal.reconnect.suspended = true;
                 for terminal in self.board.hidden.values_mut() {
-                    terminal.link.reset();
+                    terminal.link.pause();
                     terminal.input.detach();
                     terminal.live.connected = false;
-                    terminal.live.status = "Paused".into();
+                    terminal.restore_stop_reason();
+                    if terminal.live.version_mismatch.get().is_none() {
+                        terminal.live.status = "Paused".into();
+                    }
                     terminal.reconnect.suspended = true;
                     terminal.navigating = None;
                     terminal.link.inbox =
                         std::sync::Arc::new(std::sync::Mutex::new(terminal.live.clone()));
                 }
                 if self.terminal.open || !self.terminal.reconnect.target.is_empty() {
-                    let mismatch = self.terminal.live.version_mismatch.clone();
-                    self.terminal.link.reset();
+                    let mismatch = self.terminal.link.stop_reason.clone();
+                    self.terminal.link.pause();
                     self.terminal
                         .input
                         .sync(&Live::default(), self.terminal.link.generation, None);
@@ -61,17 +64,22 @@ impl Smoke {
                     self.terminal.live.version_mismatch = mismatch;
                     self.terminal.live.status =
                         "Paused · input discarded · reconnect on return".into();
+                    self.terminal.restore_stop_reason();
                     self.terminal.link.inbox =
                         std::sync::Arc::new(std::sync::Mutex::new(self.terminal.live.clone()));
                     self.terminal.size = None;
                 }
             }
             AppLifecyclePhase::Active => {
+                self.terminal.restore_stop_reason();
+                for terminal in self.board.hidden.values_mut() {
+                    terminal.restore_stop_reason();
+                }
                 let returned = std::mem::replace(&mut self.terminal.reconnect.suspended, false);
                 if returned
                     && self.terminal.open
                     && self.terminal.reconnect.automatic
-                    && self.terminal.live.version_mismatch.is_none()
+                    && self.terminal.live.version_mismatch.get().is_none()
                 {
                     self.connect_terminal(cx);
                 }
@@ -82,7 +90,7 @@ impl Smoke {
                         .iter_mut()
                         .filter_map(|(host, t)| {
                             t.reconnect.suspended = false;
-                            (t.reconnect.automatic && t.live.version_mismatch.is_none())
+                            (t.reconnect.automatic && t.live.version_mismatch.get().is_none())
                                 .then(|| host.clone())
                         })
                         .collect::<Vec<_>>();

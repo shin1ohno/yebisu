@@ -23,6 +23,14 @@ pub(crate) struct TerminalView {
     pub needs_focus: bool,
     pub navigating: Option<crate::board::Navigation>,
 }
+impl TerminalView {
+    pub(crate) fn restore_stop_reason(&mut self) {
+        self.live.version_mismatch = self.link.stop_reason.clone();
+        if let Some(reason) = self.link.stop_reason.get() {
+            self.live.status = format!("Version mismatch: {reason:?}");
+        }
+    }
+}
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
         if self.setup.busy || self.terminal.reconnect.suspended {
@@ -48,6 +56,10 @@ impl Smoke {
         } else {
             self.board.hidden.entry(target.clone()).or_default()
         };
+        terminal.restore_stop_reason();
+        if terminal.live.version_mismatch.get().is_some() {
+            return;
+        }
         let host_generation = terminal.reconnect.begin(target.clone());
         let host = target.clone();
         terminal.input.discard();
@@ -55,7 +67,7 @@ impl Smoke {
             .input
             .sync(&Live::default(), terminal.link.generation, None);
         let generation = terminal.link.reset();
-        self.observation.record(serde_json::json!({"kind":"reconnect","generation":generation,"automatic":terminal.reconnect.automatic}));
+        self.observation.record(serde_json::json!({"kind":"reconnect","host":host,"selected":selected,"generation":generation,"automatic":terminal.reconnect.automatic}));
         terminal.live = Live::default();
         terminal.navigating = None;
         terminal.size = None;
@@ -276,7 +288,7 @@ impl Smoke {
                             .child("Reconnect")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if !this.terminal.live.connected
-                                    && this.terminal.live.version_mismatch.is_none()
+                                    && this.terminal.live.version_mismatch.get().is_none()
                                 {
                                     this.connect_terminal(cx);
                                 }

@@ -240,11 +240,15 @@ fn p2_reply_variants_remain_visible() {
     setup.apply(Ok(crate::setup::Reply::Key("public".into())));
     assert_eq!(setup.key_line.as_deref(), Some("public"));
     setup.apply(Ok(crate::setup::Reply::Saved(
-        "saved".into(),
+        crate::hosts::SavedHosts {
+            targets: vec!["saved".into()],
+            selected: "saved".into(),
+        },
         "pin2".into(),
     )));
     assert_eq!(setup.target, "saved");
     setup.apply(Ok(crate::setup::Reply::Authenticated(
+        crate::hosts::SavedHosts::default(),
         "authenticated".into(),
     )));
     assert_eq!(setup.status, "authenticated");
@@ -283,7 +287,7 @@ fn mismatch_survives_disconnect_and_response_requires_correlation() {
         ssh: None,
     });
     assert_eq!(s.status, status);
-    assert!(s.version_mismatch.is_some());
+    assert!(s.version_mismatch.get().is_some());
 }
 
 #[test]
