@@ -38,6 +38,12 @@ impl Link {
     pub fn reset(&mut self) -> u64 {
         self.pause()
     }
+    /// A core connection belongs to a different protocol stop-state domain.
+    /// Retired Herdr 1 readers keep their own Arc; never clear or reuse it here.
+    pub fn reset_for_core(&mut self) -> u64 {
+        self.stop_reason = Arc::new(OnceLock::new());
+        self.pause()
+    }
     /// Invalidate callbacks and payloads without losing the reader's stop reason.
     pub fn pause(&mut self) -> u64 {
         if let Some(handle) = self.handle.take() {

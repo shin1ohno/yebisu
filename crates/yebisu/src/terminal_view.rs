@@ -13,6 +13,8 @@ pub(crate) struct TerminalView {
     pub link: Link,
     pub core: Option<crate::core::Session>,
     pub core_mode: bool,
+    #[cfg(test)]
+    pub core_test_backend: Option<sheprd_core_client::CoreBackend>,
     pub reconnect: crate::reconnect::Reconnect,
     pub live: Live,
     pub painter: TerminalPainter,

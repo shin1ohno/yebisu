@@ -3,6 +3,11 @@ use gpui::{AnyElement, Context, div, prelude::*, rgb};
 
 impl Smoke {
     pub(crate) fn connect_core(&mut self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        if let Some(backend) = self.terminal.core_test_backend.take() {
+            self.connect_core_using(cx, move |_| Ok(backend));
+            return;
+        }
         self.connect_core_using(cx, |target| {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_CORE_QA").is_some() {
@@ -37,7 +42,7 @@ impl Smoke {
         self.terminal.core.take();
         self.terminal.navigating = None;
         self.actions.palette = false;
-        let generation = self.terminal.link.reset();
+        let generation = self.terminal.link.reset_for_core();
         self.terminal.core_mode = true;
         self.terminal.reconnect.begin(host.clone());
         self.terminal.input.detach();

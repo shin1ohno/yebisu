@@ -253,3 +253,87 @@ fn pane_close_preserves_final_frame_and_keeps_other_pane_live(cx: &mut TestAppCo
         this.terminal.core.take();
     });
 }
+
+#[gpui::test]
+fn herdr1_mismatch_before_core_does_not_block_background_return(cx: &mut TestAppContext) {
+    core_return_after_old_mismatch(cx, false);
+}
+#[gpui::test]
+fn herdr1_mismatch_after_core_does_not_block_background_return(cx: &mut TestAppContext) {
+    core_return_after_old_mismatch(cx, true);
+}
+fn core_return_after_old_mismatch(cx: &mut TestAppContext, late: bool) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let old_inbox = view.update(cx, |this, _| {
+        this.select_host("private-core");
+        this.terminal.link.inbox.clone()
+    });
+    let mismatch = || {
+        old_inbox.lock().unwrap_or_else(|e| e.into_inner()).apply(
+            sheprd_client::ClientEvent::VersionMismatch(
+                sheprd_client::VersionMismatch::DaemonOutdated {
+                    server_version: Some("old-herdr-1".into()),
+                },
+            ),
+        );
+    };
+    if !late {
+        mismatch();
+    }
+    let (backend, _) = crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("peer: {e}"));
+    let (release, wait) = mpsc::channel();
+    view.update(cx, |this, cx| {
+        this.connect_core_using(cx, move |_| {
+            wait.recv().map_err(|e| crate::Error::Ssh(e.to_string()))?;
+            Ok(backend)
+        });
+    });
+    if late {
+        mismatch();
+    }
+    release.send(()).unwrap_or_else(|e| panic!("release: {e}"));
+    wait_frame(&view, cx, |live| live.connected && live.surface.is_some());
+    // The retired reader really did retain its mismatch; only the new core
+    // state must be isolated. No reader is allowed to clear another's state.
+    assert!(
+        old_inbox
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .version_mismatch
+            .get()
+            .is_some()
+    );
+    let (backend, wire) =
+        crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("return peer: {e}"));
+    view.update(cx, |this, cx| {
+        this.terminal.core_test_backend = Some(backend);
+        this.lifecycle(gpui::AppLifecyclePhase::Inactive, cx);
+        let paused = this.terminal.link.generation;
+        this.lifecycle(gpui::AppLifecyclePhase::Active, cx);
+        assert!(
+            this.terminal.link.generation > paused,
+            "old Herdr 1 mismatch blocked core lifecycle reconnect; late={late}"
+        );
+        assert!(
+            this.terminal.core_test_backend.is_none(),
+            "automatic core connector was not reached"
+        );
+        assert!(this.terminal.link.stop_reason.get().is_none());
+    });
+    wait_frame(&view, cx, |live| {
+        live.connected && live.version_mismatch.get().is_none()
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "RETURNED", window, cx);
+        })
+    });
+    assert_eq!(receive(&view, cx, &wire), (1, b"RETURNED".to_vec()));
+    wait_frame(&view, cx, |live| text(live).contains("RETURNED"));
+    view.update(cx, |this, _| {
+        this.terminal.core.take();
+    });
+}

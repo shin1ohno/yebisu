@@ -69,3 +69,9 @@ continues to use the stable host/default-session record.
 - `core/regression_tests.rs` covers the palette key path followed by text/Paste,
   Herdr 1 navigation → core open → resize/input, and CLOSE → sibling input/frame.
   Each regression was observed failing without its fix and passing after repair.
+
+Core connection startup allocates its own stop-state Arc before replacing the
+inbox. Existing Herdr 1 pause/reconnect retains its original stop state, including
+late mismatch reports. Core lifecycle regression tests deliver that old mismatch
+both before and after core startup, then verify automatic background return and
+text input through the real lifecycle/key-text adapter and private core wire.

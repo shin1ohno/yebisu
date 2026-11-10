@@ -573,3 +573,9 @@ P9 workspace limit. Splits use client layout; remote terminals outlive detach.
 3. Split two core panes and run `exit` in Pane 1. Its last output and the
    `ended: 1` status must remain visible. Select Pane 2, type a marker and rotate:
    the second program must receive input and redraw without Reconnect.
+
+4. On a disposable host with an incompatible Herdr 1 daemon but a compatible
+   core, open Herdr 2 after the Herdr 1 mismatch. Background and return with
+   Automatic enabled; verify reconnection and fresh text input. Repeat while
+   delaying the old Herdr 1 mismatch until after opening core. The old mismatch
+   must not disable core Reconnect or background return.
