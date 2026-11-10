@@ -445,3 +445,75 @@ retention contract.
    Deterministic missing/delayed/transfer-error tests run without a device.
 5. Record the actual physical results in PR QA. Simulator container/file and
    privacy tests do not prove device signing or hardware/IME behavior.
+
+## P8 / M5 selection and clipboard (owner, physical M5)
+
+Use an already authorized sandbox daemon; never an existing working Herdr session.
+Unlock the login keychain locally, connect/unlock M5, then run the provided absolute
+just binary with `ipad` in this repository. Record device/iPadOS and this PR head.
+
+1. Print `日本語 ABC` in the sandbox. Tap **Select**, then drag with the trackpad
+   across the text. Confirm highlighted cells match the drag, press **Copy**, and
+   paste into Notes. Confirm CJK characters appear once and no terminal input ran.
+2. Repeat with a finger. Compare **Start: Select / double tap** with **Start: Drag**.
+   Turn **Copy: On selection** on/off and compare Notes' pasteboard result after
+   releasing the drag. Choose the preferred feel without rebuilding.
+3. End selection, focus the terminal and copy `P8-text-かな` in Notes. Use the native
+   **Paste** edit menu, then Command-V; each action must paste exactly once. Confirm
+   multiline text is sent as semantic paste, not individual key presses.
+4. Copy an image in Photos/Files. Use **Paste image**. For an item offering both
+   text and image, ordinary **Paste** prefers text and **Paste image** chooses image.
+5. Copy a large PNG (encoded size above 16 MiB, below 128 MiB, dimensions below
+   64 Mi pixels). Paste image; confirm the sandbox receives an image, UI stays
+   responsive and subsequent typing follows the paste. Confirm transfer payload
+   fits the protocol's 16 MiB cap after resizing. Copy malformed/unsupported data
+   and confirm refusal without sending any path or opening a local file.
+6. During image preparation switch hosts, panes, open Hosts or background the app.
+   Confirm neither old paste nor held typing reaches the new target. Reconnect and
+   paste fresh text successfully. A second paste during preparation must report busy.
+7. Start IME composition, enter selection and copy; confirm no uncommitted text
+   reaches the daemon. Print replacement output over a selection and confirm the
+   selection clears. Display a Kitty image from the sandbox and check it renders.
+
+Simulator receipt checks are separate from trackpad, touch, native menu and physical
+large-image acceptance. No physical checks above have been marked complete.
+
+### P8 review repairs: shortcut precedence and outside release
+
+1. With a hardware keyboard, try all four combinations of **Command: Ctrl / Local**
+   and **Shortcuts: Terminal priority / App priority**. With Ctrl and Terminal
+   priority together, Command-C/V must reach the sandbox as Ctrl-C/V without
+   reading or changing the clipboard. In the other combinations, Command-C copies
+   the selection and Command-V pastes once; neither sends terminal key events.
+2. Enable **Copy: On selection**, begin a trackpad selection and release outside
+   the terminal. Paste into Notes and confirm the selected text was copied once.
+   Move back over the terminal without pressing a button: selection must not grow.
+   Repeat with automatic copy disabled: release still ends the drag, without copy.
+
+### P8 second review: selection exit and SDK limitations
+
+1. Show the software keyboard, start an IME composition, then enter Select mode.
+   A commit delivered while selection is active must not reach the sandbox.
+2. Press the app's **Paste** button without tapping the terminal again. Type plain
+   text, then compose and commit Japanese text. Verify paste, plain text and IME
+   commit arrive in that order. Repeat by turning **Select** off and typing.
+3. In each combination of **Command: Ctrl / Local** and **Shortcuts: App / Terminal
+   priority**, use native Paste and Copy. Paste must send clipboard text once;
+   Copy must copy the selection. Neither may send Ctrl-V/C. Native Cut copies the
+   selection; native Select All does nothing. Physical Command-C/V still follow
+   the precedence rules above.
+4. An explicit Paste or Select-off ends the old composition. Any commit UIKit
+   delivers afterward is accepted as new input, including a late prior commit.
+   The SDK sends insertText and IME commits through the same
+   `replace_text_in_range(None, text)` without composition identity. Confirm that
+   commits during selection are rejected and commits after this boundary arrive.
+
+### P8 extra-modifier regression
+
+In each Command: Local / Ctrl × Shortcuts: App / Terminal priority combination,
+check plain Command-C/V and Command-Shift-V, then add Option, Control and Function.
+Only the exact clipboard chords may access the clipboard. With Command: Ctrl,
+Option-Command-C/V must reach the sandbox as Ctrl-Alt-C/V, without copying or
+pasting. Command-Shift-C is also an unmatched chord. With Command: Local, unmatched
+Command chords remain platform-local. Native Copy/Paste must retain their separate
+behavior. Record keyboard layout and the modifiers iPadOS actually delivers.

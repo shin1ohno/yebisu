@@ -150,6 +150,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.handoff.selection.is_some() || self.handoff.select_mode {
+                return;
+            }
             self.refresh_terminal_input();
             if let Some(event) = self.terminal.input.replace(range, text) {
                 self.send_terminal(event);
@@ -183,6 +186,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.handoff.selection.is_some() || self.handoff.select_mode {
+                return;
+            }
             self.refresh_terminal_input();
             self.terminal.input.mark(text, selected);
             window.notify_text_input_changed(self.active_focus());

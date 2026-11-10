@@ -151,6 +151,7 @@ impl Smoke {
             self.start_host_connection(host, cx);
         }
         self.poll_hidden(cx);
+        self.sync_handoff();
         if !self.terminal.open || self.terminal.reconnect.suspended {
             return;
         }
@@ -196,16 +197,17 @@ impl Smoke {
                     terminal.input.sync(&terminal.live, generation, terminal.size);
                     if let (Some(snapshot),Some(surface)) = (&terminal.live.snapshot,&terminal.live.surface)
                         && crate::live::coherent(snapshot,surface) {
-                        window.paint_layer(bounds,|window| {
-                            terminal.painter.paint_frame(&surface.frame,bounds.origin,Some(bounds.size),Ground::Opaque,cell_width,&face,&[],&surface.panes,None,None,window,cx);
+                        let highlights = this.handoff.selection.as_ref().map(|s|s.highlights()).unwrap_or_default();
+                        window.with_content_mask(Some(gpui::ContentMask { bounds }),|window| {
+                            terminal.painter.paint_frame(&surface.frame,bounds.origin,Some(bounds.size),Ground::Opaque,cell_width,&face,if surface.popup.is_none() { &highlights } else { &[] },&surface.panes,None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Main }),window,cx);
                             if let Some(popup) = &surface.popup {
                                 let origin = bounds.origin+crate::terminal::popup_origin(&surface.frame,&popup.frame,cell_width,line_height);
-                                terminal.painter.paint_frame(&popup.frame,origin,None,Ground::Opaque,cell_width,&face,&[],&[],None,None,window,cx);
+                                terminal.painter.paint_frame(&popup.frame,origin,None,Ground::Opaque,cell_width,&face,&highlights,&[],None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Popup(&popup.terminal_id) }),window,cx);
                             }
                             terminal.painter.paint_composition(&terminal.input.composition.text,
                                 terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
                         });
-                        this.observation.record(serde_json::json!({"kind":"terminal","host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
+                        this.observation.record(serde_json::json!({"kind":"terminal","image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
                 });
@@ -276,6 +278,7 @@ impl Smoke {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 window.blur(cx);
                                 this.terminal.input.detach();
+                                this.handoff.cancel();
                                 this.board.selection = this.board.selection.wrapping_add(1);
                                 this.terminal.open = false;
                                 this.smoke_mode = false;
@@ -321,7 +324,7 @@ impl Smoke {
                                 }
                             })),
                     )
-                    .child(div().child(format!("P7 · {status}"))),
+                    .child(div().child(format!("P8 · {status}"))),
             )
             .child(
                 div()
@@ -346,6 +349,9 @@ impl Smoke {
                 view.child(self.input_options(cx))
             })
             .children(self.input_qa_controls(cx))
+            .child(self.handoff_controls(cx))
+            .children(self.handoff_qa_controls(cx))
+            .children(self.native_edit_qa_controls(cx))
             .child(
                 div()
                     .id("terminal-input")
@@ -355,12 +361,17 @@ impl Smoke {
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                            if this.terminal.geometry.contains(event.position) {
-                                this.terminal_focus.focus(window, cx);
-                                this.terminal.input.fresh_gesture();
-                                window.request_virtual_keyboard();
-                            }
+                            this.selection_down(event, window, cx);
                         }),
+                    )
+                    .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.selection_up(cx)),
+                    )
+                    .on_mouse_up_out(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.selection_up(cx)),
                     )
                     .child(canvas(|_, _, _| (), self.terminal_paint_callback(cx)).size_full()),
             )

@@ -301,3 +301,34 @@ fn viewport_follows_rotation_density_and_protocol_limits() {
     let huge = crate::terminal::viewport(100000., 100000., 1., 1.);
     assert!(u32::from(huge.cols) * u32::from(huge.rows) <= 1_000_000);
 }
+
+#[test]
+fn image_catalog_waits_for_coherent_surface_and_clears_on_disconnect() {
+    let mut live = ready();
+    let images = Arc::new(sheprd_client::SurfaceImages::default());
+    live.apply(ClientEvent::SurfaceImages(images.clone()));
+    assert!(!Arc::ptr_eq(&live.surface_images, &images));
+    live.apply(ClientEvent::Surface(surface(8)));
+    assert!(!Arc::ptr_eq(&live.surface_images, &images));
+    live.apply(ClientEvent::Snapshot(snapshot(8)));
+    assert!(Arc::ptr_eq(&live.surface_images, &images));
+    live.apply(ClientEvent::Disconnected {
+        reason: "test".into(),
+        ssh: None,
+    });
+    assert!(!Arc::ptr_eq(&live.surface_images, &images));
+    assert!(live.pending_surface_images.is_none());
+}
+
+#[test]
+fn rejected_paste_is_visible_without_changing_input_target() {
+    let mut live = ready();
+    live.connected = true;
+    let target = crate::terminal_input::destination(&live, 1);
+    live.apply(ClientEvent::CommandRejected {
+        request_id: None,
+        reason: sheprd_client::clipboard::Error::Cancelled.into(),
+    });
+    assert!(!live.status.is_empty());
+    assert_eq!(crate::terminal_input::destination(&live, 1), target);
+}

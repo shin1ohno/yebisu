@@ -101,3 +101,22 @@ No new design fork affecting device feel was found. UIKit symbol normalization
 and retaining a UI-consumed press until release repair the specified behavior.
 Existing runtime shortcut-priority and input switches remain available. R6 QA
 buttons are Simulator-only under YEBISU_R6_QA and absent from device builds.
+
+## P8 handoff
+
+The terminal's handoff strip switches these immediately, without a rebuild:
+
+- **Start: Select / double tap** (default): tap Select before dragging, or double
+  tap to begin. **Start: Drag**: any terminal drag begins local selection; use
+  Paste to leave selection. Compare with both finger and trackpad.
+- **Copy: Manual** (default): press Copy or Command-C after selection.
+  **Copy: On selection** copies when the drag ends. These choices are session-local.
+
+Paste and Paste image are explicit commands, not alternative implementations.
+A single preparation is allowed at a time to bound memory; busy pastes are refused.
+
+P8 physical clipboard chords accept exactly Command-C, Command-V and
+Command-Shift-V (image-only). Command-Shift-C and any added Option, Control or
+Function fall through to the existing terminal path without reading or writing
+the clipboard. Command: Ctrl plus Terminal priority still bypasses these physical
+clipboard shortcuts; native editing actions remain independent of these settings.

@@ -133,6 +133,8 @@ fn normalize_shortcut(binding: &mut Keystroke) {
 }
 impl Smoke {
     pub(crate) fn run_action(&mut self, command: Command) -> crate::Result<()> {
+        self.handoff.cancel();
+        self.handoff.selection = None;
         if !catalog(&self.terminal)
             .iter()
             .any(|a| a.info.command == command && a.available)

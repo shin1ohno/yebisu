@@ -21,6 +21,14 @@ impl Smoke {
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
         self.refresh_terminal_input();
+        self.sync_handoff();
+        if self.handoff.selection.is_some() || self.handoff.select_mode {
+            return;
+        }
+        if self.handoff.preparing {
+            self.hold_for_paste(event);
+            return;
+        }
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
             return;
@@ -52,6 +60,38 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         if !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        #[cfg(target_os = "ios")]
+        if let Some(action) = herdr_uikit::native_edit_action() {
+            use herdr_uikit::NativeEditAction;
+            match action {
+                NativeEditAction::Paste => self.start_paste(false, cx),
+                NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),
+                NativeEditAction::SelectAll => {}
+            }
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        if event.keystroke.modifiers.platform
+            && !event.keystroke.modifiers.alt
+            && !event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.function
+            && (event.keystroke.key == "v"
+                || (event.keystroke.key == "c" && !event.keystroke.modifiers.shift))
+            && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
+        {
+            if !event.is_held {
+                if event.keystroke.key == "c" {
+                    self.copy_selection(cx);
+                } else {
+                    self.start_paste(event.keystroke.modifiers.shift, cx);
+                }
+            }
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
             return;
         }
         // Only repeats belong to the previous UI-owned press. A new press
@@ -106,6 +146,11 @@ impl Smoke {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(target_os = "ios")]
+        if herdr_uikit::native_edit_action().is_some() {
+            cx.stop_propagation();
+            return;
+        }
         if self.actions.consumed.remove(&event.keystroke.key) {
             cx.stop_propagation();
             return;

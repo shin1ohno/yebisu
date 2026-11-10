@@ -16,6 +16,8 @@ pub(crate) struct Live {
     pub snapshot: Option<Arc<ClientShellSnapshot>>,
     pub pending_snapshot: Option<Arc<ClientShellSnapshot>>,
     pub surface: Option<Arc<PaneSurfaceFrame>>,
+    pub surface_images: Arc<sheprd_client::SurfaceImages>,
+    pub pending_surface_images: Option<Arc<sheprd_client::SurfaceImages>>,
     future_surface: Option<Arc<PaneSurfaceFrame>>,
     pub keyboard_report_all: bool,
     pub status: String,
@@ -76,7 +78,9 @@ impl Live {
                 self.observe_navigation();
             }
             ClientEvent::Surface(surface) => self.receive_surface(surface),
-            ClientEvent::SurfaceImages(_) => {} // P8 restores the image catalog here.
+            ClientEvent::SurfaceImages(images) => {
+                self.pending_surface_images = Some(images);
+            }
             ClientEvent::Response {
                 request_id,
                 response,
@@ -117,6 +121,8 @@ impl Live {
                 self.pending_snapshot = None;
                 self.keyboard_report_all = false;
                 self.clipboard.clear();
+                self.surface_images = Arc::default();
+                self.pending_surface_images = None;
             }
             ClientEvent::Message(message) => match message {
                 ServerMessage::ClientShellKeyboardReportAll { enabled } => {
@@ -178,6 +184,9 @@ impl Live {
                 self.snapshot = Some(snapshot);
                 self.pending_snapshot = None;
                 self.surface = Some(future);
+                if let Some(images) = self.pending_surface_images.take() {
+                    self.surface_images = images;
+                }
                 return;
             }
             if future.boot_id == snapshot.boot_id && future.projection_revision > snapshot.revision
@@ -242,6 +251,9 @@ impl Live {
                     || old.surface_revision < surface.surface_revision
             })
         {
+            if let Some(images) = self.pending_surface_images.take() {
+                self.surface_images = images;
+            }
             self.surface = Some(surface);
         }
     }
