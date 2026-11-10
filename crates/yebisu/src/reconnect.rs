@@ -42,6 +42,7 @@ impl Smoke {
                 }
                 self.terminal.reconnect.suspended = true;
                 for terminal in self.board.hidden.values_mut() {
+                    terminal.reconnect_pending = false;
                     terminal.link.pause();
                     terminal.input.detach();
                     terminal.live.connected = false;
@@ -56,6 +57,7 @@ impl Smoke {
                 }
                 if self.terminal.open || !self.terminal.reconnect.target.is_empty() {
                     let mismatch = self.terminal.link.stop_reason.clone();
+                    self.terminal.reconnect_pending = false;
                     self.terminal.link.pause();
                     self.terminal
                         .input
@@ -99,6 +101,17 @@ impl Smoke {
                 }
                 for host in hosts {
                     self.start_host_connection(host, cx);
+                }
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                if returned && let Some(release) = self.terminal.late_reader_release.take() {
+                    // The R5 peer's old reader emits only AFTER Automatic tried
+                    // to reconnect. This cannot be compiled into a device build.
+                    self.observation.record(serde_json::json!({
+                        "kind":"r5-reader-release", "pending":self.terminal.reconnect_pending,
+                        "automatic":self.terminal.reconnect.automatic,
+                        "generation":self.terminal.link.generation
+                    }));
+                    let _ = release.send(());
                 }
             }
             AppLifecyclePhase::Foreground => {}

@@ -16,11 +16,23 @@ pub(crate) enum Target {
     Agent(String),
     Command,
 }
+#[derive(Clone)]
 pub(crate) struct Navigation {
     pub boot: String,
     pub revision: u64,
     pub target: Target,
     pub request: String,
+}
+impl Navigation {
+    pub fn matches(&self, s: &ClientShellSnapshot) -> bool {
+        s.boot_id == self.boot
+            && s.revision >= self.revision
+            && match &self.target {
+                Target::Space(id) => s.focused_workspace_id.as_ref() == Some(id),
+                Target::Agent(id) => s.focused_pane_id.as_ref() == Some(id),
+                Target::Command => false,
+            }
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Row {
@@ -95,19 +107,31 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
     let Some(nav) = &terminal.navigating else {
         return;
     };
-    let confirmed = snapshot(&terminal.live).is_some_and(|s| {
-        s.boot_id == nav.boot
-            && s.revision >= nav.revision
-            && (s.revision > nav.revision
-                || terminal.live.pending_request.as_ref() != Some(&nav.request))
-            && match &nav.target {
-                Target::Space(id) => s.focused_workspace_id.as_ref() == Some(id),
-                Target::Agent(id) => s.focused_pane_id.as_ref() == Some(id),
-                Target::Command => false,
-            }
+    let coherent = terminal
+        .live
+        .snapshot
+        .as_ref()
+        .zip(terminal.live.surface.as_ref())
+        .filter(|(s, f)| crate::live::coherent(s, f) && s.boot_id == nav.boot);
+    let confirmed = coherent.is_some_and(|(s, _)| {
+        let observed = terminal
+            .live
+            .observed_navigation
+            .as_ref()
+            .filter(|(request, _)| request == &nav.request)
+            .map(|(_, revision)| *revision);
+        let current = nav.matches(s).then_some(s.revision);
+        observed.or(current).is_some_and(|revision| {
+            s.revision >= revision
+                && (revision > nav.revision
+                    || terminal.live.completed_request.as_ref() == Some(&nav.request))
+        })
     });
+    // P7 commands have no board target; retain their correlated receipt contract.
+    let command_ack = nav.target == Target::Command
+        && terminal.live.completed_request.as_ref() == Some(&nav.request);
     if confirmed
-        || terminal.live.completed_request.as_ref() == Some(&nav.request)
+        || command_ack
         || !terminal.live.connected
         || terminal.live.failed_request.as_ref() == Some(&nav.request)
     {
@@ -205,9 +229,7 @@ impl Smoke {
             target,
             request: request.clone(),
         });
-        live.failed_request = None;
-        live.completed_request = None;
-        live.pending_request = Some(request);
+        live.begin_navigation(terminal.navigating.clone());
         Ok(())
     }
     pub(crate) fn render_board(&self, cx: &mut Context<Self>) -> AnyElement {

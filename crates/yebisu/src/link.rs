@@ -11,6 +11,9 @@ pub(crate) struct Link {
     pub generation: u64,
     pub stop_reason: Arc<OnceLock<sheprd_client::VersionMismatch>>,
     pub reader: Option<JoinHandle<()>>,
+    retired_readers: Vec<JoinHandle<()>>,
+    #[cfg(test)]
+    pub before_dial: Option<Box<dyn FnOnce()>>,
     pub inbox: Arc<Mutex<Live>>,
     pub drained: Arc<AtomicBool>,
     pub handle: Option<ClientHandle>,
@@ -22,6 +25,9 @@ impl Default for Link {
             generation: 0,
             stop_reason: live.version_mismatch.clone(),
             reader: None,
+            retired_readers: Vec::new(),
+            #[cfg(test)]
+            before_dial: None,
             inbox: Arc::new(Mutex::new(live)),
             drained: Arc::default(),
             handle: None,
@@ -30,7 +36,6 @@ impl Default for Link {
 }
 impl Link {
     pub fn reset(&mut self) -> u64 {
-        self.stop_reason = Arc::default();
         self.pause()
     }
     /// Invalidate callbacks and payloads without losing the reader's stop reason.
@@ -38,7 +43,9 @@ impl Link {
         if let Some(handle) = self.handle.take() {
             handle.disconnect();
         }
-        self.reader.take(); // Never join on the UI thread.
+        if let Some(reader) = self.reader.take() {
+            self.retired_readers.push(reader);
+        } // Never join on the UI thread.
         self.generation = self.generation.wrapping_add(1);
         let mut live = Live::default();
         live.version_mismatch = self.stop_reason.clone();
@@ -47,6 +54,22 @@ impl Link {
         self.inbox = Arc::new(Mutex::new(live));
         self.drained = Arc::new(AtomicBool::new(false));
         self.generation
+    }
+    /// Dial permission and stop retention are one contract. Once a reader has
+    /// finished, no further writes to its shared stop reason are possible.
+    pub fn prepare_connection(&mut self) -> Option<u64> {
+        if self.handle.is_some() || self.reader.is_some() {
+            self.pause();
+        }
+        #[cfg(test)]
+        if let Some(inject) = self.before_dial.take() {
+            inject();
+        }
+        self.retired_readers.retain(|reader| !reader.is_finished());
+        if !self.retired_readers.is_empty() || self.stop_reason.get().is_some() {
+            return None;
+        }
+        Some(self.reset())
     }
     pub fn install(&mut self, generation: u64, result: crate::Result<Client>) {
         if generation != self.generation {

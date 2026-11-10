@@ -176,6 +176,28 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testR5LateMismatch() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_R5_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        try tapText("Return: Automatic", in: app, tap: false)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(3)
+        try tapText("R5-late-reader", in: app, tap: false)
+        try tapText("Reconnect", in: app)
+        sleep(2)
+        try tapText("R5-late-reader", in: app, tap: false)
+        save("r5-late-mismatch-returned")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP6Board() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -244,7 +266,7 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
-    private func tapText(_ label: String, in app: XCUIApplication) throws {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true) throws {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
         let request = VNRecognizeTextRequest()
@@ -257,7 +279,9 @@ final class SmokeQA: XCTestCase {
         let range = try XCTUnwrap(candidate.string.range(of: label))
         let box = try XCTUnwrap(candidate.boundingBox(for: range)).boundingBox
         print("OCR tap \(label) frame=\(app.frame) box=\(box)")
-        app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+        if tap {
+            app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+        }
     }
 
     private func save(_ name: String) {
