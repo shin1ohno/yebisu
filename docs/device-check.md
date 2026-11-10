@@ -28,3 +28,53 @@ any regression here or in the P1 PR before marking this section complete.
 The worker cannot sign or install on a physical device while the login
 keychain is locked over SSH. Simulator startup evidence is recorded separately
 and does not complete this check.
+
+## P2 keys and hosts — owner steps
+
+1. In the Mac mini's interactive login shell, unlock the login keychain yourself
+   (`security unlock-keychain ~/Library/Keychains/login.keychain-db` prompts
+   locally; never pass the password as an argument). Connect/unlock iPad M5.
+   Run `PATH="$HOME/.cargo/bin:$PATH" /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just --working-directory /Users/shin1ohno/ManagedProjects/yebisu ipad`.
+2. Before the migration trial, open the old app's iPad key page and record the
+   exact public key blob and its `ssh-keygen -lf` fingerprint. Keep its
+   authorized_keys entry and application installed during the trial.
+3. Launch yebisu alongside the old app. In Keys and hosts, tap **Create / show
+   public key**, then **Copy authorized_keys line**. Paste into a local editor:
+   verify it starts `restrict ecdsa-sha2-nistp256`, ends `yebisu` or
+   `yebisu-<device>`, and differs in key blob from the old app. On physical iPad
+   the pinned credentials implementation creates the key in Secure Enclave;
+   a Simulator software key is not proof of this step.
+4. Enter `user@host[:port]` for a host you own and tap **Scan host key**. On the
+   first Local Network prompt choose Allow. On that host run
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (or the displayed algorithm's
+   host public key). Compare the entire SHA256 fingerprint. Before Trust,
+   **Check SSH authentication** must refuse the unknown host without offering
+   a credential. Scan again and, only after a match, tap **Trust the compared
+   fingerprint and save**.
+5. Append only yebisu's copied line to that host's `~/.ssh/authorized_keys`
+   (permissions 600), preserving all existing entries. Tap **Check SSH
+   authentication**. Expect `SSH authenticated:` followed by the Herdr probe
+   result. A missing/outdated Herdr is reported separately from SSH failure.
+6. Force quit yebisu and reopen. The saved target and trusted host SHA256
+   fingerprint must be identical. Tap **Create / show public key** again;
+   copied blob must also be identical. Authenticate again with a fresh SSH
+   connection. Record model, iPadOS, fingerprint, and outcome in the P2 PR.
+7. For a disposable SSH test endpoint only, change its host key after trusting
+   it. Scan and authentication must refuse it, with no Trust action available.
+   Do not change any production host's key for this test.
+8. Open the old app and confirm its existing SSH authentication still succeeds.
+   Inspect both signed bundles with `codesign -d --entitlements :- <app>`:
+   application identifiers and Keychain access groups must be disjoint;
+   yebisu must have only its own `AL9567565U.com.shin1ohno.yebisu` group.
+
+All steps above remain unchecked pending physical-device evidence. Never count
+Simulator input as physical keyboard/IME acceptance. A save error is visible in
+the status line, even if the host-key pin succeeded before endpoint persistence
+failed; rescan and authenticate to retry endpoint saving.
+
+Retirement order (N2): record the old public key before the seven-day trial;
+finish the feature/device acceptance and trial first; then confirm a fresh
+yebisu connection, back up each host's authorized_keys, remove only the recorded
+old key blob, and confirm another fresh yebisu connection plus old-key refusal.
+Only completion of that last step completes replacement. Never delete keys by
+comment prefix.

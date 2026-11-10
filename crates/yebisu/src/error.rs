@@ -1,5 +1,13 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("invalid authorized_keys line or unexpected key comment")]
+    InvalidKeyLine,
+    #[error("host is untrusted or its key has changed; authentication refused")]
+    UntrustedHost,
+    #[error("could not save or read the connection: {0}")]
+    Storage(#[from] std::io::Error),
+    #[error("SSH operation failed: {0}")]
+    Ssh(String),
     #[error("could not open the GPUI window: {0}")]
     Window(String),
 }

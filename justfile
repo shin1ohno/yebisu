@@ -32,6 +32,9 @@ triage-upstream:
 ios-sim wait="5":
     python3 scripts/guarded.py python3 scripts/ios/smoke-check.py --wait {{wait}}
 
+ios-p2:
+    python3 scripts/guarded.py python3 scripts/ios/p2-check.py
+
 ipad:
     python3 scripts/guarded.py env CARGO_INCREMENTAL=1 bash scripts/ios/device.sh --device M5 --bundle-id com.shin1ohno.yebisu --team AL9567565U
 

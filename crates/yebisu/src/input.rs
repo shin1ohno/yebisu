@@ -13,6 +13,14 @@ pub(crate) struct Input {
 }
 
 impl Input {
+    #[cfg(target_os = "ios")]
+    pub(crate) fn set_text(&mut self, text: String) {
+        let end = text.encode_utf16().count();
+        self.text = text;
+        self.marked = None;
+        self.selected = end..end;
+    }
+
     fn byte(&self, utf16: usize) -> usize {
         let mut count = 0;
         for (index, ch) in self.text.char_indices() {
@@ -88,7 +96,14 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.smoke_mode && self.setup.busy {
+            return;
+        }
         self.input.replace(range, text, false, None);
+        if !self.smoke_mode {
+            self.setup.pending = None;
+            self.setup.fingerprints.clear();
+        }
         eprintln!("yebisu input committed chars={}", text.chars().count());
         self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
         window.notify_text_input_changed(&self.focus);
@@ -102,7 +117,14 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.smoke_mode && self.setup.busy {
+            return;
+        }
         self.input.replace(range, text, true, selected);
+        if !self.smoke_mode {
+            self.setup.pending = None;
+            self.setup.fingerprints.clear();
+        }
         eprintln!("yebisu input marked chars={}", text.chars().count());
         self.observation.record(serde_json::json!({"kind":"input", "input":self.input.text, "marked":self.input.marked}));
         window.notify_text_input_changed(&self.focus);

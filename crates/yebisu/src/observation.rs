@@ -10,7 +10,8 @@ pub(crate) struct Observation(Option<SyncSender<Value>>);
 
 impl Observation {
     pub(crate) fn new() -> Self {
-        if std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
+        let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
+        if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
             return Self(None);
         }
         let (sender, receiver) = sync_channel::<Value>(256);
@@ -21,8 +22,17 @@ impl Observation {
             let directory = std::path::PathBuf::from(home).join("Documents");
             let result = (|| -> std::io::Result<()> {
                 std::fs::create_dir_all(&directory)?;
-                let mut file = std::fs::File::create(directory.join("p0-smoke.jsonl"))?;
-                for value in receiver {
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(p2)
+                    .truncate(!p2)
+                    .open(directory.join(if p2 {
+                        "p2-setup.jsonl"
+                    } else {
+                        "p0-smoke.jsonl"
+                    }))?;
+                for value in receiver.into_iter().take(8192) {
                     writeln!(file, "{value}")?;
                     file.flush()?;
                 }
@@ -32,7 +42,10 @@ impl Observation {
                 eprintln!("smoke observation writer: {error}");
             }
         });
-        Self(Some(sender))
+        let observation = Self(Some(sender));
+        observation
+            .record(serde_json::json!({"kind": "launch", "phase": if p2 { "P2" } else { "P0" }}));
+        observation
     }
 
     pub(crate) fn record(&self, mut value: Value) {

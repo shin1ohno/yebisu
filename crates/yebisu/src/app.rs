@@ -11,6 +11,8 @@ pub(crate) struct Smoke {
     pub(crate) focus: FocusHandle,
     pub(crate) input: Input,
     pub(crate) key: String,
+    pub(crate) setup: crate::setup::Setup,
+    pub(crate) smoke_mode: bool,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -50,6 +52,8 @@ impl Smoke {
             focus,
             input: Input::default(),
             key: String::new(),
+            setup: crate::setup::Setup::default(),
+            smoke_mode: std::env::var_os("YEBISU_SMOKE_OBSERVE").is_some(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -60,6 +64,9 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.smoke_mode {
+            return self.render_setup(cx);
+        }
         let entity = cx.entity();
         let input_entity = entity.clone();
         div()
@@ -154,6 +161,16 @@ impl Render for Smoke {
             ))
             .child(format!("Marked: {:?}", self.input.marked))
             .child(format!("KeyDown: {}", self.key))
+            .child(
+                div()
+                    .id("setup-back")
+                    .child("Keys and hosts")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.smoke_mode = false;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
     }
 }
 
@@ -176,6 +193,7 @@ pub(crate) fn run() {
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
+            entity.update(cx, |this, cx| this.start_job(crate::setup::Job::Load, cx));
             let focus = entity.read(cx).focus.clone();
             focus.focus(window, cx);
             entity
