@@ -547,7 +547,7 @@ yebisu v0.1.0 (/Users/shin1ohno/ManagedProjects/yebisu/crates/yebisu)
 │           ├── toml_parser v1.1.3+spec-1.1.0 (*)
 │           ├── toml_writer v1.1.2+spec-1.1.0
 │           └── winnow v1.0.4
-├── herdr-uikit v0.1.0 (https://github.com/shin1ohno/herdr-uikit?rev=a573fb3d90cec084e6211bc84473f2f0906f1731#a573fb3d)
+├── herdr-uikit v0.1.0 (https://github.com/shin1ohno/herdr-uikit?rev=439ebbc1606e807f45118d59f0f01f8c7721b71c#439ebbc1)
 │   ├── anyhow v1.0.104
 │   ├── block2 v0.6.2
 │   │   └── objc2 v0.6.5 (*)

@@ -2248,7 +2248,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=a573fb3d90cec084e6211bc84473f2f0906f1731#a573fb3d90cec084e6211bc84473f2f0906f1731"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=439ebbc1606e807f45118d59f0f01f8c7721b71c#439ebbc1606e807f45118d59f0f01f8c7721b71c"
 dependencies = [
  "anyhow",
  "block2",

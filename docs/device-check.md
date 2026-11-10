@@ -414,3 +414,33 @@ same sandbox terminal. A fresh Escape must reach the terminal immediately;
 its release is sent only in report-all mode. Repeat in both report-all modes,
 then repeat the ordinary palette press/held-repeat/release no-wire sequence.
 Record this result and device/keyboard details in PR #14 QA.
+
+## SH1-146 / SH1-147 maintenance acceptance
+
+SH1-146 pins herdr-uikit to main merge commit
+`439ebbc1606e807f45118d59f0f01f8c7721b71c`. SH1-147 is blocked: the
+current app does not initialize a diagnostics file logger. `app::run` only
+writes startup diagnostics to stderr; `Observation::new` writes
+`Documents/p0-smoke.jsonl` or `Documents/p2-setup.jsonl` only when its QA
+environment flag is enabled. Those receipts are not a normal application log.
+The copied device recipe's `Library/Application Support/herdr/gpui/logs/yebisu.jsonl`
+has no writer in yebisu. The fork's diagnostics constant names
+`herdr-gpui.jsonl`, but that crate is not a yebisu dependency. No log path
+has been moved or invented by this change.
+
+1. In the local Mac mini terminal, unlock the login keychain yourself with
+   `security unlock-keychain ~/Library/Keychains/login.keychain-db`. Never
+   share its password. Connect and unlock the paired M5.
+2. From this checkout's interactive login shell, run
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+   Record the PR head, device model, iPadOS version, launch PID and process
+   state. This verifies the pin on a signed device.
+3. Expect the existing log-copy failure until SH1-147 receives a logging
+   design and implementation. Preserve the launch/process result separately
+   from that failure. Do not interpret a successful launch as log collection.
+4. For SH1-147 completion, first implement an explicitly approved ordinary
+   file logger with a shared source path definition, then update the recipe
+   with bounded missing-file retries and a plain message. Prove the path in
+   a Simulator container, repeat step 2 and verify that
+   `target/ios-device/yebisu/yebisu.jsonl` contains this launch's records.
+   Record those results in PR QA before marking device log collection done.
