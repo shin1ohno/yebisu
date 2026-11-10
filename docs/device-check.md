@@ -561,3 +561,15 @@ UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
 
 Record results and preferred split direction in PR QA. Two panes are the explicit
 P9 workspace limit. Splits use client layout; remote terminals outlive detach.
+
+### P9 review regression checks
+
+1. In Herdr 2 with App shortcut priority, press Command-Shift-P. No hidden
+   palette may open; immediately type text and use native Paste. Both must reach
+   the selected pane. Also open Herdr 2 after leaving a Herdr 1 palette open.
+2. On a disposable Herdr 1 host, delay a tab-create response. Return to Hosts
+   and open Herdr 2 on the same host before that response arrives. After the
+   first frame, type a marker and rotate: input and terminal resize must work.
+3. Split two core panes and run `exit` in Pane 1. Its last output and the
+   `ended: 1` status must remain visible. Select Pane 2, type a marker and rotate:
+   the second program must receive input and redraw without Reconnect.

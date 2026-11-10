@@ -3,6 +3,28 @@ use gpui::{AnyElement, Context, div, prelude::*, rgb};
 
 impl Smoke {
     pub(crate) fn connect_core(&mut self, cx: &mut Context<Self>) {
+        self.connect_core_using(cx, |target| {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os("YEBISU_CORE_QA").is_some() {
+                return crate::core_mock::connect();
+            }
+            #[cfg(target_os = "ios")]
+            {
+                crate::core::connect(target)
+            }
+            #[cfg(not(target_os = "ios"))]
+            {
+                Err(crate::Error::Ssh(format!(
+                    "SSH unavailable in host test: {target}"
+                )))
+            }
+        });
+    }
+    pub(crate) fn connect_core_using(
+        &mut self,
+        cx: &mut Context<Self>,
+        connect: impl FnOnce(&str) -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
+    ) {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
@@ -13,6 +35,8 @@ impl Smoke {
         };
         self.select_host(&host);
         self.terminal.core.take();
+        self.terminal.navigating = None;
+        self.actions.palette = false;
         let generation = self.terminal.link.reset();
         self.terminal.core_mode = true;
         self.terminal.reconnect.begin(host.clone());
@@ -36,28 +60,8 @@ impl Smoke {
         #[cfg(not(target_os = "ios"))]
         let root = None;
         let target = host.clone();
-        let result = crate::core::Session::start(
-            host,
-            generation,
-            inbox,
-            move || {
-                #[cfg(all(target_os = "ios", target_abi = "sim"))]
-                if std::env::var_os("YEBISU_CORE_QA").is_some() {
-                    return crate::core_mock::connect();
-                }
-                #[cfg(target_os = "ios")]
-                {
-                    crate::core::connect(&target)
-                }
-                #[cfg(not(target_os = "ios"))]
-                {
-                    Err(crate::Error::Ssh(format!(
-                        "SSH unavailable in host test: {target}"
-                    )))
-                }
-            },
-            root,
-        );
+        let result =
+            crate::core::Session::start(host, generation, inbox, move || connect(&target), root);
         match result {
             Ok(session) => self.terminal.core = Some(session),
             Err(e) => self.terminal.live.status = e.to_string(),

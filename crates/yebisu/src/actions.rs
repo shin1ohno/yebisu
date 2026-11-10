@@ -81,7 +81,8 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
                 info,
                 label,
                 shortcuts: info.default_shortcuts(),
-                available,
+                // Core has its own controls and does not render the palette.
+                available: available && !terminal.core_mode,
             }
         })
         .collect()

@@ -70,8 +70,9 @@ pub(super) fn run(
                 Command::Input(destination, event) => {
                     let current =
                         screen::publish(&screens, &saved, size, generation, revision, epoch);
-                    if crate::terminal_input::destination(&current, generation).as_ref()
-                        == Some(&destination)
+                    if !screens[saved.active].ended
+                        && crate::terminal_input::destination(&current, generation).as_ref()
+                            == Some(&destination)
                     {
                         terminals[saved.active].input(&event)?;
                     }
@@ -96,10 +97,14 @@ pub(super) fn run(
                     changed = true;
                 }
                 Command::Focus(index) if index < terminals.len() => {
-                    terminals[saved.active].focus(false)?;
+                    if !screens[saved.active].ended {
+                        terminals[saved.active].focus(false)?;
+                    }
                     saved.active = index;
                     persist = true;
-                    terminals[index].focus(true)?;
+                    if !screens[index].ended {
+                        terminals[index].focus(true)?;
+                    }
                     epoch += 1;
                     changed = true;
                 }
@@ -113,8 +118,10 @@ pub(super) fn run(
         }
         if changed {
             let pane_size = screen::pane_size(size, terminals.len(), saved.vertical)?;
-            for terminal in &mut terminals {
-                terminal.resize(pane_size)?;
+            for (terminal, screen) in terminals.iter_mut().zip(&screens) {
+                if !screen.ended {
+                    terminal.resize(pane_size)?;
+                }
             }
             if persist {
                 let _storage = store::LOCK
@@ -127,13 +134,20 @@ pub(super) fn run(
             }
         }
         for (terminal, screen) in terminals.iter_mut().zip(&mut screens) {
+            if screen.ended {
+                continue;
+            }
             for update in terminal.next(Duration::from_millis(8))? {
                 if matches!(update, SurfaceUpdate::Ended(_)) {
-                    return Err(crate::Error::CoreEnded);
+                    // CLOSE belongs to this pane, not to the workspace.
+                    epoch += 1;
                 }
                 screen.apply(update);
                 changed = true;
             }
+        }
+        if screens.iter().all(|screen| screen.ended) {
+            std::thread::sleep(Duration::from_millis(16));
         }
         if changed {
             revision += 1;

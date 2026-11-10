@@ -8,8 +8,6 @@ pub enum Error {
     CoreQueue,
     #[error("invalid saved Herdr 2 workspace")]
     CoreState,
-    #[error("Herdr 2 program ended; reattach or open a new terminal")]
-    CoreEnded,
     #[error("app log HOME is unavailable")]
     LogHome,
     #[error("app log subscriber is already installed")]

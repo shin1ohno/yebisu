@@ -54,3 +54,18 @@ channels belong to one connection. The saved-terminal split regression test
 fails against the old allocator (duplicate t1) and passes with the new allocator.
 Simulator QA persistence is isolated per mock-daemon process; device persistence
 continues to use the stable host/default-session record.
+
+## PR #17 review repairs
+
+- Core mode has no Herdr 1 action palette. The shared action catalog marks all
+  actions unavailable there; opening core also closes a previously open palette.
+- The core connection entry discards pending Herdr 1 navigation before starting
+  the worker. The test replaces only transport creation, exercises a real pending
+  tab request, and delivers the first core frame before the first UI poll.
+- A wire CLOSE ends one pane. Its final frame stays visible with an `ended`
+  status; that pane receives no more input, focus or resize calls. Live siblings
+  continue draining and publishing frames. When all panes have ended, the worker
+  waits between command polls until detach rather than spinning.
+- `core/regression_tests.rs` covers the palette key path followed by text/Paste,
+  Herdr 1 navigation → core open → resize/input, and CLOSE → sibling input/frame.
+  Each regression was observed failing without its fix and passing after repair.

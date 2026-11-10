@@ -87,6 +87,27 @@ impl Host {
                                     );
                                 }
                             }
+                            if channels.contains_key(&frame.channel) {
+                                if frame.payload == b"exit\r" {
+                                    server.write_all(&encode(
+                                        frame.channel,
+                                        Kind::Data,
+                                        b"\r\npane exited",
+                                    )?)?;
+                                    server.write_all(&encode(
+                                        frame.channel,
+                                        Kind::Close,
+                                        br#"{"reason":"exited","exit_code":0}"#,
+                                    )?)?;
+                                    channels.remove(&frame.channel);
+                                } else {
+                                    server.write_all(&encode(
+                                        frame.channel,
+                                        Kind::Data,
+                                        &frame.payload,
+                                    )?)?;
+                                }
+                            }
                             let _ = send.send((frame.channel, frame.payload));
                         }
                         continue;

@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub(super) struct Screen {
     pub frame: Option<FrameData>,
     pub keys: KeyReporting,
+    pub ended: bool,
 }
 impl Screen {
     pub fn apply(&mut self, update: SurfaceUpdate) {
@@ -29,6 +30,7 @@ impl Screen {
                 frame.cursor = cursor;
             }
             SurfaceUpdate::KeyReporting(keys) => self.keys = keys,
+            SurfaceUpdate::Ended(_) => self.ended = true,
             _ => {}
         }
     }
@@ -86,7 +88,7 @@ pub(super) fn publish(
                 }
             }
         }
-        if index == saved.active {
+        if index == saved.active && !screen.ended {
             frame.cursor = source.cursor.clone().map(|mut cursor| {
                 cursor.x += x;
                 cursor.y += y;
@@ -95,7 +97,11 @@ pub(super) fn publish(
         }
     }
     let boot = format!("core-{generation}");
-    let id = saved.ids.get(saved.active).map(|id| id.as_str().to_owned());
+    let id = saved
+        .ids
+        .get(saved.active)
+        .filter(|_| !screens[saved.active].ended)
+        .map(|id| id.as_str().to_owned());
     let snapshot = ClientShellSnapshot {
         boot_id: boot.clone(),
         revision,
@@ -132,7 +138,7 @@ pub(super) fn publish(
         graphics: Default::default(),
     };
     let mut live = Live::default();
-    live.connected = screens.get(saved.active).is_some_and(|s| s.frame.is_some());
+    live.connected = screens.iter().any(|s| s.frame.is_some() && !s.ended);
     live.input_epoch = epoch;
     live.snapshot = Some(Arc::new(snapshot));
     live.surface = Some(Arc::new(surface));
@@ -149,6 +155,16 @@ pub(super) fn publish(
             "Side by side"
         }
     );
+    let ended: Vec<_> = screens
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.ended)
+        .map(|(index, _)| (index + 1).to_string())
+        .collect();
+    if !ended.is_empty() {
+        live.status
+            .push_str(&format!(" · ended: {}", ended.join(", ")));
+    }
     live.dirty = true;
     live
 }
