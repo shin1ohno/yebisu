@@ -234,21 +234,29 @@ for attempt in 1 2 3 4 5 6; do
     --domain-type appDataContainer --domain-identifier "$bundle_id" \
     --timeout 5 --json-output "$work/copy.json" --source "$log_source" \
     --destination "$log" >"$work/copy.log" 2>&1; then
-    log_state=$log
-    break
+    if [[ -s $log ]]; then
+      log_state=$log
+      break
+    fi
+    code=empty
+  else
+    code=$("${devicectl_py[@]}" error-code "$work/copy.json" 2>/dev/null || true)
   fi
-  # A failed copy must never leave a stale/partial log reported as this run's.
+  # A failed/empty copy must never be reported as this run's diagnostics.
   rm -f "$log"
-  code=$("${devicectl_py[@]}" error-code "$work/copy.json" 2>/dev/null || true)
   if [[ -z $code ]] && grep -q "CoreDeviceError error 7000" "$work/copy.log"; then
     code=7000
   fi
-  if [[ $code != 7000 ]]; then
+  if [[ $code != 7000 && $code != empty ]]; then
     cat "$work/copy.log" >&2
     log_state="not copied: device log transfer failed"
     break
   fi
-  log_state="log file does not exist yet: $log_source (6 attempts; 5s command timeout, 1s retry interval)"
+  if [[ $code == empty ]]; then
+    log_state="log file is still empty: $log_source (6 attempts)"
+  else
+    log_state="log file does not exist yet: $log_source (6 attempts; 5s command timeout, 1s retry interval)"
+  fi
   if ((attempt < 6)); then sleep 1; fi
 done
 

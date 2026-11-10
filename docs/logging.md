@@ -37,5 +37,6 @@ suspension or process termination can lose records.
 Device collection makes up to six attempts, each with a 5-second devicectl
 command timeout and 1-second retry intervals. Missing-file CoreDevice 7000 is
 summarized plainly without dumping its raw error. A later-created file is
-copied; other transfer errors remain visible. Copy failures remove partial
+copied; other transfer errors remain visible. Empty successful transfers are retried and reported as empty after the bound.
+Copy failures remove partial
 host artifacts and preserve the independently observed app process state.

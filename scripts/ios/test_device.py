@@ -173,10 +173,14 @@ class DeviceScriptTests(unittest.TestCase):
                 failure = os.environ.get("HERDR_DEVICE_TEST_COPY_ERROR")
                 if count < missing or failure:
                     code = int(failure or "7000")
-                    write_json({"error": {"code": code}})
+                    pathlib.Path(option("--destination")).write_text("partial transfer")
+                    if not os.environ.get("HERDR_DEVICE_TEST_NO_JSON"):
+                        write_json({"error": {"code": code}})
                     print(f"ERROR: CoreDeviceError error {code}", file=sys.stderr)
                     sys.exit(1)
-                pathlib.Path(option("--destination")).write_text('{"level":"INFO"}\n')
+                empty = int(os.environ.get("HERDR_DEVICE_TEST_EMPTY", "0"))
+                pathlib.Path(option("--destination")).write_text(
+                    "" if count < empty else '{"level":"INFO"}\n')
             else:
                 sys.exit(64)
         ''').lstrip())
@@ -208,6 +212,7 @@ class DeviceScriptTests(unittest.TestCase):
         self.assertEqual(launch[-1], BUNDLE)
         self.assertIn("--terminate-existing", launch)
         copy = self.calls("device", "copy", "from")[0]
+        self.assertEqual(copy[copy.index("--timeout") + 1], "5")
         self.assertEqual(copy[copy.index("--domain-type") + 1], "appDataContainer")
         self.assertEqual(copy[copy.index("--domain-identifier") + 1], BUNDLE)
         self.assertEqual(
@@ -235,6 +240,19 @@ class DeviceScriptTests(unittest.TestCase):
         self.assertEqual(len(self.calls("device", "copy", "from")), 3)
         self.assertTrue((self.out / "yebisu.jsonl").read_text())
         self.assertNotIn("does not exist yet", result.stdout)
+
+    def test_missing_log_without_json_still_has_plain_message(self):
+        self.env["HERDR_DEVICE_TEST_NO_JSON"] = "1"
+        self.test_missing_log_has_plain_message_and_launch_is_preserved()
+
+    def test_empty_copy_is_not_reported_as_collected(self):
+        self.env["HERDR_DEVICE_TEST_EMPTY"] = "99"
+        result = self.run_app()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("log file is still empty", result.stdout)
+        self.assertIn("running (pid 4242)", result.stdout)
+        self.assertEqual(len(self.calls("device", "copy", "from")), 6)
+        self.assertFalse((self.out / "yebisu.jsonl").exists())
 
     def test_transfer_error_is_not_mislabeled_as_missing(self):
         self.env["HERDR_DEVICE_TEST_COPY_ERROR"] = "4000"
