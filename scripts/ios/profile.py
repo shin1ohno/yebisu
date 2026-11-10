@@ -240,6 +240,10 @@ def read_identities(name):
 
 
 def parse_now(text):
+    # Python 3.11 added trailing-Z support to fromisoformat; the system Python
+    # on supported macOS hosts may still be 3.9.
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
     moment = datetime.fromisoformat(text)
     return as_utc(moment)
 

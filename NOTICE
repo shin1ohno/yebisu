@@ -4,6 +4,13 @@ This product includes adapted iOS build scripts and fonts from Sheprd.
 Copied files and immutable source revisions are listed in PROVENANCE.tsv.
 The following upstream notice is retained for attribution in its original form.
 
+The bundled SauceCodePro Nerd Font Mono files are unmodified font binaries
+from Nerd Fonts v3.5.1, SourceCodePro.zip. Source Code Pro is Copyright 2010-2020
+Adobe and licensed under the SIL Open Font License, Version 1.1. The applicable
+font and Nerd Fonts license texts are included in assets/fonts/SauceCodePro/.
+The font archive and binary SHA-256 values are recorded in that directory's
+PROVENANCE.md.
+
 Sheprd
 Copyright 2026 Fabien Penso
 

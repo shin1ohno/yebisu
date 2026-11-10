@@ -13,3 +13,18 @@ A read-only preflight found no installed provisioning profile for the new App ID
 - [ ] Signed entitlements differ only in app identity and isolate Keychain groups
 
 Simulator input and lifecycle evidence is in p0-validation.md. Physical IME and hardware-keyboard acceptance remain pending.
+
+## P1 startup regression check
+
+After unlocking the Mac mini login keychain interactively and connecting and
+unlocking the paired iPad M5, run `just ipad` from the repository root. Enter
+the keychain password only in the macOS prompt; do not send it to an agent.
+Launch yebisu and confirm the P0 smoke screen still appears with its title,
+input area, checker image, bordered panels, and live counter. Confirm the app
+returns to that screen after leaving it and reopening it. This phase changes no
+screen behavior. Record the device model, iOS version, app launch result, and
+any regression here or in the P1 PR before marking this section complete.
+
+The worker cannot sign or install on a physical device while the login
+keychain is locked over SSH. Simulator startup evidence is recorded separately
+and does not complete this check.

@@ -81,6 +81,12 @@ def make_profile(
 
 
 class SelectionTests(unittest.TestCase):
+    def test_parse_now_accepts_trailing_z_on_all_supported_python_versions(self):
+        self.assertEqual(
+            ios_profile.parse_now("2026-11-01T00:00:00Z"),
+            datetime(2026, 11, 1, tzinfo=timezone.utc),
+        )
+
     def choose(self, profiles, device=DEVICE, identities=None):
         paths = {Path(f"{index}.mobileprovision"): profile for index, profile in enumerate(profiles)}
         reasons = []

@@ -23,6 +23,12 @@ test:
     python3 -I -B -m unittest discover -s scripts/tests -p 'test_*.py'
     python3 -I -B -m unittest discover -s scripts/ios -p 'test_*.py'
 
+bump-fork REV:
+    python3 scripts/bump-fork.py {{REV}}
+
+triage-upstream:
+    python3 scripts/triage-upstream.py
+
 ios-sim wait="5":
     python3 scripts/guarded.py python3 scripts/ios/smoke-check.py --wait {{wait}}
 

@@ -1,0 +1,6 @@
+# Captured from herdr-gpui commit 8c1719924: full commit diff, no pathspec.
+R100	crates/sheprd-gpui/src/core_terminals/panes.rs	crates/sheprd-session/src/panes.rs
+# Negative control: old-path-only diff reports deletion at the rename commit.
+D	crates/sheprd-gpui/src/core_terminals/panes.rs
+# Captured from herdr-gpui commit 9c32a9270, after the move.
+M	crates/sheprd-session/src/panes.rs
