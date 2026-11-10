@@ -76,3 +76,6 @@ mod handoff_qa;
 
 #[cfg(test)]
 mod handoff_review_tests;
+
+#[cfg(test)]
+mod handoff_resume_tests;

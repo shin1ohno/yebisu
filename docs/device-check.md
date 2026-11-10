@@ -489,3 +489,20 @@ large-image acceptance. No physical checks above have been marked complete.
    the terminal. Paste into Notes and confirm the selected text was copied once.
    Move back over the terminal without pressing a button: selection must not grow.
    Repeat with automatic copy disabled: release still ends the drag, without copy.
+
+### P8 second review: selection exit and SDK limitations
+
+1. Show the software keyboard, start an IME composition, then enter Select mode.
+   A commit delivered while selection is active must not reach the sandbox.
+2. Press the app's **Paste** button without tapping the terminal again. Type plain
+   text, then compose and commit Japanese text. Verify paste, plain text and IME
+   commit arrive in that order. Repeat by turning **Select** off and typing.
+3. Native Paste with **Command: Ctrl** plus **Shortcuts: Terminal priority** is
+   currently blocked by the pinned SDK: its selector dispatch is indistinguishable
+   from physical Command-V. Do not mark native menu QA complete. The app's Paste
+   button remains available; physical Command-V retains the requested Ctrl-V route.
+4. The explicit Paste / Select-off gesture resumes input. Old composition commits
+   delivered before that gesture remain fenced. An old commit delivered after it
+   has no origin/generation in the SDK callback and cannot be rejected separately
+   from new software-keyboard text. This stricter stale-commit requirement remains
+   unresolved; do not mark it verified by the scoped regression test.

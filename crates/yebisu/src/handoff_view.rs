@@ -69,9 +69,13 @@ impl Smoke {
             cx.notify();
             return;
         }
+        let resuming_selection = self.handoff.selection.is_some() || self.handoff.select_mode;
         self.handoff.selection = None;
         self.handoff.select_mode = false;
         self.terminal.input.discard();
+        if resuming_selection {
+            self.terminal.input.fresh_gesture();
+        }
         self.flush_terminal();
         let target = match &stamp.destination.target {
             crate::terminal::InputTarget::Pane(id) => {
@@ -164,6 +168,15 @@ impl Smoke {
         })
         .detach();
         cx.notify();
+    }
+    pub(crate) fn toggle_selection(&mut self) {
+        self.handoff.select_mode ^= true;
+        self.handoff.cancel();
+        self.terminal.input.detach();
+        if !self.handoff.select_mode {
+            self.handoff.selection = None;
+            self.terminal.input.fresh_gesture();
+        }
     }
     pub(crate) fn selection_down(
         &mut self,
@@ -304,12 +317,7 @@ impl Smoke {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             match id {
                                 "select" => {
-                                    this.handoff.select_mode ^= true;
-                                    this.handoff.cancel();
-                                    this.terminal.input.detach();
-                                    if !this.handoff.select_mode {
-                                        this.handoff.selection = None;
-                                    }
+                                    this.toggle_selection();
                                 }
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),
