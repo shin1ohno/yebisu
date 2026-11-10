@@ -86,6 +86,35 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP4Input() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+        app.typeText("P4-once")
+        sleep(2)
+        try tapText("Input options", in: app)
+        sleep(1)
+        try tapText("Option: Native", in: app)
+        try tapText("Command: Local", in: app)
+        try tapText("Esc: IME first", in: app)
+        try tapText("Candidate: Clause", in: app)
+        sleep(2)
+        save("p4-variants")
+        try tapText("QA mark", in: app)
+        sleep(2)
+        save("p4-composition")
+        try tapText("QA commit", in: app)
+        sleep(2)
+        save("p4-committed")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     private func tapText(_ label: String, in app: XCUIApplication) throws {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)

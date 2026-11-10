@@ -1,6 +1,6 @@
 # yebisu
 
-iPad terminal client for Herdr, on GPUI. Phase 0 exercises GPUI 0.3.12 with the UIKit platform. Connection and terminal features arrive in later phases.
+iPad terminal client for Herdr, on GPUI. P4 provides a full-screen Herdr 1 terminal with semantic keyboard input, Japanese composition, and manual reconnect on GPUI 0.3.12 / UIKit. Physical M1 acceptance remains an owner check.
 
 Use Rust 1.99.1, Xcode and `just`. Run `just check`, `just lint-ios`, `just test`; `just ios-sim` launches the smoke screen. `just ipad` builds and signs for the connected M5 using team AL9567565U. The login keychain must be unlocked interactively by its owner.
 
@@ -22,3 +22,15 @@ checks. `just ios-sim` still runs the P0 rendering/input/lifecycle regression.
 `docs/device-check.md` separates physical-device acceptance from Simulator
 results. `docs/p2-security-review.md` records the worker's source review;
 independent review is separate.
+
+## P4 keyboard and IME
+
+`just ios-p4` types into a private in-process peer, exercises the actual IME
+callbacks, checks exact semantic input receipts, and saves Simulator screenshots.
+It never connects to an owner's running Herdr session. `docs/device-check.md`
+contains the physical M1 sequence; `docs/variants.md` lists the runtime Option,
+Command, Esc and candidate-anchor choices in the **Input options** toolbar.
+
+`python3 scripts/p4-mutation-check.py --just /absolute/path/to/just` verifies that
+nine intentional regressions fail behavioral assertions, then restores every
+source file. Run it only with no concurrent edits or builds.

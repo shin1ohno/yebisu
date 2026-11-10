@@ -873,6 +873,28 @@ impl TerminalPainter {
         });
     }
 
+    /// Hit testing uses the same shaped line and clamped origin as painting.
+    pub fn composition_index(
+        &self,
+        text: &str,
+        point: Point<Pixels>,
+        cursor: Bounds<Pixels>,
+        grid: Bounds<Pixels>,
+        font: &Font,
+        window: &Window,
+    ) -> Option<usize> {
+        if text.is_empty() || !grid.contains(&point) {
+            return None;
+        }
+        let line = self.shape(font, 0, text, window);
+        let origin = composition_origin(cursor.origin, line.width, grid);
+        if point.y < origin.y || point.y >= origin.y + cursor.size.height {
+            return None;
+        }
+        let index = line.closest_index_for_x(point.x - origin.x);
+        Some(text[..index].encode_utf16().count())
+    }
+
     /// The bounds of `range` (UTF-16) within a composition painted by
     /// `paint_composition`, so the IME can place its candidate window under
     /// the clause being converted.

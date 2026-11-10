@@ -47,3 +47,7 @@ graphs:
 # Private wire peer, density switch, orientation attempt and colour oracle.
 ios-p3:
     python3 scripts/guarded.py python3 scripts/ios/p3-check.py
+
+# Real input callbacks and semantic wire receipts against a private peer.
+ios-p4:
+    python3 scripts/guarded.py python3 scripts/ios/p4-check.py

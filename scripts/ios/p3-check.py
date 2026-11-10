@@ -85,7 +85,7 @@ def main():
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
-    tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+    tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-skip-testing:SmokeOracle/SmokeQA/testP4Input", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
     print(tested.stdout, flush=True)
     print(tested.stderr, flush=True)
     # Xcode can exit 0 with an unmatched test filter: require execution too.

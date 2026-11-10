@@ -1,7 +1,7 @@
 use crate::{input::Input, observation::Observation};
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, RenderImage, Window, WindowOptions, canvas, div,
-    img, prelude::*, rgb,
+    AnyElement, Context, Entity, FocusHandle, RenderImage, Window, canvas, div, img, prelude::*,
+    rgb,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -9,6 +9,7 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) focus: FocusHandle,
+    pub(crate) terminal_focus: FocusHandle,
     pub(crate) input: Input,
     pub(crate) key: String,
     pub(crate) setup: crate::setup::Setup,
@@ -21,7 +22,7 @@ pub(crate) struct Smoke {
 }
 
 impl Smoke {
-    fn new(cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         let mut pixels = image::RgbaImage::from_fn(32, 32, |x, y| {
             if (x / 8 + y / 8) % 2 == 0 {
@@ -64,6 +65,7 @@ impl Smoke {
         .detach();
         Self {
             focus,
+            terminal_focus: cx.focus_handle(),
             input: Input::default(),
             key: String::new(),
             setup: crate::setup::Setup::default(),
@@ -207,7 +209,9 @@ fn region(name: &'static str, content: AnyElement, view: Entity<Smoke>) -> impl 
     }).absolute().top_0().left_0().size_full())
 }
 
+#[cfg(target_os = "ios")]
 pub(crate) fn run() {
+    use gpui::{App, WindowOptions};
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
@@ -220,6 +224,7 @@ pub(crate) fn run() {
                         .link
                         .install(generation, crate::mock_peer::connect());
                     this.terminal.open = true;
+                    this.terminal.needs_focus = true;
                     cx.notify();
                 });
             }

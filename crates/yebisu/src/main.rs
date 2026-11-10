@@ -6,9 +6,9 @@ mod keys;
 #[cfg(any(target_os = "ios", test))]
 mod setup;
 pub use error::{Error, Result};
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod app;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod app_setup;
 #[cfg(any(target_os = "ios", test))]
 mod input;
@@ -18,7 +18,7 @@ fn main() {
     app::run();
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod observation;
 
 #[cfg(any(target_os = "ios", test))]
@@ -35,5 +35,12 @@ mod theme;
 
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 mod mock_peer;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod terminal_view;
+
+#[cfg(any(target_os = "ios", test))]
+mod input_geometry;
+#[cfg(any(target_os = "ios", test))]
+mod terminal_controls;
+#[cfg(any(target_os = "ios", test))]
+mod terminal_input;
