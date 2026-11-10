@@ -69,6 +69,7 @@ impl Link {
         if !self.retired_readers.is_empty() || self.stop_reason.get().is_some() {
             return None;
         }
+        crate::diagnostics::record("connecting");
         Some(self.reset())
     }
     pub fn install(&mut self, generation: u64, result: crate::Result<Client>) {
@@ -106,6 +107,7 @@ impl Link {
         }
     }
     fn startup_failed(&self, reason: String) {
+        crate::diagnostics::record("connection_error");
         if let Ok(mut live) = self.inbox.lock() {
             live.apply(ClientEvent::Disconnected { reason, ssh: None });
         }

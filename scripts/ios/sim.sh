@@ -29,9 +29,8 @@ Options:
   -h, --help             Show this help
 
 RUST_BACKTRACE (default 1) reaches the app, and RUST_LOG is passed on for
-code that reads it; Sheprd itself ignores RUST_LOG and logs only to
-Library/Application Support/herdr/gpui/logs/herdr-gpui.jsonl in its
-container. It exits with status 4 when the app is no longer running at the
+code that reads it. Yebisu's own allowlisted JSONL path is defined in
+crates/yebisu/src/log-location.txt, relative to its data container. It exits with status 4 when the app is no longer running at the
 screenshot, or exits before --terminate stops it; the summary of log paths is
 printed either way. A running app is not proof that it drew anything: check
 the screenshot (scripts/ios/screenshot-color.py).

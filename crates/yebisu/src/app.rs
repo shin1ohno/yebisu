@@ -109,7 +109,6 @@ impl Render for Smoke {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 this.key = format!("{:?}", event.keystroke);
-                eprintln!("yebisu input KeyDown {}", this.key);
                 cx.notify();
             }))
             .child(region(
@@ -218,6 +217,9 @@ fn region(name: &'static str, content: AnyElement, view: Entity<Smoke>) -> impl 
 #[cfg(target_os = "ios")]
 pub(crate) fn run() {
     use gpui::{App, WindowOptions};
+    if let Err(error) = crate::diagnostics::init() {
+        eprintln!("yebisu diagnostics initialization failed: {error}");
+    }
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
@@ -279,8 +281,12 @@ pub(crate) fn run() {
             focus.focus(window, cx);
             entity
         }) {
-            Ok(_) => eprintln!("yebisu GPUI window opened"),
+            Ok(_) => {
+                crate::diagnostics::record("window_opened");
+                eprintln!("yebisu GPUI window opened");
+            }
             Err(error) => {
+                crate::diagnostics::record("window_error");
                 eprintln!("yebisu window error: {error:#}");
                 cx.quit();
             }

@@ -1,5 +1,9 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("app log HOME is unavailable")]
+    LogHome,
+    #[error("app log subscriber is already installed")]
+    LogSubscriber,
     #[error("terminal image exceeds limits")]
     PaneImageLimit,
     #[error("terminal image decoding failed: {0}")]
