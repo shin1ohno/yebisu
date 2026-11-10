@@ -97,8 +97,6 @@ impl EntityInputHandler for Smoke {
                 .accepts(self.active_focus().is_focused(window), false)
                 && self.terminal.navigating.is_none()
                 && !self.actions.palette
-                && self.handoff.selection.is_none()
-                && !self.handoff.select_mode
         } else {
             self.active_focus().is_focused(window) && (self.smoke_mode || !self.setup.busy)
         }

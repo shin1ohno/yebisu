@@ -37,3 +37,16 @@ manual Copy versus Copy on selection. Both remain local and share cancellation.
 The canvas uses a content mask, not an enclosing paint layer: the painter owns
 its background/text/image layers, so images must not inherit an earlier parent
 draw order below the backgrounds.
+
+Explicit paste or turning Select off ends the old composition and resumes input.
+A commit UIKit delivers after that boundary is accepted, even if it originated
+from the preceding composition. The SDK routes insertText and IME commits through
+the same `replace_text_in_range(None, text)` without composition identity, so the
+consumer cannot distinguish them. Commits while selection is active remain
+rejected. This is the settled P8 input contract, not a missing stale-commit check.
+
+Native edit actions use the SDK's scoped origin, independent of Command mapping
+and shortcut priority: Paste starts normal paste; Copy and Cut copy the selection;
+Select All is a no-op. Neither edge of a native action sends terminal keys.
+Physical Command-C/V retain the runtime Command/priority rule. Selection keeps
+native editing focus; text callbacks themselves enforce selection/input isolation.

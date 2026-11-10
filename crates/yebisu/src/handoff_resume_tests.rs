@@ -1,4 +1,4 @@
-//! Selection exit is an explicit new input gesture; callbacks while selected stay fenced.
+//! Explicit paste/selection exit starts new input; callbacks while selected stay fenced.
 use crate::{app::Smoke, mock_peer};
 use gpui::{ClipboardItem, EntityInputHandler, MouseButton, TestAppContext, point, px, size};
 use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 #[gpui::test]
 fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext) {
-    for paste in [true, false] {
+    for (paste, select) in [(true, true), (false, true), (true, false)] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         cx.simulate_resize(size(px(1200.), px(1000.)));
         let (client, receipts) =
@@ -44,24 +44,26 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
                     cx,
                 );
                 assert!(!this.terminal.input.composition.text.is_empty());
-                this.toggle_selection();
-                let g = this.terminal.geometry;
-                this.selection_down(
-                    &gpui::MouseDownEvent {
-                        position: g.grid.origin
-                            + point(px(1.5 * g.cell_width), px(2.5 * g.cell_height)),
-                        button: MouseButton::Left,
-                        click_count: 1,
-                        modifiers: Default::default(),
-                        first_mouse: false,
-                    },
-                    window,
-                    cx,
-                );
-                assert!(this.handoff.selection.is_some());
-                // A commit from the cancelled composition, before the new gesture, is rejected.
-                this.replace_text_in_range(None, "old-composition", window, cx);
-                assert!(this.terminal.input.requires_gesture());
+                if select {
+                    this.toggle_selection();
+                    let g = this.terminal.geometry;
+                    this.selection_down(
+                        &gpui::MouseDownEvent {
+                            position: g.grid.origin
+                                + point(px(1.5 * g.cell_width), px(2.5 * g.cell_height)),
+                            button: MouseButton::Left,
+                            click_count: 1,
+                            modifiers: Default::default(),
+                            first_mouse: false,
+                        },
+                        window,
+                        cx,
+                    );
+                    assert!(this.handoff.selection.is_some());
+                    // A commit from the cancelled composition, before the new gesture, is rejected.
+                    this.replace_text_in_range(None, "old-composition", window, cx);
+                    assert!(this.terminal.input.requires_gesture());
+                }
                 if paste {
                     this.start_paste(false, cx);
                     assert!(
@@ -71,6 +73,8 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
                 } else {
                     this.toggle_selection();
                 }
+                // The settled contract accepts even an old-looking commit after this boundary.
+                this.replace_text_in_range(None, "old-composition-after-resume", window, cx);
                 this.replace_text_in_range(None, "soft-text", window, cx);
                 this.replace_and_mark_text_in_range(None, "かな", Some(0..2), window, cx);
                 assert_eq!(this.terminal.input.composition.text, "かな");
@@ -129,6 +133,9 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
         if paste {
             expected.push(ClientPaneInputEvent::Paste("resume-paste".into()));
         }
+        expected.push(ClientPaneInputEvent::TextCommit(
+            "old-composition-after-resume".into(),
+        ));
         expected.extend([
             ClientPaneInputEvent::TextCommit("soft-text".into()),
             ClientPaneInputEvent::TextCommit("仮名".into()),
@@ -138,6 +145,8 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
             "selection exit paste={paste}: FIFO, no late selected commit"
         );
         view.update(cx, |this, _| this.terminal.link.pause());
-        eprintln!("D4 PASS paste={paste}: soft text / IME / FIFO / selected late commit rejected");
+        eprintln!(
+            "D4 PASS paste={paste} select={select}: soft text / IME / FIFO / selected late commit rejected"
+        );
     }
 }

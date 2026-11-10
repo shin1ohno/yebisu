@@ -62,6 +62,18 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return;
         }
+        #[cfg(target_os = "ios")]
+        if let Some(action) = herdr_uikit::native_edit_action() {
+            use herdr_uikit::NativeEditAction;
+            match action {
+                NativeEditAction::Paste => self.start_paste(false, cx),
+                NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),
+                NativeEditAction::SelectAll => {}
+            }
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         if event.keystroke.modifiers.platform
             && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
             && matches!(event.keystroke.key.as_str(), "c" | "v")
@@ -130,6 +142,11 @@ impl Smoke {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(target_os = "ios")]
+        if herdr_uikit::native_edit_action().is_some() {
+            cx.stop_propagation();
+            return;
+        }
         if self.actions.consumed.remove(&event.keystroke.key) {
             cx.stop_propagation();
             return;

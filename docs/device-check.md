@@ -497,12 +497,13 @@ large-image acceptance. No physical checks above have been marked complete.
 2. Press the app's **Paste** button without tapping the terminal again. Type plain
    text, then compose and commit Japanese text. Verify paste, plain text and IME
    commit arrive in that order. Repeat by turning **Select** off and typing.
-3. Native Paste with **Command: Ctrl** plus **Shortcuts: Terminal priority** is
-   currently blocked by the pinned SDK: its selector dispatch is indistinguishable
-   from physical Command-V. Do not mark native menu QA complete. The app's Paste
-   button remains available; physical Command-V retains the requested Ctrl-V route.
-4. The explicit Paste / Select-off gesture resumes input. Old composition commits
-   delivered before that gesture remain fenced. An old commit delivered after it
-   has no origin/generation in the SDK callback and cannot be rejected separately
-   from new software-keyboard text. This stricter stale-commit requirement remains
-   unresolved; do not mark it verified by the scoped regression test.
+3. In each combination of **Command: Ctrl / Local** and **Shortcuts: App / Terminal
+   priority**, use native Paste and Copy. Paste must send clipboard text once;
+   Copy must copy the selection. Neither may send Ctrl-V/C. Native Cut copies the
+   selection; native Select All does nothing. Physical Command-C/V still follow
+   the precedence rules above.
+4. An explicit Paste or Select-off ends the old composition. Any commit UIKit
+   delivers afterward is accepted as new input, including a late prior commit.
+   The SDK sends insertText and IME commits through the same
+   `replace_text_in_range(None, text)` without composition identity. Confirm that
+   commits during selection are rejected and commits after this boundary arrive.

@@ -69,13 +69,10 @@ impl Smoke {
             cx.notify();
             return;
         }
-        let resuming_selection = self.handoff.selection.is_some() || self.handoff.select_mode;
         self.handoff.selection = None;
         self.handoff.select_mode = false;
         self.terminal.input.discard();
-        if resuming_selection {
-            self.terminal.input.fresh_gesture();
-        }
+        self.terminal.input.fresh_gesture();
         self.flush_terminal();
         let target = match &stamp.destination.target {
             crate::terminal::InputTarget::Pane(id) => {
@@ -345,6 +342,9 @@ impl Smoke {
 #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+    pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
 }
