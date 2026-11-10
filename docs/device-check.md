@@ -193,3 +193,35 @@ app against the same session while comparing viewport behavior.
     candidate rectangle. Record the preferred values; they reset on app restart.
 12. Record each result and any failure in PR QA separately from automated tests.
     Keep all physical boxes unchecked until these observations are made.
+
+## R1 review repairs (P2/P3 on P4)
+
+These are owner checks; automation does not mark them complete.
+
+1. In an interactive login shell, locally unlock the login keychain, connect
+   and unlock M5, then run:
+   ```sh
+   cd /Users/shin1ohno/ManagedProjects/yebisu
+   /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad
+   ```
+   Enter a keychain password only into the local system prompt. No password
+   belongs in command arguments, logs or reports.
+2. With an already saved target, launch yebisu and confirm the target field
+   contains that address. Open **Developer: P0 rendering check**, tap the input
+   field and type `P0-input`. It must contain exactly `P0-input`, with no host
+   prefix. Return through **Keys and hosts**: the saved target must remain.
+   Relaunch and repeat to cover the asynchronous startup Load.
+3. Use an already authorized disposable terminal (do not alter real
+   authorized_keys for this review). Verify normal ASCII, CJK, combining
+   accents, ZWJ emoji and Nerd Font symbols render in Standard and Compact.
+   Hostile protocol cells containing LF/CR or more than 128 UTF-8 bytes are
+   refused; ordinary terminal newline output creates rows and is not such a
+   cell. These hostile cells and the 16 MiB cache limit are exercised by the
+   host painter tests, not by typing a newline into the shell.
+4. Return to Hosts and reconnect while rotating/resizing. Confirm the newly
+   connected terminal has the current viewport and accepts fresh input.
+   The deterministic host callback test captures A, installs B, executes A,
+   and observes no resize of B; this physical check complements that test.
+5. Record device/iOS version and each actual result in PR QA. Leave physical
+   checks unchecked until performed. Existing P4 IME and hardware-keyboard
+   checks above remain separate owner acceptance.

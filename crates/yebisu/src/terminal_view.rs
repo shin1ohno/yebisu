@@ -26,7 +26,7 @@ impl Smoke {
         if self.setup.busy {
             return;
         }
-        let target = self.input.text.trim().to_owned();
+        let target = self.setup_input.text.trim().to_owned();
         self.terminal.input.discard();
         self.terminal
             .input
@@ -73,62 +73,17 @@ impl Smoke {
             cx.notify();
         }
     }
-    pub(crate) fn render_terminal(
-        &mut self,
-        window: &mut gpui::Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        if self.terminal.needs_focus {
-            self.terminal_focus.focus(window, cx);
-            self.terminal.needs_focus = false;
-        }
-        let insets = window.insets().safe_area;
-        let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
+    pub(crate) fn terminal_paint_callback(
+        &self,
+        cx: &Context<Self>,
+    ) -> impl FnOnce(gpui::Bounds<gpui::Pixels>, (), &mut gpui::Window, &mut gpui::App) + 'static + use<>
+    {
         let input_entity = cx.entity();
         let entity = cx.entity();
         let generation = self.terminal.link.generation;
         let compact = self.terminal.compact;
-        let label = if compact {
-            "Compact 12/17"
-        } else {
-            "Standard 14/20"
-        };
-        let status = if self.terminal.live.connected && self.terminal.input.requires_gesture() {
-            "Composition discarded · tap terminal to type".to_owned()
-        } else if self.terminal.live.status.is_empty() {
-            "Connecting…".to_owned()
-        } else {
-            self.terminal.live.status.clone()
-        };
-        div().size_full().pt(insets.top).pb(insets.bottom.max(bottom)).pl(insets.left).pr(insets.right).flex().flex_col().bg(rgb(0x101419)).text_color(rgb(0xd8dee9))
-            .track_focus(&self.terminal_focus)
-            .on_key_down(cx.listener(Self::terminal_key_down))
-            .on_key_up(cx.listener(Self::terminal_key_up))
-            .child(div().flex().gap_4().px_4().py_2()
-                .child(div().id("terminal-back").px_4().py_2().bg(rgb(0x3b4252)).child("Hosts").on_click(cx.listener(|this,_,window,cx| {
-                    window.blur(cx);
-                    this.terminal.input.discard();this.terminal.link.reset();this.terminal.open=false;this.terminal.live=Live::default();cx.notify();
-                })))
-                .child(div().id("terminal-density").px_4().py_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(|this,_,_,cx| {
-                    this.terminal.compact = !this.terminal.compact;cx.notify();
-                })))
-                .child(div().id("input-options").px_2().py_2().bg(rgb(0x3b4252)).child("Input options").on_click(cx.listener(|this,_,_,cx| { this.terminal.show_options ^= true; cx.notify(); })))
-                .child(div().id("reconnect").px_2().py_2().bg(rgb(0x3b4252)).child("Reconnect").on_click(cx.listener(|this,_,_,cx| {
-                    if !this.terminal.live.connected && this.terminal.live.version_mismatch.is_none() { this.connect_terminal(cx); }
-                })))
-                .child(div().child(format!("P4 · {status}"))))
-            .when(self.terminal.show_options, |view| view.child(self.input_options(cx)))
-            .children(self.input_qa_controls(cx))
-            .child(div().id("terminal-input").flex_1().min_h_0().w_full()
-                .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                    if this.terminal.geometry.contains(event.position) {
-                        this.terminal_focus.focus(window, cx);
-                        this.terminal.input.fresh_gesture();
-                        window.request_virtual_keyboard();
-                    }
-                }))
-                .child(canvas(|_,_,_| (),move |bounds,_,window,cx| {
-                let current = entity.update(cx,|this,cx| {
+        move |bounds, _, window, cx| {
+            let current = entity.update(cx,|this,cx| {
                     if !this.terminal.open || !this.terminal.link.current(generation) { return false; }
                     let (font_size,line_height) = if compact {(12.,17.)}else{(14.,20.)};
                     let face = font("SauceCodePro Nerd Font Mono");
@@ -164,9 +119,143 @@ impl Smoke {
                     }
                     true
                 });
-                if !current { return; }
-                let focus = input_entity.read(cx).terminal_focus.clone();
-                window.handle_input(&focus, gpui::ElementInputHandler::new(bounds, input_entity), cx);
-            }).size_full())).into_any_element()
+            if !current {
+                return;
+            }
+            let focus = input_entity.read(cx).terminal_focus.clone();
+            window.handle_input(
+                &focus,
+                gpui::ElementInputHandler::new(bounds, input_entity),
+                cx,
+            );
+        }
+    }
+    pub(crate) fn render_terminal(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if self.terminal.needs_focus {
+            self.terminal_focus.focus(window, cx);
+            self.terminal.needs_focus = false;
+        }
+        let insets = window.insets().safe_area;
+        let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
+        let compact = self.terminal.compact;
+        let label = if compact {
+            "Compact 12/17"
+        } else {
+            "Standard 14/20"
+        };
+        let status = if self.terminal.live.connected && self.terminal.input.requires_gesture() {
+            "Composition discarded · tap terminal to type".to_owned()
+        } else if self.terminal.live.status.is_empty() {
+            "Connecting…".to_owned()
+        } else {
+            self.terminal.live.status.clone()
+        };
+        div()
+            .size_full()
+            .pt(insets.top)
+            .pb(insets.bottom.max(bottom))
+            .pl(insets.left)
+            .pr(insets.right)
+            .flex()
+            .flex_col()
+            .bg(rgb(0x101419))
+            .text_color(rgb(0xd8dee9))
+            .track_focus(&self.terminal_focus)
+            .on_key_down(cx.listener(Self::terminal_key_down))
+            .on_key_up(cx.listener(Self::terminal_key_up))
+            .child(
+                div()
+                    .flex()
+                    .gap_4()
+                    .px_4()
+                    .py_2()
+                    .child(
+                        div()
+                            .id("terminal-back")
+                            .px_4()
+                            .py_2()
+                            .bg(rgb(0x3b4252))
+                            .child("Hosts")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                window.blur(cx);
+                                this.terminal.input.discard();
+                                this.terminal.link.reset();
+                                this.terminal.open = false;
+                                this.terminal.live = Live::default();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("terminal-density")
+                            .px_4()
+                            .py_2()
+                            .bg(rgb(0x3b4252))
+                            .child(label)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.terminal.compact = !this.terminal.compact;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("input-options")
+                            .px_2()
+                            .py_2()
+                            .bg(rgb(0x3b4252))
+                            .child("Input options")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.terminal.show_options ^= true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("reconnect")
+                            .px_2()
+                            .py_2()
+                            .bg(rgb(0x3b4252))
+                            .child("Reconnect")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if !this.terminal.live.connected
+                                    && this.terminal.live.version_mismatch.is_none()
+                                {
+                                    this.connect_terminal(cx);
+                                }
+                            })),
+                    )
+                    .child(div().child(format!("P4 · {status}"))),
+            )
+            .when(self.terminal.show_options, |view| {
+                view.child(self.input_options(cx))
+            })
+            .children(self.input_qa_controls(cx))
+            .child(
+                div()
+                    .id("terminal-input")
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                            if this.terminal.geometry.contains(event.position) {
+                                this.terminal_focus.focus(window, cx);
+                                this.terminal.input.fresh_gesture();
+                                window.request_virtual_keyboard();
+                            }
+                        }),
+                    )
+                    .child(canvas(|_, _, _| (), self.terminal_paint_callback(cx)).size_full()),
+            )
+            .into_any_element()
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_view_tests.rs"]
+mod tests;

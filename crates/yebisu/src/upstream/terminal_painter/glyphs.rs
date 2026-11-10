@@ -11,11 +11,36 @@ use gpui::{Font, FontStyle, ShapedLine};
 use std::collections::HashMap;
 
 pub(super) const CACHE_LIMIT: usize = 4096;
+// A cell holds one grapheme, not a line. 128 UTF-8 bytes allows 32
+// maximum-width scalars (ZWJ emoji, variation selectors and combining marks).
+// Longer pathological graphemes are deliberately refused before UI shaping.
+pub(crate) const SYMBOL_BYTES: usize = 128;
+pub(super) const CACHE_BYTES: usize = 16 * 1024 * 1024;
 const STYLES: usize = 4;
+
+pub(crate) fn valid_symbol(symbol: &str) -> bool {
+    symbol.len() <= SYMBOL_BYTES && !symbol.chars().any(char::is_control)
+}
+
+// Charge both text copies, shaped allocations and conservative entry overhead.
+// Fixed ASCII slots/table headers are bounded separately by CACHE_LIMIT.
+fn entry_bytes(symbol: &str, line: &ShapedLine) -> usize {
+    size_of::<ShapedLine>()
+        + size_of::<gpui::LineLayout>()
+        + 2 * symbol.len()
+        + 64
+        + line.runs.capacity() * size_of::<gpui::ShapedRun>()
+        + line
+            .runs
+            .iter()
+            .map(|run| run.glyphs.capacity() * size_of::<gpui::ShapedGlyph>())
+            .sum::<usize>()
+}
 
 pub(super) struct GlyphCache {
     /// A shaped line is kilobytes, so the tables below hold indexes into this.
     lines: Vec<ShapedLine>,
+    pub(super) bytes: usize,
     /// `ascii[style * 128 + byte]`.
     ascii: Vec<Option<u32>>,
     other: [HashMap<String, u32>; STYLES],
@@ -25,6 +50,7 @@ impl Default for GlyphCache {
     fn default() -> Self {
         Self {
             lines: Vec::new(),
+            bytes: 0,
             ascii: vec![None; STYLES * 128],
             other: Default::default(),
         }
@@ -70,13 +96,16 @@ impl GlyphCache {
         self.lines.get(usize::try_from(id).ok()?)
     }
 
-    /// Whether `insert` keeps another line; past the limit, lines are shaped
-    /// for one paint alone.
-    pub(super) fn has_room(&self) -> bool {
-        self.lines.len() < CACHE_LIMIT
-    }
-
-    pub(super) fn insert(&mut self, style: usize, symbol: &str, line: ShapedLine) -> &ShapedLine {
+    /// Past either budget, paint the shaped line once without retaining it.
+    pub(super) fn insert(&mut self, style: usize, symbol: &str, line: ShapedLine) -> bool {
+        if !valid_symbol(symbol) || self.get(style, symbol).is_some() {
+            return false;
+        }
+        let bytes = entry_bytes(symbol, &line);
+        if self.lines.len() >= CACHE_LIMIT || bytes > CACHE_BYTES.saturating_sub(self.bytes) {
+            return false;
+        }
+        self.bytes += bytes;
         // CACHE_LIMIT fits in u32; `has_room` keeps the count below it.
         let id = u32::try_from(self.lines.len()).unwrap_or(u32::MAX);
         match ascii_index(style, symbol) {
@@ -86,7 +115,7 @@ impl GlyphCache {
             }
         }
         self.lines.push(line);
-        &self.lines[self.lines.len() - 1]
+        true
     }
 
     pub(super) fn clear(&mut self) {

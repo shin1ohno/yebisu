@@ -22,10 +22,7 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |this, cx| {
-                if let Ok(Reply::Loaded(target, _)) = &result {
-                    this.input.set_text(target.clone());
-                }
-                this.setup.apply(result);
+                this.apply_setup_result(result);
                 cx.notify();
             });
         })
@@ -33,10 +30,17 @@ impl Smoke {
         cx.notify();
     }
 
+    pub(crate) fn apply_setup_result(&mut self, result: crate::Result<Reply>) {
+        if let Ok(Reply::Loaded(target, _)) = &result {
+            self.setup_input.set_text(target.clone());
+        }
+        self.setup.apply(result);
+    }
+
     pub(crate) fn render_setup(&mut self, cx: &mut Context<Self>) -> AnyElement {
         self.observation.record(serde_json::json!({
             "kind": "setup", "busy": self.setup.busy, "status": self.setup.status,
-            "target": self.input.text, "fingerprints": self.setup.fingerprints,
+            "target": self.setup_input.text, "fingerprints": self.setup.fingerprints,
             "key_line": self.setup.key_line,
         }));
         let input_entity = cx.entity();
@@ -98,10 +102,10 @@ impl Smoke {
                         this.focus.focus(window, cx);
                         window.request_virtual_keyboard();
                     }))
-                    .child(if self.input.text.is_empty() {
+                    .child(if self.setup_input.text.is_empty() {
                         "user@host[:port]".to_owned()
                     } else {
-                        self.input.text.clone()
+                        self.setup_input.text.clone()
                     })
                     .child(
                         canvas(
@@ -125,7 +129,7 @@ impl Smoke {
                 button("host-scan", "Scan host key", busy).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.setup.fingerprints.clear();
-                        this.start_job(Job::Scan(this.input.text.trim().to_owned()), cx);
+                        this.start_job(Job::Scan(this.setup_input.text.trim().to_owned()), cx);
                     },
                 )),
             )
@@ -139,7 +143,7 @@ impl Smoke {
                 .on_click(cx.listener(|this, _, _, cx| {
                     if !this.setup.busy
                         && let Some((target, key)) = this.setup.pending.take()
-                        && target == this.input.text.trim()
+                        && target == this.setup_input.text.trim()
                     {
                         this.start_job(Job::Trust(target, key), cx);
                     }
@@ -148,7 +152,10 @@ impl Smoke {
             .child(
                 button("host-auth", "Check SSH authentication", busy).on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.start_job(Job::Authenticate(this.input.text.trim().to_owned()), cx);
+                        this.start_job(
+                            Job::Authenticate(this.setup_input.text.trim().to_owned()),
+                            cx,
+                        );
                     },
                 )),
             )

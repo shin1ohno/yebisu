@@ -170,3 +170,131 @@ fn cache_reuses_cells_invalidates_fonts_and_bounds_storage(cx: &mut TestAppConte
     assert_eq!(painter.borrow().glyphs.len(), glyphs::CACHE_LIMIT);
     assert_eq!(painter.borrow().glyphs.iter().count(), glyphs::CACHE_LIMIT);
 }
+
+#[gpui::test]
+fn invalid_and_oversize_cells_are_refused_by_real_painter(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, _| Empty);
+    cx.draw(Point::default(), size(px(800.), px(600.)), |_, _| {
+        canvas(
+            |_, _, _| (),
+            |bounds, _, window, cx| {
+                for symbol in [
+                    "\n".to_owned(),
+                    "a\nb".to_owned(),
+                    "\r".to_owned(),
+                    "x".repeat(glyphs::SYMBOL_BYTES + 1),
+                    "x".repeat(256 * 1024),
+                ] {
+                    let mut painter = TerminalPainter::default();
+                    let frame = FrameData {
+                        width: 1,
+                        height: 1,
+                        cells: vec![cell(&symbol)],
+                        cursor: None,
+                        hyperlinks: vec![],
+                        graphics: vec![],
+                    };
+                    painter.paint_frame(
+                        &frame,
+                        bounds.origin,
+                        None,
+                        Ground::Opaque,
+                        8.,
+                        &font("Menlo"),
+                        &[],
+                        &[],
+                        None,
+                        None,
+                        window,
+                        cx,
+                    );
+                    assert_eq!(painter.glyphs.len(), 0, "invalid cell reached glyph cache");
+                    // Also exercise the uncached shaping path with a precise rejection oracle.
+                    assert_eq!(
+                        painter.paint_text(
+                            &frame,
+                            &whole(&frame),
+                            bounds.origin,
+                            8.,
+                            &font("Menlo"),
+                            false,
+                            &|_| false,
+                            &|_| false,
+                            window
+                        ),
+                        1
+                    );
+                }
+                // Accepted terminal graphemes: combining mark, CJK, ZWJ and variation selector.
+                for symbol in ["e\u{301}", "界", "👩🏽\u{200d}💻", "✈\u{fe0f}"] {
+                    assert!(glyphs::valid_symbol(symbol));
+                }
+            },
+        )
+        .size_full()
+    });
+}
+
+#[gpui::test]
+fn real_painter_caps_retained_bytes_before_entry_limit(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, _| Empty);
+    cx.draw(Point::default(), size(px(800.), px(600.)), |_, _| {
+        canvas(
+            |_, _, _| (),
+            |bounds, _, window, cx| {
+                let mut painter = TerminalPainter::default();
+                // Near-limit cells force the byte budget before the count budget.
+                let cells = (0..4096)
+                    .map(|n| cell(&format!("{n:04}{}", "x".repeat(124))))
+                    .collect();
+                let frame = FrameData {
+                    width: 64,
+                    height: 64,
+                    cells,
+                    cursor: None,
+                    hyperlinks: vec![],
+                    graphics: vec![],
+                };
+                painter.paint_frame(
+                    &frame,
+                    bounds.origin,
+                    None,
+                    Ground::Opaque,
+                    8.,
+                    &font("Menlo"),
+                    &[],
+                    &[],
+                    None,
+                    None,
+                    window,
+                    cx,
+                );
+                assert!(painter.glyphs.len() > 0);
+                assert!(
+                    painter.glyphs.len() < glyphs::CACHE_LIMIT,
+                    "byte budget did not bind"
+                );
+                assert!(painter.glyphs.bytes <= glyphs::CACHE_BYTES);
+                let before = (painter.glyphs.len(), painter.glyphs.bytes);
+                painter.paint_frame(
+                    &frame,
+                    bounds.origin,
+                    None,
+                    Ground::Opaque,
+                    8.,
+                    &font("Menlo"),
+                    &[],
+                    &[],
+                    None,
+                    None,
+                    window,
+                    cx,
+                );
+                assert_eq!((painter.glyphs.len(), painter.glyphs.bytes), before);
+                painter.set_appearance(15., 20., Theme::default());
+                assert_eq!(painter.glyphs.bytes, 0);
+            },
+        )
+        .size_full()
+    });
+}
