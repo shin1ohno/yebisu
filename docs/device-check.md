@@ -480,7 +480,7 @@ large-image acceptance. No physical checks above have been marked complete.
 
 ### P8 review repairs: shortcut precedence and outside release
 
-1. With a hardware keyboard, try all four combinations of **Command: Ctrl / Super**
+1. With a hardware keyboard, try all four combinations of **Command: Ctrl / Local**
    and **Shortcuts: Terminal priority / App priority**. With Ctrl and Terminal
    priority together, Command-C/V must reach the sandbox as Ctrl-C/V without
    reading or changing the clipboard. In the other combinations, Command-C copies
