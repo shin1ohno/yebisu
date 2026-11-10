@@ -115,3 +115,34 @@ fn trust_does_not_overwrite_existing_pins_and_reports_disk_failure() -> Result<(
     assert_eq!(f.store().fingerprints("a@mac")?, FINGERPRINT);
     Ok(())
 }
+
+#[test]
+fn multiple_hosts_survive_restart_and_legacy_migration() -> Result<()> {
+    let f = Fixture::new()?;
+    fs::write(f.0.join("yebisu-target"), "a@old")?;
+    f.store().save("b@new")?;
+    f.store().save("a@old")?;
+    let reopened = f.store().load_hosts()?;
+    assert_eq!(reopened.targets, ["a@old", "b@new"]);
+    assert_eq!(reopened.selected, "a@old");
+    assert!(
+        f.store()
+            .pins("b@new")
+            .is_ok_and(|pins| matches!(pins, Pins::None))
+    );
+    Ok(())
+}
+#[test]
+fn corrupt_or_future_format_is_not_silently_overwritten() -> Result<()> {
+    let f = Fixture::new()?;
+    for bytes in [
+        "not json",
+        r#"{"version":2,"targets":[],"selected":""}"#,
+        r#"{"version":1,"targets":["a@one"],"selected":"b@two"}"#,
+    ] {
+        fs::write(f.0.join("yebisu-hosts.json"), bytes)?;
+        assert!(f.store().save("c@three").is_err());
+        assert_eq!(fs::read_to_string(f.0.join("yebisu-hosts.json"))?, bytes);
+    }
+    Ok(())
+}

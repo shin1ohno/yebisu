@@ -57,3 +57,10 @@ was removed: pinned UIKit routes plain Esc to composition cancellation before
 GPUI KeyDown and does not redispatch it. Esc cancels an active composition;
 without composition it sends semantic Esc. Option, Command and candidate
 switches remain available without rebuilding.
+
+## P5 reconnect on return
+
+- Terminal の `Return: Automatic` が既定。背景/Inactive で接続と入力を捨て、Active 復帰で一度だけ P2 の鍵検証から接続する。
+- このラベルをタップして `Return: Tap reconnect` に切替。背景から戻った後は `Reconnect` をタップするまで接続しない。再ビルド不要、現在の起動中に保持。
+- 両方とも入力を再送しない。ネットワーク切替で失敗した場合は理由を表示し、Reconnect または次回の背景復帰で再試行。連続 retry はしない。VersionMismatch は自動再接続しない。
+- 保存ホストの内部構造には比較用 variant を作っていない。

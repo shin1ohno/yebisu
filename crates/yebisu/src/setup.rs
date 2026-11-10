@@ -13,6 +13,7 @@ use sheprd_client::ssh::{HostKeyScan, NewHostKey};
 #[derive(Default)]
 pub(crate) struct Setup {
     pub(crate) busy: bool,
+    pub(crate) hosts: Vec<String>,
     pub(crate) status: String,
     pub(crate) target: String,
     pub(crate) key_line: Option<String>,
@@ -24,6 +25,8 @@ pub(crate) struct Setup {
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) enum Job {
     Load,
+    Save(String),
+    SaveFailure,
     Key,
     Scan(String),
     Trust(String, NewHostKey),
@@ -32,6 +35,7 @@ pub(crate) enum Job {
 
 pub(crate) enum Reply {
     Loaded(String, String),
+    Hosts(crate::hosts::SavedHosts, String),
     Key(String),
     Scanned(String, HostKeyScan, String),
     Saved(String, String),
@@ -51,6 +55,11 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
     match job {
         Job::Load => {
             let store = store()?;
+            #[cfg(target_abi = "sim")]
+            if std::env::var_os("YEBISU_P5_QA").is_some() {
+                store.save("qa@private-one")?;
+                store.save("qa@private-two")?;
+            }
             let target = store.load()?;
             let fingerprints = if target.is_empty() {
                 String::new()
@@ -61,7 +70,15 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
                     Err(e) => return Err(e),
                 }
             };
-            Ok(Reply::Loaded(target, fingerprints))
+            Ok(Reply::Hosts(store.load_hosts()?, fingerprints))
+        }
+        Job::SaveFailure => Err(Error::Storage(std::io::Error::other(
+            "Developer-injected save failure; saved hosts unchanged",
+        ))),
+        Job::Save(target) => {
+            let store = store()?;
+            store.save(&target)?;
+            Ok(Reply::Hosts(store.load_hosts()?, String::new()))
         }
         Job::Key => {
             let raw = ssh::authorized_key().map_err(map)?;
@@ -117,6 +134,11 @@ impl Setup {
                 self.target = target;
                 self.fingerprints = fingerprints;
                 self.status = "Enter user@host[:port], then scan the host key.".into();
+            }
+            Ok(Reply::Hosts(hosts, fingerprints)) => {
+                self.apply(Ok(Reply::Loaded(hosts.selected, fingerprints)));
+                self.hosts = hosts.targets;
+                self.status = "Saved hosts loaded. Select a host or enter a new target.".into();
             }
             Ok(Reply::Key(line)) => {
                 self.key_line = Some(line);

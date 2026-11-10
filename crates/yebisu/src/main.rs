@@ -44,3 +44,6 @@ mod input_geometry;
 mod terminal_controls;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_input;
+
+#[cfg(any(target_os = "ios", test))]
+mod reconnect;

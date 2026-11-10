@@ -122,6 +122,38 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP5Reconnect() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_P5_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launch()
+        sleep(3)
+        save("p5-before")
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(4)
+        save("p5-returned")
+        try tapText("Return: Automatic", in: app)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(3)
+        save("p5-manual")
+        try tapText("Reconnect", in: app)
+        sleep(3)
+        save("p5-tapped")
+        try tapText("Hosts", in: app)
+        sleep(2)
+        save("p5-hosts")
+        try tapText("Developer: simulate save failure", in: app)
+        sleep(2)
+        save("p5-save-failure")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     private func tapText(_ label: String, in app: XCUIApplication) throws {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
