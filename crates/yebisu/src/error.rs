@@ -1,5 +1,9 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("terminal image exceeds limits")]
+    PaneImageLimit,
+    #[error("terminal image decoding failed: {0}")]
+    PaneImageDecode(image::ImageError),
     #[error("invalid authorized_keys line or unexpected key comment")]
     InvalidKeyLine,
     #[error("host is untrusted or its key has changed; authentication refused")]

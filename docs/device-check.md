@@ -78,3 +78,34 @@ yebisu connection, back up each host's authorized_keys, remove only the recorded
 old key blob, and confirm another fresh yebisu connection plus old-key refusal.
 Only completion of that last step completes replacement. Never delete keys by
 comment prefix.
+
+## P3 terminal display — owner only
+
+1. Unlock the login keychain locally, unlock/connect M5, then run from the
+   yebisu repository:
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+   The worker neither requests nor handles the password.
+2. In Keys and hosts, create/show and copy this installation's restricted key.
+   **Add that new yebisu key to the intended host's `~/.ssh/authorized_keys`
+   first.** Keep the old application's key. Scan the target, independently
+   compare the displayed host fingerprint on that host, then Trust.
+3. Stop viewing that same Herdr session in the old app so its viewport does
+   not compete. Tap Open terminal (read only). Check that it shows the intended
+   Herdr 1 default session. Untrusted/changed keys must show refusal, never a
+   terminal. P3 intentionally sends no keyboard input.
+4. From a separate trusted shell, print Japanese (`日本語 かな カナ 漢字`),
+   `┌──┐│└──┘`, ANSI red/green/blue backgrounds, bold/italic/underline, and
+   Nerd Font U+F120, U+E0B0, U+F013 in that session. Check CJK occupies two cells,
+   box lines join, colour and attributes stay aligned, and Nerd glyphs appear.
+5. Tap Standard/Compact in the toolbar (see docs/variants.md). Compare both in
+   portrait and landscape, rotating while output changes. Check no clipped
+   half glyphs or stale rows, and that the host's terminal dimensions change.
+6. Produce sustained output for 30 seconds, leave idle for 60 seconds, then
+   produce output again. Check the latest text appears without frozen UI.
+7. Disconnect the host/network. Check the toolbar displays Disconnected and
+   no old surface remains. Use Hosts then Open terminal after restoring the
+   connection. Restart the private test daemon between connections and confirm
+   only the new boot's output appears. Do not claim this Simulator observation
+   proves physical IME or hardware-keyboard behavior (P4).
+8. Record device model, iOS version, both density choices, rotation, disconnect,
+   host trust and old-app coexistence results in the PR QA checklist.

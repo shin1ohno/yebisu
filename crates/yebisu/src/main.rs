@@ -20,3 +20,20 @@ fn main() {
 
 #[cfg(target_os = "ios")]
 mod observation;
+
+#[cfg(any(target_os = "ios", test))]
+mod link;
+#[cfg(any(target_os = "ios", test))]
+mod live;
+#[cfg(any(target_os = "ios", test))]
+#[allow(dead_code, unused_imports)]
+mod upstream;
+#[cfg(any(target_os = "ios", test))]
+use upstream::{font_weight, osc52, terminal, terminal_painter};
+#[cfg(any(target_os = "ios", test))]
+mod theme;
+
+#[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+mod mock_peer;
+#[cfg(target_os = "ios")]
+mod terminal_view;
