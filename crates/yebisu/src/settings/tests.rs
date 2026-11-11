@@ -197,3 +197,50 @@ fn failed_write_retries_after_active_or_edit() {
         fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
     }
 }
+
+#[gpui::test]
+fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContext) {
+    let root = directory("load-race");
+    store::save(
+        &root,
+        &Values {
+            compact: false,
+            terminal_priority: true,
+            board_hidden: true,
+        },
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!host.loaded);
+    let view = cx.new(crate::app::Smoke::new);
+    view.update(cx, |this, _| {
+        this.settings = Some(host);
+        this.terminal.compact = true;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            this.poll_settings();
+            if this.settings.as_ref().is_some_and(SettingsHost::ready) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(
+            this.settings_values(),
+            Values {
+                compact: true,
+                terminal_priority: true,
+                board_hidden: true
+            }
+        );
+    });
+    assert_eq!(
+        store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+        Values {
+            compact: true,
+            terminal_priority: true,
+            board_hidden: true
+        }
+    );
+    fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}

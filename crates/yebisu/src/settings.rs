@@ -19,6 +19,7 @@ pub(crate) struct SettingsHost {
     revision: u64,
     saved: u64,
     loaded: bool,
+    edited_before_load: Values,
     blocked: bool,
     write_failed: bool,
     in_flight: Option<u64>,
@@ -38,6 +39,7 @@ impl SettingsHost {
             revision: 0,
             saved: 0,
             loaded: false,
+            edited_before_load: Values::default(),
             blocked: false,
             write_failed: false,
             in_flight: None,
@@ -51,6 +53,13 @@ impl SettingsHost {
 
     pub fn edit(&mut self, values: Values) {
         if self.draft != values {
+            if !self.loaded {
+                self.edited_before_load.compact |= self.draft.compact != values.compact;
+                self.edited_before_load.terminal_priority |=
+                    self.draft.terminal_priority != values.terminal_priority;
+                self.edited_before_load.board_hidden |=
+                    self.draft.board_hidden != values.board_hidden;
+            }
             self.write_failed = false;
             self.draft = values;
             self.revision += 1;
@@ -66,10 +75,16 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
-                            if self.revision == 0 {
-                                self.draft = values;
-                                applied = true;
+                            if !self.edited_before_load.compact {
+                                self.draft.compact = values.compact;
                             }
+                            if !self.edited_before_load.terminal_priority {
+                                self.draft.terminal_priority = values.terminal_priority;
+                            }
+                            if !self.edited_before_load.board_hidden {
+                                self.draft.board_hidden = values.board_hidden;
+                            }
+                            applied = true;
                         }
                         Err(error) => {
                             self.blocked = true;
