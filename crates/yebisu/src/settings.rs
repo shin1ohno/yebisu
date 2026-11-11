@@ -20,6 +20,7 @@ pub(crate) struct SettingsHost {
     saved: u64,
     loaded: bool,
     blocked: bool,
+    write_failed: bool,
     in_flight: Option<u64>,
     sender: mpsc::SyncSender<Request>,
     receiver: mpsc::Receiver<Completion>,
@@ -38,6 +39,7 @@ impl SettingsHost {
             saved: 0,
             loaded: false,
             blocked: false,
+            write_failed: false,
             in_flight: None,
             sender,
             receiver,
@@ -49,6 +51,7 @@ impl SettingsHost {
 
     pub fn edit(&mut self, values: Values) {
         if self.draft != values {
+            self.write_failed = false;
             self.draft = values;
             self.revision += 1;
             self.regeneration_confirmed = false;
@@ -97,13 +100,18 @@ impl SettingsHost {
             }
             Err(error) => {
                 self.error = Some(error.to_string());
-                self.blocked = true;
+                self.write_failed = true;
             }
         }
     }
 
     pub fn flush(&mut self) {
-        if !self.loaded || self.blocked || self.in_flight.is_some() || self.saved == self.revision {
+        if !self.loaded
+            || self.blocked
+            || self.write_failed
+            || self.in_flight.is_some()
+            || self.saved == self.revision
+        {
             return;
         }
         match self.sender.try_send(Request {
@@ -133,6 +141,7 @@ impl SettingsHost {
             self.flush();
         }
         if phase == gpui::AppLifecyclePhase::Active {
+            self.write_failed = false;
             self.flush();
         }
     }

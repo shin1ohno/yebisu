@@ -160,3 +160,40 @@ fn restored_density_survives_first_connection_and_host_switch(cx: &mut TestAppCo
     });
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
 }
+
+#[test]
+fn failed_write_retries_after_active_or_edit() {
+    for active in [true, false] {
+        let root = directory("retry");
+        store::save(&root, &Values::default()).unwrap_or_else(|e| panic!("{e}"));
+        let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        wait(&mut host, |h| h.loaded);
+        fs::create_dir(root.join("yebisu-settings.pending")).unwrap_or_else(|e| panic!("{e}"));
+        host.edit(Values {
+            compact: true,
+            ..Values::default()
+        });
+        host.flush();
+        wait(&mut host, |h| h.error.is_some());
+        assert_eq!(
+            store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+            Values::default()
+        );
+        fs::remove_dir(root.join("yebisu-settings.pending")).unwrap_or_else(|e| panic!("{e}"));
+        if active {
+            host.lifecycle(AppLifecyclePhase::Active);
+        } else {
+            host.edit(Values {
+                compact: true,
+                board_hidden: true,
+                ..Values::default()
+            });
+        }
+        wait(&mut host, SettingsHost::ready);
+        assert_eq!(
+            store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+            host.draft
+        );
+        fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+    }
+}
