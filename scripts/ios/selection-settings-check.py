@@ -43,7 +43,7 @@ def main():
     # Reset only this oracle's isolated namespace; preserve ordinary app state.
     if settings.exists():
         shutil.rmtree(settings)
-    observations = container / "Documents/p0-smoke.jsonl"
+    observations = container / "Documents/selection-settings.jsonl"
     previous = len(observations.read_text().splitlines()) if observations.exists() else 0
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
