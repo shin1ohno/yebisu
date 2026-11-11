@@ -9,6 +9,8 @@ pub(super) enum Request {
     },
     #[cfg(test)]
     Barrier(mpsc::SyncSender<()>),
+    #[cfg(test)]
+    Pause(mpsc::SyncSender<()>, mpsc::Receiver<()>),
 }
 pub(super) enum Completion {
     Loaded(Result<Values>),
@@ -31,6 +33,12 @@ pub(super) fn start(
                     #[cfg(test)]
                     Request::Barrier(ack) => {
                         let _ = ack.send(());
+                        continue;
+                    }
+                    #[cfg(test)]
+                    Request::Pause(entered, resume) => {
+                        let _ = entered.send(());
+                        let _ = resume.recv();
                         continue;
                     }
                 };

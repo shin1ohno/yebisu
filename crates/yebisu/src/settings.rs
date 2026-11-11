@@ -3,6 +3,10 @@ mod store;
 mod worker;
 
 use crate::Result;
+#[cfg(target_os = "ios")]
+use herdr_uikit::BackgroundTask;
+#[cfg(all(test, not(target_os = "ios")))]
+use retry_tests::BackgroundTask;
 use std::{path::PathBuf, sync::mpsc};
 use worker::{Completion, Request};
 
@@ -25,8 +29,8 @@ pub(crate) struct SettingsHost {
     in_flight: Option<u64>,
     sender: mpsc::SyncSender<Request>,
     receiver: mpsc::Receiver<Completion>,
-    #[cfg(target_os = "ios")]
-    background: Option<herdr_uikit::BackgroundTask>,
+    #[cfg(any(target_os = "ios", test))]
+    background: Option<BackgroundTask>,
     // P11 owns the confirmation UI; no regeneration is executed in P10.
     regeneration_confirmed: bool,
 }
@@ -45,7 +49,7 @@ impl SettingsHost {
             in_flight: None,
             sender,
             receiver,
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", test))]
             background: None,
             regeneration_confirmed: false,
         })
@@ -96,8 +100,8 @@ impl SettingsHost {
             }
         }
         self.flush();
-        #[cfg(target_os = "ios")]
-        if self.ready() || self.error.is_some() {
+        #[cfg(any(target_os = "ios", test))]
+        if self.in_flight.is_none() && (self.ready() || self.blocked || self.write_failed) {
             self.background.take();
         }
         applied
@@ -149,9 +153,9 @@ impl SettingsHost {
                 | gpui::AppLifecyclePhase::Background
                 | gpui::AppLifecyclePhase::Disconnected
         ) {
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", test))]
             if !self.ready() && !self.blocked && self.background.is_none() {
-                self.background = herdr_uikit::BackgroundTask::begin("Saving yebisu settings");
+                self.background = BackgroundTask::begin("Saving yebisu settings");
             }
             self.flush();
         }
@@ -180,3 +184,6 @@ impl SettingsHost {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod retry_tests;

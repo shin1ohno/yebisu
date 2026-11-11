@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn directory(name: &str) -> PathBuf {
+pub(super) fn directory(name: &str) -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/settings-tests")
@@ -15,7 +15,7 @@ fn directory(name: &str) -> PathBuf {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ))
 }
-fn wait(host: &mut SettingsHost, condition: impl Fn(&SettingsHost) -> bool) {
+pub(super) fn wait(host: &mut SettingsHost, condition: impl Fn(&SettingsHost) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         host.poll();
