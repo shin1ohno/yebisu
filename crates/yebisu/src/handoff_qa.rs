@@ -4,7 +4,7 @@ use gpui::{AnyElement, ClipboardItem, Context, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_HANDOFF_QA")?;
-        Some(div().flex().gap_2().px_4().children([("qa-text","QA Text"),("qa-image","QA Image"),("qa-select","QA Selection")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,window,cx| {
+        Some(div().flex().gap_2().px_4().children([("qa-cjk","QA CJK"),("qa-text","QA Text"),("qa-image","QA Image"),("qa-select","QA Selection")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,window,cx| {
             match id {
                 "qa-text"=>cx.write_to_clipboard(ClipboardItem::new_string("P8-text-かな".into())),
                 "qa-image"=> {
@@ -28,6 +28,18 @@ impl Smoke {
                             }
                         });
                     }).detach();
+                },
+                "qa-cjk"=> {
+                    let g=this.terminal.geometry;
+                    let at=|x:f32|g.grid.origin+gpui::point(gpui::px((x+0.5)*g.cell_width),gpui::px(2.5*g.cell_height));
+                    this.handoff.select_mode=true;
+                    this.selection_down(&gpui::MouseDownEvent {position:at(2.),button:gpui::MouseButton::Left,click_count:1,modifiers:Default::default(),first_mouse:false},window,cx);
+                    this.selection_move(&gpui::MouseMoveEvent {position:at(10.),pressed_button:Some(gpui::MouseButton::Left),modifiers:Default::default()},cx);
+                    this.selection_up(cx); this.copy_selection(cx);
+                    let text=cx.read_from_clipboard().and_then(|item|item.text());
+                    let spans=this.handoff.selection.as_ref().map(|s|s.spans());
+                    this.observation.record(serde_json::json!({"kind":"sh1-150-copy","text":text,"spans":spans}));
+                    this.terminal.live.status=format!("CJK copied: {}",text.unwrap_or_default());
                 },
                 "qa-select"=> {
                     let g=this.terminal.geometry;

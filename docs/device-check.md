@@ -595,3 +595,32 @@ P9 workspace limit. Splits use client layout; remote terminals outlive detach.
 5. P11 will expose the settings editor and key-regeneration confirmation. P10
    never regenerates a key. Simulator lifecycle/file evidence does not establish
    physical lock/suspension, IME or hardware keyboard behavior.
+
+## SH1-150 — Herdr 1 CJK selection and copy
+
+1. Locally unlock the login keychain and connect/unlock M5. In an interactive
+   login shell, run the following command (the worker never handles a password):
+
+   ```sh
+   (cd /Users/shin1ohno/ManagedProjects/yebisu && /Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad)
+   ```
+
+2. Connect yebisu to an already-authorized disposable Herdr 1 terminal. Print
+   `printf '\u65e5\u672c\u8a9e ABC\n'` in that terminal. Expected visible text:
+   `日本語 ABC` (one real space before ABC).
+3. Enable Select. Start the selection on the right half of 日 and drag through C.
+   The highlight must cover the whole 日, 本 and 語. Tap Copy, paste into Notes
+   or a disposable text field, and verify exactly `日本語 ABC` without an added
+   space after any CJK character. Repeat in the reverse drag direction.
+4. Start on 日 and stop on the right half of 本. Highlight and pasted text must
+   include both whole characters: exactly `日本`. Select only the right half of
+   本 and verify exactly `本`. Repeat with the trackpad and touch.
+5. Redraw the terminal and then change part of the row to exercise full frames
+   and retained patch rows. Repeat steps 3–4. Verify a real space after 語 stays.
+6. On a Herdr 2 terminal, repeat the same copy check to confirm the existing
+   skip-marker path. Record device/iPadOS, Herdr version, touch/trackpad results
+   and pasted text in PR QA. Simulator evidence covers the production adapter
+   and pasteboard; these physical feel checks remain owner acceptance.
+
+Soft-wrap leading spacers, trimming trailing spaces on full-row selection and
+wide-separator painter checks are separate follow-ups, not SH1-150 acceptance.

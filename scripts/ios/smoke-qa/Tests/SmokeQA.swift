@@ -80,6 +80,21 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1150CJK() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        try tapText("QA CJK", in: app)
+        sleep(2)
+        save("sh1-150-cjk")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP8Handoff() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
