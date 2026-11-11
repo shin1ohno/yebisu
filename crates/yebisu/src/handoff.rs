@@ -9,6 +9,9 @@ use sheprd_client::{
 };
 use std::{collections::VecDeque, sync::Arc};
 
+#[path = "handoff_cells.rs"]
+mod cells;
+
 pub(crate) const TEXT_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) const IMAGE_LIMIT: usize = 128 * 1024 * 1024;
 pub(crate) const PIXEL_LIMIT: u64 = 64 * 1024 * 1024;
@@ -75,22 +78,28 @@ pub(crate) struct Selection {
     pub dragging: bool,
 }
 impl Selection {
+    fn row(&self, row: u16) -> &[sheprd_client::protocol::CellData] {
+        let start = usize::from(row) * usize::from(self.frame.width);
+        self.frame
+            .cells
+            .get(start..start + usize::from(self.frame.width))
+            .unwrap_or(&[])
+    }
+
     pub fn spans(&self) -> Vec<(u16, std::ops::Range<u16>)> {
         let (mut a, mut b) = if (self.anchor.1, self.anchor.0) <= (self.end.1, self.end.0) {
             (self.anchor, self.end)
         } else {
             (self.end, self.anchor)
         };
-        let continuation = |x: u16, y: u16| {
-            self.frame
-                .cells
-                .get(usize::from(y) * usize::from(self.frame.width) + usize::from(x))
-                .is_some_and(|cell| cell.skip)
-        };
-        while a.0 > 0 && continuation(a.0, a.1) {
+        let start = cells::continuations(self.row(a.1));
+        let end = cells::continuations(self.row(b.1));
+        while a.0 > 0 && start.get(usize::from(a.0)).copied().unwrap_or(false) {
             a.0 -= 1;
         }
-        while b.0.saturating_add(1) < self.frame.width && continuation(b.0 + 1, b.1) {
+        while b.0.saturating_add(1) < self.frame.width
+            && end.get(usize::from(b.0 + 1)).copied().unwrap_or(false)
+        {
             b.0 += 1;
         }
         (a.1..=b.1)
@@ -112,21 +121,14 @@ impl Selection {
             if !text.is_empty() {
                 text.push('\n');
             }
-            for col in cols {
-                if let Some(cell) = self
-                    .frame
-                    .cells
-                    .get(usize::from(row) * usize::from(self.frame.width) + usize::from(col))
-                {
-                    // A wide glyph continuation must not add a spurious space.
-                    if cell.skip {
-                        continue;
-                    }
-                    if text.len().saturating_add(cell.symbol.len()) > TEXT_LIMIT {
-                        return None;
-                    }
-                    text.push_str(&cell.symbol);
+            for (col, _, cell) in cells::graphemes(self.row(row)) {
+                if !cols.contains(&(col as u16)) {
+                    continue;
                 }
+                if text.len().saturating_add(cell.symbol.len()) > TEXT_LIMIT {
+                    return None;
+                }
+                text.push_str(&cell.symbol);
             }
         }
         Some(text)

@@ -9,7 +9,7 @@ const WELCOME: &str = include_str!("../fixtures/endpoint-welcome-v1.json");
 pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
     let lines = [
         "yebisu P4 · private wire peer",
-        "日本語 かな カナ 漢字",
+        "日本語 ABC かな カナ 漢字",
         "┌──────────────┐",
         "│ box drawing  │",
         "└──────────────┘",
@@ -43,7 +43,11 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
                 ..blank.clone()
             };
             if count == 2 {
-                cells[(row + 1) * width + col + 1].skip = true;
+                // Herdr 1 full frames retain blanks; patch rows retain empties.
+                // Mix the two on one row, with skip false in both cases.
+                if col % 4 == 3 {
+                    cells[(row + 1) * width + col + 1].symbol.clear();
+                }
             }
             col += count;
         }
