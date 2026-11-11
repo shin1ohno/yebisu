@@ -69,15 +69,15 @@ means the running implementation; other abbreviated paths are under
 
 | Prerequisite group | Required Rust lines | Files | Explicit cut points |
 |---|---:|---|---:|
-| settings/config and owner | 348 | settings.rs 182 + settings/store.rs 58 + settings/worker.rs 44 + draft.rs 64 | 4 |
+| settings/config and owner | 371 | settings.rs 197 + settings/store.rs 58 + settings/worker.rs 52 + draft.rs 64 | 4 |
 | strings | 100 | existing i18n.rs 51 + strings.rs 49 | 2 |
 | common controls | 649 | ui.rs 358 + marks.rs 31 + number.rs 260 | 9 |
 | theme/fonts | 73 | appearance.rs | 3 |
 | popup shell/motion/iPad metrics | 354 | settings_spike.rs 16 + editor.rs 134 + sheet.rs 132 + motion.rs 65 + metrics.rs 7 | 6 |
-| **Five-group total** | **1,524** | | **24** |
+| **Five-group total** | **1,547** | | **24** |
 | Running lifecycle adapter (separate) | 66 | settings_view.rs | existing owner integration |
 
-The complete measured closure is **1,590 Rust lines**, plus 259 newly copied
+The complete measured closure is **1,613 Rust lines**, plus 259 newly copied
 settings FTL lines and the previous 72 settings FTL lines (commands.ftl reused).
 The previous 30–100% assumption is replaced by these concrete retained/adapted
 files. The 24 entries below count explicit replaced/removed source dependencies,
@@ -131,3 +131,17 @@ values. Settings error changes notify the owner; the active screen renders the
 error, and normal rendering takes its original path. The corrupt-file test reads
 after a FIFO worker barrier, so an asynchronously queued overwrite cannot escape
 its assertions.
+
+### Retry ordering corrected in attempt 3
+
+The displayed error is not a write-state signal. Background protection is kept
+while a save is in flight; after polling and flushing it ends only when there is
+no in-flight save and the draft is durable or the writer is stopped awaiting an
+explicit retry. The same acquisition/drop branches run with a test OS-token seam;
+a worker gate delays the retry until the retention assertion has run.
+
+Active and changed edits retain a retry request until a Save is successfully
+queued. An older failure completion cannot consume that request. FIFO worker
+barriers test both Active-before-poll and edit-before-poll against real files.
+The request is consumed on send, so another failure without another request does
+not create an unbounded retry loop. Corrupt-load protection remains independent.

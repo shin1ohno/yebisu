@@ -82,3 +82,59 @@ fn retry_holds_background_task_until_durable_ack() {
     );
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
 }
+
+fn retry_before_failure_poll(active: bool) {
+    let root = directory("retry-before-poll");
+    store::save(&root, &Values::default()).unwrap_or_else(|e| panic!("{e}"));
+    let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+    wait(&mut host, |h| h.loaded);
+    fs::create_dir(root.join("yebisu-settings.pending")).unwrap_or_else(|e| panic!("{e}"));
+    host.edit(Values {
+        compact: true,
+        ..Values::default()
+    });
+    host.flush();
+    // The failure is queued in Completion, but the UI has not polled it.
+    let (ack, handled) = mpsc::sync_channel(1);
+    host.sender
+        .send(Request::Barrier(ack))
+        .unwrap_or_else(|e| panic!("{e}"));
+    handled
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(host.in_flight, Some(1));
+    assert!(host.error.is_none());
+    assert_eq!(
+        store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+        Values::default()
+    );
+    fs::remove_dir(root.join("yebisu-settings.pending")).unwrap_or_else(|e| panic!("{e}"));
+    if active {
+        host.lifecycle(AppLifecyclePhase::Active);
+    } else {
+        host.edit(Values {
+            compact: true,
+            terminal_priority: true,
+            ..Values::default()
+        });
+    }
+    // No further Active or edit: the remembered request alone must recover.
+    wait(&mut host, SettingsHost::ready);
+    assert_eq!(host.saved, if active { 1 } else { 2 });
+    assert_eq!(
+        store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+        host.draft
+    );
+    assert!(host.error.is_none());
+    fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn active_retry_survives_unpolled_failure() {
+    retry_before_failure_poll(true);
+}
+
+#[test]
+fn edit_retry_survives_unpolled_failure() {
+    retry_before_failure_poll(false);
+}

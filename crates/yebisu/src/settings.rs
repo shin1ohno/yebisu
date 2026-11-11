@@ -26,6 +26,8 @@ pub(crate) struct SettingsHost {
     edited_before_load: Values,
     blocked: bool,
     write_failed: bool,
+    // Consumed only when a save is sent, never by an older completion.
+    retry_requested: bool,
     in_flight: Option<u64>,
     sender: mpsc::SyncSender<Request>,
     receiver: mpsc::Receiver<Completion>,
@@ -46,6 +48,7 @@ impl SettingsHost {
             edited_before_load: Values::default(),
             blocked: false,
             write_failed: false,
+            retry_requested: false,
             in_flight: None,
             sender,
             receiver,
@@ -65,6 +68,7 @@ impl SettingsHost {
                     self.draft.board_hidden != values.board_hidden;
             }
             self.write_failed = false;
+            self.retry_requested = true;
             self.draft = values;
             self.revision += 1;
             self.regeneration_confirmed = false;
@@ -119,7 +123,7 @@ impl SettingsHost {
             }
             Err(error) => {
                 self.error = Some(error.to_string());
-                self.write_failed = true;
+                self.write_failed = !self.retry_requested;
             }
         }
     }
@@ -137,7 +141,10 @@ impl SettingsHost {
             revision: self.revision,
             values: self.draft.clone(),
         }) {
-            Ok(()) => self.in_flight = Some(self.revision),
+            Ok(()) => {
+                self.in_flight = Some(self.revision);
+                self.retry_requested = false;
+            }
             Err(mpsc::TrySendError::Full(_)) => {}
             Err(mpsc::TrySendError::Disconnected(_)) => {
                 self.error = Some("settings worker disconnected".into());
@@ -161,6 +168,7 @@ impl SettingsHost {
         }
         if phase == gpui::AppLifecyclePhase::Active {
             self.write_failed = false;
+            self.retry_requested = true;
             self.flush();
         }
     }
