@@ -9,6 +9,7 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) settings: Option<crate::settings::SettingsHost>,
+    pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
     pub(crate) input: Input,
@@ -64,7 +65,7 @@ impl Smoke {
                     .await;
                 if weak
                     .update(cx, |this, cx| {
-                        this.poll_settings();
+                        this.poll_settings(cx);
                         this.poll_terminal(cx)
                     })
                     .is_err()
@@ -76,6 +77,7 @@ impl Smoke {
         .detach();
         Self {
             settings: None,
+            settings_error: None,
             focus,
             terminal_focus: cx.focus_handle(),
             input: Input::default(),
@@ -97,6 +99,32 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let screen = self.render_screen(window, cx);
+        let Some(error) = self.settings_error.as_ref() else {
+            return screen;
+        };
+        div()
+            .size_full()
+            .relative()
+            .child(screen)
+            .child(
+                div()
+                    .id("settings-error")
+                    .debug_selector(|| "settings-error".into())
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .p_3()
+                    .bg(rgb(0x3b4252))
+                    .text_color(rgb(0xeceff4))
+                    .child(format!("Settings: {error}")),
+            )
+            .into_any_element()
+    }
+}
+impl Smoke {
+    fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if self.terminal.open {
             return self.render_terminal(window, cx);
         }
@@ -239,7 +267,7 @@ pub(crate) fn run() {
             })
             .detach();
             entity.update(cx, |this, cx| {
-                this.start_settings();
+                this.start_settings(cx);
                 this.start_job(crate::setup::Job::Load, cx);
             });
             #[cfg(target_abi = "sim")]

@@ -158,18 +158,18 @@ fn restored_density_survives_first_connection_and_host_switch(cx: &mut TestAppCo
     .unwrap_or_else(|e| panic!("{e}"));
     let host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
     let view = cx.new(crate::app::Smoke::new);
-    view.update(cx, |this, _| {
+    view.update(cx, |this, cx| {
         this.settings = Some(host);
         let deadline = Instant::now() + Duration::from_secs(3);
         while !this.terminal.compact {
-            this.poll_settings();
+            this.poll_settings(cx);
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(2));
         }
         this.select_host("one");
         assert!(this.terminal.compact);
         this.select_host("two");
-        this.poll_settings();
+        this.poll_settings(cx);
         assert!(this.terminal.compact);
     });
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
@@ -227,12 +227,12 @@ fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContex
     let host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
     assert!(!host.loaded);
     let view = cx.new(crate::app::Smoke::new);
-    view.update(cx, |this, _| {
+    view.update(cx, |this, cx| {
         this.settings = Some(host);
         this.terminal.compact = true;
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            this.poll_settings();
+            this.poll_settings(cx);
             if this.settings.as_ref().is_some_and(SettingsHost::ready) {
                 break;
             }
@@ -257,4 +257,59 @@ fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContex
         }
     );
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[gpui::test]
+fn settings_error_notifies_and_renders_on_current_screen(cx: &mut TestAppContext) {
+    use gpui::{px, size};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    for terminal in [true, false] {
+        let root = directory("visible-error");
+        store::save(&root, &Values::default()).unwrap_or_else(|e| panic!("{e}"));
+        let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        wait(&mut host, |h| h.loaded);
+        let (view, cx) = cx.add_window_view(|_, cx| crate::app::Smoke::new(cx));
+        cx.simulate_resize(size(px(900.), px(900.)));
+        view.update(cx, |this, _| {
+            this.settings = Some(host);
+            this.terminal.open = terminal;
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("settings-error").is_none());
+        let changes = Arc::new(AtomicUsize::new(0));
+        cx.update(|_, cx| {
+            let changes = changes.clone();
+            cx.observe(&view, move |_, _| {
+                changes.fetch_add(1, Ordering::Relaxed);
+            })
+            .detach();
+        });
+        fs::create_dir(root.join("yebisu-settings.pending")).unwrap_or_else(|e| panic!("{e}"));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let failed = view.update(cx, |this, cx| {
+                this.terminal.compact = true;
+                this.poll_settings(cx);
+                this.settings.as_ref().is_some_and(|h| h.error.is_some())
+            });
+            if failed {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        cx.run_until_parked();
+        assert!(
+            changes.load(Ordering::Relaxed) > 0,
+            "settings error did not notify"
+        );
+        assert!(
+            cx.debug_bounds("settings-error").is_some(),
+            "current screen hid the settings error"
+        );
+        fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+    }
 }

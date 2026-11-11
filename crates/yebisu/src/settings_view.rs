@@ -3,7 +3,7 @@ use crate::{app::Smoke, settings::Values};
 
 impl Smoke {
     #[cfg(target_os = "ios")]
-    pub(crate) fn start_settings(&mut self) {
+    pub(crate) fn start_settings(&mut self, cx: &mut gpui::Context<Self>) {
         match sheprd_client::local_path::state_dir()
             .ok_or_else(|| crate::Error::Settings("state directory unavailable".into()))
             .and_then(|root| {
@@ -16,7 +16,7 @@ impl Smoke {
                 crate::settings::SettingsHost::open(root)
             }) {
             Ok(host) => self.settings = Some(host),
-            Err(error) => self.setup.status = error.to_string(),
+            Err(error) => self.update_settings_error(Some(error.to_string()), cx),
         }
     }
     pub(crate) fn settings_values(&self) -> Values {
@@ -26,7 +26,7 @@ impl Smoke {
             board_hidden: self.actions.board_hidden,
         }
     }
-    pub(crate) fn poll_settings(&mut self) {
+    pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
         let values = self.settings_values();
         let Some(host) = &mut self.settings else {
             return;
@@ -38,8 +38,13 @@ impl Smoke {
             self.actions.terminal_priority = host.draft.terminal_priority;
             self.actions.board_hidden = host.draft.board_hidden;
         }
-        if let Some(error) = &host.error {
-            self.setup.status = format!("Settings: {error}");
+        let error = host.error.clone();
+        self.update_settings_error(error, cx);
+    }
+    fn update_settings_error(&mut self, error: Option<String>, cx: &mut gpui::Context<Self>) {
+        if self.settings_error != error {
+            self.settings_error = error;
+            cx.notify();
         }
     }
     pub(crate) fn settings_lifecycle(&mut self, phase: gpui::AppLifecyclePhase) {
