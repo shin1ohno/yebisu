@@ -55,3 +55,7 @@ ios-p4:
 # Private Herdr 2 wire, UIKit callbacks, split identities and reattachment.
 ios-p9:
     python3 scripts/guarded.py python3 scripts/ios/p9-check.py
+
+# Native lifecycle, atomic settings persistence and process restart.
+ios-p10:
+    python3 scripts/guarded.py python3 scripts/ios/p10-check.py

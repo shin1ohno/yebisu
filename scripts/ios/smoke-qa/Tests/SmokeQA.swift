@@ -129,6 +129,25 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testP10Settings() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_SETTINGS_QA"] = "1"
+        app.launch()
+        sleep(3)
+        save("p10-before")
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        app.activate()
+        sleep(2)
+        app.terminate()
+        app.launch()
+        sleep(3)
+        save("p10-restored")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP9Core() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()

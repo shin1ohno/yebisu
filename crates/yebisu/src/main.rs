@@ -90,3 +90,11 @@ mod core_view;
 
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 mod core_mock;
+
+#[cfg(any(target_os = "ios", test))]
+mod settings;
+#[cfg(any(target_os = "ios", test))]
+mod settings_view;
+
+#[cfg(any(target_os = "ios", test))]
+mod i18n;

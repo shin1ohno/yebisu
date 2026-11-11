@@ -8,6 +8,7 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
     pub(crate) input: Input,
@@ -61,13 +62,20 @@ impl Smoke {
                 cx.background_executor()
                     .timer(Duration::from_millis(33))
                     .await;
-                if weak.update(cx, |this, cx| this.poll_terminal(cx)).is_err() {
+                if weak
+                    .update(cx, |this, cx| {
+                        this.poll_settings();
+                        this.poll_terminal(cx)
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
         })
         .detach();
         Self {
+            settings: None,
             focus,
             terminal_focus: cx.focus_handle(),
             input: Input::default(),
@@ -230,7 +238,10 @@ pub(crate) fn run() {
                 let _ = weak.update(cx, |this, cx| this.lifecycle(phase, cx));
             })
             .detach();
-            entity.update(cx, |this, cx| this.start_job(crate::setup::Job::Load, cx));
+            entity.update(cx, |this, cx| {
+                this.start_settings();
+                this.start_job(crate::setup::Job::Load, cx);
+            });
             #[cfg(target_abi = "sim")]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
                 entity.update(cx, |this, cx| {

@@ -153,7 +153,10 @@ impl Smoke {
             self.terminal.live = Live::default();
         }
         self.terminal.input.detach();
-        let next = self.board.hidden.remove(host).unwrap_or_default();
+        let mut next = self.board.hidden.remove(host).unwrap_or_default();
+        if self.settings.is_some() {
+            next.compact = self.terminal.compact;
+        }
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();
         if !previous.reconnect.target.is_empty() {

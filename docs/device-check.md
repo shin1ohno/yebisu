@@ -579,3 +579,19 @@ P9 workspace limit. Splits use client layout; remote terminals outlive detach.
    Automatic enabled; verify reconnection and fresh text input. Repeat while
    delaying the old Herdr 1 mismatch until after opening core. The old mismatch
    must not disable core Reconnect or background return.
+
+## P10 — settings foundation
+
+1. Locally unlock the login keychain, connect/unlock M5, then run
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`
+   from the yebisu checkout. No password is handled by the worker.
+2. Confirm the Hosts/terminal/board look unchanged; P10 adds no settings sheet.
+3. On an already-authorized disposable host, change the existing terminal density,
+   shortcut precedence and board visibility. Immediately press Home, wait five
+   seconds, reopen yebisu, then terminate/relaunch it. Confirm all three choices
+   persist. Repeat with screen lock immediately after a change.
+4. Confirm input/IME and Herdr 1/2 reconnect still work after return; record
+   device/iPadOS, the three restored values and any visible settings error in PR QA.
+5. P11 will expose the settings editor and key-regeneration confirmation. P10
+   never regenerates a key. Simulator lifecycle/file evidence does not establish
+   physical lock/suspension, IME or hardware keyboard behavior.

@@ -52,17 +52,7 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
         .iter()
         .filter(|i| supported(i.command))
         .map(|info| {
-            let label = include_str!("commands.ftl")
-                .lines()
-                .find_map(|line| {
-                    let (key, value) = line.split_once(" = ")?;
-                    (key == info.message).then_some(value)
-                })
-                .unwrap_or(info.name)
-                .replace(
-                    "{ $number }",
-                    &info.command.number().unwrap_or(0).to_string(),
-                );
+            let label = crate::i18n::command(info);
             let available = local(info.command)
                 || (terminal.live.connected
                     && !terminal.reconnect.suspended

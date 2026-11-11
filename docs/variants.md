@@ -128,3 +128,9 @@ between side-by-side (default) and stacked panes. No rebuild is needed. The
 choice and active pane are saved per SSH target and default core session.
 Compare both orientations with touch, hardware keyboard and rotation. Existing
 Input options and display density switches also apply to Herdr 2.
+
+## P10
+
+No new feel-dependent design fork. Existing density, shortcut precedence and
+board-visibility controls retain their behavior and now persist. Settings sheet
+layout/motion remains P11; no speculative visual alternatives are added in P10.
