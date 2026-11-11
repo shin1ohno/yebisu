@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("invalid settings: {0}")]
+    Settings(String),
     #[error("Herdr 2: {0}")]
     Core(#[from] sheprd_core_client::Error),
     #[error("terminal backend: {0}")]

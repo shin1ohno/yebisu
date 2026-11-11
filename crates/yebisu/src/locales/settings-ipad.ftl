@@ -1,0 +1,15 @@
+settings-ipad-section = This iPad
+settings-ipad-key = SSH public key
+settings-ipad-key-description = Add this line to each computer’s ~/.ssh/authorized_keys to let this iPad connect.
+settings-ipad-key-loading = Loading this iPad’s key…
+settings-ipad-key-replacing = Replacing this iPad’s key…
+settings-ipad-key-copy = Copy
+settings-ipad-key-copied = SSH public key copied.
+settings-ipad-key-retry = Try again
+settings-ipad-key-failed = This iPad’s key could not be loaded or replaced: { $error }
+settings-ipad-key-replace = Replace SSH key
+settings-ipad-key-replace-description = Create a new identity for future SSH connections. Existing connections stay open.
+settings-ipad-key-replace-open = Replace key…
+settings-ipad-key-confirm = Replace key
+settings-ipad-key-cancel = Cancel
+settings-ipad-key-warning = Every computer will refuse this iPad’s new connections until you add the new line to its ~/.ssh/authorized_keys. Remove the old line from every computer too. The old key cannot be recovered.

@@ -10,6 +10,7 @@ pub(crate) struct Observation(Option<SyncSender<Value>>);
 
 impl Observation {
     pub(crate) fn new() -> Self {
+        let p10 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SETTINGS_QA").is_some();
         let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
         if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
             return Self(None);
@@ -25,9 +26,11 @@ impl Observation {
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .write(true)
-                    .append(p2)
-                    .truncate(!p2)
-                    .open(directory.join(if p2 {
+                    .append(p2 || p10)
+                    .truncate(!(p2 || p10))
+                    .open(directory.join(if p10 {
+                        "p10-settings.jsonl"
+                    } else if p2 {
                         "p2-setup.jsonl"
                     } else {
                         "p0-smoke.jsonl"
