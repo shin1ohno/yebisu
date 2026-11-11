@@ -49,7 +49,7 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
     try:
-        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/testSH1151SelectionSettings")
+        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/testSH1151SelectionSettings()")
         if "testSH1151SelectionSettings]' passed" not in tested.stdout:
             raise RuntimeError("SH1-151 XCTest did not execute and pass")
         export = directory / "attachments"
@@ -68,9 +68,13 @@ def main():
                 raise RuntimeError("missing screenshot: " + stage)
         print("SH1-151 receiving-system PASS", json.dumps(saved), directory, flush=True)
     finally:
-        run("xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu")
+        # An unlaunched/already exited app has nothing to terminate (code 3).
+        cleanup = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+        print("SH1-151 cleanup terminate exit", cleanup.returncode, cleanup.stderr, flush=True)
         if settings.exists():
             shutil.rmtree(settings)
+        if cleanup.returncode not in (0, 3):
+            cleanup.check_returncode()
 
 
 if __name__ == "__main__":
