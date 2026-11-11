@@ -54,7 +54,8 @@ fn background_interrupt_flushes_through_real_adapter(cx: &mut TestAppContext) {
         Values {
             compact: true,
             terminal_priority: true,
-            board_hidden: false
+            board_hidden: false,
+            ..Values::default()
         }
     );
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
@@ -221,6 +222,7 @@ fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContex
             compact: false,
             terminal_priority: true,
             board_hidden: true,
+            ..Values::default()
         },
     )
     .unwrap_or_else(|e| panic!("{e}"));
@@ -244,7 +246,8 @@ fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContex
             Values {
                 compact: true,
                 terminal_priority: true,
-                board_hidden: true
+                board_hidden: true,
+                ..Values::default()
             }
         );
     });
@@ -253,7 +256,8 @@ fn edit_before_first_load_preserves_untouched_disk_fields(cx: &mut TestAppContex
         Values {
             compact: true,
             terminal_priority: true,
-            board_hidden: true
+            board_hidden: true,
+            ..Values::default()
         }
     );
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));

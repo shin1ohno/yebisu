@@ -9,7 +9,7 @@ spec.loader.exec_module(p10)
 
 class P10Oracle(unittest.TestCase):
     def test_valid_and_negative_receiving_shapes(self):
-        saved = dict(version=1, language="en-US", compact=True, terminal_priority=True, board_hidden=False)
+        saved = dict(version=1, language="en-US", compact=True, terminal_priority=True, board_hidden=False, drag_select=True, copy_on_select=False)
         loaded = [dict(kind="settings-loaded", compact=False, terminal_priority=False),
                   dict(kind="settings-loaded", compact=True, terminal_priority=True)]
         lifecycle = [dict(kind="settings-lifecycle", phase=p) for p in ["Inactive", "Background", "Active"]]

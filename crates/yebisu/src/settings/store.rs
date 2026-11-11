@@ -27,10 +27,18 @@ pub(super) fn load(root: &Path) -> Result<Values> {
             .as_bool()
             .ok_or_else(|| Error::Settings(format!("invalid {key}")))
     };
+    let optional_boolean = |key, default| match value.get(key) {
+        None => Ok(default),
+        Some(v) => v
+            .as_bool()
+            .ok_or_else(|| Error::Settings(format!("invalid {key}"))),
+    };
     Ok(Values {
         compact: boolean("compact")?,
         terminal_priority: boolean("terminal_priority")?,
         board_hidden: boolean("board_hidden")?,
+        drag_select: optional_boolean("drag_select", true)?,
+        copy_on_select: optional_boolean("copy_on_select", false)?,
     })
 }
 
@@ -42,7 +50,8 @@ pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
         file.write_all(
             serde_json::json!({"version":1,"language":"en-US",
             "compact":values.compact,"terminal_priority":values.terminal_priority,
-            "board_hidden":values.board_hidden})
+            "board_hidden":values.board_hidden,
+            "drag_select":values.drag_select,"copy_on_select":values.copy_on_select})
             .to_string()
             .as_bytes(),
         )?;

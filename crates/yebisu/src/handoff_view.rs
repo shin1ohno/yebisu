@@ -325,8 +325,8 @@ impl Smoke {
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),
                                 "paste-image" => this.start_paste(true, cx),
-                                "drag" => this.handoff.drag_select ^= true,
-                                "auto-copy" => this.handoff.copy_on_select ^= true,
+                                "drag" => this.toggle_selection_setting(false),
+                                "auto-copy" => this.toggle_selection_setting(true),
                                 _ => {}
                             }
                             cx.notify();
@@ -335,6 +335,20 @@ impl Smoke {
             )
             .into_any_element()
     }
+    // The strip and adapter tests share this handler, including immediate draft capture.
+    pub(crate) fn toggle_selection_setting(&mut self, copy: bool) {
+        if copy {
+            self.handoff.copy_on_select ^= true;
+        } else {
+            self.handoff.drag_select ^= true;
+        }
+        let values = self.settings_values();
+        if let Some(host) = &mut self.settings {
+            host.edit(values);
+            host.flush();
+        }
+    }
+
     pub(crate) fn hold_for_paste(&mut self, event: GeneratedInput) -> bool {
         if !self.handoff.hold(event) {
             self.terminal.live.status = "Input refused behind paste".into();
