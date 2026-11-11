@@ -103,18 +103,26 @@ fn sh1_151_strip_edit_before_load_preserves_other_fields(cx: &mut TestAppContext
             compact: true,
             terminal_priority: true,
             board_hidden: true,
-            drag_select: false,
-            copy_on_select: true,
+            drag_select: !copy,
+            copy_on_select: !copy,
         };
         store::save(&root, &stored).unwrap_or_else(|e| panic!("{e}"));
+        let expected = Values {
+            drag_select: false,
+            copy_on_select: true,
+            ..stored.clone()
+        };
         let view = open(&root, cx);
         view.update(cx, |this, cx| {
             assert!(!this.settings.as_ref().is_some_and(|h| h.loaded));
             this.toggle_selection_setting(copy);
             settle(this, cx);
-            assert_eq!(this.settings_values(), stored);
+            assert_eq!(this.settings_values(), expected);
         });
-        assert_eq!(store::load(&root).unwrap_or_else(|e| panic!("{e}")), stored);
+        assert_eq!(
+            store::load(&root).unwrap_or_else(|e| panic!("{e}")),
+            expected
+        );
         fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
     }
 }
