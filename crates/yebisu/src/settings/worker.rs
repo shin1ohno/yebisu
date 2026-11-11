@@ -9,7 +9,7 @@ pub(super) enum Request {
     },
     #[cfg(test)]
     Barrier(mpsc::SyncSender<()>),
-    #[cfg(test)]
+    #[cfg(all(test, not(target_os = "ios")))]
     Pause(mpsc::SyncSender<()>, mpsc::Receiver<()>),
 }
 pub(super) enum Completion {
@@ -35,7 +35,7 @@ pub(super) fn start(
                         let _ = ack.send(());
                         continue;
                     }
-                    #[cfg(test)]
+                    #[cfg(all(test, not(target_os = "ios")))]
                     Request::Pause(entered, resume) => {
                         let _ = entered.send(());
                         let _ = resume.recv();
