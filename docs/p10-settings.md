@@ -48,38 +48,86 @@ terminated before atomic rename keeps the previous complete file. A corrupt or
 unknown-version file remains untouched and is reported, never silently reset.
 The settings sheet and its visual prerequisites remain P11, not fake P10 controls.
 
-## Measured closure (replaces A4 for P10)
+## Measured sheet prerequisite closure (A4, corrected after D1)
 
-Physical lines, including comments and blank lines; measured from this change,
-not a percentage of the old desktop modules. The five prerequisite categories
-are the five leading import groups in plan-3 section 5 (settings, strings, common
-components, theme/fonts, popup shell). Sidebar/tabs already exist in P6/P7.
+`settings_spike` is compiled by the normal device and Simulator builds, not
+behind `cfg(test)`. Only tests mount it; `app::run` never installs its sheet.
+This replaces the earlier persistence-only measurement, which did **not** satisfy
+A4. It is a source-adapted, working compile spike, not the finished P11 editor.
 
-| Prerequisite | New P10 Rust lines | Concrete boundary |
-|---|---:|---|
-| settings values + storage | 251 | settings.rs (158), settings/store.rs (58), settings/worker.rs (35) |
-| strings | 51 | i18n.rs; pinned sheprd-i18n, 72 copied FTL lines in three files; existing commands.ftl reused |
-| common sheet controls | 0 | not needed for persistence; P11 owns copied controls |
-| theme/fonts | 0 | retain theme.rs and terminal_view.rs source defaults; no theme editor imported |
-| popup shell/motion/metrics | 0 | P11 owns actual sheet; lifecycle flush extracted independently |
-| host adapter (separate from the five groups) | 61 | settings_view.rs |
+The spike compiles an actual SettingsWindow entity, copied row/switch/button/
+segmented/number controls, font specimen, sheet installation, focus isolation,
+dismiss-after-flush, retained editor while closing, animation, and iPad dimensions.
+A host rendering test clicks the copied switch and number stepper, observes the
+font draft, closes the sheet, and reads the SettingsHost-written file. Thus the
+shell-to-editor-to-control-to-owner edges are exercised, not just named in a table.
 
-Thus P10's new production closure is **363 Rust lines**, plus **181 Rust test
-lines** and **72 FTL lines**. Existing-file integration edits are separate. These
-are measured P10 values, not an estimate that P11's full editor is already ported.
-No source-level SheprdWindow reference or new trait is needed in this closure.
-The whole consumer compiles with these boundaries; P11 must still compile its
-actual control/editor subtree as it is brought in.
+Counts below are physical lines including comments/blank lines and test-only
+helpers inside implementation files, excluding separate test files. `settings/`
+means the running implementation; other abbreviated paths are under
+`crates/yebisu/src/settings_spike/`.
 
-Five concrete integration cut points remain in the consumer: startup
-(`app.rs:242`), timer (`app.rs:67`), UIKit lifecycle (`reconnect.rs:36`), command
-labels (`actions.rs:55`), and density across host selection (`board.rs:158`).
-The old estimate of 170 coupling points describes importing the old modules;
-it is not the same counting unit as these five explicit adapter sites. Excluded
-source calls are itemized in the mapping above rather than hidden behind a trait.
+| Prerequisite group | Required Rust lines | Files | Explicit cut points |
+|---|---:|---|---:|
+| settings/config and owner | 348 | settings.rs 182 + settings/store.rs 58 + settings/worker.rs 44 + draft.rs 64 | 4 |
+| strings | 100 | existing i18n.rs 51 + strings.rs 49 | 2 |
+| common controls | 649 | ui.rs 358 + marks.rs 31 + number.rs 260 | 9 |
+| theme/fonts | 73 | appearance.rs | 3 |
+| popup shell/motion/iPad metrics | 354 | settings_spike.rs 16 + editor.rs 134 + sheet.rs 132 + motion.rs 65 + metrics.rs 7 | 6 |
+| **Five-group total** | **1,524** | | **24** |
+| Running lifecycle adapter (separate) | 66 | settings_view.rs | existing owner integration |
 
-The new direct dependency is sheprd-i18n at the existing fork revision: it supplies
-the actual Fluent formatter for future settings messages and replaces P7's
-single-line parser. Missing internal command messages retain their prior name
-fallback; every catalog command is compared against the previous formatter.
-No existing locked package version is upgraded.
+The complete measured closure is **1,590 Rust lines**, plus 259 newly copied
+settings FTL lines and the previous 72 settings FTL lines (commands.ftl reused).
+The previous 30–100% assumption is replaced by these concrete retained/adapted
+files. The 24 entries below count explicit replaced/removed source dependencies,
+not the former estimate's 170 occurrences of coupling; they are not a percentage.
+
+### Cut-point ledger (source at 398c132a0)
+
+1. **Settings/config (4):** `S/menu/settings.rs:164-268` Config load/apply becomes
+   Draft + the real SettingsHost; `:41-94` config/watch becomes the serial local
+   worker; `S/settings_window.rs:126-140` open-draft save becomes Draft::flush;
+   `S/settings_window/device_key.rs:40-48` regeneration routes to the owner's
+   one-shot confirmation only, never a key operation in this spike.
+2. **Strings (2):** `S/i18n.rs:17-25,51-81` locale/global loader becomes an en-US
+   catalog; `:34-49` generated fl! ID/argument checking becomes a local formatter
+   with parsed-catalog and source-label assertions. No locale selector is exposed.
+3. **Controls (9):** `S/settings_window/ui.rs:4` Logical direction becomes LTR
+   flex; `:126,144` availability becomes the explicit supported-row allowlist;
+   `:174` search bounds tracking is removed; `S/settings_window/ui/number.rs:89-94,
+   208-231` NumberEdit/SearchInput is cut from this stepper/slider spike;
+   `ui.rs:13,18` dropdown submodule and `:14,19` swatch submodule are separate P11/
+   P15 controls; `:224` global toggle renderer becomes the retained switch in
+   marks.rs; `:233,252,353` accessibility::disabled becomes the same local GPUI
+   helper; `number.rs:254-261` desktop-native probe is removed. Number bounds,
+   step/preview/commit callbacks, roles, disabled states and segment callbacks
+   remain compiled. Typed numeric IME editing is not claimed finished.
+4. **Theme/fonts (3):** `S/settings_window.rs:55-59` Config/Theme becomes the fixed
+   consumer palette; `S/config/fonts.rs:15-20,26-50` face configuration becomes the
+   existing terminal face/density presets plus a bounded **local font draft** for
+   the spike; `S/toggles.rs:12-28` configurable contrast becomes the fixed palette.
+   The numeric draft changes the specimen but is intentionally not added to the
+   production persistence schema. Free-form family selection and final font apply
+   are P11 work, not silently asserted as delivered.
+5. **Shell (6):** `S/menu/settings_sheet.rs:4,17-21` SheprdWindow/menu registry
+   becomes SettingsSheet's owner/page state; `:9,84` SettingsWindow becomes the
+   compiled editor.rs entity; `:26-39` ready/flush uses the actual SettingsHost;
+   `:63-65,79` Appear/kept becomes the retained editor + source motion::Toggle;
+   `:66,73` iPad metrics are extracted constants and the original clamped size;
+   `:94,108` viewport/direction helpers become fully_visible_bounds and LTR layout.
+
+Copy/model origins are registered in PROVENANCE.tsv. The source and prototype
+render paths are read and compiled; no desktop, chat, notification, remote-write,
+or GitHub backend is imported just to hide an inactive page. P11 still has to
+assemble the full pages and typed editors, using these now-compiled prerequisites.
+
+### Failure behavior corrected in attempt 2
+
+Corrupt/unknown-version loads block writes. A transient write failure pauses the
+writer until the next changed edit or Active callback, without weakening that
+load protection. Early edits are tracked per field and merged over the loaded
+values. Settings error changes notify the owner; the active screen renders the
+error, and normal rendering takes its original path. The corrupt-file test reads
+after a FIFO worker barrier, so an asynchronously queued overwrite cannot escape
+its assertions.
