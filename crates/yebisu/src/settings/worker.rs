@@ -2,9 +2,13 @@ use super::{Values, store};
 use crate::Result;
 use std::{path::PathBuf, sync::mpsc, thread};
 
-pub(super) struct Request {
-    pub revision: u64,
-    pub values: Values,
+pub(super) enum Request {
+    Save {
+        revision: u64,
+        values: Values,
+    },
+    #[cfg(test)]
+    Barrier(mpsc::SyncSender<()>),
 }
 pub(super) enum Completion {
     Loaded(Result<Values>),
@@ -22,11 +26,16 @@ pub(super) fn start(
                 return;
             }
             while let Ok(request) = receive.recv() {
-                let result = store::save(&root, &request.values);
-                if done
-                    .send(Completion::Saved(request.revision, result))
-                    .is_err()
-                {
+                let (revision, values) = match request {
+                    Request::Save { revision, values } => (revision, values),
+                    #[cfg(test)]
+                    Request::Barrier(ack) => {
+                        let _ = ack.send(());
+                        continue;
+                    }
+                };
+                let result = store::save(&root, &values);
+                if done.send(Completion::Saved(revision, result)).is_err() {
                     break;
                 }
             }

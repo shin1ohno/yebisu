@@ -129,7 +129,7 @@ impl SettingsHost {
         {
             return;
         }
-        match self.sender.try_send(Request {
+        match self.sender.try_send(Request::Save {
             revision: self.revision,
             values: self.draft.clone(),
         }) {

@@ -78,6 +78,20 @@ fn corrupt_disk_is_preserved_and_not_overwritten() {
         });
         host.lifecycle(AppLifecyclePhase::Background);
         host.poll();
+        // FIFO barrier: the worker has finished every preceding Save, even
+        // when the corrupt-file guard is deliberately disabled in mutation QA.
+        let (ack, handled) = mpsc::sync_channel(1);
+        host.sender
+            .send(Request::Barrier(ack))
+            .unwrap_or_else(|e| panic!("{e}"));
+        handled
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap_or_else(|e| panic!("worker barrier: {e}"));
+        assert_eq!(
+            fs::read(root.join("yebisu-settings.json")).unwrap_or_else(|e| panic!("{e}")),
+            bytes
+        );
+        host.poll();
         assert!(host.error.is_some());
         assert!(!host.ready());
         assert_eq!(
