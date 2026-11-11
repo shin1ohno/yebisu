@@ -624,3 +624,22 @@ P9 workspace limit. Splits use client layout; remote terminals outlive detach.
 
 Soft-wrap leading spacers, trimming trailing spaces on full-row selection and
 wide-separator painter checks are separate follow-ups, not SH1-150 acceptance.
+
+
+## SH1-151 selection defaults and persistence
+
+The owner chose the common iPad interaction on the device on 2026-11-11:
+Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad feel.
+
+1. Locally unlock the login keychain, connect and unlock M5, then run from yebisu:
+   `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad`.
+2. On a fresh install with no existing settings file, open an authorized disposable
+   terminal. Verify the strip says Start: Drag and Copy: Manual. Drag with a finger
+   and a trackpad; verify selection starts and the clipboard changes only after Copy.
+3. Tap Start: Drag to switch to Start: Select / double tap; tap Copy: Manual to
+   switch to Copy: On selection. Verify both labels and the corresponding behavior.
+4. Immediately background/lock, return, terminate and relaunch yebisu, reopen the
+   terminal and verify both changed labels and behaviors persist.
+5. Change each button separately and relaunch after each change; verify the other
+   choice, density, shortcut priority and board visibility stay unchanged.
+6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.

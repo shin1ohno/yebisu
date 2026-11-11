@@ -13,6 +13,12 @@ impl Smoke {
                 } else {
                     root
                 };
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_SELECTION_SETTINGS_QA").is_some() {
+                    root.join("sh1-151-qa")
+                } else {
+                    root
+                };
                 crate::settings::SettingsHost::open(root)
             }) {
             Ok(host) => self.settings = Some(host),
@@ -24,6 +30,8 @@ impl Smoke {
             compact: self.terminal.compact,
             terminal_priority: self.actions.terminal_priority,
             board_hidden: self.actions.board_hidden,
+            drag_select: self.handoff.drag_select,
+            copy_on_select: self.handoff.copy_on_select,
         }
     }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
@@ -33,10 +41,13 @@ impl Smoke {
         };
         host.edit(values);
         if host.poll() {
-            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority}));
+            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
             self.terminal.compact = host.draft.compact;
             self.actions.terminal_priority = host.draft.terminal_priority;
             self.actions.board_hidden = host.draft.board_hidden;
+            self.handoff.drag_select = host.draft.drag_select;
+            self.handoff.copy_on_select = host.draft.copy_on_select;
+            cx.notify();
         }
         let error = host.error.clone();
         self.update_settings_error(error, cx);

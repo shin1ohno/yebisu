@@ -104,13 +104,18 @@ buttons are Simulator-only under YEBISU_R6_QA and absent from device builds.
 
 ## P8 handoff
 
+SH1-151: on 2026-11-11 the owner chose the common iPad interaction on the
+physical device: **Start: Drag** and **Copy: Manual**. Fresh installs and older
+settings files without these fields use these defaults. Keep the strip switches
+until the P11 settings sheet (SH1-133). No new interaction fork was introduced.
+
 The terminal's handoff strip switches these immediately, without a rebuild:
 
-- **Start: Select / double tap** (default): tap Select before dragging, or double
-  tap to begin. **Start: Drag**: any terminal drag begins local selection; use
+- **Start: Select / double tap**: tap Select before dragging, or double
+  tap to begin. **Start: Drag** (default): any terminal drag begins local selection; use
   Paste to leave selection. Compare with both finger and trackpad.
 - **Copy: Manual** (default): press Copy or Command-C after selection.
-  **Copy: On selection** copies when the drag ends. These choices are session-local.
+  **Copy: On selection** copies when the drag ends. Both choices are saved through the P10 settings store and survive a restart.
 
 Paste and Paste image are explicit commands, not alternative implementations.
 A single preparation is allowed at a time to bound memory; busy pastes are refused.

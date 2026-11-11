@@ -88,7 +88,10 @@ impl Smoke {
             terminal: Default::default(),
             board: Default::default(),
             actions: Default::default(),
-            handoff: Default::default(),
+            handoff: crate::handoff::Handoff {
+                drag_select: true,
+                ..Default::default()
+            },
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),

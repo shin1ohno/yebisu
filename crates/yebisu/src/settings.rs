@@ -10,11 +10,35 @@ use retry_tests::BackgroundTask;
 use std::{path::PathBuf, sync::mpsc};
 use worker::{Completion, Request};
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
     pub compact: bool,
     pub terminal_priority: bool,
     pub board_hidden: bool,
+    pub drag_select: bool,
+    pub copy_on_select: bool,
+}
+
+impl Default for Values {
+    fn default() -> Self {
+        Self {
+            compact: false,
+            terminal_priority: false,
+            board_hidden: false,
+            drag_select: true,
+            copy_on_select: false,
+        }
+    }
+}
+
+// Edit tracking is independent of setting defaults (Drag defaults to true).
+#[derive(Default)]
+struct Edited {
+    compact: bool,
+    terminal_priority: bool,
+    board_hidden: bool,
+    drag_select: bool,
+    copy_on_select: bool,
 }
 
 pub(crate) struct SettingsHost {
@@ -23,7 +47,7 @@ pub(crate) struct SettingsHost {
     revision: u64,
     saved: u64,
     loaded: bool,
-    edited_before_load: Values,
+    edited_before_load: Edited,
     blocked: bool,
     write_failed: bool,
     // Consumed only when a save is sent, never by an older completion.
@@ -45,7 +69,7 @@ impl SettingsHost {
             revision: 0,
             saved: 0,
             loaded: false,
-            edited_before_load: Values::default(),
+            edited_before_load: Edited::default(),
             blocked: false,
             write_failed: false,
             retry_requested: false,
@@ -66,6 +90,11 @@ impl SettingsHost {
                     self.draft.terminal_priority != values.terminal_priority;
                 self.edited_before_load.board_hidden |=
                     self.draft.board_hidden != values.board_hidden;
+            }
+            if !self.loaded {
+                self.edited_before_load.drag_select |= self.draft.drag_select != values.drag_select;
+                self.edited_before_load.copy_on_select |=
+                    self.draft.copy_on_select != values.copy_on_select;
             }
             self.write_failed = false;
             self.retry_requested = true;
@@ -91,6 +120,12 @@ impl SettingsHost {
                             }
                             if !self.edited_before_load.board_hidden {
                                 self.draft.board_hidden = values.board_hidden;
+                            }
+                            if !self.edited_before_load.drag_select {
+                                self.draft.drag_select = values.drag_select;
+                            }
+                            if !self.edited_before_load.copy_on_select {
+                                self.draft.copy_on_select = values.copy_on_select;
                             }
                             applied = true;
                         }
@@ -195,3 +230,6 @@ mod tests;
 
 #[cfg(test)]
 mod retry_tests;
+
+#[cfg(test)]
+mod selection_tests;

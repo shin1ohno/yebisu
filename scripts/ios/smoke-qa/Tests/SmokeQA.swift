@@ -144,6 +144,30 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1151SelectionSettings() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SELECTION_SETTINGS_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        try tapText("Start: Drag", in: app, tap: false)
+        try tapText("Copy: Manual", in: app, tap: false)
+        save("sh1-151-fresh")
+        try tapText("Start: Drag", in: app)
+        try tapText("Copy: Manual", in: app)
+        sleep(2)
+        app.terminate()
+        app.launch()
+        sleep(3)
+        try tapText("Start: Select / double tap", in: app, tap: false)
+        try tapText("Copy: On selection", in: app, tap: false)
+        save("sh1-151-restored")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP10Settings() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
