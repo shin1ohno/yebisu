@@ -96,6 +96,20 @@ impl Smoke {
         }
         cx.notify();
     }
+    pub(crate) fn select_settings_density(
+        &mut self,
+        density: crate::settings_pages::fonts::Density,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let mut values = self.settings_values();
+        density.apply(&mut values);
+        values.font.size = None;
+        if let Some(host) = &mut self.settings {
+            host.edit_density(values.clone());
+        }
+        self.apply_settings(values, cx);
+    }
+
     pub(crate) fn apply_settings(&mut self, values: Values, cx: &mut gpui::Context<Self>) {
         if self.settings.is_none() || values.font.validate().is_err() {
             return;
