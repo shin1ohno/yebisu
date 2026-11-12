@@ -9,6 +9,8 @@ impl Smoke {
     pub(crate) fn settings_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_P11_QA")?;
         Some(super::view::button("p11-probe","Probe modal callbacks",true).on_click(cx.listener(|this,_,window,cx|{
+            // Pinned SDK has no entry/refusal observer. Scheduling is not dispatch.
+            this.observation.record(serde_json::json!({"kind":"p11-sdk-observation", "supported":false, "reason":"pinned-sdk-no-refusal-hook"}));
             this.p11_marker("p11-start");
             this.terminal_focus.focus(window,cx);
             this.replace_and_mark_text_in_range(None,"P11_LEAK_MARK",Some(0..1),window,cx);
