@@ -158,3 +158,159 @@ fn modal_native_input_has_zero_wire_events_between_positive_controls(cx: &mut Te
         ]
     );
 }
+
+#[gpui::test]
+fn f19_pending_paste_is_cancelled_before_modal_receiving_barrier(cx: &mut TestAppContext) {
+    use gpui::ClipboardItem;
+    use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
+    use std::time::{Duration, Instant};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) =
+        crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("{e}"));
+    view.update(cx, |this, _| {
+        this.select_host("sandbox");
+        let g = this.terminal.link.reset();
+        this.terminal.link.install(g, Ok(client));
+        this.terminal.open = true;
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_terminal(cx);
+        this.terminal.live.surface.is_some()
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cx.write_to_clipboard(ClipboardItem::new_string("P11_LATE_PASTE".into()));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.start_paste(false, cx);
+            assert!(this.handoff.preparing);
+            this.begin_settings_modal(window, cx);
+        })
+    });
+    loop {
+        cx.run_until_parked();
+        if view.read_with(cx, |this, _| this.handoff.workers == 0) {
+            break;
+        }
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    view.update(cx, |this, _| {
+        this.terminal
+            .link
+            .handle
+            .as_ref()
+            .unwrap_or_else(|| panic!("handle"))
+            .send_input(
+                "boot-v1",
+                "w1:p1",
+                [ClientPaneInputEvent::Paste("modal-barrier".into())],
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+    });
+    loop {
+        let message = receipts
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap_or_else(|e| panic!("{e}"));
+        if let ClientMessage::ClientShellPaneInput { events, .. } = message {
+            assert_eq!(
+                events,
+                vec![ClientPaneInputEvent::Paste("modal-barrier".into())]
+            );
+            break;
+        }
+    }
+}
+
+#[gpui::test]
+fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
+    cx: &mut TestAppContext,
+) {
+    use sheprd_client::protocol::ClientPaneInputEvent;
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
+    for change in ["host", "generation", "boot", "pane"] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, _receipts) =
+            crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("{e}"));
+        view.update(cx, |this, _| {
+            this.select_host("sandbox");
+            let g = this.terminal.link.reset();
+            this.terminal.link.install(g, Ok(client));
+            this.terminal.open = true;
+        });
+        let until = Instant::now() + Duration::from_secs(5);
+        while !view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.terminal.live.surface.is_some()
+        }) {
+            assert!(Instant::now() < until);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.terminal.size = None;
+                this.refresh_terminal_input();
+                let old = this
+                    .terminal
+                    .input
+                    .destination
+                    .clone()
+                    .unwrap_or_else(|| panic!("destination"));
+                this.begin_settings_modal(window, cx);
+                match change {
+                    "host" => this.select_host("other-host"),
+                    "generation" => {
+                        this.terminal.link.reset();
+                    }
+                    _ => {
+                        let mut live = this
+                            .terminal
+                            .link
+                            .inbox
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
+                        if let Some(snapshot) = live.snapshot.as_mut() {
+                            let snapshot = Arc::make_mut(snapshot);
+                            if change == "boot" {
+                                snapshot.boot_id = "new-boot".into();
+                            } else {
+                                snapshot.focused_pane_id = Some("w1:p2".into());
+                            }
+                        }
+                        if change == "boot"
+                            && let Some(surface) = live.surface.as_mut()
+                        {
+                            Arc::make_mut(surface).boot_id = "new-boot".into();
+                        }
+                        live.input_epoch += 1;
+                    }
+                }
+                this.end_settings_modal(window, cx);
+                assert_ne!(this.terminal.input.destination.as_ref(), Some(&old));
+                assert!(
+                    !this
+                        .terminal
+                        .input
+                        .queue(crate::terminal_input::GeneratedInput {
+                            destination: old,
+                            event: ClientPaneInputEvent::TextCommit("stale".into())
+                        })
+                );
+                if matches!(change, "host" | "generation") {
+                    assert!(this.focus.is_focused(window));
+                } else {
+                    assert!(this.terminal_focus.is_focused(window));
+                }
+            })
+        });
+    }
+}

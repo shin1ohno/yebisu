@@ -44,8 +44,8 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let available = window.fully_visible_bounds();
-        let width = (f32::from(available.size.width) - 32.).max(0.).min(1000.);
-        let height = (f32::from(available.size.height) - 32.).max(0.).min(760.);
+        let width = (f32::from(available.size.width) - 32.).clamp(0., 1000.);
+        let height = (f32::from(available.size.height) - 32.).clamp(0., 760.);
         let values = self.settings_values();
         let can_edit = self.settings.is_some();
         let mut pages = div()

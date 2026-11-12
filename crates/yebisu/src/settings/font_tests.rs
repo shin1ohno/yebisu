@@ -113,6 +113,12 @@ fn font_consumer_adapter_flushes_background_and_reloads(cx: &mut gpui::TestAppCo
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         assert_eq!(this.settings_values(), stored);
+        this.select_host("font-other-host");
+        this.poll_settings(cx);
+        assert_eq!(this.settings_values(), stored);
+        this.select_host("font-original-host");
+        this.poll_settings(cx);
+        assert_eq!(this.settings_values(), stored);
         assert_eq!(
             this.terminal.font.metrics(this.terminal.compact),
             (24., 34.)
