@@ -20,6 +20,15 @@ pub(crate) fn scope(live: &Live, host: &str, generation: u64) -> Option<Scope> {
     let InputTarget::Pane(pane) = destination.target else {
         return None;
     };
+    if !live
+        .surface
+        .as_ref()?
+        .panes
+        .iter()
+        .any(|p| p.pane_id == pane)
+    {
+        return None;
+    }
     Some(Scope {
         host: host.to_owned(),
         generation,

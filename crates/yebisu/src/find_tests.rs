@@ -133,7 +133,7 @@ fn live() -> crate::live::Live {
     live.connected = true;
     let snapshot: ClientShellSnapshot = serde_json::from_str(crate::mock_peer::SNAPSHOT).unwrap();
     live.apply(ClientEvent::Snapshot(Arc::new(snapshot)));
-    live.apply(ClientEvent::Surface(Arc::new(crate::mock_peer::surface(7))));
+    live.apply(ClientEvent::Surface(Arc::new(crate::find::peer::surface())));
     live
 }
 #[test]

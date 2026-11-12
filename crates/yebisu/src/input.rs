@@ -92,6 +92,9 @@ impl Smoke {
 impl EntityInputHandler for Smoke {
     fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
         if self.terminal.open {
+            if self.find.is_some() {
+                return false;
+            }
             self.terminal
                 .input
                 .accepts(self.active_focus().is_focused(window), false)
@@ -150,6 +153,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.find.is_some() {
+                return;
+            }
             if self.handoff.selection.is_some() || self.handoff.select_mode {
                 return;
             }
@@ -186,6 +192,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.find.is_some() {
+                return;
+            }
             if self.handoff.selection.is_some() || self.handoff.select_mode {
                 return;
             }

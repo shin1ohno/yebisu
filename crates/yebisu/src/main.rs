@@ -106,5 +106,7 @@ mod i18n;
 mod settings_spike;
 
 #[cfg(any(target_os = "ios", test))]
-#[allow(dead_code)] // P13 staged adapter; UI integration follows in this branch.
 mod find;
+
+#[cfg(any(target_os = "ios", test))]
+mod find_view;

@@ -1,6 +1,7 @@
 //! Connection-scoped terminal search. Modeled on the pinned fork's find.rs.
 //! The caller serializes send/registration with the connection reader mailbox.
 pub(crate) mod adapter;
+pub(crate) mod field;
 use sheprd_client::scrollback::{
     CopySearchParams, CopySearchResult, MAX_SEARCH_QUERY_BYTES, SearchDirection, TextPoint,
 };
@@ -249,3 +250,6 @@ pub(crate) fn decode(value: &serde_json::Value) -> Result<CopySearchResult, Stat
 #[cfg(test)]
 #[path = "../find_tests.rs"]
 mod tests;
+
+#[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+pub(crate) mod peer;

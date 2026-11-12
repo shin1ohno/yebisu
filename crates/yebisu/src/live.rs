@@ -99,6 +99,14 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
+                if self
+                    .search
+                    .ticket
+                    .as_ref()
+                    .is_some_and(|(_, id)| Some(id) == request_id.as_ref())
+                {
+                    self.search.answer = Some(Err(crate::find::State::SendFailed));
+                }
                 crate::diagnostics::record("command_rejected");
                 if request_id == self.pending_request {
                     self.failed_request = request_id;
