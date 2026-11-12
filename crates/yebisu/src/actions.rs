@@ -77,7 +77,22 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
         })
         .collect()
 }
+#[cfg(test)]
 pub(crate) fn shortcut(
+    terminal: &TerminalView,
+    actions: &Actions,
+    key: &Keystroke,
+) -> Option<Command> {
+    shortcut_candidate(terminal, actions, key).filter(|command| {
+        catalog(terminal)
+            .iter()
+            .any(|a| a.info.command == *command && a.available)
+    })
+}
+// Recognition precedes availability: stale native commands must not fall through
+// into terminal input when their capability disappears. Policy exclusions still
+// belong to the terminal/IME, as before.
+pub(crate) fn shortcut_candidate(
     terminal: &TerminalView,
     actions: &Actions,
     key: &Keystroke,
@@ -96,13 +111,12 @@ pub(crate) fn shortcut(
     catalog(terminal)
         .into_iter()
         .find(|a| {
-            a.available
-                && a.shortcuts.iter().any(|s| {
-                    Keystroke::parse(s).is_ok_and(|mut binding| {
-                        normalize_shortcut(&mut binding);
-                        binding.key == key.key && binding.modifiers == key.modifiers
-                    })
+            a.shortcuts.iter().any(|s| {
+                Keystroke::parse(s).is_ok_and(|mut binding| {
+                    normalize_shortcut(&mut binding);
+                    binding.key == key.key && binding.modifiers == key.modifiers
                 })
+            })
         })
         .map(|a| a.info.command)
 }

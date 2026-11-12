@@ -189,3 +189,23 @@ fn consumer_dispatch_has_one_peer_request_and_rechecks_inbox_capability(cx: &mut
         assert!(receipts.recv_timeout(Duration::from_millis(50)).is_err());
     }
 }
+
+#[test]
+fn disappeared_capability_keeps_shortcut_recognition_without_execution() {
+    let mut t = terminal();
+    let mut a = actions::Actions::default();
+    let key = gpui::Keystroke::parse("cmd-d").unwrap_or_else(|e| panic!("key {e}"));
+    assert_eq!(actions::shortcut(&t, &a, &key), Some(Command::SplitRight));
+    t.live.methods.clear();
+    assert_eq!(actions::shortcut(&t, &a, &key), None);
+    assert_eq!(
+        actions::shortcut_candidate(&t, &a, &key),
+        Some(Command::SplitRight)
+    );
+    t.input.options.command_control = true;
+    a.terminal_priority = true;
+    assert_eq!(actions::shortcut_candidate(&t, &a, &key), None);
+    a.terminal_priority = false;
+    t.input.composition.text = "かな".into();
+    assert_eq!(actions::shortcut_candidate(&t, &a, &key), None);
+}

@@ -64,7 +64,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.terminal_focus.is_focused(window) {
+        if !self.terminal_focus.is_focused(window) || !window.is_window_active() {
             return;
         }
         #[cfg(target_os = "ios")]
@@ -118,7 +118,7 @@ impl Smoke {
             return;
         }
         if let Some(command) =
-            crate::actions::shortcut(&self.terminal, &self.actions, &event.keystroke)
+            crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
         {
             if !event.is_held
                 && let Err(e) = self.run_menu_shortcut(command)

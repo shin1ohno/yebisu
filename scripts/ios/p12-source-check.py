@@ -25,6 +25,8 @@ def violations(sources):
         errors.append("display binding scope missing")
     if "clear_key_bindings" in menu or 'KeyBinding::new("cmd-c"' in menu or 'KeyBinding::new("cmd-v"' in menu:
         errors.append("competing binding mutation")
+    if "shortcut_candidate" not in sources["terminal_controls.rs"]:
+        errors.append("availability-only shortcut leakage")
     if "run_menu_shortcut(command)" not in sources["terminal_controls.rs"]:
         errors.append("keyboard adapter bypass")
     return errors
