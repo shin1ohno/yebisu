@@ -40,4 +40,27 @@ class PrivacyOracle(unittest.TestCase):
             rotated.unlink()
             (root/"native_stderr.log").write_bytes(b"changed")
             with self.assertRaisesRegex(ValueError,"digest mismatch"):privacy.validate(manifest)
+    def test_bound_source_and_binary_tamper_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);logs=root/"logs";logs.mkdir();items={}
+            for role,data in self.fixture().items():
+                path=logs/(role+".log");path.write_bytes(data)
+                items[role]={"path":str(path),"sha256":hashlib.sha256(data).hexdigest()}
+            source=root/"source.json";source.write_text(json.dumps({"head":"a"*40}))
+            binary=root/"app";binary.write_bytes(b"fixture executable, not Mach-O proof")
+            artifact={"path":str(binary),"sha256":hashlib.sha256(binary.read_bytes()).hexdigest(),"uuids":[{"arch":"arm64","uuid":"fixture-only"}]}
+            binding={"consumer_head":"a"*40,"sdk_head":"b"*40,"run_uuid":"fixture-run", "source_manifest_path":str(source),"source_manifest_sha256":hashlib.sha256(source.read_bytes()).hexdigest(),"build":artifact,"installed":artifact}
+            manifest={"schema":1,"head":"a"*40,"sdk":"b"*40,"run_id":"fixture-run/Text","collection_directory":str(logs),"sinks":items,"binding":binding,"binding_sha256":hashlib.sha256(json.dumps(binding,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+            project=root/'project';project.mkdir();swift=project/'Tests.swift';swift.write_text('fixture XCTest input')
+            inputs=root/'inputs.json';inputs.write_text(json.dumps({'Tests.swift':hashlib.sha256(swift.read_bytes()).hexdigest()}))
+            manifest['xctest_inputs']={'path':str(inputs),'sha256':hashlib.sha256(inputs.read_bytes()).hexdigest(),'root':str(project),'binding_sha256':manifest['binding_sha256']}
+            privacy.validate(manifest)
+            swift.write_text('edited input')
+            with self.assertRaisesRegex(ValueError,'XCTest input drift'):privacy.validate(manifest)
+            swift.write_text('fixture XCTest input')
+            binary.write_bytes(b"wrong installed app")
+            with self.assertRaisesRegex(ValueError,"artifact bytes mismatch"):privacy.validate(manifest)
+            binary.write_bytes(b"fixture executable, not Mach-O proof")
+            source.write_text(json.dumps({"head":"c"*40}))
+            with self.assertRaisesRegex(ValueError,"source manifest binding mismatch"):privacy.validate(manifest)
 if __name__=='__main__':unittest.main()

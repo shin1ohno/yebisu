@@ -3,9 +3,10 @@
 This is a frozen source candidate, not SDK/native acceptance. The controller
 admitted plan 0461ca658933341948bc47aa09fe5b1015fe6e1bb3d1be2f85a6f8623c6bf4d9,
 not the implementation. Dependency: herdr-uikit PR11 commit
-944ff7e21a43fbdacb0e78a5be4056c32029db73, based on SDK8
-3e1d03c43965145f13860e8e344c27bf5b09521d. Independent SDK code review and all
-actual target/native gates are UNRUN. Do not merge SDK or treat this pin as
+2dcd11a9f20762bb7070c3fdefb72d93ed952781, based on SDK8
+3e1d03c43965145f13860e8e344c27bf5b09521d. The old 944ff7e candidate received REQUEST_CHANGES B1/P2. Controller now
+authorizes this corrected provisional source pin; independent correction
+re-review and all actual target/native gates remain UNRUN. Do not merge SDK or treat this pin as
 proven. Revisions require a new exact-head review, not silent candidate drift.
 
 Consumer history merges only PR25 de65d2adcb7f77b9373c71f105c4621e1924954b
@@ -110,13 +111,14 @@ all target Rust/native cases remain UNRUN.
 ## Isolated collector handoff (UNRUN)
 
 Controller must first review the exact combined SDK/consumer heads and issue
-an exclusive lease JSON with consumer_head, sdk_head, device, exclusive:true.
+an exclusive lease JSON with consumer_head, sdk_head, device, exclusive:true,
+checkout (canonical absolute checkout), and run_root (the exact fresh path below).
 No SSH/build is authorized by this document. Under that separate lease:
 
 ```
 python3 scripts/ios/p11-observer-check.py --lease /absolute/lease.json \
   --head EXACT_CONSUMER_HEAD --device LEASED_SIMULATOR \
-  --target-dir /absolute/fresh/head-specific-target
+  --target-dir /absolute/owned-checkout/target/p11-native/EXACT_CONSUMER_HEAD/RUN_UUID
 ```
 
 The runner rejects dirty/wrong-head source and an existing target directory.
@@ -141,3 +143,59 @@ Synthetic oracle regressions exercise malformed pairs, correlation, status,
 disabled intended failure and receiving tails; they are source checks only,
 not native or production serializer execution. Do not use fabricated fixtures
 as actual runtime provider/callback proof.
+
+
+## Corrected candidate and output isolation
+
+Controller source-only authorization is `sdk11-corrected-provisional-adoption-2.md`.
+SDK hand-off-2 fixes generic Window ingress to suppress the new key, while
+canonical native dispatch supplies its own key only for Down/Up. Public
+observer mod/types and SDK Cargo files are blob-identical to 944ff7e. SDK author
+reports off34/on40 and three mutants; these are source fixtures with platform
+shells, not live views/ABI/native proof. Consumer does not independently patch
+SDK or claim B1 admission. Old e2f2/SDK944 evidence remains archived.
+
+Helper audit found `bundle.sh` hardcoded `/tmp/herdr-ios-bundle.*`; it now honors
+TMPDIR. Before deleting/creating the sibling .app, its optional
+HERDR_IOS_ARTIFACT_ROOT check rejects an executable/app escaping the owned Cargo
+root. PROVENANCE.tsv already marks this copied helper modified=yes. Generic
+helper defaults are preserved; the collector always sets the restrictive root.
+
+Collector output is restricted to the canonical checkout's
+`target/p11-native/<consumer-head>/<run-UUID>/`. A symlink to another checkout or
+an existing root is rejected. Cargo target/build, Xcode derived/products/obj/
+precompiled/modules/packages, generated project, temporary files and evidence
+all reside below it. Inherited Cargo/Rust wrapper/flags and Xcode output
+overrides are rejected before build. Do not point it at Runner/shared target.
+`xcodegen` receives a copied project.yml/Tests tree; the source .xcodeproj is not
+created or shared. Simulator OS-managed installation/data paths remain external
+receiving locations, not build output directories; no simulator cache is erased.
+
+The source manifest hashes every tracked file, including Cargo manifest/lock,
+.cargo/config.toml, bundle/lib/Info.plist and XCTest source. HEAD/clean/hash state
+is checked before/after build and after each collection. Actual dwarfdump UUIDs
+for all architectures and codesign-final executable SHA256 are compared against
+the installed app. This collector requires the single arm64 Simulator slice.
+Installed bytes are copied to evidence before a later install can replace them.
+Each case privacy manifest contains the same source/artifact binding digest plus
+run UUID/case, and validates the source manifest and captured artifact bytes.
+
+The copied XCTest source injects only that binding digest into app launch
+environment. It is a correlation label, not proof of a loaded image. Each QA
+process separately reads its current executable's bounded Mach-O load commands,
+emits its actual LC_UUID plus binding/PID, and the collector compares that UUID
+against the installed image. Missing/invalid UUID, wrong binding, absent launch
+capture or missing real injected-provider preflight fails. Runtime UUID reading,
+source-to-app binding, every actual launch and all target builds remain UNRUN.
+No signing, trust, real Keychain, SDK API or production input guard is broadened.
+
+Effective Cargo configuration is bounded as well: the collector uses a fresh
+run-owned CARGO_HOME (dependency caches are not shared), rejects ancestor Cargo
+config files and accepts only the tracked deployment-target/net configuration.
+CARGO_BUILD_* / CARGO_TARGET_* aliases, RUSTC/RUSTDOC/toolchain overrides and
+Rust flags/wrappers are rejected rather than silently inherited. Unexpected
+configuration stops before build; it is not a reason to bypass the check.
+The copied XCTest inputs AND generated project are hashed after xcodegen and
+rechecked before/after every case. Their separate manifest digest is included
+in each privacy manifest with the common artifact binding; this avoids a
+circular binary/Swift-source hash and detects edits outside the source checkout.

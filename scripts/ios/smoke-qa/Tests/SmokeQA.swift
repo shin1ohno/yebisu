@@ -46,6 +46,7 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launchEnvironment["YEBISU_P11_CAPTURE"] = "1"
+        app.launchEnvironment["YEBISU_P11_BINDING"] = "P11_BINDING_UNSET"
         app.launchEnvironment[modal ? "YEBISU_P11_QA" : "YEBISU_NATIVE_QA"] = "1"
         if drawing { app.launchEnvironment["YEBISU_P11_DRAWING"] = "1" }
         if disabled { app.launchEnvironment["YEBISU_P11_OBSERVER_DISABLED"] = "1" }
