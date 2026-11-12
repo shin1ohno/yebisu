@@ -278,6 +278,10 @@ fn serve(
             )?;
         }
         record(&message)?;
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if crate::mock_notifications::respond(&mut server, &message)? {
+            return Ok(());
+        }
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
             let mut frame = focused_surface(&board_snapshot, &mut serial);

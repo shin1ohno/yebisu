@@ -22,6 +22,10 @@ pub(crate) struct Toast {
     expires: Instant,
 }
 pub(crate) struct State {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    qa_step: u8,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    qa_last_tag: Option<String>,
     pub authorization: notifications::Authorization,
     permission_busy: bool,
     permission_sender: mpsc::SyncSender<Result<notifications::Authorization, Failure>>,
@@ -50,6 +54,10 @@ impl Default for State {
             .unwrap_or_default()
             .to_string();
         Self {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            qa_step: 0,
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            qa_last_tag: None,
             authorization: notifications::Authorization::Unknown,
             permission_busy: false,
             permission_sender,
@@ -414,6 +422,10 @@ impl Smoke {
         }
     }
     pub(crate) fn open_notification(&mut self, tag: &str, action: bool, cx: &mut Context<Self>) {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if std::env::var_os("YEBISU_P14_QA").is_some() {
+            self.notifications.qa_last_tag = Some(tag.to_owned());
+        }
         let posted = self
             .notifications
             .posted
@@ -502,9 +514,18 @@ impl Smoke {
         if !self.notifications.status.is_empty() {
             panel = panel.child(self.notifications.status.clone());
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        {
+            panel = panel
+                .children(self.p14_controls(cx))
+                .children(self.p14_paint(cx));
+        }
         panel.into_any_element()
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod qa;
