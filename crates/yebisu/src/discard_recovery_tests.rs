@@ -32,7 +32,7 @@ pub(crate) fn wait_frame(
 
 pub(crate) fn key(
     this: &mut Smoke,
-    name: &str,
+    name: &'static str,
     held: bool,
     window: &mut Window,
     cx: &mut Context<Smoke>,
@@ -47,7 +47,12 @@ pub(crate) fn key(
         cx,
     );
 }
-pub(crate) fn release(this: &mut Smoke, name: &str, window: &mut Window, cx: &mut Context<Smoke>) {
+pub(crate) fn release(
+    this: &mut Smoke,
+    name: &'static str,
+    window: &mut Window,
+    cx: &mut Context<Smoke>,
+) {
     this.terminal_key_up(
         &KeyUpEvent {
             keystroke: Keystroke::parse(name).unwrap_or_else(|e| panic!("key: {e}")),
