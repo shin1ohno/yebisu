@@ -78,3 +78,25 @@ consumer adds its exact SDK pin and Rodio 0.22.2 / CPAL 0.17.3 / Symphonia 0.5.5
 closure. Existing package versions are retained. Unrelated resolver rebinding of
 iana-time-zone and winapi-util Windows edges was restored to the prior lock.
 Both owned manifests pass `cargo metadata --locked --offline --no-deps` resolution.
+
+
+## Review repair D1-D4 (source stage only)
+
+P11 f54b1ecc02abd458b428bb2366fe004b5917d2a1 is merged, including explicit
+Regular intent and observation-first tests; see p11-observer-dependency.md.
+P10 and SH1-151 exact-file oracles include notification defaults, backed by a
+fixture whose full object is compared with the actual Rust writer in a new test.
+The SDK retains per-tag context through willPresent and consumes responses once.
+The consumer removes retained tags on drop and reuses the current host/boot/pane,
+connection activity, event-age and quiet-hours predicate in the audio worker.
+Policy/lifecycle changes cancel queued and playing audio; native audio remains
+unverified. Permission results carry actual queried OS state, not a delivery proof.
+
+Native obligations: exact-head three gates on both targets, writer-fixture Rust
+regression, Regular production callback tests, SDK callback-order tests, native
+center/delegate entry plus show/no-show receipts, predicate-removal mutant failure
+and restored pass, foreground/Inactive/Background/suspension, quiet/mute/sound,
+permission denial and stale tap. Background OS delivery may bypass willPresent;
+no claim of cancellation/display correctness is made without native evidence.
+P11's modal-refusal observer is a separate missing SDK dependency. All original
+N1-N5 and physical owner gates remain unverified until their evidence is recorded.

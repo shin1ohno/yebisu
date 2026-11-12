@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
@@ -9,7 +10,8 @@ spec.loader.exec_module(p10)
 
 class P10Oracle(unittest.TestCase):
     def test_valid_and_negative_receiving_shapes(self):
-        saved = dict(version=1, language="en-US", compact=True, terminal_priority=True, board_hidden=False, drag_select=True, copy_on_select=False, terminal_font_size=None, terminal_font_family="SauceCodePro Nerd Font Mono")
+        saved = json.loads((Path(__file__).parent / "fixtures/settings-writer-default.json").read_text())
+        saved.update(compact=True, terminal_priority=True)
         loaded = [dict(kind="settings-loaded", compact=False, terminal_priority=False),
                   dict(kind="settings-loaded", compact=True, terminal_priority=True)]
         lifecycle = [dict(kind="settings-lifecycle", phase=p) for p in ["Inactive", "Background", "Active"]]
@@ -20,3 +22,11 @@ class P10Oracle(unittest.TestCase):
             p10.validate(loaded, saved)
         with self.assertRaisesRegex(ValueError, "fresh process"):
             p10.validate(loaded[:1] + lifecycle, saved)
+
+        for key, value in [("route", "system"), ("sound", False), ("volume", 51), ("muted", True), ("quiet", [0, 1])]:
+            with self.subTest(notification_field=key), self.assertRaisesRegex(ValueError, "file differs"):
+                p10.validate(loaded + lifecycle, dict(saved, notifications=dict(saved["notifications"], **{key: value})))
+        missing = dict(saved)
+        del missing["notifications"]
+        with self.assertRaisesRegex(ValueError, "file differs"):
+            p10.validate(loaded + lifecycle, missing)

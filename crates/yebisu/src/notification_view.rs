@@ -155,6 +155,26 @@ impl State {
             self.fail(error);
             return;
         }
+        let validation = target.clone();
+        let policy = self.policy.clone();
+        let received = event.received;
+        let current: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+            std::sync::Arc::new(move || {
+                let local = chrono::Local::now();
+                active.load(std::sync::atomic::Ordering::Acquire)
+                    && policy
+                        .suppression((local.hour() * 60 + local.minute()) as u16)
+                        .is_none()
+                    && received.elapsed() < notifications::MAX_AGE
+                    && inbox
+                        .try_lock()
+                        .map(|live| {
+                            validation
+                                .validate(&live, &validation.host, validation.generation)
+                                .is_ok()
+                        })
+                        .unwrap_or(false)
+            });
         if self.active
             && self.policy.sound
             && let Some(sound) = event.sound
@@ -166,7 +186,7 @@ impl State {
                 }
             }
             if let Some(service) = &self.sound
-                && let Err(error) = service.submit(sound, self.policy.volume, active.clone())
+                && let Err(error) = service.submit(sound, self.policy.volume, current.clone())
             {
                 self.fail(error);
             }
@@ -197,8 +217,6 @@ impl State {
                 let _ = old;
             }
         }
-        let validation = target.clone();
-        let policy = self.policy.clone();
         self.posted.push_back(Posted {
             tag: tag.clone(),
             target,
@@ -223,22 +241,7 @@ impl State {
             #[cfg(target_os = "ios")]
             herdr_uikit::post_notification_when(
                 notification,
-                move || {
-                    let local = chrono::Local::now();
-                    active.load(std::sync::atomic::Ordering::Acquire)
-                        && policy
-                            .suppression((local.hour() * 60 + local.minute()) as u16)
-                            .is_none()
-                        && event.received.elapsed() < notifications::MAX_AGE
-                        && inbox
-                            .try_lock()
-                            .map(|live| {
-                                validation
-                                    .validate(&live, &validation.host, validation.generation)
-                                    .is_ok()
-                            })
-                            .unwrap_or(false)
-                },
+                move || current(),
                 move |result| {
                     let result = result.map_err(|e| match e {
                         herdr_uikit::NotificationError::Permission(state) => {
@@ -254,7 +257,7 @@ impl State {
             #[cfg(not(target_os = "ios"))]
             {
                 let _ = notification;
-                let _ = (active, inbox, validation, policy);
+                let _ = current;
                 let _ = sender.try_send((epoch, Err(Failure::Native)));
             }
             self.status = "Notifications: OS submission pending".into();
@@ -302,6 +305,12 @@ impl State {
         changed
     }
 }
+impl Drop for State {
+    fn drop(&mut self) {
+        self.invalidate();
+    }
+}
+
 impl Smoke {
     pub(crate) fn collect_notifications(&mut self, cx: &mut Context<Self>) {
         let local = chrono::Local::now();
@@ -432,7 +441,12 @@ impl Smoke {
                 self.board.hidden.get(&target.host)
             }
             .ok_or(Failure::Disconnected)?;
-            if terminal.reconnect.suspended {
+            if terminal.reconnect.suspended
+                || !terminal
+                    .link
+                    .notification_active
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
                 return Err(Failure::Disconnected);
             }
             let mut live = terminal.link.inbox.try_lock().map_err(|_| Failure::Busy)?;

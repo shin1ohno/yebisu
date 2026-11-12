@@ -3,11 +3,11 @@
 use super::{Failure, Sound};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, SyncSender},
 };
 struct Job {
-    active: Arc<AtomicBool>,
+    current: Arc<dyn Fn() -> bool + Send + Sync>,
     sound: Sound,
     volume: u8,
     epoch: u64,
@@ -27,9 +27,8 @@ impl Service {
             .name("yebisu-notification-sound".into())
             .spawn(move || {
                 while let Ok(job) = jobs.recv() {
-                    if worker_epoch.load(Ordering::Acquire) != job.epoch
-                        || !job.active.load(Ordering::Acquire)
-                    {
+                    if worker_epoch.load(Ordering::Acquire) != job.epoch || !(job.current)() {
+                        let _ = results.try_send(Err(Failure::Stale));
                         continue;
                     }
                     let result = play(&job, &worker_epoch);
@@ -46,13 +45,18 @@ impl Service {
     pub fn cancel(&self) {
         self.epoch.fetch_add(1, Ordering::AcqRel);
     }
-    pub fn submit(&self, sound: Sound, volume: u8, active: Arc<AtomicBool>) -> Result<(), Failure> {
+    pub fn submit(
+        &self,
+        sound: Sound,
+        volume: u8,
+        current: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<(), Failure> {
         if volume == 0 {
             return Err(Failure::Muted);
         }
         self.sender
             .try_send(Job {
-                active,
+                current,
                 sound,
                 volume: volume.min(100),
                 epoch: self.epoch.load(Ordering::Acquire),
@@ -91,13 +95,13 @@ fn play(job: &Job, epoch: &AtomicU64) -> Result<(), Failure> {
     let player = Player::connect_new(output.mixer());
     let volume = f32::from(job.volume) / 100.;
     player.set_volume(volume * volume);
-    if epoch.load(Ordering::Acquire) != job.epoch || !job.active.load(Ordering::Acquire) {
+    if epoch.load(Ordering::Acquire) != job.epoch || !(job.current)() {
         return Err(Failure::Stale);
     }
     player.append(decoder.take_duration(Duration::from_secs(15)));
     let start = Instant::now();
     let result = loop {
-        if epoch.load(Ordering::Acquire) != job.epoch || !job.active.load(Ordering::Acquire) {
+        if epoch.load(Ordering::Acquire) != job.epoch || !(job.current)() {
             break Err(Failure::Stale);
         }
         if errors.try_recv().is_ok() || start.elapsed() > Duration::from_secs(15) {

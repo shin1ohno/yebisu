@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "language": "en-US",
+  "compact": false,
+  "terminal_priority": false,
+  "board_hidden": false,
+  "drag_select": true,
+  "copy_on_select": false,
+  "terminal_font_size": null,
+  "terminal_font_family": "SauceCodePro Nerd Font Mono",
+  "notifications": {
+    "route": "off",
+    "sound": true,
+    "volume": 50,
+    "muted": false,
+    "quiet": null
+  }
+}
