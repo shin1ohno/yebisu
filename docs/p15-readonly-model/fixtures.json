@@ -1,0 +1,24 @@
+{
+  "toml": [
+    {"name":"host-a", "text":"[experimental]\npane_history=true", "expected":true},
+    {"name":"host-b", "text":"[experimental]\npane_history=false", "expected":false},
+    {"name":"absent", "text":"", "expected":null},
+    {"name":"unknown-private", "text":"private='do not retain'", "expected":null},
+    {"name":"malformed", "text":"broken=[", "error":"InvalidToml"},
+    {"name":"duplicate", "text":"[experimental]\npane_history=true\npane_history=false", "error":"InvalidToml"},
+    {"name":"wrong-table", "text":"experimental=1", "error":"InvalidField"},
+    {"name":"wrong-value", "text":"[experimental]\npane_history='true'", "error":"InvalidField"}
+  ],
+  "adapter_negatives_unverified": [
+    {"case":"final-symlink", "expected":"Symlink", "proof":"atomic no-follow open"},
+    {"case":"parent-symlink", "expected":"Symlink", "proof":"component-wise no-follow traversal"},
+    {"case":"replace-after-check", "expected":"Symlink", "proof":"no check-then-cat window"},
+    {"case":"directory-or-fifo", "expected":"NotRegular", "proof":"fstat before read"},
+    {"case":"shell-substitution", "path":"/tmp/$(id)", "expected":"UnsafePath"},
+    {"case":"traversal", "path":"/tmp/../config", "expected":"UnsafePath"},
+    {"case":"oversize", "bytes":65537, "expected":"TooLarge"},
+    {"case":"slow-trickle", "seconds":20, "expected":"Timeout"},
+    {"case":"cancel", "expected":"Cancelled", "proof":"closed channel, no subsequent host operation"},
+    {"case":"write-mutation", "expected":"receiver test fails", "proof":"actual write-open flagged"}
+  ]
+}
