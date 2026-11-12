@@ -66,6 +66,36 @@ WHITE = bytes.fromhex("ffffff")
 
 
 class DecodeTests(unittest.TestCase):
+    def test_exif_display_orientation_preserves_exact_pixels(self):
+        # Non-square RGB/RGBA fixtures catch transposition, flips and alpha loss.
+        expected = {
+            1: [[1, 2], [3, 4], [5, 6]], 2: [[2, 1], [4, 3], [6, 5]],
+            3: [[6, 5], [4, 3], [2, 1]], 4: [[5, 6], [3, 4], [1, 2]],
+            5: [[1, 3, 5], [2, 4, 6]], 6: [[5, 3, 1], [6, 4, 2]],
+            7: [[6, 4, 2], [5, 3, 1]], 8: [[2, 4, 6], [1, 3, 5]],
+        }
+        for channels in (3, 4):
+            pixels = {i: bytes([i] * channels) for i in range(1, 7)}
+            rows = [pixels[i] + pixels[i+1] for i in (1, 3, 5)]
+            original = encode(rows, 2, channels, filters=[0, 1, 2])
+            for endian, marker in [('>', b'MM'), ('<', b'II')]:
+                for orientation, values in expected.items():
+                    with self.subTest(channels=channels, endian=endian, orientation=orientation):
+                        tiff = marker + struct.pack(endian + 'HIH', 42, 8, 1)
+                        tiff += struct.pack(endian + 'HHIH', 0x0112, 3, 1, orientation) + b'\0'*6
+                        data = original[:-12] + chunk(b'eXIf', tiff) + original[-12:]
+                        w, h, c, decoded = screenshot_color.decode(data)
+                        self.assertEqual((w, h, c), (len(values[0]), len(values), channels))
+                        self.assertEqual(decoded, [b''.join(pixels[i] for i in row) for row in values])
+
+    def test_invalid_exif_fails_instead_of_ignoring_orientation(self):
+        for data in [b'', b'MM\0*', b'bad metadata']:
+            with self.assertRaises(screenshot_color.PngError):
+                screenshot_color.exif_orientation(data)
+        tiff = b'MM' + struct.pack('>HIHHHIH', 42, 8, 1, 0x0112, 3, 1, 9) + b'\0'*6
+        with self.assertRaisesRegex(screenshot_color.PngError, 'orientation value'):
+            screenshot_color.exif_orientation(tiff)
+
     def test_every_row_filter_round_trips(self):
         width = 3
         rows = [

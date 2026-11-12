@@ -18,6 +18,13 @@ ad-hoc signing; the XCTest bundle disables signing. No developer identity,
 unlocked login keychain, secrets or owner's hosts are required. The P0 smoke
 screen is local to the app. The existing check job remains separate.
 
+Fresh Simulators can actually rotate where an existing local Simulator did not.
+XCTest can export a landscape PNG with portrait IHDR dimensions and TIFF eXIf
+orientation 8. The shared PNG decoder applies that display orientation before
+the existing oracle maps paint receipts to pixels. All colour thresholds,
+required stages, inputs and counter assertions remain unchanged; ignoring the
+metadata would sample unrelated pixels. Tests cover all eight orientations.
+
 Run the same CI entry point locally with
 `just guarded python3 scripts/ios/ci-smoke.py`. Evidence remains in
 `target/ios-smoke/`, including the XCTest result, screenshots and app receipts;
