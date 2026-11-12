@@ -32,3 +32,19 @@ fn preload_notification_edit_preserves_loaded_font_and_other_notification_fields
     assert!(!owner.draft.copy_on_select);
     std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("cleanup: {e}"));
 }
+
+#[test]
+fn native_oracle_fixture_matches_real_writer_defaults() -> crate::Result<()> {
+    let root = directory("writer-oracle");
+    store::save(&root, &Values::default())?;
+    let actual: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("yebisu-settings.json"))?)
+            .map_err(|e| crate::Error::Settings(e.to_string()))?;
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../scripts/ios/fixtures/settings-writer-default.json"
+    ))
+    .map_err(|e| crate::Error::Settings(e.to_string()))?;
+    assert_eq!(actual, fixture);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

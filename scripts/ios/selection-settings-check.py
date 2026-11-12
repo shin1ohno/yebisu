@@ -28,6 +28,8 @@ def validate(records, saved):
         raise ValueError("relaunch must restore both strip edits")
     expected = dict(version=1, language="en-US", compact=False, terminal_priority=False,
                     board_hidden=False, drag_select=False, copy_on_select=True, terminal_font_size=None, terminal_font_family="SauceCodePro Nerd Font Mono")
+    # settings/store.rs::save always writes Policy::encode, including defaults.
+    expected["notifications"] = dict(route="off", sound=True, volume=50, muted=False, quiet=None)
     if saved != expected:
         raise ValueError("receiving file must contain both strip edits and unchanged settings")
 
