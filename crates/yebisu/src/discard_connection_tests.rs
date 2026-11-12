@@ -13,6 +13,7 @@ fn sh1_156_reconnect_control_restores_focus_and_keys(cx: &mut TestAppContext) {
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             prepare(this, window, cx);
+            this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
             select(this, true, window, cx);
             window.blur(cx);
         })
@@ -29,7 +30,10 @@ fn sh1_156_reconnect_control_restores_focus_and_keys(cx: &mut TestAppContext) {
         view.update(cx, |this, cx| {
             // Render must restore focus; the test never taps or manually focuses here.
             let _ = this.render_terminal(window, cx);
-            assert!(this.terminal_focus.is_focused(window));
+            assert!(
+                this.terminal_focus.is_focused(window),
+                "SH1-156 reconnect focus was not restored"
+            );
             this.terminal.size = None;
             this.refresh_terminal_input();
             this.sync_handoff();
@@ -148,8 +152,12 @@ fn sh1_156_status_and_highlight_variant_follow_input_gate(cx: &mut TestAppContex
             view.update(cx, |this, cx| {
                 prepare(this, window, cx);
                 this.handoff.keep_highlight_on_key = keep;
+                this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
                 select(this, true, window, cx);
-                assert!(this.terminal_status().starts_with("Selection active"));
+                assert!(
+                    this.terminal_status().starts_with("Selection active"),
+                    "SH1-156 selection status reason missing"
+                );
                 key(this, "ctrl-a", false, window, cx);
                 assert_eq!(this.handoff.selection.is_some(), keep);
                 assert!(!this.handoff.blocks_input());
@@ -162,11 +170,9 @@ fn sh1_156_status_and_highlight_variant_follow_input_gate(cx: &mut TestAppContex
                     this.copy_selection(cx);
                     assert_eq!(this.handoff.clipboard_writes, 1);
                 }
-                // A fresh healthy fixture proves the status clears when no refusal remains.
-                this.terminal.input = crate::terminal_input::TerminalInput::default();
-                this.refresh_terminal_input();
-                this.terminal.live.status = "Connected".into();
-                assert_eq!(this.terminal_status(), "Connected");
+                // A real discard must keep its reason. The pristine-connection
+                // D1 test checks normal status without replacing input state.
+                assert!(this.terminal_status().starts_with("Text input paused"));
                 this.actions.palette = true;
                 assert!(this.terminal_status().starts_with("Commands open"));
                 this.actions.palette = false;

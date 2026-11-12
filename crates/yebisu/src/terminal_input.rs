@@ -85,12 +85,24 @@ impl TerminalInput {
     pub fn accepts(&self, focused: bool, setup: bool) -> bool {
         focused && !setup && self.destination.is_some()
     }
-    /// Fence selection/API changes, including queued keys and late IME callbacks.
+    /// Drop the destination and queued keys without inventing a composition.
+    /// An actual discarded composition remains fenced across repeated detaches.
     pub fn detach(&mut self) {
+        self.discard();
+        let cancelled = self.cancelled;
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
-        self.cancelled = true;
+        self.cancelled = cancelled;
+    }
+    /// The native text client is shared across hosts, unlike terminal queues.
+    pub fn retain_discard(&mut self, cancelled: bool) {
+        self.cancelled |= cancelled;
+    }
+    /// A rejected marked callback can still have a later native commit.
+    pub fn reject_mark(&mut self, text: &str) {
+        self.discard();
+        self.cancelled |= !text.is_empty();
     }
     pub fn discard(&mut self) {
         self.cancelled |= !self.composition.text.is_empty();
@@ -104,6 +116,7 @@ impl TerminalInput {
     }
     pub fn mark(&mut self, text: &str, selected: Option<std::ops::Range<usize>>) {
         if self.destination.is_none() || self.cancelled {
+            self.reject_mark(text);
             return;
         }
         self.composition = Input::default();

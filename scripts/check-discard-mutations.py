@@ -46,7 +46,46 @@ MUTATIONS = [
      "if event.is_held && self.handoff.blocks_input() {",
      "self.handoff.resume_typing(); if false {",
      "sh1_156_selection_new_press_resumes_without_discarded_commit"),
+    ("clean-detach", "terminal_input.rs", "self.cancelled = cancelled;",
+     "self.cancelled = true;", "sh1_156_fresh_herdr1_accepts_printable_and_direct_text"),
+    ("lost-discard", "terminal_input.rs", "self.cancelled = cancelled;",
+     "self.cancelled = false;", "sh1_156_marked_barrier_retains_discard_fence"),
+    ("host-discard", "board.rs", "next.input.retain_discard(discarded);",
+     "/* mutation: lose old native client's discard */", "sh1_156_host_switch_inherits_discarded_and_rejected_marks"),
+    ("rejected-mark", "terminal_input.rs", "self.cancelled |= !text.is_empty();",
+     "/* mutation: forget rejected native mark */", "sh1_156_host_switch_inherits_discarded_and_rejected_marks"),
+    ("barrier-mark", "terminal_input.rs", "self.reject_mark(text);",
+     "/* mutation: forget marked callback during barrier */", "sh1_156_marked_barrier_retains_discard_fence"),
+    ("setup-discard", "board.rs", "self.terminal.input.retain_discard(marked);",
+     "/* mutation: treat setup composition as fresh terminal text */", "sh1_156_setup_mark_cannot_commit_into_initial_terminal"),
 ]
+
+
+FAILURE_REASONS = {
+    "selection-resume": "fresh key retained Select mode",
+    "selection-generation": "reconnect carried selection mode",
+    "discard-fence": "key retired no native IME session",
+    "status-reason": "SH1-156 selection status reason missing",
+    "reconnect-focus": "SH1-156 reconnect focus was not restored",
+    "core-destination": "no stale destination, discarded text or replay",
+    "paste-fifo": "key cancelled the reserved paste",
+    "navigation-fence": "no input to a stale target",
+    "repeat-selection": "repeat exited selection",
+    "clean-detach": "D1: pristine connection invented a discarded composition",
+    "lost-discard": "D1: barrier must preserve real discard without inventing one",
+    "host-discard": "D1: host switch lost native discard fence",
+    "rejected-mark": "D1: host switch lost native discard fence",
+    "barrier-mark": "D1: barrier must preserve real discard without inventing one",
+    "setup-discard": "D1: setup composition lost its discard fence",
+}
+
+
+def behavioral_failure(name, test, result):
+    return (result.returncode == 101 and "panicked at" in result.stdout
+            and re.search(r"^\s+(?:\w+::)*" + re.escape(test) + r"$", result.stdout, re.MULTILINE)
+            and "test result: FAILED" in result.stdout
+            and FAILURE_REASONS[name] in result.stdout
+            and not re.search(r"error\[E\d+\]", result.stdout))
 
 
 def run(test):
@@ -81,11 +120,9 @@ def main():
         try:
             path.write_text(original.replace(old, new))
             result = run(test)
-            if (result.returncode != 101 or "panicked at" not in result.stdout
-                    or not re.search(r"^\s+(?:\w+::)*" + re.escape(test) + r"$", result.stdout, re.MULTILINE)
-                    or "test result: FAILED" not in result.stdout):
-                sys.exit(f"{name}: no named behavioral assertion failure; negative NOT proven")
-            print(f"MUTATION PASS {name}: named test failed with an assertion", flush=True)
+            if not behavioral_failure(name, test, result):
+                sys.exit(f"{name}: expected assertion reason missing; negative NOT proven")
+            print(f"MUTATION PASS {name}: named test failed: {FAILURE_REASONS[name]}", flush=True)
         finally:
             path.write_text(original)
         if run(test).returncode:

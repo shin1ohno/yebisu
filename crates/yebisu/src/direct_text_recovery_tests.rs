@@ -272,3 +272,85 @@ fn sh1_156_host_switch_inherits_discarded_and_rejected_marks(cx: &mut TestAppCon
         });
     }
 }
+
+#[gpui::test]
+fn sh1_156_unmark_and_blur_keep_discarded_text_fenced(cx: &mut TestAppContext) {
+    for blurred in [false, true] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, wire) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+        view.update(cx, |this, _| install(this, client));
+        wait_frame(&view, cx, |this| this.terminal.live.surface.is_some());
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                prepare(this, window, cx);
+                if blurred {
+                    window.blur(cx);
+                }
+                this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
+                if blurred {
+                    this.terminal_focus.focus(window, cx);
+                } else {
+                    this.unmark_text(window, cx);
+                }
+                this.terminal.input.detach();
+                this.refresh_terminal_input();
+                key(this, "ctrl-a", false, window, cx);
+                this.replace_text_in_range(None, "discarded", window, cx);
+                assert!(
+                    this.terminal.input.requires_gesture(),
+                    "D1: unmark or rejected blur mark lost discard fence"
+                );
+                sentinel(this, "w1:p1");
+            })
+        });
+        assert_eq!(
+            receive(&wire, "w1:p1"),
+            vec![expected_key(
+                ClientKeyCode::Char('a'),
+                2,
+                ClientKeyKind::Press,
+                false
+            )]
+        );
+        view.update(cx, |this, _| this.terminal.link.pause());
+    }
+}
+
+#[gpui::test]
+fn sh1_156_setup_mark_cannot_commit_into_initial_terminal(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.focus.focus(window, cx);
+            this.replace_and_mark_text_in_range(None, "setup-mark", None, window, cx);
+            assert!(this.setup_input.marked.is_some());
+        })
+    });
+    let (client, wire) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+    view.update(cx, |this, _| install(this, client));
+    wait_frame(&view, cx, |this| this.terminal.live.surface.is_some());
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let _ = this.render_terminal(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            assert!(
+                this.terminal.input.requires_gesture(),
+                "D1: setup composition lost its discard fence"
+            );
+            key(this, "ctrl-a", false, window, cx);
+            this.replace_text_in_range(None, "setup-mark", window, cx);
+            sentinel(this, "w1:p1");
+        })
+    });
+    assert_eq!(
+        receive(&wire, "w1:p1"),
+        vec![expected_key(
+            ClientKeyCode::Char('a'),
+            2,
+            ClientKeyKind::Press,
+            false
+        )]
+    );
+    view.update(cx, |this, _| this.terminal.link.pause());
+}
