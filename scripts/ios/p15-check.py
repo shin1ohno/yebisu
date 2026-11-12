@@ -26,9 +26,9 @@ def validate(records, disk):
     if len(loads) != 2 or [records[i].get("theme") for i in loads] != ["owner-default", "high-contrast"]:
         raise ValueError("two real process loads must restore the selected theme")
     clicks = [i for i, r in enumerate(records) if r.get("kind") == "theme-selected"]
-    if len(clicks) != 1 or records[clicks[0]].get("theme") != "high-contrast":
-        raise ValueError("missing unique Appearance click")
-    selected = clicks[0]
+    if [records[i].get("theme") for i in clicks] != ["high-contrast", "owner-default", "high-contrast"]:
+        raise ValueError("missing ordered real theme choices")
+    selected = clicks[-1]
     lifecycle = [(i, r.get("phase")) for i, r in enumerate(records)
                  if r.get("kind") == "settings-lifecycle" and selected < i < loads[1]]
     background = next((i for i, phase in lifecycle if phase == "Background"), None)
@@ -40,7 +40,11 @@ def validate(records, disk):
                    and r.get("settings_modal") is modal for r in records[start + 1:end])
     if not loads[0] < selected < background < active < loads[1]:
         raise ValueError("click/lifecycle/relaunch ordering mismatch")
-    if not painted(loads[0], selected, "owner-default", False):
+    for index, end, theme in zip(clicks, clicks[1:] + [background],
+                                 ["high-contrast", "owner-default", "high-contrast"]):
+        if not painted(index, end, theme, True):
+            raise ValueError("missing immediate modal painter receipt")
+    if not painted(loads[0], clicks[0], "owner-default", False):
         raise ValueError("missing initial owner palette paint")
     if not painted(selected, background, "high-contrast", True):
         raise ValueError("missing immediate modal painter receipt")
@@ -50,6 +54,45 @@ def validate(records, disk):
         raise ValueError("missing background return paint")
     if not painted(loads[1], len(records), "high-contrast", False):
         raise ValueError("missing relaunched painter receipt")
+
+
+def validate_ui_wire(records, messages, ui):
+    """Installed GUI + private peer evidence; not remote-settings/SSH proof."""
+    picks = [r.get("label") for r in ui if r.get("kind") == "theme-click"]
+    if picks != ["High contrast", "Owner default", "High contrast"]:
+        raise ValueError("actual GUI theme choices missing")
+    hosts = [r for r in ui if r.get("kind") == "host-screen"]
+    if [(r.get("stage"), r.get("host")) for r in hosts] != [
+            ("alpha", "qa-alpha"), ("beta", "qa-beta"), ("relaunch-host", "qa-alpha")]:
+        raise ValueError("actual current-host screen sequence missing")
+    for screen in hosts:
+        text = "\n".join(screen.get("lines", []))
+        if ("Host: " + screen["host"] not in text or
+                "Host: " + screen["stale"] in text or
+                not all(value in text for value in ["File path unavailable", "Unavailable",
+                                                    "daemon-effective state unverified"])):
+            raise ValueError("stale host or fabricated available settings screen")
+        # Require the renderer's most recent selected host, not a stale frame from
+        # earlier in the run, and a nearby paint from the same modal.
+        paints = [r for r in records if r.get("kind") == "terminal"
+                  and r.get("time", 0) <= screen["time"]]
+        if not paints or paints[-1].get("host") != screen["host"] or not paints[-1].get("settings_modal"):
+            raise ValueError("host screen disagrees with current renderer")
+    events = []
+    for message in messages:
+        if "ClientShellEndpointRequest" in message:
+            request = json.loads(message["ClientShellEndpointRequest"]["request"])
+            if request.get("method") != "client_shell.surface.set":
+                raise ValueError("unexpected endpoint operation in theme-only fixture")
+        if "ClientShellPaneInput" in message:
+            body = message["ClientShellPaneInput"]
+            if body.get("pane_id") != "w1:p1":
+                raise ValueError("wrong FIFO receiving pane")
+            events.extend(body["events"])
+    if any(set(event) != {"TextCommit"} for event in events):
+        raise ValueError("unexpected terminal wire event")
+    if "".join(event["TextCommit"] for event in events) != "P15-startP15-end":
+        raise ValueError("missing FIFO positive controls or terminal wire leak")
 
 
 def main():
@@ -71,6 +114,8 @@ def main():
     settings.write_text(json.dumps(SEED))
     (out / "seed.json").write_text(json.dumps(SEED))
     records_path = container / "Documents/p0-smoke.jsonl"
+    peer_path = container / "Documents/p4-peer.jsonl"
+    peer_previous = len(peer_path.read_text().splitlines()) if peer_path.exists() else 0
     previous = len(records_path.read_text().splitlines()) if records_path.exists() else 0
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
@@ -85,16 +130,26 @@ def main():
         # Even failed XCTest/oracle runs retain receiving files before validation.
         records = [json.loads(line) for line in records_path.read_text().splitlines()[previous:]] if records_path.exists() else []
         disk = json.loads(settings.read_text())
+        messages = [json.loads(line) for line in peer_path.read_text().splitlines()[peer_previous:]] if peer_path.exists() else []
+        (out / "peer.json").write_text(json.dumps(messages, indent=2))
         (out / "evidence.json").write_text(json.dumps(dict(records=records, disk=disk), indent=2))
     if "testP15Theme]' passed" not in tested.stdout:
         raise ValueError("P15 XCTest did not execute and pass")
     attachments = out / "attachments"
     run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(attachments))
     names = [a["suggestedHumanReadableName"] for test in json.loads((attachments / "manifest.json").read_text()) for a in test["attachments"]]
-    for stage in ["default", "selected", "closed", "returned", "relaunch"]:
+    for stage in ["default", "alpha", "high-first", "owner-reset", "selected", "closed", "beta", "returned", "relaunch", "relaunch-host"]:
         if not any(name.startswith("p15-" + stage) for name in names):
             raise ValueError("missing native screenshot: " + stage)
+    ui_files = [attachments / a["exportedFileName"]
+                for test in json.loads((attachments / "manifest.json").read_text())
+                for a in test["attachments"] if a["suggestedHumanReadableName"].startswith("p15-ui.json")]
+    if len(ui_files) != 1:
+        raise ValueError("missing unique installed UI transcript")
+    ui = json.loads(ui_files[0].read_text())
+    (out / "ui.json").write_text(json.dumps(ui, indent=2))
     validate(records, disk)
+    validate_ui_wire(records, messages, ui)
     print("P15 local-theme Simulator oracle passed; host read and physical gates remain unverified.")
 
 
