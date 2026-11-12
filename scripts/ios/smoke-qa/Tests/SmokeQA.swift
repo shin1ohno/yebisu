@@ -37,6 +37,39 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    func testP15Theme() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P15_QA"] = "1"
+        app.launch()
+        sleep(4)
+        save("p15-default")
+        try tapText("Settings", in: app)
+        try tapText("Appearance", in: app)
+        try tapText("High contrast", in: app)
+        sleep(2)
+        save("p15-selected")
+        try tapText("Close", in: app)
+        sleep(2)
+        save("p15-closed")
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(2)
+        save("p15-returned")
+        app.terminate()
+        app.launch()
+        sleep(4)
+        save("p15-relaunch")
+        try tapText("Settings", in: app)
+        try tapText("Appearance", in: app)
+        try tapText("High contrast", in: app, tap: false)
+        try tapText("Close", in: app)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP11Settings() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()

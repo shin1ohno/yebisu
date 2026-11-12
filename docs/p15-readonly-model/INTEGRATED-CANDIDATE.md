@@ -52,3 +52,57 @@ owner trust/key gates and R01-R16 SSH receiving proofs stay separate and unverif
 After P11 freezes or merges, compare its exact final head against this candidate,
 resolve any API/layout changes, and repeat exact-full-head native and independent
 review gates. A prior patch application check or hosted green cannot replace that.
+
+## Attempt 2 source correction contract
+
+The P15 branch merges exact P11 candidate
+`f54b1ecc02abd458b428bb2366fe004b5917d2a1` (PR29, observed 2026-11-13 JST).
+This frozen integration input is not a final P11 acceptance or merge. Its delta
+from `1721995` contains the device-only Unsupported lint scope (`f718acc`),
+header shadow (`b55f48e`, already present), explicit Regular preload intent
+(`e402f5b`) and observation-first native oracle (`f54b1ec`). Git reports no merge
+conflicts. Manual comparison retains P15 theme intent alongside density intent.
+The real Regular-button regression also preserves a stored HighContrast theme.
+No SDK pin, modal guard, geometry proposal, gesture default or owner palette changed.
+
+P10 and SH1-151 exact saved-file expectations now include owner-default, matching
+SettingsHost's writer. Wrong/missing theme negatives retain full JSON comparison.
+P14 candidate `c63987697f5bd61e510b5c00c40ce5623a8ff34a` defines notifications in
+`notifications/preferences.rs`; the theme persistence regression uses that encode
+shape and checks it survives. P14 is not integrated: its store writer must be
+reconciled with this preserving writer when it is merged, never chosen wholesale.
+Unknown valid JSON and both supported local themes remain covered.
+
+Under a new controller lease, run `just guarded python3 scripts/ios/p15-check.py`
+after the exact-head three gates. It authors real OCR taps of Appearance/High
+contrast/Close, five screenshots, background/return and process relaunch. The
+checker compares the complete receiving JSON (including P14-shaped notifications
+and a future field), ordered click/load/lifecycle receipts and actual terminal
+painter receipts while open, closed, returned and relaunched. It uses only p15-qa
+settings, archives previous fixture bytes, and saves evidence before assertions.
+Its Python fixtures are checker validation, not native or physical proof. The
+Rust route, persistence, density and independent 12 model tests remain unrun here.
+
+P11's separate outside-modal real-selector positive control and four distinct
+inside-modal consumer receipts remain required. Pinned SDK pre-dispatch refusal
+is still unobservable; no scheduling receipt or empty wire can pass that gate.
+A separate reviewed observer dependency is required; P15 does not modify SDKs.
+
+## Read-only closure re-estimate from source responsibilities
+
+The old write/CAS/reload estimate is superseded. Remaining work is five concrete
+packages, not a measured hours/cost forecast:
+1. Owner/SDK authority contract: retained signer, serialized credential/trust/view
+   fences and teardown receipt. Current provider returns only a public String;
+   admission and implementation belong to the separate dependency owner.
+2. Consumer adapter/service: mount the existing pure host_settings Model behind
+   that contract, add total 20s/50ms collector, capacity-one scheduling and quarantine;
+   availability.rs remains the honest pre-dispatch stop until all inputs exist.
+3. Controlled receiver: exercise actual command.rs/reader.py and Rust adapter on
+   two specifically leased peers; R01-R16 and actual write/rename/reload mutants.
+4. Local-theme verification: exact-head Rust plus p15-check.py/native screenshots,
+   including P11/P14 field integration and later final-head reconciliation.
+5. Independent review plus owner physical/key/trust checks. No source fixture
+   substitutes for these. Runtime latency, signer lifetime and cost are unmeasured.
+Only package 4 source corrections are staged by this attempt; packages 1-3 and 5
+are not silently removed from P1-P5 acceptance.

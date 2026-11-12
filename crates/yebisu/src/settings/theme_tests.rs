@@ -49,6 +49,10 @@ fn theme_handler_applies_immediately_and_survives_background_relaunch(
         serde_json::from_slice(&fs::read(&file).unwrap_or_else(|e| panic!("{e}")))
             .unwrap_or_else(|e| panic!("{e}"));
     json["future"] = serde_json::json!({"preserve": 42});
+    // P14 c639876 preferences.rs encode shape, retained before its integration.
+    let notifications = serde_json::json!({"route":"toast","sound":false,
+        "volume":37,"muted":true,"quiet":[60,120]});
+    json["notifications"] = notifications.clone();
     fs::write(&file, json.to_string()).unwrap_or_else(|e| panic!("{e}"));
     let view = cx.new(crate::app::Smoke::new);
     view.update(cx, |this, cx| {
@@ -78,6 +82,7 @@ fn theme_handler_applies_immediately_and_survives_background_relaunch(
         serde_json::from_slice(&fs::read(&file).unwrap_or_else(|e| panic!("{e}")))
             .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(json["future"]["preserve"], 42);
+    assert_eq!(json["notifications"], notifications);
     assert_eq!(json["theme"], "high-contrast");
     let reopened = cx.new(crate::app::Smoke::new);
     reopened.update(cx, |this, cx| {

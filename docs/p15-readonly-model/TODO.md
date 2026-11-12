@@ -28,3 +28,16 @@
   First step: review the task-local API proposal artifact against the owner and SDK.
   Close: actual Rust adapter/SSH receiver R01-R16 and write-mutant receipts satisfy
   security-plan-2.md; retain all unmet P1/P2/P3 criteria until then.
+- Reconcile the P14 notifications writer without losing theme or unknown JSON.
+  Reason: P14 candidate c639876 serializes a new object, while this branch preserves
+  existing fields; taking either side wholesale loses the other's typed state.
+  First step: compare settings.rs, settings_view.rs and store.rs at both exact heads,
+  integrate both field-intent maps and extend the full-file native oracles.
+  Close: both notification edits and theme edits survive background/relaunch with
+  unrelated fields intact on the integrated exact head; delete in resolving commit.
+- Validate the attempt-2 native source and separate SDK observer dependency.
+  Reason: no Mac lease exists, and pinned SDK refuses modal selectors before the
+  consumer without an observation hook. First step: obtain the controller's specific
+  lease and observer contract, then run the exact-head gates and p11/p15 oracles.
+  Close: outside positive and inside refusal/consumer evidence plus actual theme
+  screenshots/painter/disk/relaunch pass independent review; delete on resolution.
