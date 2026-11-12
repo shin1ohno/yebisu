@@ -5,6 +5,46 @@ use crate::{
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
+    #[cfg(target_os = "ios")]
+    pub(crate) fn publish_native_edits(&mut self, window: &Window) {
+        let availability = self.native_edit_availability(window);
+        herdr_uikit::set_native_edit_availability(window.window_handle(), availability);
+    }
+
+    #[cfg(target_os = "ios")]
+    fn native_edit_availability(
+        &mut self,
+        window: &Window,
+    ) -> Option<herdr_uikit::NativeEditAvailability> {
+        if !self.terminal.open {
+            return None;
+        }
+        self.refresh_terminal_input();
+        self.sync_handoff();
+        Some({
+            let focused = self.terminal_focus.is_focused(window)
+                && self.terminal.navigating.is_none()
+                && !self.actions.palette
+                && !self.terminal.reconnect.suspended
+                && self.handoff.stamp.is_some();
+            let copy = focused
+                && self
+                    .handoff
+                    .selection
+                    .as_ref()
+                    .and_then(crate::handoff::Selection::text)
+                    .is_some();
+            herdr_uikit::NativeEditAvailability {
+                copy,
+                // Preserve D3: Cut copies terminal cells without deleting them.
+                cut: copy,
+                paste: focused && self.terminal.input.ready && self.handoff.workers == 0,
+                // D3 has no terminal Select All implementation.
+                select_all: false,
+            }
+        })
+    }
+
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
         if terminal.navigating.is_some() || self.actions.palette {
@@ -70,6 +110,19 @@ impl Smoke {
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
             use herdr_uikit::NativeEditAction;
+            let allowed = self
+                .native_edit_availability(window)
+                .is_some_and(|state| match action {
+                    NativeEditAction::Paste => state.paste,
+                    NativeEditAction::Copy => state.copy,
+                    NativeEditAction::Cut => state.cut,
+                    NativeEditAction::SelectAll => state.select_all,
+                });
+            if !allowed {
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
             match action {
                 NativeEditAction::Paste => self.start_paste(false, cx),
                 NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),

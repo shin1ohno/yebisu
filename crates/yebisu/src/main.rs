@@ -84,6 +84,8 @@ mod handoff_review_tests;
 mod handoff_resume_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod native_edit_qa;
 
 #[cfg(any(target_os = "ios", test))]

@@ -277,3 +277,127 @@ fn outside_release_ends_drag_and_copies_once_before_buttonless_move(cx: &mut Tes
         )
     });
 }
+
+#[gpui::test]
+fn cancelled_paste_completion_notifies_with_quiet_peer(cx: &mut TestAppContext) {
+    use std::{cell::Cell, future::poll_fn, rc::Rc, sync::Mutex, task::Poll};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = mock_peer::connect_quiet().unwrap_or_else(|e| panic!("peer: {e}"));
+    view.update(cx, |this, _| {
+        this.smoke_mode = false;
+        this.select_host("sandbox");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.terminal.live.surface.is_some()
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "reader timeout");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // A test-only future holds the real completion, without blocking the UI or
+    // relying on image size, scheduler timing, periodic smoke notify or peer output.
+    let gate = Arc::new(Mutex::new((false, None::<std::task::Waker>)));
+    let worker_gate = gate.clone();
+    let task = cx.background_executor.spawn(poll_fn(move |cx| {
+        let mut gate = worker_gate.lock().unwrap_or_else(|e| e.into_inner());
+        if gate.0 {
+            Poll::Ready(())
+        } else {
+            gate.1 = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }));
+    cx.write_to_clipboard(ClipboardItem::new_string("cancelled-payload".into()));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.terminal.size = None;
+            this.handoff.completion_gate = Some(task);
+            this.start_paste(false, cx);
+            assert_eq!(this.handoff.workers, 1);
+            let destination = this
+                .handoff
+                .stamp
+                .as_ref()
+                .unwrap_or_else(|| panic!("paste stamp"))
+                .destination
+                .clone();
+            this.handoff.hold(crate::terminal_input::GeneratedInput {
+                destination,
+                event: ClientPaneInputEvent::Paste("cancelled-tail".into()),
+            });
+            this.toggle_selection();
+            this.terminal.live.status = "selection after cancellation".into();
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    let notifications = Rc::new(Cell::new(0));
+    let count = notifications.clone();
+    let _subscription = cx.update(|_, cx| {
+        cx.observe(&view, move |_, _| {
+            count.set(count.get() + 1);
+        })
+    });
+    view.update(cx, |this, _| {
+        assert!(!this.smoke_mode);
+        assert_eq!(this.handoff.workers, 1);
+        assert!(this.handoff.held.is_empty());
+        assert!(
+            this.terminal.link.take_update().is_none(),
+            "peer must be quiet"
+        );
+    });
+    {
+        let mut gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+        gate.0 = true;
+        if let Some(waker) = gate.1.take() {
+            waker.wake();
+        }
+    }
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.handoff.workers, 0, "real cancelled worker completed");
+        assert!(!this.handoff.preparing);
+        assert_eq!(this.terminal.live.status, "selection after cancellation");
+        assert!(this.handoff.held.is_empty());
+        assert!(this.terminal.link.take_update().is_none(), "no peer redraw");
+        this.terminal
+            .link
+            .handle
+            .as_ref()
+            .unwrap_or_else(|| panic!("handle"))
+            .send_input(
+                "boot-v1",
+                "w1:p1",
+                [ClientPaneInputEvent::Paste("barrier".into())],
+            )
+            .unwrap_or_else(|e| panic!("barrier: {e}"));
+    });
+    assert_eq!(
+        notifications.get(),
+        1,
+        "cancelled completion must invalidate native edit availability"
+    );
+    loop {
+        let message = receipts
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|e| panic!("wire: {e}"));
+        if let ClientMessage::ClientShellPaneInput { pane_id, events } = message {
+            assert_eq!(pane_id, "w1:p1");
+            assert_eq!(
+                events,
+                [ClientPaneInputEvent::Paste("barrier".into())],
+                "cancelled payload and held input must never replay"
+            );
+            break;
+        }
+    }
+    view.update(cx, |this, _| this.terminal.link.pause());
+}

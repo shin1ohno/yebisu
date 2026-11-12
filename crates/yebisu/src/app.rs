@@ -103,6 +103,8 @@ impl Smoke {
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let screen = self.render_screen(window, cx);
+        #[cfg(target_os = "ios")]
+        self.publish_native_edits(window);
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };

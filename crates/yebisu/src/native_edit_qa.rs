@@ -47,7 +47,7 @@ impl Smoke {
                 cx.notify();
             })).into_any_element())
     }
-    fn native_marker(&self, text: String) {
+    pub(crate) fn native_marker(&self, text: String) {
         if let Some(handle) = &self.terminal.link.handle {
             let result = handle.send_input("boot-v1", "w1:p1", [ClientPaneInputEvent::Paste(text)]);
             if let Err(e) = result {
