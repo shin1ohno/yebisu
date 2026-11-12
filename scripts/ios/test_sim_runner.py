@@ -11,7 +11,7 @@ import unittest
 
 
 SCRIPT_DIR = Path(__file__).parent
-SYSTEM_BASH = Path("/bin/bash") if Path("/bin/bash").exists() else Path(shutil.which("bash") or "/usr/bin/bash")
+SYSTEM_BASH = Path("/usr/bin/bash") if Path("/usr/bin/bash").exists() else Path("/bin/bash")
 
 
 class RunnerTests(unittest.TestCase):
@@ -61,35 +61,63 @@ class RunnerTests(unittest.TestCase):
             env={**self.env, **(env or {})}, text=True, capture_output=True, check=False,
         )
 
-    def save_receipt(self, label, shell_path, received):
+    def probe_shell(self, label, shell_path):
+        """Record the real shell identity before starting this runner row."""
         evidence_dir = os.environ.get("SIM_RUNNER_EVIDENCE_DIR")
-        if not evidence_dir:
-            return
         resolved_shell = os.path.realpath(shell_path)
         version = subprocess.run([resolved_shell, "--version"], text=True, capture_output=True, check=True).stdout.splitlines()[0]
-        output = {
+        source_head = subprocess.run(
+            ["git", "-C", str(SCRIPT_DIR.parents[2]), "rev-parse", "HEAD"],
+            text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        receipt = {
             "fixture": label,
             "shell_path": shell_path,
             "resolved_shell_path": resolved_shell,
             "shell_version": version,
-            "received": received,
+            "source_head": source_head,
+            "probe_order": "before_runner_execution",
         }
-        destination = Path(evidence_dir)
-        destination.mkdir(parents=True, exist_ok=True)
-        (destination / f"{label}.json").write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+        if evidence_dir:
+            destination = Path(evidence_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / f"{label}.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
+        return receipt
 
-    def test_selected_environment_and_arguments_reach_ordinary_runner(self):
-        result = self.run_runner(str(SYSTEM_BASH), str(self.binary), "argument with spaces", "日本語=\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        received = json.loads(self.log.read_text())
-        self.assertEqual(received["args"], ["simctl", "spawn", "fixture-udid", str(self.binary), "argument with spaces", "日本語=\n"])
+    def save_receipt(self, label, receipt, received, exit_status):
+        evidence_dir = os.environ.get("SIM_RUNNER_EVIDENCE_DIR")
+        if not evidence_dir:
+            return
+        receipt["received"] = received
+        receipt["runner_exit_status"] = exit_status
+        destination = Path(evidence_dir)
+        (destination / f"{label}.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
+
+    def assert_received_environment(self, received):
         self.assertEqual(received["env"]["SIMCTL_CHILD_CARGO_BIN_EXE_herdr-gpui"], self.env["CARGO_BIN_EXE_herdr-gpui"])
         self.assertEqual(received["env"]["SIMCTL_CHILD_CARGO_BIN_EXE_other_target"], "")
         self.assertEqual(received["env"]["SIMCTL_CHILD_RUST_BACKTRACE"], self.env["RUST_BACKTRACE"])
         self.assertEqual(received["env"]["SIMCTL_CHILD_HERDR_TEST_LITERAL"], self.env["HERDR_TEST_LITERAL"])
         self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", received["env"])
         self.assertFalse((self.root / "never-run").exists())
-        self.save_receipt("ordinary-system-bash", str(SYSTEM_BASH), received)
+
+    def test_selected_environment_and_arguments_reach_ordinary_runner(self):
+        shell_path = str(SYSTEM_BASH)
+        receipt = self.probe_shell("ordinary-system-bash", shell_path)
+        result = self.run_runner(shell_path, str(self.binary), "argument with spaces", "日本語=\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        received = json.loads(self.log.read_text())
+        self.assertEqual(received["args"], ["simctl", "spawn", "fixture-udid", str(self.binary), "argument with spaces", "日本語=\n"])
+        self.assert_received_environment(received)
+        self.save_receipt("ordinary-system-bash", receipt, received, result.returncode)
+
+        receipt = self.probe_shell("ordinary-system-bash-exit7", shell_path)
+        status = self.run_runner(shell_path, str(self.binary), "exit-seven", env={"HERDR_TEST_RECEIVER_STATUS": "7"})
+        self.assertEqual(status.returncode, 7, status.stderr)
+        received = json.loads(self.log.read_text())
+        self.assertEqual(received["args"], ["simctl", "spawn", "fixture-udid", str(self.binary), "exit-seven"])
+        self.assert_received_environment(received)
+        self.save_receipt("ordinary-system-bash-exit7", receipt, received, status.returncode)
 
     def test_clipboard_branch_receives_selected_environment_and_arguments(self):
         (self.root / "clipboard-test-runner.sh").write_text(
@@ -97,15 +125,17 @@ class RunnerTests(unittest.TestCase):
         )
         clipboard_binary = self.root / "ios_clipboard-tests"
         clipboard_binary.touch()
-        result = self.run_runner(str(SYSTEM_BASH), "ios_clipboard-tests", "arg")
+        shell_path = str(SYSTEM_BASH)
+        receipt = self.probe_shell("clipboard-system-bash", shell_path)
+        result = self.run_runner(shell_path, "ios_clipboard-tests", "arg")
         self.assertEqual(result.returncode, 0, result.stderr)
         received = json.loads(self.log.read_text())
         resolved_clipboard_binary = os.path.realpath(clipboard_binary)
         self.assertEqual(received["args"], ["clipboard", "fixture-udid", resolved_clipboard_binary, "arg"])
-        self.assertEqual(received["env"]["SIMCTL_CHILD_CARGO_BIN_EXE_herdr-gpui"], self.env["CARGO_BIN_EXE_herdr-gpui"])
-        self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", received["env"])
-        self.save_receipt("clipboard-system-bash", str(SYSTEM_BASH), received)
+        self.assert_received_environment(received)
+        self.save_receipt("clipboard-system-bash", receipt, received, result.returncode)
 
+        receipt = self.probe_shell("clipboard-env-bash", str(self.shebang_path / "bash"))
         result = subprocess.run(
             [str(self.root / "runner.sh"), "ios_clipboard-tests", "shebang-arg"], cwd=self.root,
             env={**self.env, "PATH": str(self.shebang_path)}, text=True, capture_output=True, check=False,
@@ -113,26 +143,34 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         shebang_received = json.loads(self.log.read_text())
         self.assertEqual(shebang_received["args"], ["clipboard", "fixture-udid", resolved_clipboard_binary, "shebang-arg"])
-        self.assertEqual(shebang_received["env"]["SIMCTL_CHILD_CARGO_BIN_EXE_herdr-gpui"], self.env["CARGO_BIN_EXE_herdr-gpui"])
-        self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", shebang_received["env"])
-        self.save_receipt("clipboard-env-bash", str(self.shebang_path / "bash"), shebang_received)
+        self.assert_received_environment(shebang_received)
+        self.save_receipt("clipboard-env-bash", receipt, shebang_received, result.returncode)
 
+        receipt = self.probe_shell("clipboard-system-bash-exit7", shell_path)
         system_status = self.run_runner(
             str(SYSTEM_BASH), "ios_clipboard-tests", "exit-seven", env={"HERDR_TEST_RECEIVER_STATUS": "7"}
         )
         self.assertEqual(system_status.returncode, 7)
-        self.save_receipt("clipboard-system-bash-exit7", str(SYSTEM_BASH), json.loads(self.log.read_text()))
+        received = json.loads(self.log.read_text())
+        self.assertEqual(received["args"], ["clipboard", "fixture-udid", resolved_clipboard_binary, "exit-seven"])
+        self.assert_received_environment(received)
+        self.save_receipt("clipboard-system-bash-exit7", receipt, received, system_status.returncode)
 
+        receipt = self.probe_shell("clipboard-env-bash-exit7", str(self.shebang_path / "bash"))
         shebang_status = subprocess.run(
             [str(self.root / "runner.sh"), "ios_clipboard-tests", "exit-seven-shebang"], cwd=self.root,
             env={**self.env, "PATH": str(self.shebang_path), "HERDR_TEST_RECEIVER_STATUS": "7"},
             text=True, capture_output=True, check=False,
         )
         self.assertEqual(shebang_status.returncode, 7, shebang_status.stderr)
-        self.save_receipt("clipboard-env-bash-exit7", str(self.shebang_path / "bash"), json.loads(self.log.read_text()))
+        received = json.loads(self.log.read_text())
+        self.assertEqual(received["args"], ["clipboard", "fixture-udid", resolved_clipboard_binary, "exit-seven-shebang"])
+        self.assert_received_environment(received)
+        self.save_receipt("clipboard-env-bash-exit7", receipt, received, shebang_status.returncode)
 
     def test_production_env_bash_shebang_with_controlled_path(self):
         shebang_bash = str(self.shebang_path / "bash")
+        receipt = self.probe_shell("ordinary-env-bash", shebang_bash)
         result = subprocess.run(
             [str(self.root / "runner.sh"), str(self.binary), "shebang-arg"], cwd=self.root,
             env={**self.env, "PATH": str(self.shebang_path)},
@@ -141,17 +179,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         received = json.loads(self.log.read_text())
         self.assertEqual(received["args"], ["simctl", "spawn", "fixture-udid", str(self.binary), "shebang-arg"])
-        version = subprocess.run([os.path.realpath(shebang_bash), "--version"], text=True, capture_output=True, check=True).stdout.splitlines()[0]
-        self.assertIn("bash", version.lower(), version)
-        self.save_receipt("env-bash-shebang", shebang_bash, received)
+        self.assert_received_environment(received)
+        self.assertIn("bash", receipt["shell_version"].lower(), receipt["shell_version"])
+        self.save_receipt("ordinary-env-bash", receipt, received, result.returncode)
 
+        receipt = self.probe_shell("ordinary-env-bash-exit7", shebang_bash)
         status = subprocess.run(
             [str(self.root / "runner.sh"), str(self.binary), "exit-seven-shebang"], cwd=self.root,
             env={**self.env, "PATH": str(self.shebang_path), "HERDR_TEST_RECEIVER_STATUS": "7"},
             text=True, capture_output=True, check=False,
         )
         self.assertEqual(status.returncode, 7, status.stderr)
-        self.save_receipt("ordinary-env-bash-exit7", shebang_bash, json.loads(self.log.read_text()))
+        received = json.loads(self.log.read_text())
+        self.assertEqual(received["args"], ["simctl", "spawn", "fixture-udid", str(self.binary), "exit-seven-shebang"])
+        self.assert_received_environment(received)
+        self.save_receipt("ordinary-env-bash-exit7", receipt, received, status.returncode)
 
     def test_runner_error_paths_and_child_status(self):
         zero = subprocess.run([str(SYSTEM_BASH), str(self.root / "runner.sh")], env=self.env, capture_output=True)
