@@ -42,9 +42,7 @@ impl Smoke {
             AppLifecyclePhase::Disconnected => "scene_disconnected",
         });
         match phase {
-            AppLifecyclePhase::Inactive
-            | AppLifecyclePhase::Background
-            | AppLifecyclePhase::Disconnected => {
+            AppLifecyclePhase::Background | AppLifecyclePhase::Disconnected => {
                 if self.terminal.reconnect.suspended {
                     return;
                 }
@@ -126,9 +124,11 @@ impl Smoke {
                     let _ = release.send(());
                 }
             }
-            AppLifecyclePhase::Foreground => {}
+            // Losing scene focus is not backgrounding: retain both transports,
+            // their input destinations and any staged clipboard ownership.
+            AppLifecyclePhase::Inactive | AppLifecyclePhase::Foreground => {}
         }
-        self.observation.record(serde_json::json!({"kind":"lifecycle","phase":format!("{phase:?}"),"generation":self.terminal.link.generation,"suspended":self.terminal.reconnect.suspended}));
+        self.observation.record(serde_json::json!({"kind":"lifecycle","phase":format!("{phase:?}"),"generation":self.terminal.link.generation,"suspended":self.terminal.reconnect.suspended,"connected":self.terminal.live.connected,"herdr1":self.terminal.link.handle.is_some(),"core":self.terminal.core.is_some()}));
         cx.notify();
     }
 }
@@ -136,3 +136,7 @@ impl Smoke {
 #[cfg(test)]
 #[path = "reconnect_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "inactive_tests.rs"]
+mod inactive_tests;

@@ -12,7 +12,7 @@ spec.loader.exec_module(r5)
 class R5Check(unittest.TestCase):
     def records(self):
         return [
-            {"kind": "lifecycle", "phase": "Inactive", "generation": 2},
+            {"kind": "lifecycle", "phase": "Background", "generation": 2},
             {"kind": "reconnect", "host": "compatible-hidden", "generation": 1},
             {"kind": "r5-reader-release", "pending": True, "automatic": True, "generation": 2},
             {"kind": "lifecycle", "phase": "Active", "generation": 2},

@@ -307,7 +307,7 @@ fn core_return_after_old_mismatch(cx: &mut TestAppContext, late: bool) {
         crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("return peer: {e}"));
     view.update(cx, |this, cx| {
         this.terminal.core_test_backend = Some(backend);
-        this.lifecycle(gpui::AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(gpui::AppLifecyclePhase::Background, cx);
         let paused = this.terminal.link.generation;
         this.lifecycle(gpui::AppLifecyclePhase::Active, cx);
         assert!(
@@ -336,4 +336,56 @@ fn core_return_after_old_mismatch(cx: &mut TestAppContext, late: bool) {
     view.update(cx, |this, _| {
         this.terminal.core.take();
     });
+}
+
+#[gpui::test]
+fn sh1_155_inactive_keeps_core_identity_input_and_paint(cx: &mut TestAppContext) {
+    for automatic in [true, false] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let wire = start(&view, cx);
+        view.update(cx, |this, cx| {
+            this.terminal.reconnect.automatic = automatic;
+            let generation = this.terminal.link.generation;
+            let inbox = this.terminal.link.inbox.clone();
+            let finished = this
+                .terminal
+                .core
+                .as_ref()
+                .unwrap_or_else(|| panic!("core"))
+                .finished
+                .clone();
+            for phase in [
+                gpui::AppLifecyclePhase::Inactive,
+                gpui::AppLifecyclePhase::Active,
+            ] {
+                this.lifecycle(phase, cx);
+                assert!(!this.terminal.reconnect.suspended);
+                let core = this
+                    .terminal
+                    .core
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("core closed while inactive"));
+                assert!(Arc::ptr_eq(&finished, &core.finished));
+                assert!(Arc::ptr_eq(&inbox, &this.terminal.link.inbox));
+                assert_eq!(generation, this.terminal.link.generation);
+                assert!(this.terminal.live.connected);
+            }
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.terminal_focus.focus(window, cx);
+                this.refresh_terminal_input();
+                this.terminal.input.fresh_gesture();
+                this.replace_text_in_range(None, "INACTIVE", window, cx);
+            })
+        });
+        assert_eq!(receive(&view, cx, &wire), (1, b"INACTIVE".to_vec()));
+        wait_frame(&view, cx, |live| text(live).contains("INACTIVE"));
+        view.update(cx, |this, cx| {
+            this.lifecycle(gpui::AppLifecyclePhase::Background, cx);
+            assert!(this.terminal.core.is_none());
+            assert!(!this.terminal.live.connected);
+            assert!(this.terminal.reconnect.suspended);
+        });
+    }
 }
