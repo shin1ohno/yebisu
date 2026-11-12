@@ -665,6 +665,10 @@ is part of this check.
 4. Cut retains D3 copy-only semantics; Select All stays disabled (unimplemented).
    Setup fields retain the SDK default policy. Long-press UI itself (SH1-152)
    remains outside this task; it can reuse the standard selectors and policy.
+5. On a quiet terminal, begin a large image paste, then select cells before
+   preparation finishes. Once the cancelled worker exits, reopen Edit without
+   typing or receiving terminal output: Paste must be enabled again. The old
+   payload and any input held behind it must not arrive, even after refocusing.
 
 Simulator gate after a controller build lease: `just check`, `just lint-ios`,
 `just test`, `just guarded python3 scripts/ios/sh1-153-check.py`, and the existing
@@ -674,3 +678,9 @@ between validation and execution. Its case screenshots alone do not prove the
 menu bar was visible. Capture an actual Edit menu screenshot separately, attempt
 Simulator hardware-keyboard connection, and record any unavailable menu/keyboard
 facility explicitly rather than substituting the harness for that visual gate.
+The harness turns off the periodic smoke redraw after entering its first case.
+`cancelled_paste_completion_notifies_with_quiet_peer` separately gates the real
+paste worker, cancels it, drains notifications, and checks completion invalidation
+with smoke mode off and a silent private peer. Its wire barrier rejects replay of
+both the cancelled payload and held input. Removing the completion notification
+must fail the invalidation assertion; restoring it must pass.

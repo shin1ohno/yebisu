@@ -171,6 +171,12 @@ fn serve(
             Err(e) => return Err(e.into()),
         };
         let _ = receipts.send(message.clone());
+        // Regression fixture: after the initial surface, geometry requests must
+        // not produce updates that could hide a missing UI invalidation.
+        if fault == "quiet" {
+            record(&message)?;
+            continue;
+        }
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
@@ -320,6 +326,10 @@ pub(crate) fn connect_recorded(
     frames: u64,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
+}
+#[cfg(test)]
+pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "quiet")
 }
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)

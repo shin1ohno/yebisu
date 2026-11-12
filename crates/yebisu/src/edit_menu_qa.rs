@@ -21,6 +21,9 @@ impl Smoke {
                         .bg(rgb(0x3b4252))
                         .child("Menu prepare")
                         .on_click(cx.listener(|this, _, window, cx| {
+                            // Keep observation enabled, but do not let the smoke
+                            // timer repair stale native availability every second.
+                            this.smoke_mode = false;
                             let step = CASE.fetch_add(1, Ordering::Relaxed);
                             if step > 0 {
                                 this.observation.record(

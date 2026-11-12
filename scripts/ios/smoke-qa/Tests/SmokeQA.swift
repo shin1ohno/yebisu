@@ -78,6 +78,20 @@ final class SmokeQA: XCTestCase {
             try tapText("Menu execute", in: app)
             sleep(1)
             save("sh1-153-case-\(step)")
+            if step == 1 || step == 6 {
+                print("SH1-153 MENU HIERARCHY case=\(step)\n\(app.debugDescription)")
+                let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
+                if edit.exists && edit.isHittable {
+                    edit.tap()
+                    sleep(1)
+                    save("sh1-153-system-edit-\(step)")
+                    print("SH1-153 OPEN MENU case=\(step)\n\(app.debugDescription)")
+                    // Dismiss without choosing an extra command outside the receipt cases.
+                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                } else {
+                    print("SH1-153 system Edit menu is not exposed to XCTest in case \(step)")
+                }
+            }
         }
         try tapText("Menu prepare", in: app)
         sleep(1)
