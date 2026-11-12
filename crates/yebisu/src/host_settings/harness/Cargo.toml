@@ -1,0 +1,23 @@
+[package]
+name = "yebisu-p15-model-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Isolated source-only harness; no GPUI graph or application integration claim.
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+serde_json = "1"
+toml = "0.8.23"
+
+[lints.rust]
+unsafe_code = "deny"
+unused_qualifications = "deny"
+
+[lints.clippy]
+expect_used = "deny"
+unwrap_used = "deny"
