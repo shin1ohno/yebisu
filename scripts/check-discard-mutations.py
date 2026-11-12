@@ -52,7 +52,7 @@ MUTATIONS = [
      "self.cancelled = false;", "sh1_156_marked_barrier_retains_discard_fence"),
     ("host-discard", "board.rs", "next.input.retain_discard(discarded);",
      "/* mutation: lose old native client's discard */", "sh1_156_host_switch_inherits_discarded_and_rejected_marks"),
-    ("rejected-mark", "terminal_input.rs", "self.cancelled |= !text.is_empty();",
+    ("rejected-mark", "terminal_input.rs", "if !text.is_empty() {\n            self.record_discard();\n        }",
      "/* mutation: forget rejected native mark */", "sh1_156_host_switch_inherits_discarded_and_rejected_marks"),
     ("barrier-mark", "terminal_input.rs", "self.reject_mark(text);",
      "/* mutation: forget marked callback during barrier */", "sh1_156_marked_barrier_retains_discard_fence"),
