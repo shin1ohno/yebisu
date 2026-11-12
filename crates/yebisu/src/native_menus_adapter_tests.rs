@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn key(chord: &str, held: bool) -> KeyDownEvent {
+fn key(chord: &'static str, held: bool) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke::parse(chord).unwrap_or_else(|e| panic!("key {e}")),
         is_held: held,
