@@ -68,3 +68,9 @@ on disconnect, mismatch, reset or drop. Native submission additionally rechecks
 this proof, event age and the coherent inbox after authorization and after OS
 completion (`post_notification_when`). Sound checks that same generation in its
 worker, independently of the UI poll cadence.
+
+Lock resolution completed without compilation: SDK adds UserNotifications 0.3.2;
+consumer adds its exact SDK pin and Rodio 0.22.2 / CPAL 0.17.3 / Symphonia 0.5.5
+closure. Existing package versions are retained. Unrelated resolver rebinding of
+iana-time-zone and winapi-util Windows edges was restored to the prior lock.
+Both owned manifests pass `cargo metadata --locked --offline --no-deps` resolution.
