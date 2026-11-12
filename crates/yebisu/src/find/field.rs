@@ -296,6 +296,9 @@ impl EntityInputHandler for Field {
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
         self.input.marked.clone()
     }
+    fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+        Some(self.input.text.encode_utf16().count())
+    }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.retired {
             self.input.marked = None;

@@ -151,6 +151,7 @@ impl Smoke {
             live.search.clear();
         }
         self.terminal.input.detach();
+        self.fence_find_handoff();
         true
     }
     pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -164,6 +165,7 @@ impl Smoke {
             self.focus.focus(window, cx);
         }
         window.notify_text_input_changed(self.active_focus());
+        self.request_find_retirement(window, cx);
         cx.notify();
     }
     pub(crate) fn poll_find(&mut self, cx: &mut Context<Self>) {
@@ -453,3 +455,7 @@ mod tests;
 #[cfg(test)]
 #[path = "find/regression_tests.rs"]
 mod regression_tests;
+
+#[cfg(test)]
+#[path = "find/document_tests.rs"]
+mod document_tests;

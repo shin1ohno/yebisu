@@ -1,4 +1,4 @@
-//! D1-D4 regressions exercise production callbacks and actual receiving sockets.
+//! D1-D5 regressions exercise production callbacks and actual receiving sockets.
 #![allow(clippy::unwrap_used)]
 use super::available;
 use crate::{
@@ -83,6 +83,185 @@ fn terminal(receipts: &Receiver<ClientMessage>) -> Vec<ClientPaneInputEvent> {
         })
         .collect()
 }
+fn barrier(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    receipts: &Receiver<ClientMessage>,
+    label: &str,
+) -> Vec<ClientPaneInputEvent> {
+    view.update(cx, |this, _| {
+        this.terminal
+            .link
+            .handle
+            .as_ref()
+            .unwrap()
+            .request(
+                "boot-v1",
+                sheprd_client::Method::PaneScroll,
+                serde_json::json!({"pane_id":"w1:p1","offset_from_bottom":100,"p13_barrier":label}),
+            )
+            .unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut events = Vec::new();
+    loop {
+        match receipts
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap()
+        {
+            ClientMessage::ClientShellPaneInput {
+                pane_id,
+                events: next,
+            } => {
+                assert_eq!(pane_id, "w1:p1");
+                events.extend(next);
+            }
+            ClientMessage::ClientShellEndpointRequest { request, .. } => {
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                if request["params"]["p13_barrier"] == label {
+                    return events;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[gpui::test]
+fn d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d5", client);
+    let old_field = open(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.close_find(window, cx);
+            this.terminal.size = None;
+            assert!(this.find_handoff.paused, "D5 close lost native fence");
+            this.replace_text_in_range(None, "same😀", window, cx);
+            this.replace_and_mark_text_in_range(None, "same😀", None, window, cx);
+            // A physical-key-shaped event must not bypass a pending native fence.
+            this.terminal_key_down(&key("f", false), window, cx);
+            assert!(
+                this.find_handoff.paused,
+                "D5 key bypassed native retirement"
+            );
+        })
+    });
+    assert!(
+        barrier(&view, cx, &receipts, "before-ack").is_empty(),
+        "D5 unretired callback reached wire"
+    );
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let ticket = this.begin_find_retirement(40).unwrap();
+            assert!(this.complete_find_retirement(&ticket, 40, 41, window));
+            assert!(
+                !this.complete_find_retirement(&ticket, 40, 41, window),
+                "D5 duplicate native ack accepted"
+            );
+            // No GPUI key or terminal tap precedes either fresh callback.
+            this.replace_text_in_range(None, "same😀", window, cx);
+            this.replace_and_mark_text_in_range(None, "same😀", Some(1..3), window, cx);
+            assert!(
+                this.terminal.input.composition.marked.is_some(),
+                "D5 fresh native mark rejected"
+            );
+            this.replace_text_in_range(None, "same😀", window, cx);
+        });
+        old_field.update(cx, |field, cx| {
+            field.replace_text_in_range(None, "same😀", window, cx);
+            field.replace_and_mark_text_in_range(None, "same😀", None, window, cx);
+            field.unmark_text(window, cx);
+        });
+    });
+    assert_eq!(
+        barrier(&view, cx, &receipts, "after-fresh"),
+        vec![
+            ClientPaneInputEvent::TextCommit("same😀".into()),
+            ClientPaneInputEvent::TextCommit("same😀".into())
+        ],
+        "D5 direct fresh callbacks did not reach current target exactly once"
+    );
+}
+
+#[gpui::test]
+fn d5_retirement_ack_rejects_changed_owners_and_native_identities(cx: &mut TestAppContext) {
+    for fault in [
+        "host",
+        "selection",
+        "generation",
+        "boot",
+        "pane",
+        "epoch",
+        "mailbox",
+        "disconnect",
+        "revision",
+        "focus",
+        "reopen",
+        "retired",
+        "replacement",
+    ] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, _receipts) = crate::find::peer::connect().unwrap();
+        install(&view, cx, "d5-owner", client);
+        open(&view, cx);
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.close_find(window, cx);
+                let ticket = this.begin_find_retirement(40).unwrap();
+                match fault {
+                    "host" => this.terminal.reconnect.target = "other".into(),
+                    "selection" => this.board.selection += 1,
+                    "generation" => this.terminal.link.generation += 1,
+                    "boot" | "pane" | "epoch" | "disconnect" => {
+                        let mut live = this.terminal.link.inbox.lock().unwrap();
+                        match fault {
+                            "boot" => {
+                                let mut snapshot = live.snapshot.as_deref().unwrap().clone();
+                                let mut surface = live.surface.as_deref().unwrap().clone();
+                                snapshot.boot_id = "new".into();
+                                surface.boot_id = "new".into();
+                                live.snapshot = Some(std::sync::Arc::new(snapshot));
+                                live.surface = Some(std::sync::Arc::new(surface));
+                            }
+                            "pane" => {
+                                let mut snapshot = live.snapshot.as_deref().unwrap().clone();
+                                snapshot.focused_pane_id = Some("other-pane".into());
+                                live.snapshot = Some(std::sync::Arc::new(snapshot));
+                            }
+                            "epoch" => live.input_epoch += 1,
+                            _ => live.connected = false,
+                        }
+                    }
+                    "mailbox" => {
+                        this.terminal.link.inbox =
+                            std::sync::Arc::new(std::sync::Mutex::new(this.terminal.live.clone()))
+                    }
+                    "revision" => {
+                        this.terminal.input.detach();
+                        this.refresh_terminal_input();
+                    }
+                    "focus" => this.focus.focus(window, cx),
+                    "reopen" => this.open_find(window, cx),
+                    _ => {}
+                }
+                assert!(
+                    !this.complete_find_retirement(
+                        &ticket,
+                        if fault == "retired" { 39 } else { 40 },
+                        if fault == "replacement" { 42 } else { 41 },
+                        window
+                    ),
+                    "D5 stale {fault} ack released native fence"
+                );
+                assert!(this.find_handoff.paused);
+            })
+        });
+    }
+}
 #[gpui::test]
 fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestAppContext) {
     for report_all in [false, true] {
@@ -125,6 +304,8 @@ fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestApp
         );
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
+                // Explicit host boundary after the old-callback negative above.
+                this.controlled_find_retirement(window);
                 this.terminal_key_down(&key("escape", false), window, cx);
                 this.terminal_key_up(
                     &KeyUpEvent {

@@ -89,9 +89,9 @@ def validate(records, messages):
                 for m in messages if "ClientShellEndpointRequest" in m]
     searches = [r["params"] for r in requests if r["method"] == "pane.copy_search"]
     queries = [r["query"] for r in searches]
-    if not queries or queries[0] != "needle" or "日本語" not in queries or queries[-1] != "beyond" or queries.count("needle") < 2:
+    if not queries or queries[0] != "needle" or "日本語" not in queries or "beyond" not in queries or queries[-1] != "P13-fresh" or queries.count("needle") < 2:
         raise ValueError("missing ordered ASCII/Japanese/native-paste receiving queries")
-    if any(q not in {"needle", "日本語", "beyond"} for q in queries):
+    if any(q not in {"needle", "日本語", "beyond", "P13-fresh"} for q in queries):
         raise ValueError("composing or unrelated text reached search wire")
     if not {"forward", "backward"}.issubset({r["direction"] for r in searches}):
         raise ValueError("next/previous receiving requests missing")
@@ -123,8 +123,29 @@ def validate(records, messages):
         raise ValueError("offscreen search never reached receiving pane.scroll")
     terminal = [event for m in messages if "ClientShellPaneInput" in m
                 for event in m["ClientShellPaneInput"]["events"]]
-    if terminal != [{"TextCommit": "P13-fresh"}]:
+    if terminal != [{"TextCommit": "P13-fresh"}, {"TextCommit": "P13-fresh"}]:
         raise ValueError("search leaked terminal bytes or fresh commit count differs: " + repr(terminal))
+    probes = [r for r in records if r.get("kind") == "p13-native-close-probe"]
+    if len(probes) != 1 or probes[0].get("ready") != [True, True, True] or probes[0].get("paused") is not False or probes[0].get("new") != probes[0].get("old", -2) + 1:
+        raise ValueError("D5 actual native replacement/readiness missing")
+    if not any(r.get("kind") == "p13-native-retirement" and r.get("accepted") is True and (r.get("retired"), r.get("replacement")) == (probes[0]["old"], probes[0]["new"]) for r in records):
+        raise ValueError("D5 correlated native acknowledgement missing")
+    phase = "search"
+    phase_events = {name: [] for name in ("search", "old-before-close", "old-after-close", "fresh-after-close")}
+    seen = []
+    for message in messages:
+        if "ClientShellEndpointRequest" in message:
+            request = json.loads(message["ClientShellEndpointRequest"]["request"])
+            label = request.get("params", {}).get("p13_barrier")
+            if label:
+                seen.append(label)
+                phase = label
+        if "ClientShellPaneInput" in message:
+            if message["ClientShellPaneInput"].get("pane_id") != "w1:p1":
+                raise ValueError("D5 native callbacks used wrong target")
+            phase_events[phase].extend(message["ClientShellPaneInput"]["events"])
+    if seen != ["old-before-close", "old-after-close", "fresh-after-close"] or any(phase_events[p] for p in ("search", "old-before-close", "fresh-after-close")) or phase_events["old-after-close"] != terminal:
+        raise ValueError("D5 receiving FIFO phases contain stale callbacks or lost fresh input")
     if any("ClientShellPopupInput" in m for m in messages):
         raise ValueError("search leaked popup input")
     paints = [r for r in records if r.get("kind") == "terminal" and r.get("p13_search")]
@@ -160,7 +181,7 @@ def collect(directory, expected_head):
         raise RuntimeError("P13 exact-head mismatch")
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "head.txt").write_text(head + "\n")
-    bundle = run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu"], directory, "bundle").strip().splitlines()[-1]
+    bundle = run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", "--features", "p13-native-probe"], directory, "bundle").strip().splitlines()[-1]
     device = run(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"'], directory, "device").strip().splitlines()[-1]
     run(["xcrun", "simctl", "install", device, bundle], directory, "install")
     project = directory / "oracle"

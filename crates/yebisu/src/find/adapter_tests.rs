@@ -135,7 +135,8 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
             this.close_find(window, cx);
             assert!(this.terminal_focus.is_focused(window));
             this.terminal.size = None;
-            this.terminal_key_down(&key("f"), window, cx);
+            // Explicit controlled boundary; this is not UIKit retirement proof.
+            this.controlled_find_retirement(window);
             this.replace_text_in_range(None, "fresh-only", window, cx);
         })
     });

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Leased Mac only: prove D1-D4 regression assertions detect removed fixes.
+"""Leased Mac only: prove D1-D6 regression assertions detect removed fixes.
 
 Run through `just guarded` on an isolated, clean, exact-head checkout. Each
 mutation must fail its named runtime assertion, then restored source must pass
@@ -19,6 +19,8 @@ CASES = [
     ("D3", "crates/yebisu/src/find/field.rs", "if let Some(span) = retained_mark {", "if let Some(span) = retained_mark.filter(|_| false) {", "d3_native_partial_mark_delete_replace_then_escape_keeps_search_open", "D3 native partial deletion committed remaining mark"),
     ("D4-nativeCut", "crates/yebisu/src/find/field.rs", 'Some(self.input.selected.clone()),', 'None,', "d4_native_cut_preserves_unselected_mark_then_escape", "D4 Cut deleted unselected marked text"),
     ("D4-commandX", "crates/yebisu/src/find/field.rs", '"x" => self.cut(window, cx),', '"x" => { self.copy(cx); self.replace(None, "", false, None, window, cx); }', "d4_command_x_preserves_unselected_mark_then_escape", "D4 Cut deleted unselected marked text"),
+    ("D5", "crates/yebisu/src/terminal_input.rs", 'self.composition = Input::default();\n        self.cancelled = false;\n        true', 'self.composition = Input::default();\n        self.cancelled = true;\n        true', "d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down", "D5 fresh native mark rejected"),
+    ("D6", "crates/yebisu/src/find/field.rs", 'Some(self.input.text.encode_utf16().count())', 'Some(self.input.selected.end.max(self.input.marked.as_ref().map_or(0, |r| r.end)))', "d6_document_length_includes_suffix_after_caret_and_partial_emoji_cut", "D6 document end omitted suffix after caret"),
 ]
 
 
@@ -65,7 +67,7 @@ def main():
         (directory / "results.json").write_text(json.dumps({"head": head, "cases": outcomes}, indent=2) + "\n")
     if subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain"], text=True):
         raise RuntimeError("source was not restored after mutation batch")
-    print("P13 D1-D4 runtime mutation assertions and restored tests PASS", flush=True)
+    print("P13 D1-D6 host runtime mutation assertions and restored tests PASS; UIKit D6 queries require separate native proof", flush=True)
 
 
 if __name__ == "__main__":

@@ -14,10 +14,6 @@ impl Smoke {
                     let mut repeat=qa_key("escape");repeat.is_held=true;
                     this.terminal_key_down(&repeat,window,cx);
                     this.terminal_key_up(&KeyUpEvent{keystroke:qa_key("escape").keystroke},window,cx);
-                    let focused=this.terminal_focus.is_focused(window);
-                    this.terminal_key_down(&qa_key("f"),window,cx);
-                    this.replace_text_in_range(None,"P13-fresh",window,cx);
-                    this.observation.record(serde_json::json!({"kind":"p13-close","focused":focused,"active":this.find.is_some()}));
                 } else if let Some(bar)=&this.find {
                     let field=bar.field.clone();
                     let focus=field.read(cx).focus.clone(); focus.focus(window,cx);
@@ -56,7 +52,6 @@ impl Smoke {
                                 field.input.selected=0..field.input.text.encode_utf16().count();
                                 field.replace_text_in_range(None,"beyond",window,cx);
                             }
-                            12 => field.key(&qa_key("escape"),window,cx),
                             _=>{}
                         }
                         if step==8 || step==9 {
@@ -72,6 +67,10 @@ impl Smoke {
                     if step==6 || step==7 {
                         let scheduled=schedule_edit(step==7);
                         this.observation.record(serde_json::json!({"kind":"p13-native-selector","action":if step==7 {"cut"}else{"paste"},"scheduled":scheduled}));
+                    }
+                    if step==12 {
+                        #[cfg(feature = "p13-native-probe")]
+                        this.p13_native_close_probe(window,cx);
                     }
                 }
                 this.observation.record(serde_json::json!({"kind":"p13-step","step":step,"active":this.find.is_some(),"marked":this.find.as_ref().and_then(|b|b.field.read(cx).input.marked.clone())}));

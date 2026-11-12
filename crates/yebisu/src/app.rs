@@ -9,6 +9,7 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) find: Option<crate::find_view::FindBar>,
+    pub(crate) find_handoff: crate::find::retirement::Handoff,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
@@ -79,6 +80,7 @@ impl Smoke {
         .detach();
         Self {
             find: None,
+            find_handoff: Default::default(),
             settings: None,
             settings_error: None,
             focus,

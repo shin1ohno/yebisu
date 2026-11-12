@@ -262,6 +262,12 @@ impl Smoke {
             self.terminal_focus.focus(window, cx);
             self.terminal.needs_focus = false;
         }
+        // Submit once when an invalidated search hands focus back. Refusals
+        // remain fenced; rendering never retries a native retirement request.
+        if self.find_handoff.needs_request && self.find.is_none() {
+            self.refresh_terminal_input();
+            self.request_find_retirement(window, cx);
+        }
         let insets = window.insets().safe_area;
         let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
         let compact = self.terminal.compact;
@@ -272,6 +278,8 @@ impl Smoke {
         };
         let status = if self.terminal.navigating.is_some() {
             "Navigating… · input paused".to_owned()
+        } else if let Some(reason) = self.find_keyboard_status() {
+            reason.to_owned()
         } else if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             "Composition discarded · tap terminal to type".to_owned()
         } else if self.terminal.live.status.is_empty() {

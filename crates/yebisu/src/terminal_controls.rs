@@ -20,7 +20,7 @@ impl Smoke {
         }
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
-        if self.find.is_some() {
+        if self.find.is_some() || self.find_handoff.paused {
             return;
         }
         self.refresh_terminal_input();
@@ -39,6 +39,9 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
+        if self.find.is_some() || self.find_handoff.paused {
+            return;
+        }
         if self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
@@ -68,6 +71,11 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         if self.find.is_some() || !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        if self.find_handoff.paused {
+            cx.stop_propagation();
+            window.prevent_default();
             return;
         }
         #[cfg(target_os = "ios")]
@@ -168,6 +176,10 @@ impl Smoke {
             return;
         }
         if self.actions.consumed.remove(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
+        if self.find_handoff.paused {
             cx.stop_propagation();
             return;
         }
