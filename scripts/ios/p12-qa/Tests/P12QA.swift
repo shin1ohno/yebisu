@@ -74,12 +74,15 @@ final class P12QA: XCTestCase {
         if !negative { XCTAssertTrue(tapped, "Positive native command must be actionable") }
         if enabled { XCTAssertTrue(item.isHittable, "Enabled item must remain hittable") }
         screenshot("p12-before-" + caseName)
-        events.append(["kind": "os-menu-pick", "case": caseName, "command": title,
-                       "owner": owner === springboard ? "com.apple.springboard" : "com.shin1ohno.yebisu", "buttonLabel": item.label,
-                       "enabled": enabled, "tapped": tapped, "negative": negative])
+        let pickStart = Date().timeIntervalSince1970
+        let buttonLabel = item.label
         if tapped { item.tap() }
         else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap() }
         sleep(1)
+        events.append(["kind": "os-menu-pick", "case": caseName, "command": title,
+                       "owner": owner === springboard ? "com.apple.springboard" : "com.shin1ohno.yebisu", "buttonLabel": buttonLabel,
+                       "started": pickStart, "ended": Date().timeIntervalSince1970,
+                       "enabled": enabled, "tapped": tapped, "negative": negative])
         screenshot("p12-after-" + caseName)
     }
 
@@ -95,7 +98,11 @@ final class P12QA: XCTestCase {
                     guard let range = text.string.range(of: label),
                           let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
                     if tap {
+                        let setupStart = Date().timeIntervalSince1970
                         app.coordinate(withNormalizedOffset: CGVector(dx: bounds.midX, dy: 1 - bounds.midY)).tap()
+                        sleep(1)
+                        events.append(["kind": "fixture-control", "step": String(label.dropFirst(4)).lowercased(),
+                                       "started": setupStart, "ended": Date().timeIntervalSince1970])
                     }
                     return
                 }

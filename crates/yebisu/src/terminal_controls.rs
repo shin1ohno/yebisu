@@ -64,7 +64,11 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let receipt = self.p12_shortcut_entry(event, window);
         if !self.terminal_focus.is_focused(window) || !window.is_window_active() {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            self.p12_menu_end(receipt, false, "focus_scene");
             return;
         }
         #[cfg(target_os = "ios")]
@@ -105,6 +109,8 @@ impl Smoke {
             self.actions.consumed.remove(&event.keystroke.key);
         }
         if event.is_held && self.actions.consumed.contains(&event.keystroke.key) {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            self.p12_menu_end(receipt, false, "held_consumed");
             cx.stop_propagation();
             window.prevent_default();
             return;
@@ -120,10 +126,24 @@ impl Smoke {
         if let Some(command) =
             crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
         {
-            if !event.is_held
-                && let Err(e) = self.run_menu_shortcut(command)
-            {
-                self.terminal.live.status = e.to_string();
+            if !event.is_held {
+                let result = self.run_menu_shortcut(command);
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                self.p12_menu_end(
+                    receipt,
+                    result.is_ok(),
+                    if self.p12_installed() {
+                        "native_menus.take"
+                    } else {
+                        "not_installed"
+                    },
+                );
+                if let Err(e) = result {
+                    self.terminal.live.status = e.to_string();
+                }
+            } else {
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                self.p12_menu_end(receipt, false, "held");
             }
             self.actions.consumed.insert(event.keystroke.key.clone());
             cx.stop_propagation();

@@ -1,6 +1,6 @@
 //! Simulator fixture only. Controls prepare state; only OS menu picks execute actions.
-use crate::{app::Smoke, live::Live};
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use crate::app::Smoke;
+use gpui::{AnyElement, Context, KeyDownEvent, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_client::protocol::ClientPaneInputEvent;
 use std::{
     sync::{Arc, mpsc::SyncSender},
@@ -13,7 +13,7 @@ pub(crate) struct MenuQa {
     pub freeze: bool,
     pub deadline: Option<Instant>,
     case: &'static str,
-    saved: Option<(Live, String, u64)>,
+    saved: Option<(String, Option<String>, Vec<String>)>,
     mutated: bool,
 }
 impl Smoke {
@@ -21,6 +21,11 @@ impl Smoke {
         std::env::var_os("YEBISU_P12_QA")?;
         Some(
             div()
+                .id("p12-qa-controls")
+                .occlude()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(|_, _, cx| cx.stop_propagation())
                 .absolute()
                 .top(px(70.))
                 .right(px(8.))
@@ -53,7 +58,10 @@ impl Smoke {
                     .into_iter()
                     .map(|(label, case)| {
                         div().id(label).p_1().child(label).on_click(cx.listener(
-                            move |this, _, window, cx| this.p12_prepare(case, window, cx),
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.p12_prepare(case, window, cx);
+                            },
                         ))
                     }),
                 )
@@ -61,16 +69,29 @@ impl Smoke {
         )
     }
     fn p12_restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((live, host, generation)) = self.p12_qa.saved.take() {
-            self.terminal.live = live;
-            self.terminal.reconnect.target = host;
-            self.terminal.link.generation = generation;
+        if let Some((host, pane, methods)) = self.p12_qa.saved.take() {
+            // Restore only the injected field. Never resurrect connected state,
+            // a stale snapshot, an inbox, a handle or a transport generation.
+            match self.p12_qa.case {
+                "host" => self.terminal.reconnect.target = host,
+                "pane" => {
+                    if let Some(snapshot) = self.terminal.live.snapshot.as_mut() {
+                        Arc::make_mut(snapshot).focused_pane_id = pane;
+                    }
+                }
+                "capability" => self.terminal.live.methods = methods,
+                _ => {}
+            }
         }
         self.p12_qa.freeze = false;
         self.p12_qa.deadline = None;
         self.terminal_focus.focus(window, cx);
     }
     fn p12_prepare(&mut self, case: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        let before = [self.actions.board_hidden, self.actions.palette];
+        self.observation
+            .record(serde_json::json!({"kind":"p12-setup-begin", "step":case,
+            "state":self.p12_state(window)}));
         if case == "reset" {
             self.observation.record(serde_json::json!({"kind":"p12-reset", "case":self.p12_qa.case,
                 "sidebar":self.actions.board_hidden,"palette":self.actions.palette,"mutated":self.p12_qa.mutated}));
@@ -94,7 +115,8 @@ impl Smoke {
                 )
             });
             self.observation.record(
-                serde_json::json!({"kind":"p12-finish","enqueued":matches!(result,Some(Ok(_)))}),
+                serde_json::json!({"kind":"p12-finish","enqueued":matches!(result,Some(Ok(_))),
+                    "reason":match &result { None => "no_handle", Some(Err(_)) => "send_error", Some(Ok(_)) => "queued" }}),
             );
         } else {
             self.p12_restore(window, cx);
@@ -104,9 +126,10 @@ impl Smoke {
             let negative = matches!(case, "host" | "pane" | "revision" | "focus" | "capability");
             if negative {
                 self.p12_qa.saved = Some((
-                    self.terminal.live.clone(),
                     self.terminal.reconnect.target.clone(),
-                    self.terminal.link.generation,
+                    crate::board::snapshot(&self.terminal.live)
+                        .and_then(|s| s.focused_pane_id.clone()),
+                    self.terminal.live.methods.clone(),
                 ));
                 // Preserve an actually installed OS menu entry across injected scope change.
                 self.p12_qa.freeze = true;
@@ -114,9 +137,13 @@ impl Smoke {
             }
             self.observation.record(serde_json::json!({"kind":"p12-prepare","case":case,
                 "pending":self.terminal.navigating.is_some(),"sidebar":self.actions.board_hidden,"palette":self.actions.palette,
-                "negative":negative,"connected":self.terminal.live.connected,
+                "negative":negative,"connected":self.terminal.live.connected,"state":self.p12_state(window),
                 "catalog":crate::actions::catalog(&self.terminal).iter().map(|a|serde_json::json!({"name":a.info.name,"label":a.label,"enabled":a.available})).collect::<Vec<_>>()}));
         }
+        self.observation
+            .record(serde_json::json!({"kind":"p12-setup-end", "step":case,
+            "before":before,"after":[self.actions.board_hidden,self.actions.palette],
+            "state":self.p12_state(window)}));
         cx.notify();
     }
     pub(crate) fn p12_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -138,24 +165,75 @@ impl Smoke {
         }
         self.p12_qa.mutated = true;
         self.observation.record(serde_json::json!({"kind":"p12-mutated","case":self.p12_qa.case,
-            "focused":self.terminal_focus.is_focused(window),"sidebar":self.actions.board_hidden,"palette":self.actions.palette}));
+            "state":self.p12_state(window),"focused":self.terminal_focus.is_focused(window),"sidebar":self.actions.board_hidden,"palette":self.actions.palette}));
         cx.notify();
     }
-    pub(crate) fn p12_menu_receipt(
+    pub(crate) fn p12_state(&self, window: &Window) -> serde_json::Value {
+        let snapshot = crate::board::snapshot(&self.terminal.live);
+        serde_json::json!({
+            "revision":self.p12_revision(), "scene_active":window.is_window_active(),
+            "focused":self.terminal_focus.is_focused(window),
+            "pending":self.terminal.navigating.is_some(), "connected":self.terminal.live.connected,
+            "inbox_connected":self.terminal.link.inbox.try_lock().ok().map(|s|s.connected),
+            "handle_present":self.terminal.link.handle.is_some(),
+            "generation":self.terminal.link.generation,
+            // Fixture host/pane identity is expressed as equality, not arbitrary user data.
+            "original_host":self.terminal.reconnect.target != "p12-other-host",
+            "original_pane":snapshot.and_then(|s|s.focused_pane_id.as_deref()) != Some("p12-other-pane"),
+            "split_capability":self.terminal.live.methods.iter().any(|m|m == "pane.split"),
+            "sidebar":self.actions.board_hidden,"palette":self.actions.palette,
+        })
+    }
+    pub(crate) fn p12_menu_begin(
         &self,
         name: &str,
-        revision: Option<u64>,
+        captured_revision: Option<u64>,
+        origin: &'static str,
+        window: &Window,
+    ) -> serde_json::Value {
+        let receipt = serde_json::json!({"kind":"p12-menu-entry","case":self.p12_qa.case,
+            "name":name,"origin":origin,"captured_revision":captured_revision,
+            "current_revision":self.p12_revision(),"state":self.p12_state(window),
+            "mutated":self.p12_qa.mutated,"before":[self.actions.board_hidden,self.actions.palette]});
+        if std::env::var_os("YEBISU_P12_QA").is_some() {
+            self.observation.record(receipt.clone());
+        }
+        receipt
+    }
+    pub(crate) fn p12_shortcut_entry(
+        &self,
+        event: &KeyDownEvent,
+        window: &Window,
+    ) -> Option<serde_json::Value> {
+        std::env::var_os("YEBISU_P12_QA")?;
+        let command =
+            crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)?;
+        let name = crate::actions::catalog(&self.terminal)
+            .into_iter()
+            .find(|a| a.info.command == command)?
+            .info
+            .name;
+        // SDK key_down carries no captured menu action identity. Never relabel
+        // a key callback as native, or substitute current revision as capture.
+        Some(self.p12_menu_begin(name, None, "shortcut_key_down", window))
+    }
+    pub(crate) fn p12_menu_end(
+        &self,
+        receipt: Option<serde_json::Value>,
         accepted: bool,
-        before: (bool, bool),
+        guard: &'static str,
     ) {
         if std::env::var_os("YEBISU_P12_QA").is_none() {
             return;
         }
-        self.observation.record(
-            serde_json::json!({"kind":"p12-menu-receiver","case":self.p12_qa.case,
-            "name":name,"revision":revision,"accepted":accepted,"mutated":self.p12_qa.mutated,
-            "pending":self.terminal.navigating.is_some(),"before":[before.0,before.1],
-            "after":[self.actions.board_hidden,self.actions.palette]}),
-        );
+        let Some(mut receipt) = receipt else {
+            return;
+        };
+        receipt["kind"] = "p12-menu-receiver".into();
+        receipt["accepted"] = accepted.into();
+        receipt["guard"] = guard.into();
+        receipt["pending"] = self.terminal.navigating.is_some().into();
+        receipt["after"] = serde_json::json!([self.actions.board_hidden, self.actions.palette]);
+        self.observation.record(receipt);
     }
 }

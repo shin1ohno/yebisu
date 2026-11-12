@@ -188,7 +188,7 @@ impl Smoke {
     ) {
         let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        let before = (self.actions.board_hidden, self.actions.palette);
+        let receipt = self.p12_menu_begin(&action.name, action.revision, "native_action", window);
         let result = self
             .native_menus
             .take(action, &self.terminal, &self.actions, focused)
@@ -198,7 +198,7 @@ impl Smoke {
             "accepted": result.is_ok(), "error": result.as_ref().err().map(ToString::to_string),
         }));
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        self.p12_menu_receipt(&action.name, action.revision, result.is_ok(), before);
+        self.p12_menu_end(Some(receipt), result.is_ok(), "native_menus.take");
         if let Err(error) = result {
             self.terminal.live.status = error.to_string();
         }
@@ -218,6 +218,12 @@ mod adapter_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 impl Smoke {
+    pub(crate) fn p12_revision(&self) -> u64 {
+        self.native_menus.revision
+    }
+    pub(crate) fn p12_installed(&self) -> bool {
+        self.native_menus.scope.is_some()
+    }
     pub(crate) fn p12_invalidate_revision(&mut self) {
         self.native_menus.revision = self.native_menus.revision.saturating_add(1);
     }
