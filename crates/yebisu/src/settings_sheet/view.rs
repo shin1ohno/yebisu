@@ -117,9 +117,7 @@ impl Smoke {
                     cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
                 ));
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        {
-            header = header.children(self.settings_qa_controls(cx));
-        }
+        let header = header.children(self.settings_qa_controls(cx));
         let body = div()
             .flex()
             .min_h_0()
