@@ -255,6 +255,32 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1155Inactive() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        save("sh1-155-before")
+        // Control Center produces a real scene inactive notification without Home.
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.01))
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.65))
+        top.press(forDuration: 0.1, thenDragTo: lower)
+        sleep(3)
+        save("sh1-155-inactive")
+        app.activate()
+        sleep(3)
+        save("sh1-155-returned")
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        app.activate()
+        sleep(4)
+        save("sh1-155-background-return")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP5Reconnect() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()

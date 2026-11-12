@@ -9,13 +9,13 @@ from pathlib import Path
 
 def validate(records):
     phases = [r for r in records if r.get("kind") == "lifecycle"]
-    if not any(r["phase"] == "Inactive" for r in phases) or not any(r["phase"] == "Active" for r in phases):
-        raise ValueError("R5 did not exercise inactive/active lifecycle")
+    if not any(r["phase"] == "Background" for r in phases) or not any(r["phase"] == "Active" for r in phases):
+        raise ValueError("R5 did not exercise background/active lifecycle")
     releases = [r for r in records if r.get("kind") == "r5-reader-release"]
     if len(releases) != 1 or releases[0].get("pending") is not True or releases[0].get("automatic") is not True:
         raise ValueError("R5 old reader was not held through Automatic return")
     release_index = records.index(releases[0])
-    inactive = [r for r in records[:release_index] if r.get("kind") == "lifecycle" and r.get("phase") == "Inactive"]
+    inactive = [r for r in records[:release_index] if r.get("kind") == "lifecycle" and r.get("phase") == "Background"]
     active = [r for r in records[release_index+1:] if r.get("kind") == "lifecycle" and r.get("phase") == "Active"]
     if not inactive or not active or not (inactive[-1].get("generation") == releases[0].get("generation") == active[0].get("generation")):
         raise ValueError("R5 reader release did not straddle the same paused generation")

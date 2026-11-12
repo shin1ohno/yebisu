@@ -56,7 +56,7 @@ fn lifecycle_isolates_old_inbox_and_does_not_redial_in_manual_mode(cx: &mut Test
         this.terminal.input.sync(&this.terminal.live, 0, None);
         this.terminal.input.mark("古い変換", None);
         let old = this.terminal.link.inbox.clone();
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         let generation = this.terminal.link.generation;
         this.lifecycle(AppLifecyclePhase::Background, cx);
         assert_eq!(this.terminal.link.generation, generation);
@@ -87,7 +87,7 @@ fn version_mismatch_never_automatically_reconnects(cx: &mut TestAppContext) {
                 },
             ));
         assert!(this.terminal.live.version_mismatch.get().is_none());
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         let generation = this.terminal.link.generation;
         this.lifecycle(AppLifecyclePhase::Active, cx);
         assert_eq!(this.terminal.link.generation, generation);
@@ -106,7 +106,7 @@ fn late_reader_mismatch_survives_pause_and_stale_completion(cx: &mut TestAppCont
         this.terminal.reconnect.begin("a@host".into());
         let old = this.terminal.link.inbox.clone();
         let old_generation = this.terminal.link.generation;
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         old.lock()
             .unwrap_or_else(|e| panic!("lock {e}"))
             .apply(ClientEvent::VersionMismatch(
@@ -145,7 +145,7 @@ fn hidden_host_mismatch_is_retained_without_polling(cx: &mut TestAppContext) {
                     server_version: Some("hidden-0.8".into()),
                 },
             ));
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         let generation = this.board.hidden["hidden@host"].link.generation;
         this.lifecycle(AppLifecyclePhase::Active, cx);
         let hidden = &this.board.hidden["hidden@host"];
@@ -162,7 +162,7 @@ fn busy_inbox_does_not_block_pause_and_late_reason_reaches_ui(cx: &mut TestAppCo
         this.terminal.reconnect.automatic = false;
         let old = this.terminal.link.inbox.clone();
         let mut reader = old.lock().unwrap_or_else(|e| panic!("lock {e}"));
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         this.lifecycle(AppLifecyclePhase::Active, cx);
         this.poll_terminal(cx);
         reader.apply(ClientEvent::VersionMismatch(
@@ -190,7 +190,7 @@ fn first_foreground_begins_each_new_hidden_host_once(cx: &mut TestAppContext) {
             "hidden-b@invalid.test".into(),
         ];
         assert!(this.board.hidden.is_empty());
-        this.lifecycle(AppLifecyclePhase::Inactive, cx);
+        this.lifecycle(AppLifecyclePhase::Background, cx);
         this.lifecycle(AppLifecyclePhase::Active, cx);
         for host in &this.setup.hosts {
             let terminal = if *host == this.terminal.reconnect.target {

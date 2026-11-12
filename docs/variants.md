@@ -60,7 +60,9 @@ switches remain available without rebuilding.
 
 ## P5 reconnect on return
 
-- Terminal の `Return: Automatic` が既定。背景/Inactive で接続と入力を捨て、Active 復帰で一度だけ P2 の鍵検証から接続する。
+SH1-155 option 1 は 2026-11-11 にオーナーが選択。Inactive（アプリスイッチャー、Stage Manager のフォーカス移動、通知/コントロールセンター、システムシート）では Herdr 1/2 の接続を維持し、Active に戻っても再接続しない。Background またはシーン切断で接続を閉じる。OS の suspension を防ぐ keep-alive は追加しない。通信が失われた場合は既存の切断表示と Reconnect を使う。新たな体感上の選択肢はない。
+
+- Terminal の `Return: Automatic` が既定。背景で接続と入力を捨て、Active 復帰で一度だけ P2 の鍵検証から接続する。
 - このラベルをタップして `Return: Tap reconnect` に切替。背景から戻った後は `Reconnect` をタップするまで接続しない。再ビルド不要、現在の起動中に保持。
 - 両方とも入力を再送しない。ネットワーク切替で失敗した場合は理由を表示し、Reconnect または次回の背景復帰で再試行。連続 retry はしない。VersionMismatch は自動再接続しない。
 - 保存ホストの内部構造には比較用 variant を作っていない。
