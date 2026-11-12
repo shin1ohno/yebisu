@@ -81,14 +81,17 @@ def unfilter(data, width, height, channels):
 
 
 def decode(data):
-    """Returns (width, height, channels, rows) of an 8-bit RGB or RGBA PNG."""
+    """Returns display-oriented (width, height, channels, rows) of a PNG."""
     header = None
+    orientation = 1
     compressed = bytearray()
     for kind, body in read_chunks(data):
         if kind == b"IHDR":
             header = struct.unpack(">IIBBBBB", body)
         elif kind == b"IDAT":
             compressed += body
+        elif kind == b"eXIf":
+            orientation = exif_orientation(body)
     if header is None:
         raise PngError("no IHDR chunk")
     width, height, depth, color_type, _, _, interlace = header
@@ -99,7 +102,44 @@ def decode(data):
         )
     channels = CHANNELS[color_type]
     rows = unfilter(zlib.decompress(bytes(compressed)), width, height, channels)
+    # XCTest landscape captures may retain portrait IHDR dimensions and express
+    # rotation solely in eXIf. Paint receipts use the displayed viewport.
+    if orientation in (2, 3, 4):
+        if orientation in (3, 4):
+            rows = rows[::-1]
+        if orientation in (2, 3):
+            rows = [bytearray().join(row[x:x+channels] for x in range(
+                (width-1)*channels, -1, -channels)) for row in rows]
+    elif orientation in (5, 6, 7, 8):
+        source = rows if orientation in (5, 8) else rows[::-1]
+        columns = range(width) if orientation in (5, 6) else range(width-1, -1, -1)
+        rows = [bytearray().join(row[x*channels:(x+1)*channels] for row in source)
+                for x in columns]
+        width, height = height, width
     return width, height, channels, rows
+
+
+def exif_orientation(body):
+    """Read the TIFF IFD0 orientation from PNG's eXIf chunk; fail on corruption."""
+    try:
+        endian = {b"MM": ">", b"II": "<"}[body[:2]]
+        if struct.unpack_from(endian + "H", body, 2)[0] != 42:
+            raise PngError("invalid eXIf TIFF header")
+        offset = struct.unpack_from(endian + "I", body, 4)[0]
+        count = struct.unpack_from(endian + "H", body, offset)[0]
+        for index in range(count):
+            entry = offset + 2 + index * 12
+            tag, kind, size = struct.unpack_from(endian + "HHI", body, entry)
+            if tag == 0x0112:
+                if kind != 3 or size != 1:
+                    raise PngError("invalid eXIf orientation field")
+                orientation = struct.unpack_from(endian + "H", body, entry + 8)[0]
+                if orientation not in range(1, 9):
+                    raise PngError("invalid eXIf orientation value")
+                return orientation
+    except (KeyError, struct.error) as error:
+        raise PngError("invalid eXIf data") from error
+    return 1
 
 
 def color_counts(rows, channels):

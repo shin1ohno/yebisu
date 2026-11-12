@@ -7,6 +7,21 @@ on:
 permissions:
   contents: read
 jobs:
+  simulator-smoke:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install simulator tools
+        run: brew install just xcodegen
+      - name: Fetch
+        run: just guarded cargo fetch --locked
+      - name: Build, launch and verify simulator
+        run: just guarded python3 scripts/ios/ci-smoke.py
   check:
     runs-on: macos-26
     timeout-minutes: 40
