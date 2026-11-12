@@ -34,11 +34,11 @@ def validate(records, messages, sent, attachments):
         raise ValueError("wrong focus boot context")
     requests = [json.loads(m["ClientShellEndpointRequest"]["request"]) for m in messages if "ClientShellEndpointRequest" in m]
     focus = [r for r in requests if r.get("method") == "pane.focus"]
-    if len(focus) != 1 or focus[0].get("params", {}).get("pane_id") != "w1:p3":
+    if len(requests) != 1 or len(focus) != 1 or focus[0].get("params", {}).get("pane_id") != "w1:p3":
         raise ValueError("tap must focus current target exactly once")
     paints = [r for r in records if r.get("kind") == "p14-paint"]
     shown = [r for r in paints if r.get("step") == 1 and r.get("toast") == "Agent needs attention"]
-    if not shown or not all(r.get("boot") == "boot-v1" and r.get("host") == "qa@private-peer" and r.get("active") and r.get("connected") and len(r.get("bounds", [])) == 4 and min(r["bounds"][2:]) > 0 for r in shown):
+    if not shown or not all(r.get("boot") == "boot-v1" and r.get("host") == "qa@private-peer" and r.get("active") and r.get("connected") and r.get("generation") == steps[0].get("generation_after") and len(r.get("bounds", [])) == 4 and min(r["bounds"][2:]) > 0 for r in shown):
         raise ValueError("missing coherent actual toast paint")
     if not any(r.get("step") == 1 and r.get("pane") == "w1:p3" and r.get("toast") is None for r in paints):
         raise ValueError("missing receiving focus paint")
