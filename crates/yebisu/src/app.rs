@@ -21,6 +21,7 @@ pub(crate) struct Smoke {
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
     pub(crate) actions: crate::actions::Actions,
+    pub(crate) native_menus: crate::native_menus::NativeMenus,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -88,6 +89,7 @@ impl Smoke {
             terminal: Default::default(),
             board: Default::default(),
             actions: Default::default(),
+            native_menus: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -103,6 +105,12 @@ impl Smoke {
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let screen = self.render_screen(window, cx);
+        self.install_native_menus(window, cx);
+        let screen = div()
+            .size_full()
+            .on_action(cx.listener(Self::native_menu_action))
+            .child(screen)
+            .into_any_element();
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };

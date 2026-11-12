@@ -104,3 +104,6 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(any(target_os = "ios", test))]
+mod native_menus;

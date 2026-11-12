@@ -121,7 +121,7 @@ impl Smoke {
             crate::actions::shortcut(&self.terminal, &self.actions, &event.keystroke)
         {
             if !event.is_held
-                && let Err(e) = self.run_action(command)
+                && let Err(e) = self.run_menu_shortcut(command)
             {
                 self.terminal.live.status = e.to_string();
             }

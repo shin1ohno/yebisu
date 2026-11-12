@@ -1,5 +1,5 @@
 //! P7's single catalog view, shared by shortcuts, buttons and the palette.
-//! Command-hold and native menus remain P12 responsibilities.
+//! Native menu and Command-hold metadata also derive from this catalog.
 use crate::{
     app::Smoke,
     board::{Navigation, Target, snapshot},
@@ -171,6 +171,13 @@ impl Smoke {
         }
         let (method, params) = sheprd_commands::request(command, current)
             .ok_or_else(|| crate::Error::Ssh("Target unavailable".into()))?;
+        if !live
+            .methods
+            .iter()
+            .any(|available| available == method.as_str())
+        {
+            return Err(crate::Error::NativeMenu("capability changed"));
+        }
         let handle = terminal
             .link
             .handle

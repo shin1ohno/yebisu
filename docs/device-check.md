@@ -656,3 +656,25 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
 6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
+
+## P12 native menus (pending)
+
+After the controller integrates P11 modal scope and the accepted SH1-153 SDK/consumer
+changes, use an exclusive Mac checkout at the PR's exact head. Run `just check`,
+`just lint-ios`, and `just test`. `scripts/ios/p12-source-check.py` is only a
+source preflight; it cannot accept native behavior.
+
+On Simulator, capture the installed Terminal menu and Command-hold list. Invoke
+Split Right through the menu and keyboard separately; the receiving peer must
+record exactly one `pane.split` request and zero terminal input per invocation.
+Record current head and screenshot path with the receipts. While a menu is open,
+change host, boot, pane, capability and focus; stale entries must cause no request.
+Repeat while Settings/search fields own focus, then dismiss and confirm valid
+terminal focus. Verify native Copy/Paste via SH1-153 selectors without adding
+competing GPUI bindings. Unsupported chat/desktop commands must be unreachable.
+
+Owner physical gate: after local unlock/install, repeat on each supported protocol
+with the hardware keyboard, Command hold, IME composition, terminal-priority variants
+and prefix keys. Herdr 2 commands lacking catalog-backed core paths remain disabled.
+Simulator and model tests do not prove these physical behaviors. Long-press selection
+and SH1-152 gesture policy are outside P12.
