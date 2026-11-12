@@ -7,9 +7,10 @@ mod tests;
 pub(crate) enum Palette {
     #[default]
     OwnerDefault,
+    HighContrast,
 }
 
-pub(crate) const SUPPORTED: &[Palette] = &[Palette::OwnerDefault];
+pub(crate) const SUPPORTED: &[Palette] = &[Palette::OwnerDefault, Palette::HighContrast];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Error {
@@ -20,14 +21,44 @@ impl Palette {
     pub fn key(self) -> &'static str {
         match self {
             Self::OwnerDefault => "owner-default",
+            Self::HighContrast => "high-contrast",
         }
     }
     pub fn from_key(key: &str) -> Result<Self, Error> {
         match key {
             "owner-default" => Ok(Self::OwnerDefault),
+            "high-contrast" => Ok(Self::HighContrast),
             _ => Err(Error::UnsupportedPalette),
         }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OwnerDefault => "Owner default",
+            Self::HighContrast => "High contrast",
+        }
+    }
+
+    /// Optional role override; ANSI palette and owner default are unchanged.
+    pub fn colors(self) -> Option<Colors> {
+        match self {
+            Self::OwnerDefault => None,
+            Self::HighContrast => Some(Colors {
+                background: 0x000000,
+                foreground: 0xffffff,
+                muted: 0xa0a0a0,
+                primary: 0x00ffff,
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Colors {
+    pub background: u32,
+    pub foreground: u32,
+    pub muted: u32,
+    pub primary: u32,
 }
 
 /// Absence preserves Theme::default. Unsupported persisted data is not reset.

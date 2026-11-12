@@ -15,3 +15,16 @@
   Reason: parser/reducer/JSON tests cannot prove these product criteria. First step:
   controller obtains isolated Mac lease and owner supplies authorized disposable peers.
   Close: native and physical evidence attached separately; delete on closure.
+# Integration and receiving gates added by task9c49b897b8024dfe
+
+- Mount theme and pre-dispatch Unavailable UI only after P11's author freezes its head.
+  Reason: current dd8128b is source stage and still owns key/layout changes.
+  First step: rebase the task-local integration patch onto that exact frozen head.
+  Close: mounted route, immediate theme, early-edit/background/relaunch persistence
+  and unchanged owner defaults/other fields pass exact-head native tests and Simulator.
+- Supply retained authority and observable teardown through separately owned APIs.
+  Reason: the current public-line/convenience API cannot satisfy the reviewed contract.
+  First step: review the task-local API proposal artifact against the owner and SDK.
+  Close: actual Rust adapter/SSH receiver R01-R16 and write-mutant receipts satisfy
+  security-plan-2.md; retain all unmet P1/P2/P3 criteria until then.
+

@@ -3,7 +3,13 @@ use serde_json::json;
 
 #[test]
 fn only_implemented_palette_is_available_and_default_stays_local() {
-    assert_eq!(SUPPORTED, &[Palette::OwnerDefault]);
+    assert_eq!(SUPPORTED, &[Palette::OwnerDefault, Palette::HighContrast]);
+    assert_eq!(Palette::OwnerDefault.colors(), None);
+    assert_eq!(
+        Palette::HighContrast.colors().map(|c| c.foreground),
+        Some(0xffffff)
+    );
+    assert_eq!(Palette::HighContrast.label(), "High contrast");
     assert_eq!(read_local(&json!({})), Ok(Palette::OwnerDefault));
     for palette in SUPPORTED {
         assert_eq!(Palette::from_key(palette.key()), Ok(*palette));

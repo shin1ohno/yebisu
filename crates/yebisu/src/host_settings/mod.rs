@@ -1,5 +1,9 @@
 //! P15 read-only file snapshot model. No transport or host mutation capability.
 //! Provenance and future adapter gates: docs/p15-readonly-model/README.md.
+mod availability;
+mod command;
+#[cfg(test)]
+mod command_tests;
 mod parser;
 #[cfg(test)]
 mod tests;
@@ -26,6 +30,7 @@ pub(crate) enum Error {
     Cancelled,
     Exhausted,
     InvalidHost,
+    CommandTooLarge,
 }
 
 /// Data only: validation is not a filesystem/symlink or daemon provenance check.
