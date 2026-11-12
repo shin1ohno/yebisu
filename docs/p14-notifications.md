@@ -1,14 +1,16 @@
-# P14 connected notifications — nonfinal integration
+# P14 connected notifications — frozen P11 contract integration
 
 Base: dc2511fe695935cdce60ba6bb3cfb4288a425778. SDK draft PR:
 https://github.com/shin1ohno/herdr-uikit/pull/10 at
 `fbb7522f9a55490acb524dc261150c6e7977e460`. No SDK8/9 integration.
 Do not merge this consumer before separate SDK review and approval.
 
-The current source adapter mounts controls on Hosts and polls from the existing
-33ms app timer. It is an integration patch against the verified main reference,
-not the frozen P11 settings sheet. The controller will provide the stable P11
-API/head. Other writers' repositories and branches are untouched.
+The source integrates the controller-frozen P11 contract at
+b55f48e905037a3d63b5794cfc7fc41b450e7848 into this owned branch, preserving both
+parents' history. Controls mount in the production Notifications page and use
+the sheet's existing button style/focus/save owner. The existing 33ms timer
+polls notifications. Other writers' repositories and branches are untouched.
+Combined native verification is pending; P11's prior gates do not prove this head.
 
 ## Routes and authorization
 
@@ -43,8 +45,10 @@ projection/pane, then enqueues the existing focus command under the same lock.
 It never starts a connection. Invalid/busy/unknown/action responses show status.
 
 Settings use the existing background persistence worker and pre-load edit
-tracking. Real consumers exist for each exposed control. Production sheet/modal
-integration and narrow-layout behavior remain pending P11's stable contract.
+tracking. Real consumers exist for each exposed control. Notification taps while
+the sheet is open are consumed with Busy status in its header and no focus
+command. The overlay remains below the modal. Combined native/modal/narrow-layout
+behavior still requires receiving-system verification.
 
 ## Verification remaining
 

@@ -1,7 +1,15 @@
-//! Nonfinal P11 integration adapter against dc2511f; never edits the P11 branch.
-//! These controls are mounted on Hosts until the stable sheet contract arrives.
-use crate::{app::Smoke, notifications::Route};
+//! P14 page integrated with the frozen P11 b55f48e9 SettingsHost contract.
+//! The single sheet owner still handles focus, persistence, and save fencing.
+use crate::{app::Smoke, notifications::Route, settings_sheet::button};
 use gpui::{AnyElement, AppLifecyclePhase, Context, div, prelude::*};
+#[derive(Clone, Copy)]
+enum Preference {
+    Route,
+    Sound,
+    Volume,
+    Mute,
+    Quiet,
+}
 impl Smoke {
     pub(crate) fn query_notification_permission(&mut self) {
         self.notifications.permission(false);
@@ -14,7 +22,6 @@ impl Smoke {
             }
             AppLifecyclePhase::Inactive | AppLifecyclePhase::Foreground => {
                 self.notifications.active = false;
-                // Discard delayed foreground effects and stop audio; retain connection policy.
                 self.notifications.pause_foreground();
             }
             AppLifecyclePhase::Background | AppLifecyclePhase::Disconnected => {
@@ -27,100 +34,95 @@ impl Smoke {
             }
         }
     }
+    fn edit_notification(&mut self, field: Preference, cx: &mut Context<Self>) {
+        if self.settings.is_none() {
+            return;
+        }
+        let mut policy = self.notifications.policy.clone();
+        match field {
+            Preference::Route => {
+                policy.route = match policy.route {
+                    Route::Off => Route::Toast,
+                    Route::Toast => Route::System,
+                    Route::System => Route::Off,
+                }
+            }
+            Preference::Sound => policy.sound = !policy.sound,
+            Preference::Volume => {
+                policy.volume = if policy.volume >= 100 {
+                    0
+                } else {
+                    (policy.volume + 25).min(100)
+                }
+            }
+            Preference::Mute => policy.muted = !policy.muted,
+            Preference::Quiet => {
+                policy.quiet = if policy.quiet.is_some() {
+                    None
+                } else {
+                    Some((22 * 60, 8 * 60))
+                }
+            }
+        }
+        self.notifications.set_policy(policy);
+        self.poll_settings(cx);
+        cx.notify();
+    }
     pub(crate) fn render_notification_settings(&self, cx: &Context<Self>) -> AnyElement {
         let policy = &self.notifications.policy;
+        let rows = [
+            (
+                "notification-route",
+                format!("Delivery: {:?} (change)", policy.route),
+                Preference::Route,
+            ),
+            (
+                "notification-sound",
+                format!("Sound: {} (change)", policy.sound),
+                Preference::Sound,
+            ),
+            (
+                "notification-volume",
+                format!("Volume: {}% (change)", policy.volume),
+                Preference::Volume,
+            ),
+            (
+                "notification-mute",
+                format!("Mute: {} (change)", policy.muted),
+                Preference::Mute,
+            ),
+            (
+                "notification-quiet",
+                format!(
+                    "Quiet hours 22:00–08:00: {} (change)",
+                    policy.quiet.is_some()
+                ),
+                Preference::Quiet,
+            ),
+        ];
         div()
             .flex()
             .flex_col()
             .gap_2()
             .child("Notifications · connected events only")
-            .child(
-                div()
-                    .id("notification-route")
-                    .child(format!("Delivery: {:?} (change)", policy.route))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let mut policy = this.notifications.policy.clone();
-                        policy.route = match policy.route {
-                            Route::Off => Route::Toast,
-                            Route::Toast => Route::System,
-                            Route::System => Route::Off,
-                        };
-                        this.notifications.set_policy(policy);
-                        this.poll_settings(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("notification-sound")
-                    .child(format!("Sound: {} (change)", policy.sound))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let mut policy = this.notifications.policy.clone();
-                        policy.sound = !policy.sound;
-                        this.notifications.set_policy(policy);
-                        this.poll_settings(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("notification-volume")
-                    .child(format!("Volume: {}% (change)", policy.volume))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let mut policy = this.notifications.policy.clone();
-                        policy.volume = if policy.volume >= 100 {
-                            0
-                        } else {
-                            (policy.volume + 25).min(100)
-                        };
-                        this.notifications.set_policy(policy);
-                        this.poll_settings(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("notification-mute")
-                    .child(format!("Mute: {} (change)", policy.muted))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let mut policy = this.notifications.policy.clone();
-                        policy.muted = !policy.muted;
-                        this.notifications.set_policy(policy);
-                        this.poll_settings(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("notification-quiet")
-                    .child(format!(
-                        "Quiet hours 22:00–08:00: {} (change)",
-                        policy.quiet.is_some()
-                    ))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let mut policy = this.notifications.policy.clone();
-                        policy.quiet = if policy.quiet.is_some() {
-                            None
-                        } else {
-                            Some((22 * 60, 8 * 60))
-                        };
-                        this.notifications.set_policy(policy);
-                        this.poll_settings(cx);
-                        cx.notify();
-                    })),
-            )
+            .children(rows.into_iter().map(|(id, label, field)| {
+                button(id, label, self.settings.is_some())
+                    .on_click(cx.listener(move |this, _, _, cx| this.edit_notification(field, cx)))
+            }))
             .child(format!(
                 "OS permission: {:?}",
                 self.notifications.authorization
             ))
             .child(
-                div()
-                    .id("notification-permission")
-                    .child("Request OS notification permission…")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.notifications.permission(true);
-                        cx.notify();
-                    })),
+                button(
+                    "notification-permission",
+                    "Request OS notification permission…",
+                    true,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.notifications.permission(true);
+                    cx.notify();
+                })),
             )
             .into_any_element()
     }

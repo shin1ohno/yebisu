@@ -412,6 +412,11 @@ impl Smoke {
             .position(|p| p.tag == tag)
             .and_then(|i| self.notifications.posted.remove(i));
         self.notifications.toast = None;
+        if self.settings_modal {
+            self.notifications.fail(Failure::Busy);
+            cx.notify();
+            return;
+        }
         let result = (|| {
             if action {
                 return Err(Failure::InvalidTarget);

@@ -121,6 +121,9 @@ impl Event {
         now: Instant,
     ) -> Result<Self, Failure> {
         let snapshot = current(live)?;
+        if snapshot.boot_id.is_empty() || snapshot.boot_id.len() > 128 {
+            return Err(Failure::InvalidTarget);
+        }
         if [&event.pane_id, &event.tab_id, &event.workspace_id]
             .into_iter()
             .flatten()

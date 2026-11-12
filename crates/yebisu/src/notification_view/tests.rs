@@ -89,3 +89,25 @@ fn old_submission_completion_cannot_claim_success_after_invalidation() {
     assert!(!state.poll());
     assert!(state.status.is_empty());
 }
+
+#[gpui::test]
+fn modal_response_is_consumed_without_focus_command_or_key_owner_change(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.settings_modal = true;
+        this.terminal.open = true;
+        let generation = this.terminal.link.generation;
+        this.notifications.posted.push_back(Posted {
+            tag: "modal".into(),
+            target: target(),
+            received: Instant::now(),
+        });
+        this.open_notification("modal", false, cx);
+        assert!(this.settings_modal);
+        assert!(this.terminal.open);
+        assert!(this.notifications.posted.is_empty());
+        assert!(this.notifications.status.contains("Busy"));
+        assert_eq!(this.terminal.link.generation, generation);
+        assert!(this.terminal.link.handle.is_none());
+    });
+}
