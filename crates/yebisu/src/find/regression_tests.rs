@@ -1,12 +1,22 @@
 //! D1-D4 regressions exercise production callbacks and actual receiving sockets.
 #![allow(clippy::unwrap_used)]
-use super::*;
-use gpui::{EntityInputHandler, TestAppContext, VisualTestContext};
+use super::available;
+use crate::{
+    app::Smoke,
+    find::{State, field::Field},
+};
+use gpui::{
+    ClipboardItem, Entity, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext,
+    VisualTestContext,
+};
 use sheprd_client::{
     Client,
     protocol::{ClientKeyKind, ClientMessage, ClientPaneInputEvent},
 };
-use std::{sync::mpsc::Receiver, time::Duration};
+use std::{
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
+};
 fn key(name: &str, held: bool) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke::parse(name).unwrap(),

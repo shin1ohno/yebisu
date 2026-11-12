@@ -1,9 +1,16 @@
 //! Production field + reader + Link + controlled receiving socket, not a model.
 #![allow(clippy::unwrap_used)]
-use super::*;
-use gpui::{EntityInputHandler, TestAppContext};
-use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
-use std::time::Duration;
+use super::available;
+use crate::{app::Smoke, find::State, live::Live};
+use gpui::{EntityInputHandler, KeyDownEvent, Keystroke, TestAppContext};
+use sheprd_client::{
+    protocol::{ClientMessage, ClientPaneInputEvent},
+    scrollback::TextPoint,
+};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 fn key(name: &str) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke::parse(name).unwrap(),
