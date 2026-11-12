@@ -110,3 +110,6 @@ mod discard_recovery_tests;
 
 #[cfg(test)]
 mod discard_connection_tests;
+
+#[cfg(test)]
+mod direct_text_recovery_tests;
