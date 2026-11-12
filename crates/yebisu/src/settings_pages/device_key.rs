@@ -8,9 +8,7 @@ pub(crate) enum KeyView {
 }
 
 impl KeyView {
-    /// Accepts only the already-formatted `Reply::Key` payload from setup.
-    /// `setup::execute(Job::Key)` is the sole producer and calls
-    /// `keys::authorized_line` before creating that reply.
+    /// Accepts only SettingsHost key owner output after keys::authorized_line.
     pub(crate) fn from_formatted_worker_line(line: String) -> Self {
         Self::Ready(line)
     }

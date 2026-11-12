@@ -1,5 +1,6 @@
 //! Container-local draft ownership. Disk work is serialized off the UI thread.
 pub(crate) mod font;
+pub(crate) mod key_ops;
 mod store;
 mod worker;
 
@@ -47,6 +48,7 @@ struct Edited {
 }
 
 pub(crate) struct SettingsHost {
+    pub keys: key_ops::Owner,
     pub draft: Values,
     pub error: Option<String>,
     revision: u64,
@@ -69,6 +71,7 @@ impl SettingsHost {
     pub fn open(root: PathBuf) -> Result<Self> {
         let (sender, receiver) = worker::start(root)?;
         Ok(Self {
+            keys: key_ops::Owner::default(),
             draft: Values::default(),
             error: None,
             revision: 0,
@@ -223,6 +226,12 @@ impl SettingsHost {
             self.retry_requested = true;
             self.flush();
         }
+    }
+
+    pub fn retry(&mut self) {
+        self.write_failed = false;
+        self.retry_requested = true;
+        self.flush();
     }
 
     pub fn ready(&self) -> bool {

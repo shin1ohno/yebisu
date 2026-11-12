@@ -41,6 +41,9 @@ impl Smoke {
             return;
         };
         host.edit(values);
+        if host.keys.poll(std::time::Instant::now()) {
+            cx.notify();
+        }
         if host.poll() {
             self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
             self.terminal.font = host.draft.font.clone();
@@ -75,5 +78,30 @@ impl Smoke {
             host.lifecycle(phase);
             self.observation.record(serde_json::json!({"kind":"settings-lifecycle", "phase":format!("{phase:?}"), "ready":host.ready()}));
         }
+    }
+}
+
+impl Smoke {
+    pub(crate) fn read_device_key(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some(host) = &mut self.settings {
+            host.keys.read_or_initialize();
+        }
+        cx.notify();
+    }
+    pub(crate) fn apply_settings(&mut self, values: Values, cx: &mut gpui::Context<Self>) {
+        if self.settings.is_none() || values.font.validate().is_err() {
+            return;
+        }
+        self.terminal.font = values.font.clone();
+        self.terminal.compact = values.compact;
+        self.actions.terminal_priority = values.terminal_priority;
+        self.actions.board_hidden = values.board_hidden;
+        self.handoff.drag_select = values.drag_select;
+        self.handoff.copy_on_select = values.copy_on_select;
+        if let Some(host) = &mut self.settings {
+            host.edit(values);
+            host.flush();
+        }
+        cx.notify();
     }
 }

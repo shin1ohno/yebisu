@@ -14,7 +14,11 @@ pub(crate) fn shortcut_rows(terminal: &TerminalView) -> Vec<ShortcutRow> {
         .into_iter()
         .map(|action| ShortcutRow {
             label: action.label,
-            shortcuts: action.shortcuts.iter().map(|shortcut| (*shortcut).to_owned()).collect(),
+            shortcuts: action
+                .shortcuts
+                .iter()
+                .map(|shortcut| (*shortcut).to_owned())
+                .collect(),
             available: action.available,
         })
         .collect()

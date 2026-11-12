@@ -6,16 +6,37 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) struct Observation(Option<SyncSender<Value>>);
+pub(crate) struct Observation {
+    sender: Option<SyncSender<Value>>,
+    #[cfg(test)]
+    diagnostics: Option<SyncSender<String>>,
+}
 
 impl Observation {
+    fn with_sender(sender: Option<SyncSender<Value>>) -> Self {
+        Self {
+            sender,
+            #[cfg(test)]
+            diagnostics: None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn capture_diagnostics(&mut self, sender: SyncSender<String>) {
+        self.diagnostics = Some(sender);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn injected(sender: SyncSender<Value>) -> Self {
+        Self::with_sender(Some(sender))
+    }
+
     pub(crate) fn new() -> Self {
         let p10 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SETTINGS_QA").is_some();
         let selection =
             cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SELECTION_SETTINGS_QA").is_some();
         let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
         if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
-            return Self(None);
+            return Self::with_sender(None);
         }
         let (sender, receiver) = sync_channel::<Value>(256);
         std::thread::spawn(move || {
@@ -49,14 +70,14 @@ impl Observation {
                 eprintln!("smoke observation writer: {error}");
             }
         });
-        let observation = Self(Some(sender));
+        let observation = Self::with_sender(Some(sender));
         observation
             .record(serde_json::json!({"kind": "launch", "phase": if p2 { "P2" } else { "P0" }}));
         observation
     }
 
     pub(crate) fn record(&self, mut value: Value) {
-        let Some(sender) = &self.0 else {
+        let Some(sender) = &self.sender else {
             return;
         };
         let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
@@ -64,7 +85,19 @@ impl Observation {
         };
         value["time"] = now.as_secs_f64().into();
         if let Err(error) = sender.try_send(value) {
-            eprintln!("smoke observation dropped: {error}");
+            let reason = match error {
+                std::sync::mpsc::TrySendError::Full(_) => "full",
+                std::sync::mpsc::TrySendError::Disconnected(_) => "disconnected",
+            };
+            let message = format!("smoke observation dropped: {reason}");
+            #[cfg(test)]
+            if let Some(sink) = &self.diagnostics {
+                let _ = sink.try_send(message.clone());
+            }
+            eprintln!("{message}");
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
