@@ -364,6 +364,9 @@ impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
+    pub(crate) fn edit_menu_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
     pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }

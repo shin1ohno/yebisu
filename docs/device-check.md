@@ -643,3 +643,34 @@ Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad f
 5. Change each button separately and relaunch after each change; verify the other
    choice, density, shortcut priority and board visibility stay unchanged.
 6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.
+
+## SH1-153 — native Edit menu enabling
+
+Physical-only checks are **unverified**. After locally unlocking the signing
+keychain, run `just ipad` and record device/iPadOS/build revision. Connect to an
+already authorized disposable Herdr 1 session; no new credential or host setup
+is part of this check.
+
+1. With software keyboard shown and terminal focused, open the menu bar Edit
+   menu: Paste enabled, Copy disabled without selection. Select `日本語` and
+   confirm Copy enabled, Copy puts exactly that text on the clipboard.
+2. Attach the hardware keyboard, dismiss software input, reopen Edit and repeat.
+   Capture a screenshot of enabled Paste/Copy in both modes. Menu Paste must
+   produce one paste and no Command/Ctrl key bytes even with Command→Control and
+   terminal shortcut priority enabled. Command-V retains its prior physical path.
+3. Clear selection while the menu is open: Copy must no-op, never copy stale cells.
+   Open the command palette, switch target, disconnect, or background before
+   choosing Paste: no old-destination input, no replay on return. Refocus the
+   terminal and confirm fresh Paste works.
+4. Cut retains D3 copy-only semantics; Select All stays disabled (unimplemented).
+   Setup fields retain the SDK default policy. Long-press UI itself (SH1-152)
+   remains outside this task; it can reuse the standard selectors and policy.
+
+Simulator gate after a controller build lease: `just check`, `just lint-ios`,
+`just test`, `just guarded python3 scripts/ios/sh1-153-check.py`, and the existing
+`just guarded python3 scripts/ios/p8-native-check.py`. The SH1-153 harness tests
+text/drawing responders, no-selection and unfocused refusal, and selection loss
+between validation and execution. Its case screenshots alone do not prove the
+menu bar was visible. Capture an actual Edit menu screenshot separately, attempt
+Simulator hardware-keyboard connection, and record any unavailable menu/keyboard
+facility explicitly rather than substituting the harness for that visual gate.

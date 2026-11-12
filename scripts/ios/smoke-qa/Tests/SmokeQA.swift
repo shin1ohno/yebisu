@@ -63,6 +63,27 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1153EditMenu() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_EDIT_MENU_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        for step in 0..<10 {
+            try tapText("Menu prepare", in: app)
+            sleep(1)
+            try tapText("Menu execute", in: app)
+            sleep(1)
+            save("sh1-153-case-\(step)")
+        }
+        try tapText("Menu prepare", in: app)
+        sleep(1)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP8NativeEditing() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
