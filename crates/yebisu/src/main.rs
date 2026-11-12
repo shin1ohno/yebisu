@@ -118,3 +118,6 @@ mod direct_text_recovery_tests;
 mod input_retirement;
 #[cfg(target_os = "ios")]
 mod native_retirement;
+
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "retirement-probe"))]
+mod retirement_qa;

@@ -1,9 +1,8 @@
 # SH1-156 native retirement integration requirements
 
-This is the yebisu consumer contract, not an existing SDK API or a native proof.
-The SDK retirement worker owns its implementation and branch. Integrate only a
-concrete reviewed commit/API relayed by the controller; do not assign guessed
-symbols or claim that a proposal is available in the pinned SDK.
+This documents the yebisu consumer contract and experimental SDK adoption.
+The SDK worker owns SDK source; the app integrates only the explicitly authorized
+head. Source and controlled tests are not native or OS delivery proof.
 
 ## D1 versus U1
 
@@ -18,7 +17,8 @@ state rules, not proof of a native cancellation boundary.
 U1 is safe resumption after an actual composition discard, including hardware
 printable keys that UIKit routes before GPUI KeyDown. D1's clean-state distinction
 does not solve U1. The ignored new-composition test remains a failure requirement,
-and legacy tap/Paste/Select-off still lacks native composition retirement proof.
+and the implemented retirement call sites still lack exact-head consumer native
+execution evidence.
 
 ## Required SDK semantics
 
@@ -85,35 +85,80 @@ not execution evidence. All must run with exact-head Mac gates after an exclusiv
 build lease. `check-discard-mutations.py` requires each expected assertion reason;
 a fixture timeout or compiler error cannot certify a mutation negative.
 
-## SDK PR 9 candidate: adoption gate
+## Authorized SDK adoption and implemented consumer boundary
 
-The controller relayed experimental commit
-`e02ca054eccd2c73b91d4a072ff91443f1db75bf` from SDK PR 9. It is a prototype,
-not reviewed native acceptance. Its `src/text_input_retirement.rs` exports
-`retire_text_input_session`, a receipt with window-local retired/replacement IDs,
-and `text_input_session_state`. `src/window/retirement.rs` fences the old client,
-then invokes the consumer callback after the GPUI update, before replacement
-responder acquisition. `src/window/text_input/retirement.rs` refuses an active
-native callback with `NativeCallbackInFlight`; `Pending` and failed acquisition
-are explicitly not readiness.
+The controller authorized exact SDK PR 9 head
+`28a30b72bb3c8de7937344d41571846775f65bfd` for implementation/controlled tests.
+Cargo.toml and Cargo.lock pin that head. SDK-native tests exist at that exact
+head, but independent review and queued OS retarget/loss are separate gates.
+This is experimental adoption, not approval to merge or a complete U1 repair.
 
-Before adoption, test these consumer-specific consequences against the concrete
-reviewed SDK head:
+`input_retirement.rs` captures request serial, host, connection generation,
+board selection, discard revision, destination, lifecycle and backend owner.
+`native_retirement.rs` binds a weak entity to its window and calls the public
+retirement API after a complete consumer transition. The callback verifies
+retired/replacement IDs, current owner and focus before acknowledging one discard
+revision. Registration precedes the API call because callback delivery can precede
+the receipt return. The receipt's Pending, WindowClosed and failed acquisition
+statuses are distinct from acknowledgement. Nested host/connect operations submit
+one request for their final owner; no timer retries or input replay were added.
 
-- Mouse/menu selection, reconnect completion and Detach can request retirement
-  only when the SDK accepts the actual calling context. Key/text callbacks must
-  preserve refusal; do not replace it with deferred key replay or a timer reset.
-- Match the retired/replacement IDs and a consumer discard revision captured at
-  request time. An old callback must not release a newer discard, focus change,
-  host transition or closed view. Keep destination and paste FIFO checks intact.
-- Clear old marked state inside the accepted callback using weak entity/window
-  handles. Observe the receipt and current native responder separately before
-  reporting recovery; the callback runs before native acquisition completes.
-- Keep failed acquisition, window closure and duplicate/in-flight refusal as
-  explicit outcomes. A nested native event loop can expose a retired client
-  before replacement; test fresh-input loss and OS-retargeted old commits with
-  receiving evidence, including identical strings and IME-first hardware input.
+Production tap/Paste/Select-off no longer call fresh_gesture. That method now
+exists only in host test builds for old fixture setup. The Simulator QA mark
+button also cannot clear a fence. Clean fresh connections keep D1 behavior.
+The legacy D4 test now requires an explicit controlled retirement boundary and
+rejects its formerly admitted old text. The original ignored new-composition
+regression remains unchanged and must still be explicitly executed.
 
-This head does not pin that SDK or release the existing U1 fence. SDK-native
-verification and independent review are still required. A source-only protocol
-model cannot certify OS delivery or turn the ignored new-composition test green.
+`input_retirement_tests.rs` exercises ownership changes, stale/native-ID mismatch,
+callback-before-receipt registration, duplicate completion, refusal and serial
+exhaustion. Its receiving-peer case intentionally uses identical old/new emoji
+text, with one new commit and no discarded commit through a FIFO sentinel.
+`terminal_input_tests.rs` checks revision preservation and saturation. These are
+implemented controlled tests; they have not been run on the new app head yet.
+They never stand in for native execution.
+
+## Actual consumer native probe, prepared but unrun
+
+The opt-in `retirement-probe` feature and `YEBISU_RETIREMENT_QA=1` run
+`retirement_qa.rs` inside the normal UIApplicationMain app. It installs a private
+recording peer and waits for the actual native responder. Its legal Select
+transition enters the real platform callback slot through a reserved probe key;
+that injection is explicitly not physical hardware input proof. It retains old
+native objects, invokes their mark/insert/unmark/delete/edit selectors after
+retirement, and verifies a new client's identical composition/commit. The probe
+then uses real `unmarkText` and native Paste entry points and observes B1 refusal
+and the peer's exact received sequence. It reports `CONSUMER_NATIVE_PARTIAL_PASS`
+with `B1_BLOCKED B2_UNVERIFIED`, never complete SH1-156 acceptance.
+
+After an explicit MINI lease, run the normal exact-head gates, all 16 mutations,
+and the ignored original regression. Also clippy the Simulator with
+`--features retirement-probe`. Build the probe with the existing guarded
+`bash scripts/ios/bundle.sh --package yebisu --bin yebisu --features retirement-probe`.
+Launch it using the existing sim.sh runner with
+`SIMCTL_CHILD_YEBISU_RETIREMENT_QA=1` and `SIMCTL_CHILD_YEBISU_SMOKE_OBSERVE=1`.
+Do not combine other QA modes. Save full launch stderr, receiving observation,
+screenshot, exact app/SDK heads and guard output locally before lease release.
+Probe frame callbacks schedule test work and observation only; they do not retry
+failed production retirement, resend a key or clear cancellation state.
+
+## Remaining API gap: precise B1 case and minimal SDK request
+
+Source trace: NativeClient.unmark -> InputTarget.with_input_handler ->
+Smoke.unmark_text -> input_transition -> retire_text_input_session. The native
+client's callback guard is still held, so the SDK returns NativeCallbackInFlight.
+The next new mark is rejected by the consumer fence. Similarly, native Paste ->
+terminal_key_down -> start_paste discards the mark; the outer key callback is
+still guarded at retirement submission. These source traces are not yet actual
+consumer run evidence; the probe above is prepared to measure both.
+
+The minimal requested SDK capability is an explicit retirement request usable
+from its real native text/key callback entry, with a receipt distinguishing
+accepted-pending from refused. The SDK must own the exact boundary after the old
+callback/continuation finishes and before replacement accepts input, preserve
+callback slots/focus, and permanently fence the captured old client. It must not
+ask the consumer to guess a delay, replay the triggering key, or clear state
+without acknowledgement. Its native receiving test must establish old callbacks
+cannot retarget and new input is not lost. If this contract is impossible, report
+that limitation; an application timer cannot turn it into original Z1 acceptance.
+B2 queued OS retarget/loss remains unverified regardless of selector probe results.

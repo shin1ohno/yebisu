@@ -94,6 +94,9 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.terminal_focus.is_focused(window) {
+            return;
+        }
         self.input_transition(|this| this.terminal_key_down_inner(event, window, cx))
     }
     fn terminal_key_down_inner(
@@ -102,6 +105,15 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(all(target_os = "ios", target_abi = "sim", feature = "retirement-probe"))]
+        if std::env::var_os("YEBISU_RETIREMENT_QA").is_some() && event.keystroke.key == "f18" {
+            // Probe through the real GPUI callback slot, with the SDK guard.
+            // This reserved fixture key is not proof of physical key delivery.
+            self.toggle_selection();
+            self.toggle_selection();
+            cx.notify();
+            return;
+        }
         if !self.terminal_focus.is_focused(window) {
             return;
         }

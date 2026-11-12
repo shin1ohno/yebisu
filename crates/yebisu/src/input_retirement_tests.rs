@@ -149,3 +149,27 @@ fn controlled_retirement_sends_fresh_same_text_once_to_real_peer(cx: &mut TestAp
     assert_eq!(events, [ClientPaneInputEvent::TextCommit("same😀".into())]);
     view.update(cx, |this, _| this.terminal.link.pause());
 }
+
+#[gpui::test]
+fn clean_disconnected_and_suspended_owners_cannot_acknowledge_retirement(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, _| {
+        this.terminal.open = true;
+        this.terminal.live.connected = true;
+        assert!(this.begin_text_retirement(7).is_none());
+        discarded(this);
+        this.terminal.live.connected = false;
+        this.terminal.needs_focus = false;
+        assert!(this.begin_text_retirement(7).is_none());
+        this.terminal.needs_focus = true;
+        this.terminal.reconnect.suspended = true;
+        assert!(this.begin_text_retirement(7).is_none());
+        assert!(this.terminal.input.requires_gesture());
+        this.terminal.reconnect.suspended = false;
+        assert!(this.begin_text_retirement(7).is_some());
+        assert!(
+            this.terminal.input.requires_gesture(),
+            "pending is not acknowledgement"
+        );
+    });
+}

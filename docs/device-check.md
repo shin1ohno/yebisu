@@ -709,3 +709,26 @@ These are required results, not executed device checks.
    do not mark the original SH1-156 checklist passed from steps 1-3 alone.
 5. Record initial versus previously composing session, layout, exact app/SDK SHA,
    command status, target and receiving output separately for each sequence.
+
+
+### SH1-156 SDK retirement: B1/B2 remain acceptance blockers
+
+These checks are required and unrun on the integration head. Record both app and
+SDK SHAs. The authorized SDK prototype is 28a30b72bb3c8de7937344d41571846775f65bfd;
+its standalone probe does not certify yebisu's physical keyboard behavior.
+
+1. Run the consumer Simulator probe described in input-retirement-integration.md.
+   Save actual native client IDs, responder state, the receiving peer sequence,
+   complete stderr and screenshot. Its expected B1 refusal is a product failure,
+   even if its defensive no-old-text assertions pass.
+2. On the physical keyboard, mark Japanese text, cancel it through native unmark,
+   then start new composition without a tap. Record the first missing key/mark,
+   visible status, native identity and peer output. Repeat using native Paste
+   with a mark active; the paste may arrive once while fresh IME stays blocked.
+3. Repeat reconnect and Herdr 2 Detach/reattach with new English printable text,
+   Japanese composition and identical old/new text, without a terminal tap.
+   Keep both highlight variants and report-all modes. Record no replay/reorder.
+4. At the native responder transfer, exercise queued old commit/new mark and
+   changed/blurred focus. A selector sent to a retained old object cannot prove
+   UIKit's destination choice for already queued OS events. Mark B2 unverified
+   unless the real routing and receiving evidence settles both retarget and loss.

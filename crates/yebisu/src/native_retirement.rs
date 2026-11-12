@@ -49,7 +49,16 @@ impl Smoke {
                         .native
                         .as_ref()
                         .is_some_and(|b| b.context.window_handle() == window.window_handle());
+                    let focus_current =
+                        this.terminal.needs_focus || this.terminal_focus.is_focused(window);
+                    if !same_window || !focus_current {
+                        this.refuse_text_retirement(
+                            &callback_ticket,
+                            "Text input paused · keyboard owner changed",
+                        );
+                    }
                     let accepted = same_window
+                        && focus_current
                         && this.complete_text_retirement(
                             &callback_ticket,
                             sessions.retired,

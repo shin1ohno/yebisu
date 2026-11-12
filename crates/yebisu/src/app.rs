@@ -333,6 +333,10 @@ pub(crate) fn run() {
                     this.connect_core(cx);
                 });
             }
+            #[cfg(all(target_abi = "sim", feature = "retirement-probe"))]
+            if std::env::var_os("YEBISU_RETIREMENT_QA").is_some() {
+                crate::retirement_qa::start(&entity, window, cx);
+            }
             let focus = entity.read(cx).focus.clone();
             focus.focus(window, cx);
             entity
