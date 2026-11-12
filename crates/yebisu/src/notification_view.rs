@@ -198,6 +198,7 @@ impl State {
             }
         }
         let validation = target.clone();
+        let policy = self.policy.clone();
         self.posted.push_back(Posted {
             tag: tag.clone(),
             target,
@@ -223,7 +224,11 @@ impl State {
             herdr_uikit::post_notification_when(
                 notification,
                 move || {
+                    let local = chrono::Local::now();
                     active.load(std::sync::atomic::Ordering::Acquire)
+                        && policy
+                            .suppression((local.hour() * 60 + local.minute()) as u16)
+                            .is_none()
                         && event.received.elapsed() < notifications::MAX_AGE
                         && inbox
                             .try_lock()
@@ -249,7 +254,7 @@ impl State {
             #[cfg(not(target_os = "ios"))]
             {
                 let _ = notification;
-                let _ = (active, inbox, validation);
+                let _ = (active, inbox, validation, policy);
                 let _ = sender.try_send((epoch, Err(Failure::Native)));
             }
             self.status = "Notifications: OS submission pending".into();
@@ -299,6 +304,19 @@ impl State {
 }
 impl Smoke {
     pub(crate) fn collect_notifications(&mut self, cx: &mut Context<Self>) {
+        let local = chrono::Local::now();
+        if let Some(error) = self
+            .notifications
+            .policy
+            .suppression((local.hour() * 60 + local.minute()) as u16)
+            && (self.notifications.sound_context.is_some()
+                || !self.notifications.posted.is_empty()
+                || !self.notifications.waiting.is_empty())
+        {
+            self.notifications.invalidate();
+            self.notifications.fail(error);
+            cx.notify();
+        }
         let invalidated = self
             .notifications
             .sound_context
