@@ -91,3 +91,13 @@ Run the new real-adapter suite with `cargo test --locked --workspace sh1_156_ --
 guarded python3 scripts/check-discard-mutations.py` for mutation negatives.
 Compile failures do not count as successful negatives. The script restores each
 source and reruns its test. These checks do not establish native UIKit delivery.
+
+### D1 clean-state correction
+
+A clean connect/detach/barrier no longer creates a fictitious composition discard.
+Ordinary direct text stays eligible when no actual discarded or rejected mark
+requires a fence. Actual discards survive repeated detach, writer failure and
+host changes, including marked setup text entering the terminal. Rejected marks
+while selected, blurred or behind a barrier also preserve the fence. This does
+not clear a real fence on a key and does not implement U1 native retirement.
+See [the consumer integration requirements](input-retirement-integration.md).

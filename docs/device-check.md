@@ -688,3 +688,24 @@ never put the password in a command or send it to a worker.
 10. Start a text paste, then press a new semantic key while preparation is pending.
     Verify paste then key at the same target exactly once. Switching target before
     completion must deliver neither old paste nor held input to the new target.
+
+### SH1-156 D1: clean connection must accept ordinary text
+
+These are required results, not executed device checks.
+
+1. Start a fresh app session with an English hardware layout and no composition.
+   Connect to a disposable Herdr 1 terminal. Without tapping the terminal, type
+   `fresh-156`, then Ctrl-A and Left. Verify the letters and semantic keys arrive
+   once, and the status does not claim text input is paused.
+2. Repeat on a new Herdr 2 connection, then Detach/reattach without any marked
+   text. New `clean-reattach-156` must arrive without a terminal tap.
+3. With no composition, initiate a pane command, type while the command is
+   pending, then type `after-156` after the coherent destination appears. Verify
+   pending text is absent and new text arrives once at the new destination.
+4. Repeat the barrier with marked text before it and with a mark arriving while
+   input is refused. Also switch hosts and return from Hosts with a marked setup
+   field. Discarded marked text must never appear. Until the SDK retirement
+   integration is verified, new composition recovery in these cases remains U1;
+   do not mark the original SH1-156 checklist passed from steps 1-3 alone.
+5. Record initial versus previously composing session, layout, exact app/SDK SHA,
+   command status, target and receiving output separately for each sequence.
