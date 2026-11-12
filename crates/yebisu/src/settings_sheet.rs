@@ -83,7 +83,9 @@ mod tests;
 #[cfg(test)]
 mod production_tests;
 
-#[cfg(all(target_os = "ios", target_abi = "sim"))]
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+mod observer_qa;
+#[cfg(all(target_os = "ios", target_abi = "sim", not(feature = "test-support")))]
 mod qa;
 
 #[cfg(test)]

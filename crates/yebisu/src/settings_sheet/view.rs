@@ -145,6 +145,8 @@ impl Smoke {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+                crate::p11_observer::callback(&this.observation, "sheet-modal", "down");
                 this.actions.consumed.insert(event.keystroke.key.clone());
                 cx.stop_propagation();
                 window.prevent_default();
@@ -160,6 +162,8 @@ impl Smoke {
                 }
             }))
             .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+                #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+                crate::p11_observer::callback(&this.observation, "sheet-modal", "up");
                 this.actions.consumed.remove(&event.keystroke.key);
                 cx.stop_propagation();
             }))

@@ -171,6 +171,12 @@ fn serve(
             Err(e) => return Err(e.into()),
         };
         let _ = receipts.send(message.clone());
+        // Regression fixture: after the initial surface, geometry requests must
+        // not produce updates that could hide a missing UI invalidation.
+        if fault == "quiet" {
+            record(&message)?;
+            continue;
+        }
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
@@ -321,6 +327,10 @@ pub(crate) fn connect_recorded(
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
 }
+#[cfg(test)]
+pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "quiet")
+}
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)
 }
@@ -417,7 +427,10 @@ fn record(message: &ClientMessage) -> Result<(), Box<dyn std::error::Error>> {
                 .append(true)
                 .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))
         {
-            let _ = writeln!(file, "{}", serde_json::to_string(&message)?);
+            writeln!(file, "{}", serde_json::to_string(&message)?)?;
+            file.flush()?;
+            #[cfg(feature = "test-support")]
+            observer_received(message);
         }
     }
     let _ = message;
@@ -486,4 +499,36 @@ fn handoff_graphics() -> SurfaceGraphicsScene {
         };
     }
     SurfaceGraphicsScene::default()
+}
+
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+static OBSERVER_ACK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+fn observer_received(message: &ClientMessage) {
+    if let ClientMessage::ClientShellPaneInput {
+        pane_id, events, ..
+    } = message
+    {
+        if pane_id != "w1:p1" {
+            return;
+        }
+        for event in events {
+            if let ClientPaneInputEvent::Paste(text) = event
+                && let Some(n) = text
+                    .strip_prefix("p11-observer-end-")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .or_else(|| {
+                        text.strip_prefix("native-end-")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .and_then(|n| n.checked_add(1))
+                    })
+            {
+                OBSERVER_ACK.store(n, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+}
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+pub(crate) fn observer_ack(phase: u32) -> bool {
+    OBSERVER_ACK.load(std::sync::atomic::Ordering::Acquire) == phase
 }

@@ -1,13 +1,19 @@
 //! Simulator-only selector-to-consumer checks; never included in device builds.
+#[cfg(not(feature = "test-support"))]
 use crate::{app::Smoke, handoff::Selection};
+#[cfg(not(feature = "test-support"))]
 use gpui::{AnyElement, ClipboardItem, Context, div, prelude::*, rgb};
+#[cfg(not(feature = "test-support"))]
 use sheprd_client::protocol::ClientPaneInputEvent;
+#[cfg(not(feature = "test-support"))]
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+#[cfg(not(feature = "test-support"))]
 static STEP: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(not(feature = "test-support"))]
 impl Smoke {
     pub(crate) fn native_edit_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_NATIVE_QA")?;
@@ -47,7 +53,7 @@ impl Smoke {
                 cx.notify();
             })).into_any_element())
     }
-    fn native_marker(&self, text: String) {
+    pub(crate) fn native_marker(&self, text: String) {
         if let Some(handle) = &self.terminal.link.handle {
             let result = handle.send_input("boot-v1", "w1:p1", [ClientPaneInputEvent::Paste(text)]);
             if let Err(e) = result {

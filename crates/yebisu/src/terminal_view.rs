@@ -388,6 +388,7 @@ impl Smoke {
             .child(self.handoff_controls(cx))
             .children(self.handoff_qa_controls(cx))
             .children(self.native_edit_qa_controls(cx))
+            .children(self.edit_menu_qa_controls(cx))
             .child(
                 div()
                     .id("terminal-input")

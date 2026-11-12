@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+    pub(crate) observer: crate::p11_observer::Harness,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) settings_modal: bool,
     pub(crate) settings_focus: FocusHandle,
@@ -82,6 +84,8 @@ impl Smoke {
         })
         .detach();
         Self {
+            #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+            observer: Default::default(),
             settings: None,
             settings_modal: false,
             settings_focus: cx.focus_handle(),
@@ -115,6 +119,8 @@ impl Smoke {
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let screen = self.render_screen(window, cx);
+        #[cfg(target_os = "ios")]
+        self.publish_native_edits(window);
         if self.settings_modal {
             let sheet = self.render_settings_sheet(window, cx);
             return div()
@@ -279,6 +285,10 @@ fn region(name: &'static str, content: AnyElement, view: Entity<Smoke>) -> impl 
 #[cfg(target_os = "ios")]
 pub(crate) fn run() {
     use gpui::{App, WindowOptions};
+    #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+    if crate::p11_observer::capture::start().is_err() {
+        return; // A requested capture that failed cannot run QA.
+    }
     if let Err(error) = crate::diagnostics::init() {
         eprintln!("yebisu diagnostics initialization failed: {error}");
     }

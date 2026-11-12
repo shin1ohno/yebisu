@@ -644,6 +644,71 @@ Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad f
    choice, density, shortcut priority and board visibility stay unchanged.
 6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.
 
+## SH1-153 — native Edit menu enabling
+
+Physical-only checks are **unverified**. After locally unlocking the signing
+keychain, run `just ipad` and record device/iPadOS/build revision. Connect to an
+already authorized disposable Herdr 1 session; no new credential or host setup
+is part of this check.
+
+1. With software keyboard shown and terminal focused, open the menu bar Edit
+   menu: Paste enabled, Copy disabled without selection. Select `日本語` and
+   confirm Copy enabled, Copy puts exactly that text on the clipboard.
+2. Attach the hardware keyboard, dismiss software input, reopen Edit and repeat.
+   Capture a screenshot of enabled Paste/Copy in both modes. Menu Paste must
+   produce one paste and no Command/Ctrl key bytes even with Command→Control and
+   terminal shortcut priority enabled. Command-V retains its prior physical path.
+3. Clear selection while the menu is open: Copy must no-op, never copy stale cells.
+   Open the command palette, switch target, disconnect, or background before
+   choosing Paste: no old-destination input, no replay on return. Refocus the
+   terminal and confirm fresh Paste works.
+4. Cut retains D3 copy-only semantics; Select All stays disabled (unimplemented).
+   Setup fields retain the SDK default policy. Long-press UI itself (SH1-152)
+   remains outside this task; it can reuse the standard selectors and policy.
+5. On a quiet terminal, begin a large image paste, then select cells before
+   preparation finishes. Once the cancelled worker exits, reopen Edit without
+   typing or receiving terminal output: Paste must be enabled again. The old
+   payload and any input held behind it must not arrive, even after refocusing.
+
+Simulator gate after a controller build lease: `just check`, `just lint-ios`,
+`just test`, `just guarded python3 scripts/ios/sh1-153-check.py`, and the existing
+`just guarded python3 scripts/ios/p8-native-check.py`. The SH1-153 harness tests
+text/drawing responders, no-selection and unfocused refusal, and selection loss
+between validation and execution. Its case screenshots alone do not prove the
+menu bar was visible. Capture an actual Edit menu screenshot separately, attempt
+Simulator hardware-keyboard connection, and record any unavailable menu/keyboard
+facility explicitly rather than substituting the harness for that visual gate.
+Observed Simulator hardware-connection limitation (2026-11-12 UTC): on
+`mini.home.local`, the selected Xcode 27.2 (27B52) at
+`/Applications/Xcode-27.2.0.app/Contents/Developer` has no `Applications`
+directory. A bounded search of `/Applications`, `/System/Applications`, and
+`~/Applications` found no `Simulator.app`. An actual GUI launch request,
+`open -b com.apple.iphonesimulator --args -CurrentDeviceUDID
+C2348F15-A037-4111-8712-5926A51CFE7F`, exited 1 with
+`LSCopyApplicationURLsForBundleIdentifier() failed` for that bundle identifier.
+The iPad Pro 13-inch (M5), iOS 26.5 CoreSimulator device was Booted, so headless
+native tests remain available. The Simulator GUI and its Connect Hardware
+Keyboard menu could not be reached through this installed environment; its
+connection state and connected hardware-key delivery are **unverified**. This
+is not a claim that Simulator generally lacks hardware-keyboard simulation.
+No software was installed and no permission/trust dialog was answered.
+
+Owner follow-up: on a Mac with the Simulator GUI available, open that iPad
+Simulator, choose I/O > Keyboard > Connect Hardware Keyboard, and capture the
+menu checkmark (record the actual menu path if it differs). Run the same source
+revision, focus the terminal, select `日本語`, then show the actual Edit menu and
+capture enabled Copy/Paste. Choose Paste once and inspect the disposable peer
+for one Paste and no Key; repeat with software input shown. Keep the screenshot,
+revision, connection state and peer receipt together. The existing KeyOnly
+responder checks and screenshots do not establish hardware connection. Physical
+keyboard/IME behavior still requires the separate device sequence above.
+
+The harness turns off the periodic smoke redraw after entering its first case.
+`cancelled_paste_completion_notifies_with_quiet_peer` separately gates the real
+paste worker, cancels it, drains notifications, and checks completion invalidation
+with smoke mode off and a silent private peer. Its wire barrier rejects replay of
+both the cancelled payload and held input. Removing the completion notification
+must fail the invalidation assertion; restoring it must pass.
 
 ## SH1-155: keep the connection while inactive
 

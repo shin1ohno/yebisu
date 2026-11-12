@@ -6,6 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[derive(Clone)]
 pub(crate) struct Observation {
     sender: Option<SyncSender<Value>>,
     #[cfg(test)]

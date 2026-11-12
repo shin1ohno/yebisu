@@ -30,6 +30,8 @@ pub(crate) struct Handoff {
     pub publication_gate: Option<AsyncPublicationGate>,
     #[cfg(test)]
     pub clipboard_writes: usize,
+    #[cfg(test)]
+    pub completion_gate: Option<gpui::Task<()>>,
     pub stamp: Option<Stamp>,
     pub selection: Option<Selection>,
     pub select_mode: bool,

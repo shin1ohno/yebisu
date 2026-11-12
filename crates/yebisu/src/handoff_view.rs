@@ -114,8 +114,14 @@ impl Smoke {
         let work = cx
             .background_executor()
             .spawn(async move { payload.and_then(crate::handoff::prepare) });
+        #[cfg(test)]
+        let completion_gate = self.handoff.completion_gate.take();
         cx.spawn(async move |weak, cx| {
             let prepared = work.await;
+            #[cfg(test)]
+            if let Some(gate) = completion_gate {
+                gate.await;
+            }
             let current = weak
                 .update(cx, |this, _| {
                     this.sync_handoff();
@@ -152,6 +158,8 @@ impl Smoke {
             let _ = weak.update(cx, |this, cx| {
                 this.observation.record(serde_json::json!({"kind":"p8-paste-result","serial":serial,"current":this.handoff.serial==serial,"result":result.as_ref().map(|_|"queued").map_err(|e|e.to_string())}));
                 this.handoff.workers = this.handoff.workers.saturating_sub(1);
+                // Cancelled workers also release the slot used by native edit availability.
+                cx.notify();
                 this.sync_handoff();
                 if this.handoff.serial != serial {
                     return;
@@ -171,7 +179,6 @@ impl Smoke {
                         this.terminal.live.status = e.to_string();
                     }
                 }
-                cx.notify();
             });
         })
         .detach();
@@ -369,6 +376,9 @@ impl Smoke {
 #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+    pub(crate) fn edit_menu_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
     pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {

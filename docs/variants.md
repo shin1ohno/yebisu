@@ -141,3 +141,11 @@ Input options and display density switches also apply to Herdr 2.
 No new feel-dependent design fork. Existing density, shortcut precedence and
 board-visibility controls retain their behavior and now persist. Settings sheet
 layout/motion remains P11; no speculative visual alternatives are added in P10.
+
+## SH1-153
+
+No new feel variant was found. Native Copy is enabled only for a nonempty terminal
+selection; Paste is enabled for a focused, ready destination when no paste worker
+is active, regardless of software/hardware keyboard mode. This is correctness
+state, not a new preference. Cut keeps D3 copy-only semantics and Select All
+remains unavailable because the terminal has no such operation.
