@@ -105,6 +105,17 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", received["env"])
         self.save_receipt("clipboard-system-bash", str(SYSTEM_BASH), received)
 
+        result = subprocess.run(
+            [str(self.root / "runner.sh"), "ios_clipboard-tests", "shebang-arg"], cwd=self.root,
+            env={**self.env, "PATH": str(self.shebang_path)}, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        shebang_received = json.loads(self.log.read_text())
+        self.assertEqual(shebang_received["args"], ["clipboard", "fixture-udid", str(clipboard_binary), "shebang-arg"])
+        self.assertEqual(shebang_received["env"]["SIMCTL_CHILD_CARGO_BIN_EXE_herdr-gpui"], self.env["CARGO_BIN_EXE_herdr-gpui"])
+        self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", shebang_received["env"])
+        self.save_receipt("clipboard-env-bash", str(self.shebang_path / "bash"), shebang_received)
+
     def test_production_env_bash_shebang_with_controlled_path(self):
         shebang_bash = str(self.shebang_path / "bash")
         result = subprocess.run(
