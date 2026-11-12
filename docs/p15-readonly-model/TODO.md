@@ -27,4 +27,3 @@
   First step: review the task-local API proposal artifact against the owner and SDK.
   Close: actual Rust adapter/SSH receiver R01-R16 and write-mutant receipts satisfy
   security-plan-2.md; retain all unmet P1/P2/P3 criteria until then.
-
