@@ -58,7 +58,9 @@ No standalone harness pass establishes app registration, UI, transport or device
 The source-only Python check verifies fixture TOML, baseline preservation and a
 negative write-vocabulary mutation; it does not execute Rust or prove outbound IO.
 
-Security plan is `security-plan.md`: separate adversarial PASS before any network code.
+Current proposal is `security-plan-2.md`, awaiting independent re-review. The original
+`security-plan.md` is preserved after REQUEST_CHANGES. A plan PASS and actual T2
+receiving IO proof are separate; neither is claimed here. No network implementation.
 Remaining full P15 gates: controlled two-host actual outbound no-write evidence,
 symlink/TOCTOU handling, credential/trust isolation, exact-head guarded native
 check/lint-ios/test, reviewer approval, actual local theme persistence and owner QA.
