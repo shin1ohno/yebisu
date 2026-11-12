@@ -98,6 +98,7 @@ pub(crate) fn shortcut_candidate(
     key: &Keystroke,
 ) -> Option<Command> {
     if !terminal.open
+        || terminal.core_mode
         || !terminal.input.composition.text.is_empty()
         || terminal
             .live

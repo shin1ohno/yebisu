@@ -14,6 +14,7 @@ struct Scope {
     pane: Option<String>,
     epoch: u64,
     methods: Vec<String>,
+    palette: bool,
     enabled: bool,
 }
 impl Scope {
@@ -28,6 +29,7 @@ impl Scope {
             pane: s.and_then(|s| s.focused_pane_id.clone()),
             epoch: terminal.live.input_epoch,
             methods: terminal.live.methods.clone(),
+            palette: actions.palette,
             enabled: focused
                 && terminal.open
                 && terminal.live.connected
@@ -41,7 +43,6 @@ impl Scope {
                     .as_ref()
                     .is_some_and(|s| s.popup.is_none())
                 && terminal.input.composition.text.is_empty()
-                && !actions.palette
                 && !(actions.terminal_priority && terminal.input.options.command_control),
         }
     }

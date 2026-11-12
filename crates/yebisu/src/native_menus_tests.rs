@@ -209,3 +209,20 @@ fn disappeared_capability_keeps_shortcut_recognition_without_execution() {
     t.input.composition.text = "かな".into();
     assert_eq!(actions::shortcut_candidate(&t, &a, &key), None);
 }
+
+#[test]
+fn palette_toggle_remains_available_and_core_keys_keep_their_route() {
+    let mut t = terminal();
+    let mut a = actions::Actions::default();
+    a.palette = true;
+    let mut menus = NativeMenus::default();
+    menus.refresh(&t, &a, true);
+    let toggle = action(&menus, &t, Command::Palette);
+    assert_eq!(
+        menus.take(&toggle, &t, &a, true).ok(),
+        Some(Command::Palette)
+    );
+    t.core_mode = true;
+    let key = gpui::Keystroke::parse("cmd-d").unwrap_or_else(|e| panic!("key {e}"));
+    assert_eq!(actions::shortcut_candidate(&t, &a, &key), None);
+}
