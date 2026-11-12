@@ -210,7 +210,6 @@ class RunnerTests(unittest.TestCase):
 
         status = self.run_runner(str(SYSTEM_BASH), str(self.binary), env={"HERDR_TEST_RECEIVER_STATUS": "7"})
         self.assertEqual(status.returncode, 7)
-        self.save_receipt("ordinary-system-bash-exit7", str(SYSTEM_BASH), json.loads(self.log.read_text()))
 
 
 if __name__ == "__main__":
