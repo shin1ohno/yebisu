@@ -220,6 +220,7 @@ fn f09_f12_lost_or_wrong_reply_is_unknown_after_join() {
             kind: Operation::Replace,
             started: Instant::now(),
             admitted: true,
+            view: owner.view,
         });
         settle(&mut owner);
         assert_eq!(owner.state, State::Unknown);

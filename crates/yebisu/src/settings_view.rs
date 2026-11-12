@@ -19,6 +19,12 @@ impl Smoke {
                 } else {
                     root
                 };
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_P11_QA").is_some() {
+                    root.join("p11-qa")
+                } else {
+                    root
+                };
                 crate::settings::SettingsHost::open(root)
             }) {
             Ok(host) => self.settings = Some(host),
@@ -45,7 +51,7 @@ impl Smoke {
             cx.notify();
         }
         if host.poll() {
-            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
             self.terminal.font = host.draft.font.clone();
             self.terminal.compact = host.draft.compact;
             self.actions.terminal_priority = host.draft.terminal_priority;

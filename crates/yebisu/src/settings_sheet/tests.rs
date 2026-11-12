@@ -93,6 +93,7 @@ fn modal_native_input_has_zero_wire_events_between_positive_controls(cx: &mut Te
                 &KeyDownEvent {
                     keystroke: closing_key.clone(),
                     is_held: false,
+                    prefer_character_input: false,
                 },
                 window,
                 cx,
@@ -103,6 +104,7 @@ fn modal_native_input_has_zero_wire_events_between_positive_controls(cx: &mut Te
                 &KeyDownEvent {
                     keystroke: closing_key.clone(),
                     is_held: true,
+                    prefer_character_input: false,
                 },
                 window,
                 cx,

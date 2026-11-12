@@ -44,6 +44,7 @@ struct Worker {
     kind: Operation,
     started: Instant,
     admitted: bool,
+    view: u64,
 }
 pub(crate) struct Owner {
     provider: Arc<dyn Provider>,
@@ -171,6 +172,7 @@ impl Owner {
             kind,
             started: Instant::now(),
             admitted: submitted,
+            view: self.view,
         });
         submitted
     }
@@ -222,6 +224,15 @@ impl Owner {
             .try_recv()
             .ok()
             .filter(|r| r.op == worker.op && r.key == worker.key && r.key == self.key);
+        if worker.kind == Operation::Read && worker.view != self.view {
+            self.display = KeyView::failed();
+            self.state = if self.unresolved {
+                State::Unknown
+            } else {
+                State::Unavailable
+            };
+            return true;
+        }
         match (joined, worker.kind, reply.map(|r| r.value)) {
             (true, Operation::Read, Some(Ok(line))) => {
                 self.display = KeyView::from_formatted_worker_line(line);

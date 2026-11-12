@@ -1,6 +1,6 @@
 //! Safe public-key presentation. Reads and replacement remain host workers.
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum KeyView {
     Loading,
     Ready(String),

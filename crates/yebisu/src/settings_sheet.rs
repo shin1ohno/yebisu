@@ -19,6 +19,14 @@ impl Smoke {
             let text_system = cx.text_system().clone();
             let work = cx.background_executor().spawn(async move {
                 let mut fonts = text_system.all_font_names();
+                fonts.retain(|family| {
+                    crate::settings::font::TerminalFont {
+                        size: None,
+                        family: family.clone(),
+                    }
+                    .validate()
+                    .is_ok()
+                });
                 fonts.sort();
                 fonts.dedup();
                 fonts
@@ -50,7 +58,7 @@ impl Smoke {
         }
         self.key_ticket = None;
         if let Some(host) = &mut self.settings {
-            host.keys.cancel();
+            host.keys.view_open();
         }
         self.poll_settings(cx);
         self.settings_modal = false;
@@ -71,3 +79,6 @@ mod tests;
 
 #[cfg(test)]
 mod production_tests;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod qa;

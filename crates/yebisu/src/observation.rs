@@ -34,6 +34,7 @@ impl Observation {
         let p10 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SETTINGS_QA").is_some();
         let selection =
             cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SELECTION_SETTINGS_QA").is_some();
+        let p11 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_P11_QA").is_some();
         let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
         if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
             return Self::with_sender(None);
@@ -49,8 +50,8 @@ impl Observation {
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .write(true)
-                    .append(p2 || p10 || selection)
-                    .truncate(!(p2 || p10 || selection))
+                    .append(p2 || p10 || selection || p11)
+                    .truncate(!(p2 || p10 || selection || p11))
                     .open(directory.join(if selection {
                         "selection-settings.jsonl"
                     } else if p10 {

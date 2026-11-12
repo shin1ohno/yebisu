@@ -65,6 +65,13 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         if self.settings_modal {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os("YEBISU_P11_QA").is_some()
+                && herdr_uikit::native_edit_action().is_some()
+            {
+                self.observation
+                    .record(serde_json::json!({"kind":"p11-native-blocked"}));
+            }
             self.actions.consumed.insert(event.keystroke.key.clone());
             cx.stop_propagation();
             window.prevent_default();

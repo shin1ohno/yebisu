@@ -27,7 +27,7 @@ def validate(records, saved):
     if (loaded[1].get("drag_select"), loaded[1].get("copy_on_select")) != (False, True):
         raise ValueError("relaunch must restore both strip edits")
     expected = dict(version=1, language="en-US", compact=False, terminal_priority=False,
-                    board_hidden=False, drag_select=False, copy_on_select=True)
+                    board_hidden=False, drag_select=False, copy_on_select=True, terminal_font_size=None, terminal_font_family="SauceCodePro Nerd Font Mono")
     if saved != expected:
         raise ValueError("receiving file must contain both strip edits and unchanged settings")
 
