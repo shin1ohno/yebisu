@@ -4,13 +4,17 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = ["native_menus.rs", "native_menus_tests.rs", "actions.rs", "app.rs", "terminal_controls.rs"]
+FILES = ["native_menus.rs", "native_menus_tests.rs", "native_menus_adapter_tests.rs", "actions.rs", "app.rs", "terminal_controls.rs"]
 
 
 def violations(sources):
     errors = []
     menu = sources["native_menus.rs"]
     actions = sources["actions.rs"]
+    if "&& terminal.navigating.is_none()" in menu:
+        errors.append("D1 global navigation gate")
+    if "actions::catalog_context_available(terminal)" not in menu:
+        errors.append("shared context guard missing")
     if "available == method.as_str()" not in actions:
         errors.append("receiving capability guard missing")
     if "self.consumed = true;" not in menu or "if self.consumed" not in menu:
@@ -36,6 +40,9 @@ def main():
     sources = {name: (ROOT / "crates/yebisu/src" / name).read_text() for name in FILES}
     assert not violations(sources), violations(sources)
     for file, old, new, reason in [
+        ("native_menus.rs", "&& actions::catalog_context_available(terminal)",
+         "&& actions::catalog_context_available(terminal) && terminal.navigating.is_none()",
+         "D1 global navigation gate"),
         ("actions.rs", "available == method.as_str()", "true", "receiving capability guard missing"),
         ("native_menus.rs", "self.consumed = true;", "self.consumed = false;", "duplicate dispatch guard missing"),
         ("native_menus.rs", "action.revision != Some(self.revision)", "false", "stale revision guard missing"),

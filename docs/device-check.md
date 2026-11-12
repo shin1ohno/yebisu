@@ -678,3 +678,21 @@ with the hardware keyboard, Command hold, IME composition, terminal-priority var
 and prefix keys. Herdr 2 commands lacking catalog-backed core paths remain disabled.
 Simulator and model tests do not prove these physical behaviors. Long-press selection
 and SH1-152 gesture policy are outside P12.
+
+### P12 D1 pending local actions
+
+With a connected peer withholding a Split Right reply, invoke Command-B and
+Command-Shift-P through the real key adapter and through native menu picks.
+Sidebar/palette must each toggle exactly once while another remote command stays
+disabled. Keep scene/focus, IME and stale host/boot/pane/revision rejection active.
+Release the peer's response gate before asserting no extra RPC or terminal input;
+a blocked peer cannot provide a meaningful zero-traffic observation.
+
+The exact-head host regression is
+`native_menus::adapter_tests::pending_rpc_local_callbacks_once_without_extra_wire`.
+On the next explicitly leased Mac checkout, after the three standard gates, run
+`python3 scripts/ios/p12-d1-mutation.py --output <task-artifact-directory>`.
+It requires a clean checkout, runs the regression, restores the global navigation
+gate, requires the specific D1 assertion failure, restores original source bytes,
+and reruns the regression. This is consumer adapter evidence, not a substitute for
+Simulator menu/Command-hold screenshots/receipts or physical hardware and IME.

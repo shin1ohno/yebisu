@@ -47,32 +47,41 @@ fn supported(command: Command) -> bool {
 fn local(command: Command) -> bool {
     matches!(command, Command::ToggleSidebar | Command::Palette)
 }
+// Shared command context, independent of whether a command needs an RPC.
+// Focus/scene and keyboard priority remain entry-point policy, not transport state.
+pub(crate) fn catalog_context_available(terminal: &TerminalView) -> bool {
+    terminal.open
+        && terminal.live.connected
+        && !terminal.core_mode
+        && !terminal.reconnect.suspended
+        && terminal.live.version_mismatch.get().is_none()
+        && terminal
+            .live
+            .surface
+            .as_ref()
+            .is_some_and(|s| s.popup.is_none())
+        && terminal.input.composition.text.is_empty()
+}
 pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
+    let context_available = catalog_context_available(terminal);
     sheprd_commands::COMMANDS
         .iter()
         .filter(|i| supported(i.command))
         .map(|info| {
             let label = crate::i18n::command(info);
-            let available = local(info.command)
-                || (terminal.live.connected
-                    && !terminal.reconnect.suspended
-                    && terminal.navigating.is_none()
-                    && terminal
-                        .live
-                        .surface
-                        .as_ref()
-                        .is_none_or(|s| s.popup.is_none())
-                    && snapshot(&terminal.live)
-                        .and_then(|s| sheprd_commands::request(info.command, s))
-                        .is_some_and(|(method, _)| {
-                            terminal.live.methods.iter().any(|m| m == method.as_str())
-                        }));
+            let available = context_available
+                && (local(info.command)
+                    || (terminal.navigating.is_none()
+                        && snapshot(&terminal.live)
+                            .and_then(|s| sheprd_commands::request(info.command, s))
+                            .is_some_and(|(method, _)| {
+                                terminal.live.methods.iter().any(|m| m == method.as_str())
+                            })));
             Action {
                 info,
                 label,
                 shortcuts: info.default_shortcuts(),
-                // Core has its own controls and does not render the palette.
-                available: available && !terminal.core_mode,
+                available,
             }
         })
         .collect()

@@ -226,3 +226,39 @@ fn palette_toggle_remains_available_and_core_keys_keep_their_route() {
     let key = gpui::Keystroke::parse("cmd-d").unwrap_or_else(|e| panic!("key {e}"));
     assert_eq!(actions::shortcut_candidate(&t, &a, &key), None);
 }
+
+#[test]
+fn every_catalog_kind_separates_local_context_from_rpc_readiness() {
+    let mut t = terminal();
+    t.navigating = Some(crate::board::Navigation {
+        boot: "boot-v1".into(),
+        revision: 7,
+        target: crate::board::Target::Command,
+        request: "pending-split".into(),
+    });
+    for entry in actions::catalog(&t) {
+        let local = matches!(
+            entry.info.command,
+            Command::ToggleSidebar | Command::Palette
+        );
+        assert_eq!(
+            entry.available, local,
+            "pending kind {:?}",
+            entry.info.command
+        );
+    }
+    for mutation in 0..5 {
+        let mut t = terminal();
+        match mutation {
+            0 => t.live.connected = false,
+            1 => t.reconnect.suspended = true,
+            2 => t.core_mode = true,
+            3 => t.input.composition.text = "かな".into(),
+            _ => t.open = false,
+        }
+        assert!(
+            actions::catalog(&t).iter().all(|entry| !entry.available),
+            "common context rejection {mutation}"
+        );
+    }
+}

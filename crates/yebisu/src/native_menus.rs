@@ -31,18 +31,7 @@ impl Scope {
             methods: terminal.live.methods.clone(),
             palette: actions.palette,
             enabled: focused
-                && terminal.open
-                && terminal.live.connected
-                && !terminal.core_mode
-                && !terminal.reconnect.suspended
-                && terminal.navigating.is_none()
-                && terminal.live.version_mismatch.get().is_none()
-                && terminal
-                    .live
-                    .surface
-                    .as_ref()
-                    .is_some_and(|s| s.popup.is_none())
-                && terminal.input.composition.text.is_empty()
+                && actions::catalog_context_available(terminal)
                 && !(actions.terminal_priority && terminal.input.options.command_control),
         }
     }
@@ -214,3 +203,7 @@ impl Smoke {
 #[cfg(test)]
 #[path = "native_menus_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "native_menus_adapter_tests.rs"]
+mod adapter_tests;
