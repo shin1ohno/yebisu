@@ -8,7 +8,14 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    pub(crate) notifications: crate::notification_view::State,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
+    pub(crate) settings_modal: bool,
+    pub(crate) settings_focus: FocusHandle,
+    pub(crate) settings_page: crate::settings_pages::Page,
+    pub(crate) settings_fonts: Vec<String>,
+    pub(crate) settings_fonts_loading: bool,
+    pub(crate) key_ticket: Option<crate::settings::key_ops::Ticket>,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
@@ -66,7 +73,8 @@ impl Smoke {
                 if weak
                     .update(cx, |this, cx| {
                         this.poll_settings(cx);
-                        this.poll_terminal(cx)
+                        this.poll_terminal(cx);
+                        this.collect_notifications(cx);
                     })
                     .is_err()
                 {
@@ -76,7 +84,14 @@ impl Smoke {
         })
         .detach();
         Self {
+            notifications: Default::default(),
             settings: None,
+            settings_modal: false,
+            settings_focus: cx.focus_handle(),
+            settings_page: crate::settings_pages::Page::Fonts,
+            settings_fonts: Vec::new(),
+            settings_fonts_loading: false,
+            key_ticket: None,
             settings_error: None,
             focus,
             terminal_focus: cx.focus_handle(),
@@ -102,7 +117,21 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let screen = self.render_screen(window, cx);
+        let screen = div()
+            .relative()
+            .size_full()
+            .child(self.render_screen(window, cx))
+            .child(self.render_notification(cx))
+            .into_any_element();
+        if self.settings_modal {
+            let sheet = self.render_settings_sheet(window, cx);
+            return div()
+                .relative()
+                .size_full()
+                .child(screen)
+                .child(sheet)
+                .into_any_element();
+        }
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };
@@ -264,6 +293,12 @@ pub(crate) fn run() {
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
+            let notification_owner = entity.downgrade();
+            cx.on_system_notification_response(move |response, cx| {
+                let _ = notification_owner.update(cx, |this, cx| {
+                    this.open_notification(&response.tag, response.action_id.is_some(), cx)
+                });
+            });
             let weak = entity.downgrade();
             cx.on_app_lifecycle(move |phase, cx| {
                 let _ = weak.update(cx, |this, cx| this.lifecycle(phase, cx));
@@ -271,6 +306,7 @@ pub(crate) fn run() {
             .detach();
             entity.update(cx, |this, cx| {
                 this.start_settings(cx);
+                this.query_notification_permission();
                 this.start_job(crate::setup::Job::Load, cx);
             });
             #[cfg(target_abi = "sim")]

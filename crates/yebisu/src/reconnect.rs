@@ -34,6 +34,7 @@ impl Reconnect {
 impl Smoke {
     pub(crate) fn lifecycle(&mut self, phase: AppLifecyclePhase, cx: &mut Context<Self>) {
         self.settings_lifecycle(phase);
+        self.notification_lifecycle(phase);
         crate::diagnostics::record(match phase {
             AppLifecyclePhase::Active => "active",
             AppLifecyclePhase::Foreground => "foreground",
