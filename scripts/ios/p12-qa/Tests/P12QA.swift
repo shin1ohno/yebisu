@@ -50,17 +50,16 @@ final class P12QA: XCTestCase {
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
         sleep(1)
         hierarchy("p12-revealed-" + caseName)
-        var selectedOwner: XCUIApplication?
-        for owner in [springboard, app] {
-            let terminal = owner.descendants(matching: .any)
-                .matching(NSPredicate(format: "label == %@", "Terminal")).firstMatch
-            if terminal.exists && terminal.isHittable {
-                terminal.tap()
-                selectedOwner = owner
-                break
-            }
-        }
-        let owner = try XCTUnwrap(selectedOwner, "Installed OS Terminal menu must be reachable")
+        screenshot("p12-revealed-" + caseName)
+        // Pinned herdr-uikit b2fa781 menu::placement maps GPUI position 0
+        // to UIMenuApplication, regardless of the consumer title "Terminal".
+        // The installed Springboard menu-bar control is therefore "yebisu".
+        let owner = springboard
+        let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
+        XCTAssertTrue(applicationMenu.waitForExistence(timeout: 3), "Installed OS application menu must exist")
+        XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
+        XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
+        applicationMenu.tap()
         sleep(1)
         screenshot("p12-menu-" + caseName)
         hierarchy("p12-menu-" + caseName)
