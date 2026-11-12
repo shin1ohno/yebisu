@@ -18,7 +18,7 @@ Source baseline: yebisu `dc2511fe695935cdce60ba6bb3cfb4288a425778`; read-only up
 
 ## Integration entry points and gates
 
-1. Add `mod settings_pages;` in the crate root and mount `Page::ALL` through the production sheet page registry.
+1. Add `#[cfg(any(target_os = "ios", test))] mod settings_pages;` beside `settings_spike` in `crates/yebisu/src/main.rs:102-106`, then mount `Page::ALL` through the production sheet page registry.
 2. The sheet editor maps `Density::apply` and `set_terminal_priority` into the existing `SettingsHost` draft, then calls the existing poll/flush owner path. `settings_view.rs:28-53,61-75` and `settings.rs:85-105` are the current owner entry points.
 3. Font renderer apply remains at `terminal_view.rs:212-215`; retain SauceCodePro Nerd Font Mono and regular 14/20, compact 12/17. The only exposed font control is the persisted density preset.
 4. Keyboard rows are a projection of `actions::catalog`; do not synthesize unavailable actions or introduce a second shortcut table. The toggle edits `Values.terminal_priority`, which `actions::shortcut` reads.
