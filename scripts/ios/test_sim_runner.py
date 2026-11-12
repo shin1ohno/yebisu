@@ -67,7 +67,7 @@ class RunnerTests(unittest.TestCase):
         resolved_shell = os.path.realpath(shell_path)
         version = subprocess.run([resolved_shell, "--version"], text=True, capture_output=True, check=True).stdout.splitlines()[0]
         source_head = subprocess.run(
-            ["git", "-C", str(SCRIPT_DIR.parents[2]), "rev-parse", "HEAD"],
+            ["git", "-C", str(SCRIPT_DIR.parents[1]), "rev-parse", "HEAD"],
             text=True, capture_output=True, check=True,
         ).stdout.strip()
         receipt = {
