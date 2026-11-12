@@ -354,3 +354,61 @@ fn sh1_156_setup_mark_cannot_commit_into_initial_terminal(cx: &mut TestAppContex
     );
     view.update(cx, |this, _| this.terminal.link.pause());
 }
+
+#[gpui::test]
+fn sh1_156_send_failure_drops_key_but_preserves_real_discard(cx: &mut TestAppContext) {
+    for marked in [false, true] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, wire) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+        view.update(cx, |this, _| install(this, client));
+        wait_frame(&view, cx, |this| this.terminal.live.surface.is_some());
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                prepare(this, window, cx);
+                if marked {
+                    this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
+                    this.terminal.input.discard();
+                }
+                // Reach the real send_verified failure with a coherent inbox but no writer.
+                let handle = this.terminal.link.handle.take();
+                key(this, "ctrl-a", false, window, cx);
+                assert!(
+                    this.terminal
+                        .live
+                        .status
+                        .contains("Disconnected; input discarded")
+                );
+                assert_eq!(
+                    this.terminal.input.requires_gesture(),
+                    marked,
+                    "D1: writer failure changed the real discard fence"
+                );
+                this.terminal.link.handle = handle;
+                this.refresh_terminal_input();
+                if marked {
+                    this.replace_text_in_range(None, "discarded", window, cx);
+                } else {
+                    printable(this, "b", window, cx);
+                }
+                key(this, "ctrl-e", false, window, cx);
+                sentinel(this, "w1:p1");
+            })
+        });
+        let mut expected = Vec::new();
+        if !marked {
+            expected.push(ClientPaneInputEvent::TextCommit("b".into()));
+        }
+        expected.push(expected_key(
+            ClientKeyCode::Char('e'),
+            2,
+            ClientKeyKind::Press,
+            false,
+        ));
+        assert_eq!(
+            receive(&wire, "w1:p1"),
+            expected,
+            "failed key must not replay"
+        );
+        view.update(cx, |this, _| this.terminal.link.pause());
+    }
+}

@@ -56,6 +56,10 @@ MUTATIONS = [
      "/* mutation: forget rejected native mark */", "sh1_156_host_switch_inherits_discarded_and_rejected_marks"),
     ("barrier-mark", "terminal_input.rs", "self.reject_mark(text);",
      "/* mutation: forget marked callback during barrier */", "sh1_156_marked_barrier_retains_discard_fence"),
+    ("writer-discard", "terminal_controls.rs",
+     "self.terminal.input.detach(); // Preserve an actual discard on writer failure.",
+     "self.terminal.input = crate::terminal_input::TerminalInput::default();",
+     "sh1_156_send_failure_drops_key_but_preserves_real_discard"),
     ("setup-discard", "board.rs", "self.terminal.input.retain_discard(marked);",
      "/* mutation: treat setup composition as fresh terminal text */", "sh1_156_setup_mark_cannot_commit_into_initial_terminal"),
 ]
@@ -76,6 +80,7 @@ FAILURE_REASONS = {
     "host-discard": "D1: host switch lost native discard fence",
     "rejected-mark": "D1: host switch lost native discard fence",
     "barrier-mark": "D1: barrier must preserve real discard without inventing one",
+    "writer-discard": "D1: writer failure changed the real discard fence",
     "setup-discard": "D1: setup composition lost its discard fence",
 }
 

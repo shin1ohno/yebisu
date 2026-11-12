@@ -1,7 +1,4 @@
-use crate::{
-    app::Smoke,
-    terminal_input::{GeneratedInput, TerminalInput},
-};
+use crate::{app::Smoke, terminal_input::GeneratedInput};
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
@@ -78,9 +75,7 @@ impl Smoke {
             };
             if let Err(error) = result {
                 self.terminal.live.status = error.to_string();
-                let options = std::mem::take(&mut self.terminal.input.options);
-                self.terminal.input = TerminalInput::default();
-                self.terminal.input.options = options;
+                self.terminal.input.detach(); // Preserve an actual discard on writer failure.
                 break;
             }
         }
