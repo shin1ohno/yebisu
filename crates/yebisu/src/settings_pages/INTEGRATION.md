@@ -27,3 +27,14 @@ Source baseline: yebisu `dc2511fe695935cdce60ba6bb3cfb4288a425778`; read-only up
 7. The production sheet route, focus/native input isolation, draft persistence, background flush, load/save failure behavior, narrow-window layout, rendering checks, and owner physical acceptance are not proved by these page models.
 
 This manifest describes source-level adaptation, not a compiled or mounted product page.
+
+## P11 production integration (feat/p11-settings-sheet)
+
+The original handoff above remains provenance history. main.rs now mounts this
+module. settings_sheet/view.rs consumes Page::ALL, font density, shortcut catalog,
+KeyView via SettingsHost::keys, and both legal documents. SettingsHost alone owns
+all public-key operations; Setup Job::Key and Reply::Key were removed to prevent
+bypass reads. KeyView receives only the single formatter output from key_ops.
+Font size/family now persist in settings/font.rs and apply to painter plus native
+composition geometry; the family list comes from the platform text system off
+UI thread. Native validation is still required; mounted source is not acceptance.

@@ -43,7 +43,7 @@ final class SmokeQA: XCTestCase {
         app.activate()
         sleep(3)
         save("p2-initial")
-        try tapText("Create / show public key", in: app)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-key")
         try tapText("Copy authorized_keys line", in: app)
@@ -55,9 +55,10 @@ final class SmokeQA: XCTestCase {
         app.activate()
         app.terminate()
         app.launchEnvironment["YEBISU_P2_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launch()
         sleep(3)
-        try tapText("Create / show public key", in: app)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-restarted")
         XCTAssertEqual(app.state, .runningForeground)

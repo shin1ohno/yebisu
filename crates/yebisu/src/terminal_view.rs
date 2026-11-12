@@ -294,6 +294,7 @@ impl Smoke {
                     .flex()
                     .flex_wrap()
                     .gap_2()
+                    .child(self.settings_button(cx))
                     .px_4()
                     .py_2()
                     .child(

@@ -237,8 +237,6 @@ fn p2_reply_variants_remain_visible() {
     let mut setup = crate::setup::Setup::default();
     setup.apply(Ok(crate::setup::Reply::Loaded("host".into(), "pin".into())));
     assert_eq!(setup.target, "host");
-    setup.apply(Ok(crate::setup::Reply::Key("public".into())));
-    assert_eq!(setup.key_line.as_deref(), Some("public"));
     setup.apply(Ok(crate::setup::Reply::Saved(
         crate::hosts::SavedHosts {
             targets: vec!["saved".into()],
