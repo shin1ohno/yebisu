@@ -228,7 +228,7 @@ impl State {
         self.posted.push_back(Posted {
             tag: tag.clone(),
             target,
-            received: now,
+            received: event.received,
         });
         if self.policy.route == Route::Toast {
             self.toast = Some(Toast {
@@ -422,6 +422,23 @@ impl Smoke {
         }
     }
     pub(crate) fn open_notification(&mut self, tag: &str, action: bool, cx: &mut Context<Self>) {
+        let local = chrono::Local::now();
+        self.open_notification_at(
+            tag,
+            action,
+            Instant::now(),
+            (local.hour() * 60 + local.minute()) as u16,
+            cx,
+        );
+    }
+    fn open_notification_at(
+        &mut self,
+        tag: &str,
+        action: bool,
+        now: Instant,
+        minute: u16,
+        cx: &mut Context<Self>,
+    ) {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if std::env::var_os("YEBISU_P14_QA").is_some() {
             self.notifications.qa_last_tag = Some(tag.to_owned());
@@ -442,8 +459,11 @@ impl Smoke {
             if action {
                 return Err(Failure::InvalidTarget);
             }
+            if let Some(error) = self.notifications.policy.suppression(minute) {
+                return Err(error);
+            }
             let posted = posted.ok_or(Failure::Stale)?;
-            if posted.received.elapsed() > Duration::from_secs(300) {
+            if now.saturating_duration_since(posted.received) > Duration::from_secs(300) {
                 return Err(Failure::Stale);
             }
             let target = posted.target;
@@ -526,6 +546,9 @@ impl Smoke {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "ios"))]
+mod response_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod qa;

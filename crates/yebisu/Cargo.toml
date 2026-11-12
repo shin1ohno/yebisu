@@ -33,3 +33,6 @@ objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIPas
 [dev-dependencies]
 sheprd-client = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "ios")'.dev-dependencies]
+herdr-uikit = { workspace = true, features = ["test-support"] }
