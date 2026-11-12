@@ -117,6 +117,20 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("SIMCTL_CHILD_PRIVATE_NOT_A_TEST_VARIABLE", shebang_received["env"])
         self.save_receipt("clipboard-env-bash", str(self.shebang_path / "bash"), shebang_received)
 
+        system_status = self.run_runner(
+            str(SYSTEM_BASH), "ios_clipboard-tests", "exit-seven", env={"HERDR_TEST_RECEIVER_STATUS": "7"}
+        )
+        self.assertEqual(system_status.returncode, 7)
+        self.save_receipt("clipboard-system-bash-exit7", str(SYSTEM_BASH), json.loads(self.log.read_text()))
+
+        shebang_status = subprocess.run(
+            [str(self.root / "runner.sh"), "ios_clipboard-tests", "exit-seven-shebang"], cwd=self.root,
+            env={**self.env, "PATH": str(self.shebang_path), "HERDR_TEST_RECEIVER_STATUS": "7"},
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(shebang_status.returncode, 7, shebang_status.stderr)
+        self.save_receipt("clipboard-env-bash-exit7", str(self.shebang_path / "bash"), json.loads(self.log.read_text()))
+
     def test_production_env_bash_shebang_with_controlled_path(self):
         shebang_bash = str(self.shebang_path / "bash")
         result = subprocess.run(
@@ -130,6 +144,14 @@ class RunnerTests(unittest.TestCase):
         version = subprocess.run([os.path.realpath(shebang_bash), "--version"], text=True, capture_output=True, check=True).stdout.splitlines()[0]
         self.assertIn("bash", version.lower(), version)
         self.save_receipt("env-bash-shebang", shebang_bash, received)
+
+        status = subprocess.run(
+            [str(self.root / "runner.sh"), str(self.binary), "exit-seven-shebang"], cwd=self.root,
+            env={**self.env, "PATH": str(self.shebang_path), "HERDR_TEST_RECEIVER_STATUS": "7"},
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(status.returncode, 7, status.stderr)
+        self.save_receipt("ordinary-env-bash-exit7", shebang_bash, json.loads(self.log.read_text()))
 
     def test_runner_error_paths_and_child_status(self):
         zero = subprocess.run([str(SYSTEM_BASH), str(self.root / "runner.sh")], env=self.env, capture_output=True)
@@ -146,6 +168,7 @@ class RunnerTests(unittest.TestCase):
 
         status = self.run_runner(str(SYSTEM_BASH), str(self.binary), env={"HERDR_TEST_RECEIVER_STATUS": "7"})
         self.assertEqual(status.returncode, 7)
+        self.save_receipt("ordinary-system-bash-exit7", str(SYSTEM_BASH), json.loads(self.log.read_text()))
 
 
 if __name__ == "__main__":
