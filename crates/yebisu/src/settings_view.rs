@@ -25,6 +25,12 @@ impl Smoke {
                 } else {
                     root
                 };
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_P14_QA").is_some() {
+                    root.join("p14-qa")
+                } else {
+                    root
+                };
                 crate::settings::SettingsHost::open(root)
             }) {
             Ok(host) => self.settings = Some(host),

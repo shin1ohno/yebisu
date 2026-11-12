@@ -114,3 +114,6 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod mock_notifications;

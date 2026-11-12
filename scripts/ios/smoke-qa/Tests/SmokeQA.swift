@@ -37,6 +37,30 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    func testP14ConnectedNotifications() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P14_QA"] = "1"
+        app.launch()
+        sleep(4)
+        try tapText("P14 next", in: app)
+        sleep(2)
+        try tapText("Agent needs attention", in: app, tap: false)
+        save("p14-toast")
+        try tapText("Agent needs attention", in: app)
+        sleep(2)
+        save("p14-focus")
+        for name in ["p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"] {
+            try tapText("P14 next", in: app)
+            sleep(3)
+            save(name)
+        }
+        XCTAssertEqual(app.state, .runningForeground)
+        // Never visit notification settings or answer an OS permission dialog.
+    }
+
     func testP11Settings() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
