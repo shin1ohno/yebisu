@@ -107,3 +107,6 @@ mod settings_spike;
 
 #[cfg(test)]
 mod discard_recovery_tests;
+
+#[cfg(test)]
+mod discard_connection_tests;

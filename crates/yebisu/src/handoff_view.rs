@@ -171,6 +171,7 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn toggle_selection(&mut self) {
+        self.handoff.passive_highlight = false;
         self.handoff.select_mode ^= true;
         self.handoff.cancel();
         self.terminal.input.detach();
@@ -190,6 +191,7 @@ impl Smoke {
             return;
         }
         self.terminal_focus.focus(window, cx);
+        self.handoff.passive_highlight = false;
         if self.handoff.stamp.is_some()
             && (self.handoff.select_mode || self.handoff.drag_select || event.click_count >= 2)
         {
@@ -289,6 +291,14 @@ impl Smoke {
                             "Select"
                         },
                     ),
+                    (
+                        "typing-highlight",
+                        if self.handoff.keep_highlight_on_key {
+                            "Typing: Keep highlight"
+                        } else {
+                            "Typing: Clear highlight"
+                        },
+                    ),
                     ("copy", "Copy"),
                     ("paste", "Paste"),
                     ("paste-image", "Paste image"),
@@ -321,6 +331,9 @@ impl Smoke {
                             match id {
                                 "select" => {
                                     this.toggle_selection();
+                                }
+                                "typing-highlight" => {
+                                    this.handoff.keep_highlight_on_key ^= true;
                                 }
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),

@@ -138,7 +138,7 @@ impl TerminalInput {
     }
     pub fn key_down(&mut self, event: &KeyDownEvent, report_all: bool) -> Option<GeneratedInput> {
         self.held.forget(&event.keystroke.key);
-        self.fresh_gesture();
+        // A key press cannot acknowledge native composition cancellation.
         self.destination.as_ref()?;
         if !self.composition.text.is_empty() {
             return None;

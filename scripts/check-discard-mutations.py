@@ -7,6 +7,7 @@ The caller must wrap this process in `just guarded` (one build at a time).
 """
 import argparse
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -25,9 +26,25 @@ MUTATIONS = [
      "// A key press cannot acknowledge native composition cancellation.",
      "self.fresh_gesture();",
      "sh1_156_selection_new_press_resumes_without_discarded_commit"),
+    ("status-reason", "terminal_controls.rs",
+     'return "Selection active · press a terminal key or turn Select off to type".into();',
+     'return "Composition discarded · tap terminal to type".into();',
+     "sh1_156_status_and_highlight_variant_follow_input_gate"),
+    ("reconnect-focus", "terminal_view.rs",
+     "self.terminal_focus.focus(window, cx);", "/* mutation: leave native focus unrestored */",
+     "sh1_156_reconnect_control_restores_focus_and_keys"),
+    ("core-destination", "core/worker.rs",
+     "== Some(&destination)", "!= None",
+     "sh1_156_core_detach_reattach_uses_new_destination_without_tap"),
+    ("paste-fifo", "handoff.rs", "pub fn resume_typing(&mut self) {",
+     "pub fn resume_typing(&mut self) { self.cancel();",
+     "sh1_156_terminal_key_keeps_existing_paste_fifo"),
+    ("navigation-fence", "terminal_controls.rs", ".navigating.is_some()",
+     ".navigating.is_some() && false",
+     "sh1_156_response_before_projection_keeps_real_key_adapter_fenced"),
     ("repeat-selection", "terminal_controls.rs",
-     "if event.is_held { // An old held key cannot end a new selection.",
-     "if false {",
+     "if event.is_held && self.handoff.blocks_input() {",
+     "self.handoff.resume_typing(); if false {",
      "sh1_156_selection_new_press_resumes_without_discarded_commit"),
 ]
 
@@ -58,13 +75,15 @@ def main():
     for name, relative, old, new, test in MUTATIONS:
         path = SRC / relative
         original = path.read_text()
-        if original.count(old) != 1:
-            sys.exit(f"{name}: mutation anchor count is not one")
+        expected_count = 3 if name == "navigation-fence" else 1
+        if original.count(old) != expected_count:
+            sys.exit(f"{name}: unexpected mutation anchor count")
         try:
             path.write_text(original.replace(old, new))
             result = run(test)
             if (result.returncode != 101 or "panicked at" not in result.stdout
-                    or f"::{test} ... FAILED" not in result.stdout):
+                    or not re.search(r"^\s+(?:\w+::)*" + re.escape(test) + r"$", result.stdout, re.MULTILINE)
+                    or "test result: FAILED" not in result.stdout):
                 sys.exit(f"{name}: no named behavioral assertion failure; negative NOT proven")
             print(f"MUTATION PASS {name}: named test failed with an assertion", flush=True)
         finally:

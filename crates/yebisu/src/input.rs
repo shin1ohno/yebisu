@@ -150,7 +150,7 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
-            if self.handoff.selection.is_some() || self.handoff.select_mode {
+            if self.handoff.blocks_input() {
                 return;
             }
             self.refresh_terminal_input();
@@ -186,7 +186,7 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
-            if self.handoff.selection.is_some() || self.handoff.select_mode {
+            if self.handoff.blocks_input() {
                 return;
             }
             self.refresh_terminal_input();

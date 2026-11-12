@@ -5,6 +5,33 @@ use crate::{
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
+    /// Render the active refusal reason, not a historical composition event.
+    pub(crate) fn terminal_status(&self) -> String {
+        if !self.terminal.live.connected {
+            return if self.terminal.live.status.is_empty() {
+                "Connecting… · input paused".into()
+            } else {
+                self.terminal.live.status.clone()
+            };
+        }
+        if self.terminal.navigating.is_some() {
+            return "Navigating… · wait for the terminal, then type again".into();
+        }
+        if self.actions.palette {
+            return "Commands open · close Commands to type".into();
+        }
+        if self.handoff.blocks_input() {
+            return "Selection active · press a terminal key or turn Select off to type".into();
+        }
+        if self.terminal.input.destination.is_none() || !self.terminal.input.ready {
+            return "Waiting for terminal frame · input paused".into();
+        }
+        if self.terminal.input.requires_gesture() {
+            return "Text input paused · use terminal keys or tap to retry text".into();
+        }
+        self.terminal.live.status.clone()
+    }
+
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
         if terminal.navigating.is_some() || self.actions.palette {
@@ -22,7 +49,7 @@ impl Smoke {
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
         self.refresh_terminal_input();
         self.sync_handoff();
-        if self.handoff.selection.is_some() || self.handoff.select_mode {
+        if self.handoff.blocks_input() {
             return;
         }
         if self.handoff.preparing {
@@ -133,11 +160,21 @@ impl Smoke {
             return;
         }
         self.refresh_terminal_input();
+        self.sync_handoff();
+        // An old held key cannot end a new selection.
+        if event.is_held && self.handoff.blocks_input() {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         if let Some(input) = self
             .terminal
             .input
             .key_down(event, self.terminal.input.report_all)
         {
+            if !event.is_held {
+                self.handoff.resume_typing();
+            }
             self.send_terminal(input);
             cx.stop_propagation();
             window.prevent_default();

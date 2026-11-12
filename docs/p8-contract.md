@@ -38,12 +38,10 @@ The canvas uses a content mask, not an enclosing paint layer: the painter owns
 its background/text/image layers, so images must not inherit an earlier parent
 draw order below the backgrounds.
 
-Explicit paste or turning Select off ends the old composition and resumes input.
-A commit UIKit delivers after that boundary is accepted, even if it originated
-from the preceding composition. The SDK routes insertText and IME commits through
-the same `replace_text_in_range(None, text)` without composition identity, so the
-consumer cannot distinguish them. Commits while selection is active remain
-rejected. This is the settled P8 input contract, not a missing stale-commit check.
+The legacy D4 implementation resumes text on explicit Paste, Select-off and
+ordinary terminal taps. It cannot identify a late prior IME commit at those
+boundaries. This is a known gap against SH1-156, not permission to deliver
+discarded text. Do not count the legacy resumption test as SH1-156 acceptance.
 
 Native edit actions use the SDK's scoped origin, independent of Command mapping
 and shortcut priority: Paste starts normal paste; Copy and Cut copy the selection;
@@ -59,12 +57,37 @@ The Command: Ctrl plus Terminal priority exclusion still applies to all physical
 clipboard chords. Native edit actions retain their independent SDK-origin route.
 
 
-SH1-156 investigation: the preceding D4 late-commit allowance conflicts with the
-new requirement that discarded composition never be sent. A fresh GPUI KeyDown
-already clears `TerminalInput.cancelled`, but `send_terminal` still refuses input
-while `selection` or `select_mode` is active. `mark` refuses a new composition
-while cancelled. The pinned UIKit adapter passes both ordinary input and IME
-commit through `replace_text_in_range(None, text)` without origin/epoch. Changing
-only the cancelled flag cannot establish the stronger lifetime guarantee. The
-ignored SH1-156 adapter regression records the new-composition failure; it is not
-an acceptance pass. Resolve the callback-origin contract before changing D4.
+## SH1-156 partial app repair
+
+A destination/stamp change closes Select mode and removes the old highlight.
+A fresh terminal-owned semantic key (for example Ctrl-A or Left) ends selection
+and is sent once. Copy/native edit/app shortcuts are resolved first; a repeat
+from an earlier press does not end selection. The key does not acknowledge native
+composition cancellation, so later injected discarded commits remain fenced.
+Pending paste is not cancelled by the key. P7 navigation and P9 destination
+checks remain in place; this repair adds no buffering, replay or text comparison.
+
+The handoff strip offers **Typing: Clear highlight** (default) and **Typing: Keep
+highlight**. The latter retains a copyable, passive highlight until the frame or
+destination changes; it does not block keys or weaken the IME fence. New selection
+begins an active input block again. This preference is session-local.
+
+Status distinguishes disconnected/Detached, command barrier, Commands palette,
+selection, waiting frame and paused text input. Paused text is not evidence that
+all hardware keys are refused. A successful semantic key does not hide a still
+active text-input refusal.
+
+Full SH1-156 remains blocked: hardware printable keys can go to UIKit before GPUI
+KeyDown, and new software compositions are still rejected while cancelled. At the
+pinned SDK, insertText/direct text/IME commit share the replacement callback.
+Notification and responder APIs have not established native session retirement.
+Injected old callbacks test the consumer fence; they do not show that physical
+UIKit delivers those callbacks after cancellation. No blanket impossibility or
+mandatory SDK change follows from injection alone. The ignored new-composition
+regression remains; original Z1-Z7 acceptance is unchanged.
+
+Run the new real-adapter suite with `cargo test --locked --workspace sh1_156_ --
+--nocapture --test-threads=1`. On an exclusively owned Mac checkout, use `just
+guarded python3 scripts/check-discard-mutations.py` for mutation negatives.
+Compile failures do not count as successful negatives. The script restores each
+source and reruns its test. These checks do not establish native UIKit delivery.

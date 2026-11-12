@@ -502,11 +502,10 @@ large-image acceptance. No physical checks above have been marked complete.
    Copy must copy the selection. Neither may send Ctrl-V/C. Native Cut copies the
    selection; native Select All does nothing. Physical Command-C/V still follow
    the precedence rules above.
-4. An explicit Paste or Select-off ends the old composition. Any commit UIKit
-   delivers afterward is accepted as new input, including a late prior commit.
-   The SDK sends insertText and IME commits through the same
-   `replace_text_in_range(None, text)` without composition identity. Confirm that
-   commits during selection are rejected and commits after this boundary arrive.
+4. The legacy Paste/Select-off implementation accepts callbacks after resumption
+   without knowing their composition identity. Record any late old commit as a
+   SH1-156 failure. The earlier D4 allowance is superseded by SH1-156 acceptance;
+   a successful paste does not establish safe native cancellation.
 
 ### P8 extra-modifier regression
 
@@ -645,10 +644,10 @@ Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad f
 6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.
 
 
-## SH1-156: hardware input after composition discard (blocked investigation)
+## SH1-156: hardware input after composition discard (partial repair)
 
-These are acceptance steps, not recorded passes. Do not deploy this diagnostic
-branch as a fix. Signing requires the owner's locally unlocked login keychain;
+These are acceptance steps, not recorded passes. The partial selection/key repair
+is not a complete SH1-156 fix. Signing requires the owner's locally unlocked login keychain;
 never put the password in a command or send it to a worker.
 
 1. In an authorized disposable Herdr 1 terminal, enter `cat` and Return. Start
@@ -670,3 +669,22 @@ never put the password in a command or send it to a worker.
    old `insertText:` after a new KeyDown or `setMarkedText:`. The consumer currently
    receives no composition identity. Host adapter tests cannot prove the ordering
    of physical UIKit callbacks.
+
+7. Repeat Select with no range, Select with a range, and ordinary drag selection.
+   Test **Typing: Clear highlight** and **Typing: Keep highlight** from the handoff
+   strip. After a fresh Ctrl-A/Left press, Select must be off; only Keep retains
+   a copyable highlight. Held repeats and Command-C must not exit selection.
+   Change pane/host, reconnect and Detach: neither variant may retain an old
+   selection gate. Verify report-all press/release once, then report-all off.
+8. Distinguish semantic keys (Ctrl-A, Left) from printable hardware text in English
+   and Japanese layouts. Record GPUI focus, native first responder, select mode,
+   cancellation state, connection generation and peer receipt when tracing is
+   available. A passing Ctrl-A check alone does not pass steps 1-4.
+9. While selecting, expect “Selection active”. During a command, expect
+   “Navigating…”. After Detach, expect “Detached · tap Reconnect to reattach”.
+   After a semantic key resumes, “Text input paused” may remain because the IME
+   fence is still active; report this as unresolved full recovery. A healthy new
+   session with no refusal must not retain a “tap terminal” warning.
+10. Start a text paste, then press a new semantic key while preparation is pending.
+    Verify paste then key at the same target exactly once. Switching target before
+    completion must deliver neither old paste nor held input to the new target.

@@ -15,6 +15,8 @@ pub(crate) struct TerminalView {
     pub core_mode: bool,
     #[cfg(test)]
     pub core_test_backend: Option<sheprd_core_client::CoreBackend>,
+    #[cfg(test)]
+    pub test_client: Option<sheprd_client::Client>,
     pub reconnect: crate::reconnect::Reconnect,
     pub live: Live,
     pub painter: TerminalPainter,
@@ -120,7 +122,13 @@ impl Smoke {
         terminal.size = None;
         terminal.open = true;
         terminal.needs_focus = true;
+        #[cfg(test)]
+        let test_client = terminal.test_client.take();
         let work = cx.background_executor().spawn(async move {
+            #[cfg(test)]
+            if let Some(client) = test_client {
+                return Ok(client);
+            }
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
                 return if std::env::var_os("YEBISU_BOARD_QA").is_some() {
@@ -266,15 +274,7 @@ impl Smoke {
         } else {
             "Standard 14/20"
         };
-        let status = if self.terminal.navigating.is_some() {
-            "Navigating… · input paused".to_owned()
-        } else if self.terminal.live.connected && self.terminal.input.requires_gesture() {
-            "Composition discarded · tap terminal to type".to_owned()
-        } else if self.terminal.live.status.is_empty() {
-            "Connecting…".to_owned()
-        } else {
-            self.terminal.live.status.clone()
-        };
+        let status = self.terminal_status();
         div()
             .size_full()
             .pt(insets.top)

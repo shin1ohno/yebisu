@@ -73,6 +73,17 @@ impl Smoke {
         }
         cx.notify();
     }
+    /// Shared by the Detach control and its real-adapter regression.
+    pub(crate) fn detach_core(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.terminal.core.take();
+        self.terminal.link.reset();
+        self.terminal.input.detach();
+        self.terminal.live = crate::live::Live::default();
+        self.terminal.live.status = "Detached · tap Reconnect to reattach".into();
+        self.sync_handoff();
+        window.blur(cx);
+        cx.notify();
+    }
     pub(crate) fn paste_core(
         &mut self,
         destination: crate::terminal_input::Destination,
@@ -160,13 +171,7 @@ impl Smoke {
                     .id("core-detach")
                     .child("Detach")
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.terminal.core.take();
-                        this.terminal.link.reset();
-                        this.terminal.input.detach();
-                        this.terminal.live = crate::live::Live::default();
-                        this.terminal.live.status = "Detached · tap Reconnect to reattach".into();
-                        window.blur(cx);
-                        cx.notify();
+                        this.detach_core(window, cx);
                     })),
             )
             .into_any_element()

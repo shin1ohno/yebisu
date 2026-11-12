@@ -73,7 +73,8 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
                 } else {
                     this.toggle_selection();
                 }
-                // The settled contract accepts even an old-looking commit after this boundary.
+                // Legacy D4 diagnostic, not SH1-156 acceptance: this explicit gesture
+                // still admits callbacks without native composition identity.
                 this.replace_text_in_range(None, "old-composition-after-resume", window, cx);
                 this.replace_text_in_range(None, "soft-text", window, cx);
                 this.replace_and_mark_text_in_range(None, "かな", Some(0..2), window, cx);
@@ -205,7 +206,7 @@ fn sh1_156_new_composition_after_discard_without_tap(cx: &mut TestAppContext) {
 
 // SH1-156: use the same adapter methods registered by terminal_view.
 #[gpui::test]
-fn sh1_156_diagnostic_key_resumes_but_late_commit_has_no_identity(cx: &mut TestAppContext) {
+fn sh1_156_key_does_not_authorize_a_discarded_commit(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let (client, receipts) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer {e}"));
     view.update(cx, |this, _| {
@@ -240,7 +241,7 @@ fn sh1_156_diagnostic_key_resumes_but_late_commit_has_no_identity(cx: &mut TestA
                 prefer_character_input: false,
             };
             this.terminal_key_down(&key, window, cx);
-            assert!(!this.terminal.input.requires_gesture());
+            assert!(this.terminal.input.requires_gesture());
             // This is indistinguishable from fresh direct text at this adapter.
             this.replace_text_in_range(None, "discard-me", window, cx);
             this.terminal
@@ -272,14 +273,12 @@ fn sh1_156_diagnostic_key_resumes_but_late_commit_has_no_identity(cx: &mut TestA
     }
     assert_eq!(
         received.len(),
-        2,
-        "one hardware key and one unidentifiable late commit"
+        1,
+        "only the new hardware key, never the injected discarded commit"
     );
     assert!(!matches!(&received[0], ClientPaneInputEvent::TextCommit(_)));
-    assert_eq!(
-        received[1],
-        ClientPaneInputEvent::TextCommit("discard-me".into())
+    eprintln!(
+        "SH1-156 app adapter discard fence: {received:?}; native cancellation still unproven"
     );
-    eprintln!("SH1-156 DIAGNOSTIC wire: {received:?}; baseline behavior, NOT acceptance");
     view.update(cx, |this, _| this.terminal.link.pause());
 }

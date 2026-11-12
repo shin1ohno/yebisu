@@ -42,12 +42,17 @@
 
 - SH1-151 physical persistence acceptance awaits the owner. Reason: the locked login keychain prevents worker signing and touch/trackpad feel requires M5. First step: locally unlock the keychain and follow docs/device-check.md SH1-151 using the absolute just ipad command. Close condition: PR QA records device/iPadOS, selection defaults, both independent toggles, background/lock/relaunch persistence and unchanged other settings; delete in the resolving commit.
 
-- SH1-156 input recovery and composition-origin contract remain blocked. Reason:
-  the brief requires discarded composition never to be sent, whereas the pinned
-  UIKit adapter gives late IME commits and new direct text the same callback and
-  D4 expressly accepts late commits after resumption. First step: decide the
-  freshness boundary or authorize a separate SDK origin/cancellation change,
-  then enable `sh1_156_new_composition_after_discard_without_tap`, add hardware,
-  reconnect, Detach and barrier wire regressions, and implement recovery.
-  Close condition: all Z1-Z7 gates pass, including Simulator receiving evidence
-  and device-check steps; delete this item in the resolving commit.
+- SH1-156 full composition recovery and exact-head acceptance remain open. Reason:
+  selection/reconnect/status repairs and real-adapter/mutation tests are prepared,
+  but the Mac build lease is pending. The pinned SDK's notifications and responder
+  APIs have not established safe native cancellation; printable hardware/new IME
+  input still cannot resume without a tap while preserving discarded-text safety.
+  First step: under an explicit Mac lease, run `just check`, `just lint-ios`,
+  `just test`, then `just guarded python3 scripts/check-discard-mutations.py` on
+  the exact PR22 head. Capture physical/native cancellation and fresh-input delivery
+  through existing APIs; if that fails, design a separately authorized SDK
+  cancellation/retirement contract. Keep the ignored new-composition regression
+  visible and run it explicitly to record the unresolved failure. Do not infer
+  UIKit delivery from injected callbacks or weaken the discard, P7 or P9 fences.
+  Close condition: original Z1-Z7 pass with exact-head Mac/Simulator evidence and
+  concrete device-check steps; delete this entry in the resolving commit.

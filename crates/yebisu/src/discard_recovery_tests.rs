@@ -1,13 +1,13 @@
 //! SH1-156 real event adapters; receipts end at a FIFO sentinel, not a sleep.
 //! These fixtures prove app routing, not physical UIKit callback delivery.
-use crate::{app::Smoke, handoff::Selection, live::Live, mock_peer};
+use crate::{app::Smoke, live::Live, mock_peer};
 use gpui::{
     Context, Entity, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext,
     Window,
 };
 use sheprd_client::protocol::{ClientKeyCode, ClientKeyKind, ClientMessage, ClientPaneInputEvent};
 use std::{
-    sync::{Arc, mpsc},
+    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -68,23 +68,32 @@ pub(crate) fn prepare(this: &mut Smoke, window: &mut Window, cx: &mut Context<Sm
     this.refresh_terminal_input();
     this.sync_handoff();
 }
-pub(crate) fn select(this: &mut Smoke, range: bool) {
+pub(crate) fn select(this: &mut Smoke, range: bool, window: &mut Window, cx: &mut Context<Smoke>) {
     this.toggle_selection();
     if range {
-        this.handoff.selection = Some(Selection {
-            frame: Arc::new(
-                this.terminal
-                    .live
-                    .surface
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("surface"))
-                    .frame
-                    .clone(),
+        this.terminal.geometry = crate::input_geometry::InputGeometry {
+            grid: gpui::Bounds::new(
+                gpui::point(gpui::px(0.), gpui::px(0.)),
+                gpui::size(gpui::px(640.), gpui::px(480.)),
             ),
-            anchor: (0, 0),
-            end: (1, 0),
-            dragging: false,
-        });
+            cell_width: 8.,
+            cell_height: 20.,
+        };
+        this.selection_down(
+            &gpui::MouseDownEvent {
+                position: gpui::point(gpui::px(12.), gpui::px(30.)),
+                button: gpui::MouseButton::Left,
+                click_count: 1,
+                modifiers: Default::default(),
+                first_mouse: false,
+            },
+            window,
+            cx,
+        );
+        assert!(
+            this.handoff.selection.is_some(),
+            "real selection adapter must select a cell"
+        );
     }
 }
 pub(crate) fn sentinel(this: &mut Smoke, pane: &str) {
@@ -170,7 +179,7 @@ fn sh1_156_selection_new_press_resumes_without_discarded_commit(cx: &mut TestApp
                         .keyboard_report_all = report;
                     this.terminal.input.fresh_gesture();
                     this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
-                    select(this, range);
+                    select(this, range, window, cx);
                     this.replace_text_in_range(None, "discarded", window, cx);
                     // A repeat from an earlier press must neither exit selection nor leak.
                     key(this, "ctrl-a", true, window, cx);
@@ -237,7 +246,7 @@ fn sh1_156_generation_change_closes_select_mode_before_new_input(cx: &mut TestAp
                 .destination
                 .clone()
                 .unwrap_or_else(|| panic!("destination"));
-            select(this, true);
+            select(this, true, window, cx);
             this.terminal.link.reset();
             this.terminal.live = Live::default();
             this.refresh_terminal_input();
