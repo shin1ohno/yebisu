@@ -97,6 +97,10 @@ mod core_mock;
 #[cfg(any(target_os = "ios", test))]
 mod settings;
 #[cfg(any(target_os = "ios", test))]
+mod settings_pages;
+#[cfg(any(target_os = "ios", test))]
+mod settings_sheet;
+#[cfg(any(target_os = "ios", test))]
 mod settings_view;
 
 #[cfg(any(target_os = "ios", test))]

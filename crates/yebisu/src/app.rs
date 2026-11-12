@@ -9,6 +9,12 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) settings: Option<crate::settings::SettingsHost>,
+    pub(crate) settings_modal: bool,
+    pub(crate) settings_focus: FocusHandle,
+    pub(crate) settings_page: crate::settings_pages::Page,
+    pub(crate) settings_fonts: Vec<String>,
+    pub(crate) settings_fonts_loading: bool,
+    pub(crate) key_ticket: Option<crate::settings::key_ops::Ticket>,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
@@ -77,6 +83,12 @@ impl Smoke {
         .detach();
         Self {
             settings: None,
+            settings_modal: false,
+            settings_focus: cx.focus_handle(),
+            settings_page: crate::settings_pages::Page::Fonts,
+            settings_fonts: Vec::new(),
+            settings_fonts_loading: false,
+            key_ticket: None,
             settings_error: None,
             focus,
             terminal_focus: cx.focus_handle(),
@@ -103,6 +115,15 @@ impl Smoke {
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let screen = self.render_screen(window, cx);
+        if self.settings_modal {
+            let sheet = self.render_settings_sheet(window, cx);
+            return div()
+                .relative()
+                .size_full()
+                .child(screen)
+                .child(sheet)
+                .into_any_element();
+        }
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };
