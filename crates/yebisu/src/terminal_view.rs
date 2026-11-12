@@ -235,7 +235,7 @@ impl Smoke {
                             terminal.painter.paint_composition(&terminal.input.composition.text,
                                 terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
                         });
-                        this.observation.record(serde_json::json!({"kind":"terminal","image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
+                        this.observation.record(serde_json::json!({"kind":"terminal","image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
                 });
@@ -262,11 +262,11 @@ impl Smoke {
         let insets = window.insets().safe_area;
         let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
         let compact = self.terminal.compact;
-        let label = if compact {
-            "Compact 12/17"
-        } else {
-            "Standard 14/20"
-        };
+        let (font_size, line_height) = self.terminal.font.metrics(compact);
+        let label = format!(
+            "{} {font_size}/{line_height}",
+            if compact { "Compact" } else { "Standard" }
+        );
         let status = if self.terminal.navigating.is_some() {
             "Navigating… · input paused".to_owned()
         } else if self.terminal.live.connected && self.terminal.input.requires_gesture() {
@@ -323,6 +323,7 @@ impl Smoke {
                             .child(label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.terminal.compact = !this.terminal.compact;
+                                this.terminal.font.size = None;
                                 cx.notify();
                             })),
                     )
