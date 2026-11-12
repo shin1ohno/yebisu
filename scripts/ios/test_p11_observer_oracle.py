@@ -43,7 +43,7 @@ class ObserverOracle(unittest.TestCase):
     def test_no_phase_rescue_or_raw_pointer(self):
         for field,value in [('view',74),('phase',99),('run','0'*32)]:
             r,_=fixture();x=next(x for x in r if x['kind']=='p11-sdk');x['key']=copy.deepcopy(x['key']);x['key']['arm'][field]=value
-            with self.assertRaisesRegex(ValueError,'foreign'):o.validate(r,modal=True)
+            with self.assertRaisesRegex(ValueError,'frozen arm|foreign'):o.validate(r,modal=True)
         r,_=fixture();next(x for x in r if x['kind']=='p11-sdk')['pointer']=123
         with self.assertRaisesRegex(ValueError,'schema fields'):o.validate(r,modal=True)
     def test_reason_and_handled_are_not_fallback_success(self):
@@ -58,6 +58,18 @@ class ObserverOracle(unittest.TestCase):
         r,_=fixture(True)
         with self.assertRaisesRegex(ValueError,'missing native pair'):o.validate(r,modal=True,disabled=True)
         o.validate(r,modal=True,disabled=True,allow_disabled=True)
+    def test_duplicate_arm_cannot_replace_missing_phase(self):
+        r,_=fixture()
+        # Phase 5 has the same action and refusal as phase 1; total count stays
+        # 24 but one arm has two distinct invocations and another has none.
+        first=next(x for x in r if x['kind']=='p11-arm')['arm']
+        for x in r:
+            if x['kind']=='p11-sdk' and x['key']['arm']['phase']==5:
+                x['key']=copy.deepcopy(x['key']);x['key']['arm']=copy.deepcopy(first)
+        with self.assertRaisesRegex(ValueError,'frozen arm|exactly one'):o.validate(r,modal=True)
+    def test_status_cannot_precede_actual_pair(self):
+        r,_=fixture();drain=next(x for x in r if x['kind']=='p11-drain');r.remove(drain);r.insert(1,drain)
+        with self.assertRaisesRegex(ValueError,'drain before exact arm pair'):o.validate(r,modal=True)
     def test_receiver_tail_and_wrong_destination(self):
         _,m=fixture();m.append({'ClientShellPaneInput':{'pane_id':'w1:p1','events':[{'Paste':'leak'}]}})
         with self.assertRaisesRegex(ValueError,'trailing input'):o.fifo(m,True)

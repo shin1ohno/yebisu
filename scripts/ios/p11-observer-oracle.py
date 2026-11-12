@@ -50,14 +50,17 @@ def validate(records, *, modal, drawing=False, disabled=False, allow_disabled=Fa
         if manifest['action']!=action or manifest['responder']!=origin or manifest['policy']!=policy or manifest['disabled'] is not disabled:
             raise ValueError('phase policy/action/origin mismatch')
         identities[identity]=(action,origin)
-    pairs={};callbacks={};last_invocation=0
+    pairs={};callbacks={};last_invocation=0;active=None
     for source in records:
         kind=source.get('kind')
-        if kind=='p11-sdk':
+        if kind=='p11-arm':
+            active=arm(source['arm'])
+        elif kind=='p11-sdk':
             r=clean(source,kind)
             exact(r,['schema','key','parent','action','responder','decision','event','handled','fallback'])
             k=key(r['key']);identity=k[:-1]
             if disabled:raise ValueError('disabled observer emitted records')
+            if identity!=active:raise ValueError('record outside frozen arm interval')
             if r['schema']!=1 or identity not in identities or (r['action'],r['responder'])!=identities[identity] or r['parent'] is not None:
                 raise ValueError('foreign or nested record')
             if r['event']=='Entry':
@@ -68,8 +71,15 @@ def validate(records, *, modal, drawing=False, disabled=False, allow_disabled=Fa
                 pairs[k].append(r)
         elif kind=='p11-consumer':
             r=clean(source,kind);exact(r,['key','route','edge']);k=key(r['key'])
+            if k[:-1]!=active:raise ValueError('callback outside frozen arm interval')
             if k[:-1] not in identities or disabled:raise ValueError('foreign consumer key')
             callbacks.setdefault(k,[]).append((r['route'],r['edge']))
+        elif kind=='p11-drain' and not disabled:
+            completed=[pair for k,pair in pairs.items() if k[:-1]==active]
+            if len(completed)!=1 or len(completed[0])!=2:raise ValueError('drain before exact arm pair')
+    if not disabled:
+        counts={identity:sum(k[:-1]==identity for k in pairs) for identity in identities}
+        if any(count!=1 for count in counts.values()):raise ValueError('each arm requires exactly one native pair')
     if disabled and not allow_disabled and not pairs:raise ValueError("missing native pair")
     if disabled:
         if callbacks:raise ValueError('disabled callback key')
