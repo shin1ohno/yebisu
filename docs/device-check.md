@@ -721,3 +721,50 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
 6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
+
+## P13 terminal search (owner acceptance pending)
+
+Worker source/Simulator gates do not establish physical IME or keyboard input.
+After the owner locally unlocks the keychain and runs the existing `just ipad`,
+record device/iPadOS, host protocol/version and advertised `pane.copy_search`.
+On an authorized capable host, search ASCII and Japanese, move to previous/next
+matches, and compare peer requests with the highlighted/scrolled pane. While
+composing Japanese, press Escape: the composition cancels, the field stays open,
+and neither query bytes nor Escape reach terminal input. Then close search and
+enter one fresh terminal key: only the current pane receives it once. Repeat
+with native paste, rotation and the hardware keyboard. Change host/pane and
+disconnect during an in-flight search; delayed replies must not revive the bar
+or paint another pane. A host without the advertised method must explain the
+missing capability without offering an actionable search command.
+
+The leased Simulator gate is `just guarded python3 scripts/ios/p13-check.py
+<new-evidence-directory> --run --expected-head <exact-head>`. It generates an
+isolated XCTest project under the evidence directory and records actual
+receiver, coherent paint, native UIKit paste/cut selectors and focus evidence.
+Its offline validator fixtures prove the validator only. Physical results and
+P11/P12 integration remain separate acceptance obligations.
+
+### P13 D1-D4 correction acceptance
+
+Hold the Escape that closes search through repeat and release in both daemon
+keyboard-report modes. No part of that press may enter terminal input; a fresh
+next press must reach only the current target. Delete a partial native selection
+inside a marked Japanese/emoji clause, then replace another partial span: the
+remaining marked span stays uncommitted and Escape cancels it without closing
+search. Repeat with a nonzero mark offset and inspect candidate bounds.
+
+The leased mutation batch is `just guarded python3 scripts/ios/p13-mutate.py
+<new-evidence-directory> --expected-head <exact-head>`. It removes D1-D4 fixes
+one at a time, requires each named runtime assertion to fail, restores bytes,
+and requires the same targeted test to pass. Compile failures do not qualify
+as runtime negative controls. Both host tests and iOS Simulator graph must
+compile before acceptance. Delayed wrong-boot socket replies with colliding
+connection IDs and an offscreen source-text match/scroll must also be observed.
+
+For D4, start with `pre:変😀中:post`, marked UTF-16 range `4..8` and selected
+range `5..7`. Both native Cut and Command-X must copy only `😀`, leave
+`pre:変中:post` with marked range `4..6`, and allow the next Escape to cancel
+the remaining mark while keeping search open and terminal input silent.
+An ordinary IME commit with no explicit replacement range must still replace
+the entire marked clause. The Simulator observes the real UIKit `cut:` selector;
+host tests exercise its production callback and the hardware key branch.

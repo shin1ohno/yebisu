@@ -26,7 +26,8 @@ fn supported(command: Command) -> bool {
     use Command::*;
     matches!(
         command,
-        Tab | SplitRight
+        Find | Tab
+            | SplitRight
             | SplitDown
             | NextTab
             | PreviousTab
@@ -53,20 +54,24 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
         .filter(|i| supported(i.command))
         .map(|info| {
             let label = crate::i18n::command(info);
-            let available = local(info.command)
-                || (terminal.live.connected
-                    && !terminal.reconnect.suspended
-                    && terminal.navigating.is_none()
-                    && terminal
-                        .live
-                        .surface
-                        .as_ref()
-                        .is_none_or(|s| s.popup.is_none())
-                    && snapshot(&terminal.live)
-                        .and_then(|s| sheprd_commands::request(info.command, s))
-                        .is_some_and(|(method, _)| {
-                            terminal.live.methods.iter().any(|m| m == method.as_str())
-                        }));
+            let available = if info.command == Command::Find {
+                crate::find_view::available(terminal)
+            } else {
+                local(info.command)
+                    || (terminal.live.connected
+                        && !terminal.reconnect.suspended
+                        && terminal.navigating.is_none()
+                        && terminal
+                            .live
+                            .surface
+                            .as_ref()
+                            .is_none_or(|s| s.popup.is_none())
+                        && snapshot(&terminal.live)
+                            .and_then(|s| sheprd_commands::request(info.command, s))
+                            .is_some_and(|(method, _)| {
+                                terminal.live.methods.iter().any(|m| m == method.as_str())
+                            }))
+            };
             Action {
                 info,
                 label,

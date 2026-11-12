@@ -47,7 +47,7 @@ impl Smoke {
 
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if terminal.navigating.is_some() || self.actions.palette {
+        if self.find.is_some() || terminal.navigating.is_some() || self.actions.palette {
             terminal.input.detach();
             return;
         }
@@ -60,6 +60,9 @@ impl Smoke {
         }
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
+        if self.find.is_some() {
+            return;
+        }
         self.refresh_terminal_input();
         self.sync_handoff();
         if self.handoff.selection.is_some() || self.handoff.select_mode {
@@ -104,7 +107,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.terminal_focus.is_focused(window) {
+        if self.find.is_some() || !self.terminal_focus.is_focused(window) {
             return;
         }
         #[cfg(target_os = "ios")]
@@ -173,6 +176,14 @@ impl Smoke {
         if let Some(command) =
             crate::actions::shortcut(&self.terminal, &self.actions, &event.keystroke)
         {
+            if command == sheprd_commands::Command::Find {
+                if !event.is_held {
+                    self.open_find(window, cx);
+                }
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
             if !event.is_held
                 && let Err(e) = self.run_action(command)
             {

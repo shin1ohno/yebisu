@@ -20,6 +20,10 @@ impl Smoke {
             .child(entry.label)
             .on_click(cx.listener(move |this, _, window, cx| {
                 if enabled {
+                    if command == Command::Find {
+                        this.open_find(window, cx);
+                        return;
+                    }
                     if let Err(e) = this.run_action(command) {
                         this.terminal.live.status = e.to_string();
                     }
