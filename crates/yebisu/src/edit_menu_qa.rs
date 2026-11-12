@@ -45,6 +45,27 @@ impl Smoke {
                             this.refresh_terminal_input();
                             this.sync_handoff();
                             this.handoff.selection = None;
+                            if step % 5 == 3 {
+                                window.blur(cx);
+                            }
+                            cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                                "edit-text-{step}"
+                            )));
+                            this.native_marker(format!("edit-start-{step}"));
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .id("edit-select")
+                        .p_2()
+                        .bg(rgb(0x3b4252))
+                        .child("Menu select")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            // Select only after the keyboard transition and peer
+                            // resize settle. Execution must never recreate selection.
+                            let step = CASE.load(Ordering::Relaxed).saturating_sub(1);
+                            this.sync_handoff();
                             if [1, 4].contains(&(step % 5))
                                 && let Some(surface) = &this.terminal.live.surface
                             {
@@ -55,13 +76,10 @@ impl Smoke {
                                     dragging: false,
                                 });
                             }
-                            if step % 5 == 3 {
-                                window.blur(cx);
-                            }
-                            cx.write_to_clipboard(ClipboardItem::new_string(format!(
-                                "edit-text-{step}"
-                            )));
-                            this.native_marker(format!("edit-start-{step}"));
+                            this.observation.record(serde_json::json!({
+                                "kind":"edit-selection", "case":step,
+                                "text":this.handoff.selection.as_ref().and_then(Selection::text)
+                            }));
                             cx.notify();
                         })),
                 )

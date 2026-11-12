@@ -75,6 +75,10 @@ final class SmokeQA: XCTestCase {
         for step in 0..<10 {
             try tapText("Menu prepare", in: app)
             sleep(1)
+            if step % 5 == 1 || step % 5 == 4 {
+                try tapText("Menu select", in: app)
+                sleep(1)
+            }
             try tapText("Menu execute", in: app)
             sleep(1)
             save("sh1-153-case-\(step)")
