@@ -678,6 +678,31 @@ between validation and execution. Its case screenshots alone do not prove the
 menu bar was visible. Capture an actual Edit menu screenshot separately, attempt
 Simulator hardware-keyboard connection, and record any unavailable menu/keyboard
 facility explicitly rather than substituting the harness for that visual gate.
+Observed Simulator hardware-connection limitation (2026-11-12 UTC): on
+`mini.home.local`, the selected Xcode 27.2 (27B52) at
+`/Applications/Xcode-27.2.0.app/Contents/Developer` has no `Applications`
+directory. A bounded search of `/Applications`, `/System/Applications`, and
+`~/Applications` found no `Simulator.app`. An actual GUI launch request,
+`open -b com.apple.iphonesimulator --args -CurrentDeviceUDID
+C2348F15-A037-4111-8712-5926A51CFE7F`, exited 1 with
+`LSCopyApplicationURLsForBundleIdentifier() failed` for that bundle identifier.
+The iPad Pro 13-inch (M5), iOS 26.5 CoreSimulator device was Booted, so headless
+native tests remain available. The Simulator GUI and its Connect Hardware
+Keyboard menu could not be reached through this installed environment; its
+connection state and connected hardware-key delivery are **unverified**. This
+is not a claim that Simulator generally lacks hardware-keyboard simulation.
+No software was installed and no permission/trust dialog was answered.
+
+Owner follow-up: on a Mac with the Simulator GUI available, open that iPad
+Simulator, choose I/O > Keyboard > Connect Hardware Keyboard, and capture the
+menu checkmark (record the actual menu path if it differs). Run the same source
+revision, focus the terminal, select `日本語`, then show the actual Edit menu and
+capture enabled Copy/Paste. Choose Paste once and inspect the disposable peer
+for one Paste and no Key; repeat with software input shown. Keep the screenshot,
+revision, connection state and peer receipt together. The existing KeyOnly
+responder checks and screenshots do not establish hardware connection. Physical
+keyboard/IME behavior still requires the separate device sequence above.
+
 The harness turns off the periodic smoke redraw after entering its first case.
 `cancelled_paste_completion_notifies_with_quiet_peer` separately gates the real
 paste worker, cancels it, drains notifications, and checks completion invalidation
