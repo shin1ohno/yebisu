@@ -16,7 +16,7 @@ def module(name):
     result=importlib.util.module_from_spec(spec);spec.loader.exec_module(result);return result
 oracle=module('p11-observer-oracle');privacy=module('p11-privacy-check');provenance=module('p11-provenance')
 
-def collect(container,out,head,run_id,runner,binding,binding_sha,xctest):
+def collect(container,out,head,run_id,runner,binding,binding_sha,xctest,guard_log):
     """Copy every launch and rotated log before any oracle may fail."""
     sinks=out/'sinks';sinks.mkdir()
     sources=[*container.joinpath('Documents').rglob('*.jsonl'),
@@ -39,7 +39,8 @@ def collect(container,out,head,run_id,runner,binding,binding_sha,xctest):
     if observation is None or diagnostics is None:raise ValueError('missing native observation/diagnostic file')
     combined=sinks/'native-all.log';combined.write_bytes(b'\n'.join(p.read_bytes() for p in sorted(native)))
     output=sinks/'runner.log';output.write_bytes(runner)
-    roles={'observation':observation,'diagnostics':diagnostics,'native_stderr':combined,'runner_stdout':output}
+    guard_capture=sinks/'guard.log';shutil.copy2(guard_log,guard_capture)
+    roles={'observation':observation,'diagnostics':diagnostics,'native_stderr':combined,'runner_stdout':output,'build_guard':guard_capture}
     roles.update({f'collected-{i}':p for i,p in enumerate(paths.values()) if p not in roles.values()})
     manifest={'schema':1,'head':head,'sdk':oracle.SDK,'run_id':run_id,'binding_sha256':binding_sha,'binding':binding,'xctest_inputs':xctest,'collection_directory':str(sinks.resolve()),
               'sinks':{k:{'path':str(p.resolve()),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for k,p in roles.items()}}
@@ -72,6 +73,8 @@ def main():
     out=paths['artifacts'];run_uuid=args.target_dir.name
     source_state=provenance.source_manifest(ROOT,args.head)
     (out/'source-manifest.json').write_bytes(provenance.encoded(source_state))
+    guard_directory=paths['guard']/'scripts';guard_directory.mkdir()
+    guard=guard_directory/'guarded.py';shutil.copy2(ROOT/'scripts/guarded.py',guard)
     transcript=bytearray()
     def run(*command):
         transcript.extend(('P11 COMMAND '+json.dumps(command)+'\n').encode())
@@ -79,7 +82,7 @@ def main():
         transcript.extend(result.stdout);(out/'runner.log').write_bytes(transcript)
         result.check_returncode();return result.stdout.decode()
     run('rustc','-Vv');run('cargo','-V')
-    bundle=Path(run('bash','scripts/ios/bundle.sh','--package','yebisu','--bin','yebisu','--features','test-support').strip().splitlines()[-1])
+    bundle=Path(run('python3',str(guard),'bash','scripts/ios/bundle.sh','--package','yebisu','--bin','yebisu','--features','test-support').strip().splitlines()[-1])
     if not bundle.resolve().is_relative_to(args.target_dir.resolve()):raise RuntimeError('bundle escaped isolated target directory')
     executable=bundle/'yebisu'
     build={'path':str(executable.resolve()),'sha256':provenance.digest(executable.read_bytes()),
@@ -111,6 +114,7 @@ def main():
     xctest={'path':str(xctest_path),'sha256':provenance.digest(xctest_path.read_bytes()),'root':str(project),'binding_sha256':binding_sha}
     seen_runs=set();results=[]
     for name,modal,drawing,disabled in [('Text',False,False,False),('Drawing',False,True,False),('Modal',True,False,False),('Disabled',True,False,True)]:
+        if provenance.digest(guard.read_bytes())!=source_state['files']['scripts/guarded.py']:raise RuntimeError('build guard changed')
         if provenance.tree_manifest(project)!=xctest_inputs:raise RuntimeError('XCTest inputs changed before case')
         case=out/name;case.mkdir()
         # Preserve old bytes first; do not mix historical launches into this run.
@@ -123,14 +127,14 @@ def main():
         method='testP11Observer'+name
         failure=None
         try:
-            output=run('xcodebuild','test','-project',str(project/'SmokeOracle.xcodeproj'),'-scheme','SmokeOracle','-destination','id='+args.device,'-derivedDataPath',str(paths['xcode']),'-resultBundlePath',str(case/'result.xcresult'),'CODE_SIGNING_ALLOWED=NO','SYMROOT='+str(paths['xcode']/'products'),'OBJROOT='+str(paths['xcode']/'intermediates'),'SHARED_PRECOMPS_DIR='+str(paths['xcode']/'precompiled'),'CLANG_MODULE_CACHE_PATH='+str(paths['clang-modules']),'SWIFT_MODULE_CACHE_PATH='+str(paths['swift-modules']),'-clonedSourcePackagesDirPath',str(paths['swift-packages']),'-only-testing:SmokeOracle/SmokeQA/'+method)
+            output=run('python3',str(guard),'xcodebuild','test','-project',str(project/'SmokeOracle.xcodeproj'),'-scheme','SmokeOracle','-destination','id='+args.device,'-derivedDataPath',str(paths['xcode']),'-resultBundlePath',str(case/'result.xcresult'),'CODE_SIGNING_ALLOWED=NO','SYMROOT='+str(paths['xcode']/'products'),'OBJROOT='+str(paths['xcode']/'intermediates'),'SHARED_PRECOMPS_DIR='+str(paths['xcode']/'precompiled'),'CLANG_MODULE_CACHE_PATH='+str(paths['clang-modules']),'SWIFT_MODULE_CACHE_PATH='+str(paths['swift-modules']),'-clonedSourcePackagesDirPath',str(paths['swift-packages']),'-only-testing:SmokeOracle/SmokeQA/'+method)
             if method+"]' passed" not in output:raise RuntimeError('XCTest did not execute')
         except Exception as error:failure=error
         finally:
             # Actual process termination must precede final transcript collection.
             stopped=subprocess.run(['xcrun','simctl','terminate',args.device,'com.shin1ohno.yebisu'],capture_output=True)
             (case/'termination.json').write_text(json.dumps({'returncode':stopped.returncode,'xctest_termination_assertion':'required; inspect result bundle'}))
-            records,messages=collect(container,case,args.head,run_uuid+"/"+name,bytes(transcript),binding,binding_sha,xctest)
+            records,messages=collect(container,case,args.head,run_uuid+"/"+name,bytes(transcript),binding,binding_sha,xctest,paths['guard']/'target/disk.log')
             (case/'evidence.json').write_text(json.dumps({'records':records,'messages':messages},indent=2))
         if provenance.source_manifest(ROOT,args.head)!=source_state:raise RuntimeError('source changed during native collection')
         if provenance.tree_manifest(project)!=xctest_inputs:raise RuntimeError('XCTest inputs changed during case')

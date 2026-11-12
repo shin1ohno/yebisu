@@ -199,3 +199,13 @@ The copied XCTest inputs AND generated project are hashed after xcodegen and
 rechecked before/after every case. Their separate manifest digest is included
 in each privacy manifest with the common artifact binding; this avoids a
 circular binary/Swift-source hash and detects edits outside the source checkout.
+
+The existing 6 GiB build guard is copied byte-for-byte beneath this run's guard/
+scripts directory and hashes back to the source manifest. Bundle and xcodebuild
+commands run through that copy, so its hardcoded relative target/disk.log and
+fired sentinel remain within this run. Each case collects the guard log too.
+The guard policy and original helper are unchanged. sim.sh's default
+target/ios-sim output is not used by this collector; sim-runner.sh is not used
+by its XCTest suite. Any separate cargo-test runner lease must audit its own
+helper chain and keep its outputs distinct; these commands do not claim that
+separate full test/native gate has been run or isolated already.

@@ -26,7 +26,7 @@ def layout(checkout, requested, head):
     run=str(uuid.UUID(requested.name))
     if requested.name!=run or requested.exists():raise ValueError('run root must be fresh canonical UUID')
     if not re.fullmatch('[0-9a-f]{40}',head):raise ValueError('invalid source head')
-    return {name:requested/name for name in ['cargo','cargo-build','cargo-home','xcode','project','tmp','artifacts','clang-modules','swift-modules','swift-packages']}
+    return {name:requested/name for name in ['cargo','cargo-build','cargo-home','guard','xcode','project','tmp','artifacts','clang-modules','swift-modules','swift-packages']}
 
 def environment(original, paths):
     forbidden=[k for k,v in original.items() if v and (k in OVERRIDES or k.startswith(('CARGO_BUILD_','CARGO_TARGET_')))]
