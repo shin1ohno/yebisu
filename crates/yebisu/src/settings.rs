@@ -91,11 +91,26 @@ impl SettingsHost {
     }
 
     pub fn edit(&mut self, values: Values) {
+        self.edit_values(values, false);
+    }
+
+    // A density gesture resets both fields, even when the pending draft already
+    // equals Regular. Polling snapshots must never acquire this explicit intent.
+    pub(crate) fn edit_density(&mut self, values: Values) {
+        self.edit_values(values, true);
+    }
+
+    fn edit_values(&mut self, values: Values, density_selected: bool) {
         if let Err(error) = values.font.validate() {
             self.error = Some(error.to_string());
             return;
         }
-        if self.draft != values {
+        let pending_density = density_selected && !self.loaded;
+        if pending_density {
+            self.edited_before_load.compact = true;
+            self.edited_before_load.font_size = true;
+        }
+        if self.draft != values || pending_density {
             if !self.loaded {
                 self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
                 self.edited_before_load.font_family |= self.draft.font.family != values.font.family;

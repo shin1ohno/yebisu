@@ -198,10 +198,7 @@ impl Smoke {
             view = view.child(
                 button(format!("density-{density:?}"), label, enabled).on_click(cx.listener(
                     move |this, _, _, cx| {
-                        let mut v = this.settings_values();
-                        density.apply(&mut v);
-                        v.font.size = None;
-                        this.apply_settings(v, cx);
+                        this.select_settings_density(density, cx);
                     },
                 )),
             );
