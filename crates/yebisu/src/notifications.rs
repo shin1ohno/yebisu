@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod preferences;
+pub(crate) use preferences::Edits;
 pub(crate) mod sound;
 
 pub(crate) const LIMIT: usize = 32;
