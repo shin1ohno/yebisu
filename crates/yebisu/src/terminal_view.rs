@@ -19,6 +19,7 @@ pub(crate) struct TerminalView {
     pub live: Live,
     pub painter: TerminalPainter,
     pub open: bool,
+    pub font: crate::settings::font::TerminalFont,
     pub compact: bool,
     pub size: Option<ConnectOptions>,
     pub input: crate::terminal_input::TerminalInput,
@@ -209,8 +210,8 @@ impl Smoke {
         move |bounds, _, window, cx| {
             let current = entity.update(cx,|this,cx| {
                     if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
-                    let (font_size,line_height) = if compact {(12.,17.)}else{(14.,20.)};
-                    let face = font("SauceCodePro Nerd Font Mono");
+                    let (font_size,line_height) = this.terminal.font.metrics(this.terminal.compact);
+                    let face = font(this.terminal.font.family.clone());
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::default());
                     let cell_width = terminal.painter.cell_width(&face,window,cx);

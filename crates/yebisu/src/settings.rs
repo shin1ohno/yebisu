@@ -1,4 +1,5 @@
 //! Container-local draft ownership. Disk work is serialized off the UI thread.
+pub(crate) mod font;
 mod store;
 mod worker;
 
@@ -12,6 +13,7 @@ use worker::{Completion, Request};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
+    pub font: font::TerminalFont,
     pub compact: bool,
     pub terminal_priority: bool,
     pub board_hidden: bool,
@@ -22,6 +24,7 @@ pub(crate) struct Values {
 impl Default for Values {
     fn default() -> Self {
         Self {
+            font: font::TerminalFont::default(),
             compact: false,
             terminal_priority: false,
             board_hidden: false,
@@ -34,6 +37,8 @@ impl Default for Values {
 // Edit tracking is independent of setting defaults (Drag defaults to true).
 #[derive(Default)]
 struct Edited {
+    font_size: bool,
+    font_family: bool,
     compact: bool,
     terminal_priority: bool,
     board_hidden: bool,
@@ -83,8 +88,14 @@ impl SettingsHost {
     }
 
     pub fn edit(&mut self, values: Values) {
+        if let Err(error) = values.font.validate() {
+            self.error = Some(error.to_string());
+            return;
+        }
         if self.draft != values {
             if !self.loaded {
+                self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
+                self.edited_before_load.font_family |= self.draft.font.family != values.font.family;
                 self.edited_before_load.compact |= self.draft.compact != values.compact;
                 self.edited_before_load.terminal_priority |=
                     self.draft.terminal_priority != values.terminal_priority;
@@ -112,6 +123,12 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
+                            if !self.edited_before_load.font_size {
+                                self.draft.font.size = values.font.size;
+                            }
+                            if !self.edited_before_load.font_family {
+                                self.draft.font.family = values.font.family;
+                            }
                             if !self.edited_before_load.compact {
                                 self.draft.compact = values.compact;
                             }
@@ -233,3 +250,6 @@ mod retry_tests;
 
 #[cfg(test)]
 mod selection_tests;
+
+#[cfg(test)]
+mod font_tests;
