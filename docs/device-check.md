@@ -721,10 +721,14 @@ its standalone probe does not certify yebisu's physical keyboard behavior.
    Save actual native client IDs, responder state, the receiving peer sequence,
    complete stderr and screenshot. Its expected B1 refusal is a product failure,
    even if its defensive no-old-text assertions pass.
-2. On the physical keyboard, mark Japanese text, cancel it through native unmark,
-   then start new composition without a tap. Record the first missing key/mark,
-   visible status, native identity and peer output. Repeat using native Paste
-   with a mark active; the paste may arrive once while fresh IME stays blocked.
+2. On the physical keyboard, mark Japanese text, then confirm it through native
+   unmark. It must commit once to the current peer, and a second unmark must not
+   duplicate it. This is not a cancellation case. Start a new composition without
+   a tap. Separately discard a mark using Select, reconnect or Detach, and exercise
+   native Paste with a mark active. Record the first missing key/mark, visible
+   reason, native identity and exact peer sequence; on the pinned prototype the
+   paste may arrive once while fresh IME remains fenced. Do not treat a setup
+   failure or wrapper selector injection as physical B1/B2 evidence.
 3. Repeat reconnect and Herdr 2 Detach/reattach with new English printable text,
    Japanese composition and identical old/new text, without a terminal tap.
    Keep both highlight variants and report-all modes. Record no replay/reorder.

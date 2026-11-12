@@ -127,8 +127,14 @@ transition enters the real platform callback slot through a reserved probe key;
 that injection is explicitly not physical hardware input proof. It retains old
 native objects, invokes their mark/insert/unmark/delete/edit selectors after
 retirement, and verifies a new client's identical composition/commit. The probe
-then uses real `unmarkText` and native Paste entry points and observes B1 refusal
-and the peer's exact received sequence. It reports `CONSUMER_NATIVE_PARTIAL_PASS`
+then separates positive native `unmarkText` commit from native Paste B1 refusal.
+With a focused, ready, unfenced peer, unmark commits `b1-unmark` once; a second
+unmark has no marked range and adds nothing. The exact peer sequence through the
+FIFO sentinel is `TextCommit("same😀")`, `TextCommit("b1-unmark")`,
+`Paste("native-paste")`. The original discarded `same😀`, old-object selectors,
+`b1-paste`, and the refused post-Paste text must never add events. The Paste setup
+requires ready/current destination, focus, no handoff gate, no worker and no
+unfinished cancellation; failure of these preconditions is not B1 evidence. It reports `CONSUMER_NATIVE_PARTIAL_PASS`
 with `B1_BLOCKED B2_UNVERIFIED`, never complete SH1-156 acceptance.
 
 After an explicit MINI lease, run the normal exact-head gates, all 16 mutations,
@@ -144,13 +150,23 @@ failed production retirement, resend a key or clear cancellation state.
 
 ## Remaining API gap: precise B1 case and minimal SDK request
 
-Source trace: NativeClient.unmark -> InputTarget.with_input_handler ->
-Smoke.unmark_text -> input_transition -> retire_text_input_session. The native
-client's callback guard is still held, so the SDK returns NativeCallbackInFlight.
-The next new mark is rejected by the consumer fence. Similarly, native Paste ->
-terminal_key_down -> start_paste discards the mark; the outer key callback is
-still guarded at retirement submission. These source traces are not yet actual
-consumer run evidence; the probe above is prepared to measure both.
+Positive trace at pinned SDK28a: `NativeClient.unmark` (`probe.rs:37`) ->
+ObjC `unmarkText` (`view_class.rs:316`) -> SDK editing helper
+(`editing.rs:214-226`) -> handler `replace_text_in_range` -> consumer
+`input.rs:145-165` -> `TerminalInput::replace/commit` (`terminal_input.rs:153-178`).
+It restores selection and refreshes the snapshot after replacement. It does NOT
+call `Smoke::unmark_text` (`input.rs:134`), a separate consumer discard entry.
+Do not change SDK unmark defaults to make a cancellation oracle pass.
+
+B1 trace: native Paste (`SDK text_input/actions.rs:82-105,127-142`) -> guarded
+KeyDown dispatch -> `terminal_key_down` (`terminal_controls.rs:91-130`) ->
+`start_paste` (`handoff_view.rs:52-78`) -> discard -> outer `input_transition`
+(`input_retirement.rs:53-60`) -> `retire_text_input_session`. SDK
+`text_input/retirement.rs:26-33` refuses the busy client before replacement.
+The consumer keeps the fence and the explicit native-callback-active reason.
+The test helper invokes Copy/Cut/Paste/SelectAll; with no selection Copy/Cut
+cannot produce terminal text and SelectAll is consumed. This remains selector
+injection, not a physical menu or keyboard run. Both paths are UNRUN here.
 
 The minimal requested SDK capability is an explicit retirement request usable
 from its real native text/key callback entry, with a receipt distinguishing
@@ -162,3 +178,66 @@ without acknowledgement. Its native receiving test must establish old callbacks
 cannot retarget and new input is not lost. If this contract is impossible, report
 that limitation; an application timer cannot turn it into original Z1 acceptance.
 B2 queued OS retarget/loss remains unverified regardless of selector probe results.
+
+## Pending whole-operation adoption contract (requirements, not an API)
+
+No new API is admitted or implemented by this document. SDK28a stays pinned.
+SDK789's reviewed T1 responder acquisition does not solve consumer B1 or B2.
+Implementation must wait for the controller's exact reviewed SDK commit and
+public types, entry-classification table, cancellation/legacy transition table,
+and receiving evidence. The following names describe states, not callable APIs.
+
+| Consumer site | Existing behavior to preserve | Required handoff before new implementation |
+| --- | --- | --- |
+| `input_retirement.rs:36-60` | Final owner captured after nested app transitions | App depth zero is not the whole native-operation boundary; enqueue only at a classified SDK entry. |
+| `native_retirement.rs:20-43` | Register serial/ticket before submission; window binding | One pending request per window; identify immutable old client at submission. Queued is distinct from legacy Pending and refusal. |
+| `native_retirement.rs:43-74` | Weak entity/window/focus checks | A prepare callback runs only after SDK handler/slot/RefCell/AppCell borrows and the native tail end. Recheck full owner before allowing cutover. |
+| `input_retirement.rs:95-126` | Match pending ticket, retired/replacement IDs, owner/revision | Revalidate at terminal completion too; release only the matching fence once, after replacement readiness, never on queue acceptance. |
+| `terminal_input.rs:90-138` | Carry discard revision across detach/host; saturation stays closed | Do not refresh a stale epoch or infer freshness from text. Failed/declined/cancelled requests retain the fence. |
+| `handoff_view.rs:52-78`, `terminal_controls.rs:91-130` | Real native Paste discards mark and preserves paste FIFO | Native KeyDown/KeyUp/modifier restoration/fallback/snapshot are one accounted operation; no early drain after one dispatch. |
+| `board.rs:143,217`, `terminal_view.rs:66,91`, `core_view.rs:84,131`, `reconnect.rs:35`, `actions.rs:126` | Host, connect, Detach, navigation, lifecycle and P7 change owners | Invalidate a queued ticket on owner change; prepare declines it and SDK releases its pending slot. No implicit retry or migration to the new owner. |
+| `input.rs:134,145,181` | Distinct consumer discard, commit, rejected mark callbacks | Default native unmark remains commit. Accepted-new text must not erase an unrelated discard; no arrival-time current-client relabel. |
+
+Owner correlation includes window binding, weak entity, focus, request serial,
+old native client ID, host, connection generation, board selection, discard
+revision, destination boot/epoch/target, open/suspended and backend. Future SDK
+IDs need the reviewed identity contract, not an invented successor arithmetic.
+A consumed completion/end cannot acknowledge again, reopen a newer revision or
+be reassigned to another input owner. The existing controlled tests are only
+app-level ticket checks, not proof of the proposed SDK completion ordering.
+
+A queued request must document when the old token is fenced. For a proposed
+commit-time fence, only the already admitted whole-operation tail may finish;
+a later independent/reentrant native entry is classified separately. If instead
+submission fences immediately, no old continuation may be re-enabled. The SDK
+must account for KeyUp/modifier restoration/native Paste fallback, unmark's
+selection/snapshot tail, and hardware held-route/repeat/forward work. Future
+Ended/Cancelled/repeat must be consumed exactly once by the old origin or refused
+before side effects under the reviewed entry table; it cannot fall through to a
+fresh target. Per-dispatch busy count or GPUI DEPTH=0 alone is insufficient.
+
+Prepare must decline a changed owner, closed/moved window, lost weak entity,
+wrong focus, stale serial/revision or old-client mismatch. Decline/cancel/close
+and acquisition failure need distinct terminal outcomes and an observable reason.
+The consumer's logical invalidation is separate from dropping/cloning a receipt;
+neither receipt operation cancels or duplicates SDK work. Define opt-in-to-legacy,
+legacy-to-opt-in and completion-to-other-window legacy behavior before adoption;
+one pending/window and bounded draining must hold without silently changing the
+legacy default. No new implementation of these transitions exists in this patch.
+
+Required exact-head native negatives: early completion after KeyDown; incomplete
+KeyUp/modifier/fallback/snapshot; borrowed handler or callback slot; reused old
+origin; owner change between queue/prepare/complete; duplicate or consumed end;
+close/repeated request; nested independent callback; receipt drop/clone; legacy
+cross-window request; failed focus acquisition. Each needs baseline, one exact
+mutation, its specific assertion, exact restore and restored pass. A setup or
+compiler failure, an earlier unmark assertion, a timeout, or PARTIAL_PASS in a
+mutant log cannot certify its intended kill. The Rust classifier additionally
+requires named tests to pass in baseline/restore (zero matched tests fails) and
+the reason inside the single named panic. Its Python fixtures prove parsing only.
+There is no executed consumer-native mutant suite in this change.
+
+B2 needs real OS queued-retarget and no-loss evidence plus fresh software input,
+hardware/IME-first delivery and NoOldMarkedSending on the current peer. Retained
+selector injection and any new SDK operation boundary do not settle these gates.
+Original Z1-Z7, the ignored U1 regression and exact-head Mac gates remain required.

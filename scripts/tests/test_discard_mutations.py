@@ -40,6 +40,40 @@ class Classification(unittest.TestCase):
         self.assertFalse(M.behavioral_failure(name, test, failure(test, reason, code=1)))
         self.assertFalse(M.behavioral_failure(name, test, failure(test, reason + "\nerror[E0308]: mismatched types")))
 
+    def test_reason_outside_target_panic_is_not_a_kill(self):
+        name, test = "clean-detach", "sh1_156_fresh_herdr1_accepts_printable_and_direct_text"
+        wrong = failure(test, "UNMARK_SETUP focus")
+        wrong.stdout = M.FAILURE_REASONS[name] + "\n" + wrong.stdout
+        self.assertFalse(M.behavioral_failure(name, test, wrong))
+        mixed = failure(test, M.FAILURE_REASONS[name])
+        mixed.stdout += failure("unrelated_test", "setup failed").stdout
+        self.assertFalse(M.behavioral_failure(name, test, mixed))
+        compile_error = failure(test, M.FAILURE_REASONS[name])
+        compile_error.stdout += "error: linking with cc failed\n"
+        self.assertFalse(M.behavioral_failure(name, test, compile_error))
+
+    def test_baseline_and_restore_require_actual_named_passes(self):
+        test = "sh1_156_fresh_herdr1_accepts_printable_and_direct_text"
+        result = SimpleNamespace(returncode=0, stdout="test result: ok. 0 passed; 0 failed; 0 ignored\n")
+        self.assertFalse(M.behavioral_pass(result, [test]))
+        result.stdout += f"test module::{test} ... ignored\n"
+        self.assertFalse(M.behavioral_pass(result, [test]))
+        result.stdout = f"test module::{test} ... ok\n"
+        self.assertTrue(M.behavioral_pass(result, [test]))
+        self.assertFalse(M.behavioral_pass(result, [test, "missing_test"]))
+        result.stdout = f"test module::{test} ... yebisu input marked chars=10\nok\n"
+        self.assertTrue(M.behavioral_pass(result, [test]))
+        result.stdout += result.stdout
+        self.assertFalse(M.behavioral_pass(result, [test]))
+
+    def test_nocapture_failure_shape_is_recognized(self):
+        name, test = "clean-detach", "sh1_156_fresh_herdr1_accepts_printable_and_direct_text"
+        result = failure(test, M.FAILURE_REASONS[name])
+        result.stdout = f"test module::{test} ... \n" + result.stdout.replace(
+            f"test module::{test} ... FAILED", "FAILED")
+        result.stdout += 'error: test failed, to rerun pass `--bin yebisu`\n'
+        self.assertTrue(M.behavioral_failure(name, test, result))
+
     def test_reason_map_covers_each_mutation_once(self):
         names = [row[0] for row in M.MUTATIONS]
         self.assertEqual(len(names), len(set(names)))

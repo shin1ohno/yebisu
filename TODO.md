@@ -48,8 +48,12 @@
   controlled callback tests are implemented; this new app head has not been
   built or run because MINI is leased to another worker. Native callback
   retirement is refused by the API, and queued OS retarget/loss is unverified.
-  First step: obtain the next explicit lease, run exact-head check/lint/test and
-  the consumer native probe, including the original ignored new-composition
+  Initial native QA now distinguishes default unmark commit from Paste busy
+  refusal; it remains uncompiled/unrun. The pending whole-operation adoption
+  contract is in docs/input-retirement-integration.md; no new SDK API is admitted.
+  First step: obtain the controller's reviewed SDK handoff before new-API coding,
+  and a new exclusive lease before exact-head check/lint/test and the corrected
+  consumer native probe, including the original ignored new-composition
   case and all 16 mutations. Report callback refusal with actual peer evidence
   to the SDK owner; do not use timers/replay or clear an unrelated input gate.
   Close condition: original Z1-Z7 pass with exact-head Mac/native Simulator proof

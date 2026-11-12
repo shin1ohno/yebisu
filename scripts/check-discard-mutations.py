@@ -85,12 +85,37 @@ FAILURE_REASONS = {
 }
 
 
+def has_build_error(output):
+    return any(not line.startswith("error: test failed, to rerun pass ")
+               for line in output.splitlines()
+               if re.match(r"^error(?:\[E\d+\])?:", line))
+
+
 def behavioral_failure(name, test, result):
-    return (result.returncode == 101 and "panicked at" in result.stdout
-            and re.search(r"^\s+(?:\w+::)*" + re.escape(test) + r"$", result.stdout, re.MULTILINE)
-            and "test result: FAILED" in result.stdout
-            and FAILURE_REASONS[name] in result.stdout
-            and not re.search(r"error\[E\d+\]", result.stdout))
+    # Tie the reason to the one named panic, not arbitrary log text from setup
+    # or another test. Earlier assertion/compile failures cannot kill a mutant.
+    panics = re.findall(r"^thread '([^']+)'[^\n]*panicked at[^\n]*:\n(.*?)(?=^FAILED$|^test |^thread |\Z)",
+                        result.stdout, re.MULTILINE | re.DOTALL)
+    return bool(result.returncode == 101 and len(panics) == 1
+                and panics[0][0].split("::")[-1] == test
+                and FAILURE_REASONS[name] in panics[0][1]
+                and re.search(r"^\s+(?:\w+::)*" + re.escape(test) + r"$",
+                              result.stdout, re.MULTILINE)
+                and re.search(r"^test result: FAILED\. 0 passed; 1 failed; 0 ignored;?",
+                              result.stdout, re.MULTILINE)
+                and not has_build_error(result.stdout))
+
+
+def behavioral_pass(result, tests):
+    # --nocapture can put test output between the name and the final `ok`.
+    # cargo exits zero even if a stale filter matches no tests.
+    records = re.findall(r"^test ((?:\w+::)*\w+) \.\.\. (.*?)(?=^test |\Z)",
+                         result.stdout, re.MULTILINE | re.DOTALL)
+    passed = [name.split("::")[-1] for name, body in records
+              if body.strip().splitlines()[-1:] == ["ok"]]
+    return (result.returncode == 0 and all(passed.count(test) == 1 for test in tests)
+            and "panicked at" not in result.stdout and "test result: FAILED" not in result.stdout
+            and not has_build_error(result.stdout))
 
 
 def run(test):
@@ -114,7 +139,7 @@ def main():
         sys.exit("Mac build lease required; this script does not build on Linux")
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip():
         sys.exit("Refusing to mutate a dirty checkout")
-    if run("sh1_156_").returncode:
+    if not behavioral_pass(run("sh1_156_"), {row[4] for row in MUTATIONS}):
         sys.exit("Baseline failed: do not interpret mutants")
     for name, relative, old, new, test in MUTATIONS:
         path = SRC / relative
@@ -130,7 +155,7 @@ def main():
             print(f"MUTATION PASS {name}: named test failed: {FAILURE_REASONS[name]}", flush=True)
         finally:
             path.write_text(original)
-        if run(test).returncode:
+        if not behavioral_pass(run(test), [test]):
             sys.exit(f"{name}: restored test failed")
     return 0
 
