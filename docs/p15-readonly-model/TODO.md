@@ -5,8 +5,10 @@
   by another task. First step: rebase on accepted P11 and apply README entry points.
   Close: exact-head native check/lint-ios/test and reviewer approval; delete on closure.
 - Implement remote read only after separate security-plan review and controller network
-  scope. Reason: this task has no SSH/credential authorization. First step: resolve the
-  safe no-follow read capability and adversarial review. Close: two controlled hosts'
+  scope. Reason: this task has no SSH/credential authorization. First step: re-review security-plan-2.md, including retained ClientKey injection,
+  coherent credential/trust revision snapshots and the unresolved teardown receipt.
+  Without these, keep CredentialUnavailable/UnsupportedIdentityFence/UnsupportedTeardownFence;
+  do not call the creating convenience runner or add a network fallback. Close: two controlled hosts'
   receiving-side operation records pass all negatives, including a write mutation;
   delete on closure.
 - Observe real theme/background/relaunch and host-switch UI on the owner device.
