@@ -213,8 +213,10 @@ fn disappeared_capability_keeps_shortcut_recognition_without_execution() {
 #[test]
 fn palette_toggle_remains_available_and_core_keys_keep_their_route() {
     let mut t = terminal();
-    let mut a = actions::Actions::default();
-    a.palette = true;
+    let a = actions::Actions {
+        palette: true,
+        ..Default::default()
+    };
     let mut menus = NativeMenus::default();
     menus.refresh(&t, &a, true);
     let toggle = action(&menus, &t, Command::Palette);
