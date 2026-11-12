@@ -2,11 +2,11 @@
 
 Base: dc2511fe695935cdce60ba6bb3cfb4288a425778. SDK draft PR:
 https://github.com/shin1ohno/herdr-uikit/pull/10 at
-`fbb7522f9a55490acb524dc261150c6e7977e460`. No SDK8/9 integration.
+the exact revision in Cargo.toml/Cargo.lock. No SDK8/9 integration.
 Do not merge this consumer before separate SDK review and approval.
 
 The source integrates the controller-frozen P11 contract at
-b55f48e905037a3d63b5794cfc7fc41b450e7848 into this owned branch, preserving both
+f54b1ecc02abd458b428bb2366fe004b5917d2a1 into this owned branch, preserving both
 parents' history. Controls mount in the production Notifications page and use
 the sheet's existing button style/focus/save owner. The existing 33ms timer
 polls notifications. Other writers' repositories and branches are untouched.
@@ -36,13 +36,19 @@ is an opt-in preset, not a new default. No runtime feel fork is introduced.
 ## Bounds and failure semantics
 
 32 reader effects, 32 delayed effects, 5s maximum age, 2s deduplication window,
-64 single-use response records with 5-minute expiry, one in-flight OS request,
+64 single-use response records with 5-minute expiry from the original event, one in-flight OS request,
 one waiting sound job, 15s playback deadline and cancellation every 25ms.
 The source has no remote sound path, URL, shell execution or payload logging.
 Quiet hours, mute, permission and overload failures are explicit and not retried.
 Response handling locks the current reader, checks host/boot/generation/coherent
 projection/pane, then enqueues the existing focus command under the same lock.
-It never starts a connection. Invalid/busy/unknown/action responses show status.
+It never starts a connection. Received invalid/busy/stale/action responses show
+status. The SDK routes only its recent issued tags; unissued/evicted/out-of-window
+tags fail closed with a typed SDK rejection. Its separate tag-only receipt cache
+(64 entries, 600 seconds, lazy expiry) allows late/duplicate refusal without
+retaining display predicates or extending the 300-second action window. The
+consumer rechecks current quiet/mute policy at response time. A valid six-second
+tap reaches this guard even though the five-second display fence has closed.
 
 Settings use the existing background persistence worker and pre-load edit
 tracking. Real consumers exist for each exposed control. Notification taps while
