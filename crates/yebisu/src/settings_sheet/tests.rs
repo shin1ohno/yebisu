@@ -37,3 +37,84 @@ fn modal_rejects_native_commits_composition_actions_and_clipboard(cx: &mut TestA
         });
     });
 }
+
+#[gpui::test]
+fn modal_native_input_has_zero_wire_events_between_positive_controls(cx: &mut TestAppContext) {
+    use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
+    use std::time::{Duration, Instant};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) =
+        crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("{e}"));
+    view.update(cx, |this, _| {
+        this.select_host("sandbox");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+        this.terminal.open = true;
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.terminal.live.surface.is_some()
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "surface timeout");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "before", window, cx);
+            this.begin_settings_modal(window, cx);
+            // Keep terminal focus deliberately: the modal flag must fence late UIKit callbacks.
+            this.terminal_focus.focus(window, cx);
+            this.replace_text_in_range(None, "leak", window, cx);
+            this.replace_and_mark_text_in_range(None, "漏れ", Some(0..1), window, cx);
+            this.start_paste(false, cx);
+            this.flush_terminal();
+            this.end_settings_modal(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "after", window, cx);
+            this.flush_terminal();
+            this.terminal
+                .link
+                .handle
+                .as_ref()
+                .unwrap_or_else(|| panic!("handle"))
+                .send_input(
+                    "boot-v1",
+                    "w1:p1",
+                    [ClientPaneInputEvent::Paste("barrier".into())],
+                )
+                .unwrap_or_else(|e| panic!("barrier {e}"));
+        })
+    });
+    let mut observed = Vec::new();
+    'wire: loop {
+        let message = receipts
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|e| panic!("wire {e}"));
+        if let ClientMessage::ClientShellPaneInput { pane_id, events } = message {
+            assert_eq!(pane_id, "w1:p1");
+            for event in events {
+                if event == ClientPaneInputEvent::Paste("barrier".into()) {
+                    break 'wire;
+                }
+                observed.push(event);
+            }
+        }
+    }
+    assert_eq!(
+        observed,
+        vec![
+            ClientPaneInputEvent::TextCommit("before".into()),
+            ClientPaneInputEvent::TextCommit("after".into())
+        ]
+    );
+}
