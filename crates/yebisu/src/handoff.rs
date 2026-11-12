@@ -27,6 +27,8 @@ pub(crate) struct Handoff {
     #[cfg(test)]
     pub clipboard_reads: usize,
     #[cfg(test)]
+    pub publication_gate: Option<AsyncPublicationGate>,
+    #[cfg(test)]
     pub clipboard_writes: usize,
     pub stamp: Option<Stamp>,
     pub selection: Option<Selection>,
@@ -209,3 +211,71 @@ impl Prepared {
 #[cfg(test)]
 #[path = "handoff_tests.rs"]
 mod tests;
+
+// Test-only scheduling seam in the real publication worker, never the UI thread.
+#[cfg(test)]
+pub(crate) struct PublicationGate {
+    pub entered: std::sync::mpsc::SyncSender<()>,
+    pub release: std::sync::mpsc::Receiver<()>,
+}
+#[cfg(test)]
+impl PublicationGate {
+    pub fn wait(self) -> crate::Result<()> {
+        self.entered.send(()).map_err(|_| crate::Error::CoreQueue)?;
+        self.release
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| crate::Error::CoreQueue)
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct GateState {
+    entered: bool,
+    released: bool,
+    waker: Option<std::task::Waker>,
+}
+#[cfg(test)]
+pub(crate) struct AsyncPublicationGate(Arc<std::sync::Mutex<GateState>>);
+#[cfg(test)]
+pub(crate) struct PublicationControl(Arc<std::sync::Mutex<GateState>>);
+#[cfg(test)]
+impl AsyncPublicationGate {
+    pub fn new() -> (Self, PublicationControl) {
+        let state = Arc::new(std::sync::Mutex::new(GateState::default()));
+        (Self(state.clone()), PublicationControl(state))
+    }
+}
+#[cfg(test)]
+impl std::future::Future for AsyncPublicationGate {
+    type Output = ();
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        state.entered = true;
+        if state.released {
+            std::task::Poll::Ready(())
+        } else {
+            state.waker = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        }
+    }
+}
+#[cfg(test)]
+impl PublicationControl {
+    pub fn entered(&self) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).entered
+    }
+    pub fn release(self) {
+        let wake = {
+            let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            state.released = true;
+            state.waker.take()
+        };
+        if let Some(waker) = wake {
+            waker.wake();
+        }
+    }
+}

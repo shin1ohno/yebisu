@@ -53,13 +53,18 @@ pub(crate) fn init() -> crate::Result<()> {
     tracing::subscriber::set_global_default(Capture(sender))
         .map_err(|_| crate::Error::LogSubscriber)?;
     // Do not format the panic payload, which can contain host or input data.
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        record("panic");
-        previous(info);
-    }));
+    install_panic_hook();
     record("startup");
     Ok(())
+}
+
+// The default hook formats panic payloads, including provider/credential errors.
+#[cfg(any(target_os = "ios", test))]
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|_| {
+        record("panic");
+        eprintln!("yebisu panic: payload suppressed");
+    }));
 }
 
 struct Capture(SyncSender<&'static str>);

@@ -27,7 +27,10 @@ impl Smoke {
                 };
                 crate::settings::SettingsHost::open(root)
             }) {
-            Ok(host) => self.settings = Some(host),
+            Ok(host) => {
+                self.settings = Some(host);
+                let _ = self.key_provider_preflight("startup");
+            }
             Err(error) => self.update_settings_error(Some(error.to_string()), cx),
         }
     }
@@ -88,7 +91,57 @@ impl Smoke {
 }
 
 impl Smoke {
+    pub(crate) fn key_qa_required(&self) -> bool {
+        cfg!(test)
+            || (cfg!(all(target_os = "ios", target_abi = "sim"))
+                && std::env::vars_os().any(|(name, _)| {
+                    let name = name.to_string_lossy();
+                    name.starts_with("YEBISU_")
+                        && (name.ends_with("_QA") || name.ends_with("_OBSERVE"))
+                }))
+    }
+    pub(crate) fn key_provider_preflight(&self, phase: &'static str) -> bool {
+        if !self.key_qa_required() {
+            return true;
+        }
+        let injected = self.settings.as_ref().is_some_and(|h| h.keys.injected());
+        let admitted = self.observation.try_record(serde_json::json!({
+            "kind":"key-provider-preflight", "phase":phase, "injected":injected
+        }));
+        if admitted {
+            eprintln!("key-provider-preflight injected={injected}");
+        }
+        injected && admitted
+    }
+    pub(crate) fn key_qa_label(&self) -> Option<&'static str> {
+        (self.key_qa_required() && self.key_provider_preflight("view"))
+            .then_some("QA injected key provider")
+    }
+    pub(crate) fn copy_device_key(&self, cx: &mut gpui::Context<Self>) -> bool {
+        if !self.key_provider_preflight("copy") {
+            return false;
+        }
+        if let Some(line) = self.settings.as_ref().and_then(|h| h.keys.line()) {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(line.to_owned()));
+            return true;
+        }
+        false
+    }
+    pub(crate) fn confirm_device_key(
+        &mut self,
+        ticket: crate::settings::key_ops::Ticket,
+        visible: bool,
+    ) {
+        if self.key_provider_preflight("replace")
+            && let Some(host) = &mut self.settings
+        {
+            host.keys.confirm(ticket, visible, false);
+        }
+    }
     pub(crate) fn read_device_key(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.key_provider_preflight("read") {
+            return;
+        }
         if let Some(host) = &mut self.settings {
             host.keys.read_or_initialize();
         }

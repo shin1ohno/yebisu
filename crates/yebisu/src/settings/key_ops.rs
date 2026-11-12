@@ -89,6 +89,9 @@ impl Owner {
     pub fn supported(&self) -> bool {
         self.provider.supported() && self.provider.identity() == provider::IDENTITY
     }
+    pub fn injected(&self) -> bool {
+        self.provider.injected() && self.supported()
+    }
     pub fn busy(&self) -> bool {
         self.worker.is_some()
     }

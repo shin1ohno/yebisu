@@ -1,5 +1,5 @@
 use super::{
-    Command,
+    Command, Queued,
     screen::{self, Screen},
     store,
 };
@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::Receiver,
     },
     time::Duration,
@@ -20,10 +20,11 @@ pub(super) fn run(
     host: String,
     generation: u64,
     inbox: &Arc<Mutex<Live>>,
-    stop: &AtomicBool,
-    commands: Receiver<Command>,
+    controls: (&AtomicBool, &AtomicU64),
+    commands: Receiver<Queued>,
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
+    let (stop, input_epoch) = controls;
     let storage = store::LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -66,17 +67,21 @@ pub(super) fn run(
             if stop.load(Ordering::Acquire) {
                 return Ok(());
             }
-            match command {
+            let queued_epoch = command.input_epoch;
+            match command.command {
                 Command::Input(destination, event) => {
                     let current =
                         screen::publish(&screens, &saved, size, generation, revision, epoch);
-                    if !screens[saved.active].ended
+                    if queued_epoch == input_epoch.load(Ordering::Acquire)
+                        && !screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
                             == Some(&destination)
                     {
                         terminals[saved.active].input(&event)?;
                     }
                 }
+                #[cfg(test)]
+                Command::PauseInput(gate) => gate.wait()?,
                 Command::Resize(next) => {
                     size = next;
                     changed = true;

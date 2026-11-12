@@ -239,7 +239,7 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
     };
     for change in ["host", "generation", "boot", "pane"] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        let (client, _receipts) =
+        let (client, receipts) =
             crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("{e}"));
         view.update(cx, |this, _| {
             this.select_host("sandbox");
@@ -255,9 +255,18 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
             assert!(Instant::now() < until);
             std::thread::sleep(Duration::from_millis(2));
         }
+        let barrier_handle = view.read_with(cx, |this, _| {
+            this.terminal
+                .link
+                .handle
+                .clone()
+                .unwrap_or_else(|| panic!("handle"))
+        });
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("F22_LATE_PASTE".into()));
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 this.terminal.size = None;
+                this.terminal_focus.focus(window, cx);
                 this.refresh_terminal_input();
                 let old = this
                     .terminal
@@ -265,11 +274,15 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
                     .destination
                     .clone()
                     .unwrap_or_else(|| panic!("destination"));
+                this.start_paste(false, cx);
+                assert!(this.handoff.preparing);
                 this.begin_settings_modal(window, cx);
                 match change {
                     "host" => this.select_host("other-host"),
                     "generation" => {
-                        this.terminal.link.reset();
+                        // Keep the receiving stream alive while invalidating the
+                        // connection identity observed by every queued callback.
+                        this.terminal.link.generation += 1;
                     }
                     _ => {
                         let mut live = this
@@ -294,7 +307,66 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
                         live.input_epoch += 1;
                     }
                 }
+                // Exercise every actual callback immediately after each change,
+                // while the modal is still active (not a combined final state).
+                let mut range = Some(0..1);
+                assert!(!this.accepts_text_input(window, cx));
+                assert!(this.text_for_range(0..1, &mut range, window, cx).is_none());
+                assert!(this.selected_text_range(false, window, cx).is_none());
+                assert!(this.marked_text_range(window, cx).is_none());
+                assert!(this.text_length_utf16(window, cx).is_none());
+                let point = gpui::point(gpui::px(0.), gpui::px(0.));
+                let bounds = gpui::Bounds::new(point, gpui::size(gpui::px(100.), gpui::px(100.)));
+                assert!(this.bounds_for_range(0..1, bounds, window, cx).is_none());
+                assert!(this.character_index_for_point(point, window, cx).is_none());
+                this.set_selected_text_range(0..1, window, cx);
+                this.replace_and_mark_text_in_range(None, "stale mark", Some(0..1), window, cx);
+                this.unmark_text(window, cx);
+                this.replace_text_in_range(None, "stale commit", window, cx);
+                this.start_paste(false, cx);
+                this.copy_selection(cx);
+                assert!(
+                    this.run_action(sheprd_commands::Command::ToggleSidebar)
+                        .is_err()
+                );
+                let key = Keystroke {
+                    key: "enter".into(),
+                    key_char: None,
+                    modifiers: Default::default(),
+                };
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: key.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                this.terminal_key_up(
+                    &KeyUpEvent {
+                        keystroke: key.clone(),
+                    },
+                    window,
+                    cx,
+                );
                 this.end_settings_modal(window, cx);
+                this.replace_and_mark_text_in_range(None, "late mark", Some(0..1), window, cx);
+                this.unmark_text(window, cx);
+                this.replace_text_in_range(None, "late commit", window, cx);
+                this.terminal_key_down(
+                    &KeyDownEvent {
+                        keystroke: key.clone(),
+                        is_held: true,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                this.terminal_key_up(&KeyUpEvent { keystroke: key }, window, cx);
+                assert_eq!(this.handoff.clipboard_reads, 1);
+                assert_eq!(this.handoff.clipboard_writes, 0);
+                assert!(this.terminal.input.composition.text.is_empty());
                 assert_ne!(this.terminal.input.destination.as_ref(), Some(&old));
                 assert!(
                     !this
@@ -305,12 +377,117 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
                             event: ClientPaneInputEvent::TextCommit("stale".into())
                         })
                 );
-                if matches!(change, "host" | "generation") {
+                if change == "host" {
                     assert!(this.focus.is_focused(window));
                 } else {
                     assert!(this.terminal_focus.is_focused(window));
                 }
+                if change != "host" {
+                    this.terminal.size = None;
+                    this.refresh_terminal_input();
+                    this.terminal.input.fresh_gesture();
+                    this.replace_text_in_range(None, "fresh", window, cx);
+                }
             })
         });
+        while view.read_with(cx, |this, _| this.handoff.workers != 0) {
+            cx.run_until_parked();
+            assert!(Instant::now() < until);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        barrier_handle
+            .send_input(
+                "boot-v1",
+                "w1:p1",
+                [ClientPaneInputEvent::Paste("f22-barrier".into())],
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mut events = Vec::new();
+        'receive: loop {
+            if let sheprd_client::protocol::ClientMessage::ClientShellPaneInput {
+                pane_id,
+                events: batch,
+                ..
+            } = receipts
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap_or_else(|e| panic!("{e}"))
+            {
+                for event in batch {
+                    if event == ClientPaneInputEvent::Paste("f22-barrier".into()) {
+                        assert_eq!(pane_id, "w1:p1");
+                        break 'receive;
+                    }
+                    assert_eq!(pane_id, if change == "pane" { "w1:p2" } else { "w1:p1" });
+                    events.push(event);
+                }
+            }
+        }
+        assert_eq!(
+            events,
+            if change == "host" {
+                vec![]
+            } else {
+                vec![ClientPaneInputEvent::TextCommit("fresh".into())]
+            },
+            "{change}"
+        );
+        if change == "host" {
+            let (client, new_wire) =
+                crate::mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("{e}"));
+            view.update(cx, |this, _| {
+                let generation = this.terminal.link.reset();
+                this.terminal.link.install(generation, Ok(client));
+            });
+            while !view.update(cx, |this, cx| {
+                this.poll_terminal(cx);
+                this.terminal.live.surface.is_some()
+            }) {
+                assert!(Instant::now() < until);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            cx.update(|window, cx| {
+                view.update(cx, |this, cx| {
+                    this.terminal.size = None;
+                    this.terminal_focus.focus(window, cx);
+                    this.refresh_terminal_input();
+                    this.terminal.input.fresh_gesture();
+                    this.replace_text_in_range(None, "new-host-fresh", window, cx);
+                    this.terminal
+                        .link
+                        .handle
+                        .as_ref()
+                        .unwrap_or_else(|| panic!("handle"))
+                        .send_input(
+                            "boot-v1",
+                            "w1:p1",
+                            [ClientPaneInputEvent::Paste("new-host-barrier".into())],
+                        )
+                        .unwrap_or_else(|e| panic!("{e}"));
+                })
+            });
+            let mut delivered = Vec::new();
+            'new_receive: loop {
+                if let sheprd_client::protocol::ClientMessage::ClientShellPaneInput {
+                    pane_id,
+                    events,
+                    ..
+                } = new_wire
+                    .recv_timeout(Duration::from_secs(3))
+                    .unwrap_or_else(|e| panic!("{e}"))
+                {
+                    assert_eq!(pane_id, "w1:p1");
+                    for event in events {
+                        if event == ClientPaneInputEvent::Paste("new-host-barrier".into()) {
+                            break 'new_receive;
+                        }
+                        delivered.push(event);
+                    }
+                }
+            }
+            assert_eq!(
+                delivered,
+                [ClientPaneInputEvent::TextCommit("new-host-fresh".into())]
+            );
+        }
     }
 }

@@ -47,25 +47,16 @@ impl Observation {
             let directory = std::path::PathBuf::from(home).join("Documents");
             let result = (|| -> std::io::Result<()> {
                 std::fs::create_dir_all(&directory)?;
-                let mut file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(p2 || p10 || selection || p11)
-                    .truncate(!(p2 || p10 || selection || p11))
-                    .open(directory.join(if selection {
-                        "selection-settings.jsonl"
-                    } else if p10 {
-                        "p10-settings.jsonl"
-                    } else if p2 {
-                        "p2-setup.jsonl"
-                    } else {
-                        "p0-smoke.jsonl"
-                    }))?;
-                for value in receiver.into_iter().take(8192) {
-                    writeln!(file, "{value}")?;
-                    file.flush()?;
-                }
-                Ok(())
+                let path = directory.join(if selection {
+                    "selection-settings.jsonl"
+                } else if p10 {
+                    "p10-settings.jsonl"
+                } else if p2 {
+                    "p2-setup.jsonl"
+                } else {
+                    "p0-smoke.jsonl"
+                });
+                write_records(&path, p2 || p10 || selection || p11, receiver)
             })();
             if let Err(error) = result {
                 eprintln!("smoke observation writer: {error}");
@@ -77,12 +68,17 @@ impl Observation {
         observation
     }
 
-    pub(crate) fn record(&self, mut value: Value) {
+    pub(crate) fn record(&self, value: Value) {
+        let _ = self.try_record(value);
+    }
+
+    // Admission is not durable delivery. QA runners must also observe the sink.
+    pub(crate) fn try_record(&self, mut value: Value) -> bool {
         let Some(sender) = &self.sender else {
-            return;
+            return false;
         };
         let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
-            return;
+            return false;
         };
         value["time"] = now.as_secs_f64().into();
         if let Err(error) = sender.try_send(value) {
@@ -96,7 +92,37 @@ impl Observation {
                 let _ = sink.try_send(message.clone());
             }
             eprintln!("{message}");
+            return false;
         }
+        true
+    }
+}
+
+fn write_records(
+    path: &std::path::Path,
+    append: bool,
+    receiver: std::sync::mpsc::Receiver<Value>,
+) -> std::io::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)?;
+    for value in receiver.into_iter().take(8192) {
+        writeln!(file, "{value}")?;
+        file.flush()?;
+    }
+    Ok(())
+}
+#[cfg(test)]
+impl Observation {
+    pub(crate) fn file_for_test(
+        path: std::path::PathBuf,
+    ) -> (Self, std::thread::JoinHandle<std::io::Result<()>>) {
+        let (sender, receiver) = sync_channel(8);
+        let worker = std::thread::spawn(move || write_records(&path, false, receiver));
+        (Self::injected(sender), worker)
     }
 }
 

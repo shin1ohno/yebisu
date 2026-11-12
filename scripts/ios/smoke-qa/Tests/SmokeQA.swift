@@ -71,6 +71,7 @@ final class SmokeQA: XCTestCase {
         app.activate()
         sleep(3)
         save("p2-initial")
+        try tapText("QA injected key provider", in: app, tap: false)
         try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-key")
@@ -86,6 +87,7 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launch()
         sleep(3)
+        try tapText("QA injected key provider", in: app, tap: false)
         try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-restarted")
@@ -503,7 +505,7 @@ final class SmokeQA: XCTestCase {
                 }
                 return
             }
-            print("OCR attempt \(attempt): \(candidates.map { $0.string })")
+            print("OCR attempt \(attempt): candidate count=\(candidates.count), text suppressed")
             sleep(1)
         }
         save("missing-control")

@@ -300,6 +300,7 @@ impl Smoke {
         if let Some(line) = host.keys.line() {
             view = view.child(line.to_owned());
         }
+        view = view.children(self.key_qa_label());
         let idle = !host.keys.busy();
         view = view
             .child(
@@ -317,9 +318,7 @@ impl Smoke {
                     host.keys.line().is_some(),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(line) = this.settings.as_ref().and_then(|h| h.keys.line()) {
-                        cx.write_to_clipboard(ClipboardItem::new_string(line.to_owned()));
-                    }
+                    this.copy_device_key(cx);
                 })),
             )
             .child(
@@ -340,7 +339,7 @@ impl Smoke {
                 })))
                 .child(button("settings-key-confirm","Confirm replacement",idle).on_click(cx.listener(move|this,_,_,cx|{
                     let visible=this.settings_modal && this.settings_page==Page::DeviceKey && this.key_ticket==Some(ticket);
-                    if let Some(h)=&mut this.settings{h.keys.confirm(ticket,visible,false);}this.key_ticket=None;cx.notify();
+                    this.confirm_device_key(ticket,visible);this.key_ticket=None;cx.notify();
                 })));
         }
         view.into_any_element()

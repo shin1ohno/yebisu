@@ -9,6 +9,9 @@ impl Smoke {
             return;
         }
         self.settings_modal = true;
+        if let Some(core) = &self.terminal.core {
+            core.invalidate_input();
+        }
         self.settings_focus.focus(window, cx);
         if let Some(host) = &mut self.settings {
             host.keys.view_open();
@@ -82,3 +85,8 @@ mod production_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod qa;
+
+#[cfg(test)]
+mod preflight_tests;
+#[cfg(test)]
+mod publication_tests;

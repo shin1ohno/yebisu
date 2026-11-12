@@ -138,6 +138,7 @@ fn f13_f17_f23_raw_format_and_provider_failures_never_become_copyable() {
         Ok("restrict ssh-ed25519 !!! herdr-ipad".into()),
     ] {
         let fake = Fake::new();
+        let expected = result.as_ref().err().copied().unwrap_or(Failure::Format);
         *fake.result.lock().unwrap_or_else(|e| e.into_inner()) = result;
         let mut owner = Owner::new(fake.clone());
         owner.read_or_initialize();
@@ -145,6 +146,8 @@ fn f13_f17_f23_raw_format_and_provider_failures_never_become_copyable() {
         assert!(owner.line().is_none());
         assert!(owner.confirmation().is_none());
         assert_eq!(fake.replacements.load(Ordering::SeqCst), 0);
+        assert_eq!(fake.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.failure, Some(expected));
     }
 }
 #[test]
@@ -196,7 +199,7 @@ fn f05_f06_real_queue_admission_failures_consume_confirmation_without_mutation()
 }
 #[test]
 fn f09_f12_lost_or_wrong_reply_is_unknown_after_join() {
-    for wrong in [false, true] {
+    for wrong in [0, 1, 2] {
         let fake = Fake::new();
         let mut owner = ready(&fake);
         owner.unresolved = true;
@@ -204,11 +207,15 @@ fn f09_f12_lost_or_wrong_reply_is_unknown_after_join() {
         owner.display = KeyView::loading();
         let (send, receiver) = mpsc::sync_channel(1);
         let handle = std::thread::spawn(move || {
-            if wrong {
+            if wrong != 0 {
                 let _ = send.send(Reply {
                     op: 99,
                     key: 99,
-                    value: Ok(RAW.into()),
+                    value: if wrong == 1 {
+                        Ok(RAW.into())
+                    } else {
+                        Err(Failure::Provider)
+                    },
                 });
             }
         });
@@ -310,6 +317,10 @@ fn f12_panicked_worker_is_joined_but_never_retried_implicitly() {
     assert_eq!(owner.failure, Some(Failure::Worker));
     assert!(owner.confirmation().is_none());
     assert!(owner.line().is_none());
+    assert!(owner.read_or_initialize());
+    settle(&mut owner);
+    assert_eq!(owner.state, State::Ready);
+    assert!(owner.line().is_some());
 }
 #[test]
 fn f15_f16_injected_slot_faults_reconcile_authoritative_key_only() {
@@ -370,5 +381,61 @@ fn f15_f16_injected_slot_faults_reconcile_authoritative_key_only() {
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(owner.line(), Some(expected.as_str()));
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
+fn f11_late_success_still_needs_worker_termination_and_explicit_reconcile() {
+    let fake = Fake::new();
+    let mut owner = ready(&fake);
+    let (release, wait) = mpsc::sync_channel(1);
+    *fake.release.lock().unwrap_or_else(|e| e.into_inner()) = Some(wait);
+    let ticket = owner.confirmation().unwrap_or_else(|| panic!("ticket"));
+    assert!(owner.confirm(ticket, true, false));
+    owner.poll(Instant::now() + Duration::from_secs(16));
+    assert!(owner.busy());
+    assert_eq!(owner.state, State::Unknown);
+    assert!(!owner.read_or_initialize());
+    assert!(owner.confirmation().is_none());
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    settle(&mut owner);
+    assert!(!owner.busy());
+    assert_eq!(owner.state, State::Unknown);
+    assert!(owner.line().is_none());
+    assert_eq!(fake.replacements.load(Ordering::SeqCst), 1);
+    assert!(owner.read_or_initialize());
+    settle(&mut owner);
+    assert_eq!(owner.state, State::Ready);
+    assert!(owner.line().is_some());
+    assert_eq!(fake.replacements.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn f13_f23_committed_replacement_malformed_output_is_unknown_until_read() {
+    for raw in [
+        "FAKE_PRIVATE_SENTINEL\n".to_owned(),
+        "restrict ssh-ed25519 !!! herdr-ipad".to_owned(),
+        format!(
+            "restrict ssh-ed25519 RkFLRQ== herdr-ipad{}",
+            "x".repeat(5000)
+        ),
+        "restrict ssh-ed25519 RkFLRQ== herdr-ipad\u{202e}secret".to_owned(),
+    ] {
+        let fake = Fake::new();
+        let mut owner = ready(&fake);
+        *fake.result.lock().unwrap_or_else(|e| e.into_inner()) = Ok(raw);
+        let ticket = owner.confirmation().unwrap_or_else(|| panic!("ticket"));
+        assert!(owner.confirm(ticket, true, false));
+        settle(&mut owner);
+        assert_eq!(fake.replacements.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.failure, Some(Failure::Format));
+        assert_eq!(owner.state, State::Unknown);
+        assert!(owner.line().is_none());
+        assert!(owner.confirmation().is_none());
+        *fake.result.lock().unwrap_or_else(|e| e.into_inner()) = Ok(RAW.into());
+        assert!(owner.read_or_initialize());
+        settle(&mut owner);
+        assert!(owner.line().is_some());
+        assert_eq!(fake.replacements.load(Ordering::SeqCst), 1);
     }
 }

@@ -11,7 +11,7 @@ use crate::{live::Live, terminal_input::Destination};
 use sheprd_backend::{ClientPaneInputEvent, Size};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{self, SyncSender},
 };
 
@@ -21,10 +21,18 @@ pub(crate) enum Command {
     Split,
     Focus(usize),
     Orientation,
+    #[cfg(test)]
+    PauseInput(crate::handoff::PublicationGate),
+}
+
+pub(super) struct Queued {
+    command: Command,
+    input_epoch: u64,
 }
 
 pub(crate) struct Session {
-    queue: SyncSender<Command>,
+    queue: SyncSender<Queued>,
+    input_epoch: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     #[cfg(test)]
     pub finished: Arc<AtomicBool>,
@@ -44,6 +52,8 @@ impl Session {
     ) -> crate::Result<Self> {
         let (queue, receive) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
+        let input_epoch = Arc::new(AtomicU64::new(0));
+        let worker_epoch = input_epoch.clone();
         let shared = inbox.clone();
         let finished = Arc::new(AtomicBool::new(false));
         let completed = finished.clone();
@@ -58,7 +68,15 @@ impl Session {
                     if stopped.load(Ordering::Acquire) {
                         return Ok(());
                     }
-                    worker::run(backend, host, generation, &shared, &stopped, receive, root)
+                    worker::run(
+                        backend,
+                        host,
+                        generation,
+                        &shared,
+                        (&stopped, &worker_epoch),
+                        receive,
+                        root,
+                    )
                 })();
                 if let Err(error) = result {
                     tracing::warn!(%error, "Herdr 2 connection stopped");
@@ -72,14 +90,23 @@ impl Session {
             })?;
         Ok(Self {
             queue,
+            input_epoch,
             stop,
             #[cfg(test)]
             finished,
         })
     }
+    // Cancels queued consumer commands. Already-published SDK transport writes
+    // require an SDK writer fence and are not claimed cancelled by this epoch.
+    pub fn invalidate_input(&self) {
+        self.input_epoch.fetch_add(1, Ordering::AcqRel);
+    }
     pub fn send(&self, command: Command) -> crate::Result<()> {
         self.queue
-            .try_send(command)
+            .try_send(Queued {
+                command,
+                input_epoch: self.input_epoch.load(Ordering::Acquire),
+            })
             .map_err(|_| crate::Error::CoreQueue)
     }
 }

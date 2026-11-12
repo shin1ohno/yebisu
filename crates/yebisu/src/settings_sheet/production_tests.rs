@@ -10,7 +10,7 @@ use gpui::{TestAppContext, px, size};
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
@@ -18,13 +18,19 @@ use std::{
 const RAW: &str = "restrict ssh-ed25519 RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM herdr-ipad-injected";
 struct Injected {
     replaces: AtomicUsize,
+    reads: AtomicUsize,
     reject: AtomicBool,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 impl Provider for Injected {
+    fn injected(&self) -> bool {
+        true
+    }
     fn supported(&self) -> bool {
         true
     }
     fn read_or_initialize(&self) -> Result<String, Failure> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         if self.reject.load(Ordering::SeqCst) {
             Ok("FAKE_PRIVATE_SENTINEL".into())
         } else {
@@ -33,6 +39,15 @@ impl Provider for Injected {
     }
     fn replace(&self) -> Result<String, Failure> {
         self.replaces.fetch_add(1, Ordering::SeqCst);
+        if let Some(wait) = self
+            .release
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            wait.recv_timeout(Duration::from_secs(5))
+                .map_err(|_| Failure::Worker)?;
+        }
         Ok(RAW.into())
     }
 }
@@ -102,9 +117,12 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
     cx: &mut TestAppContext,
 ) {
     let root = directory("keys-buttons");
+    let (release, wait) = std::sync::mpsc::sync_channel(1);
     let fake = Arc::new(Injected {
         replaces: AtomicUsize::new(0),
+        reads: AtomicUsize::new(0),
         reject: AtomicBool::new(false),
+        release: Mutex::new(Some(wait)),
     });
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1100.), px(900.)));
@@ -113,6 +131,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
         host.keys = Owner::new(fake.clone());
         this.settings = Some(host);
+        this.select_host("injected-first-host");
         this.settings_fonts = vec!["SauceCodePro Nerd Font Mono".into()];
         this.observation = crate::observation::Observation::injected(logs);
         this.observation
@@ -143,16 +162,23 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         .unwrap_or_else(|| panic!("replace"));
     cx.simulate_click(replace.center(), Default::default());
     cx.run_until_parked();
+    let old_ticket = view.read_with(cx, |this, _| {
+        this.key_ticket.unwrap_or_else(|| panic!("ticket"))
+    });
     let cancel = cx
         .debug_bounds("settings-key-cancel")
         .unwrap_or_else(|| panic!("cancel"));
     cx.simulate_click(cancel.center(), Default::default());
+    view.update(cx, |this, _| this.confirm_device_key(old_ticket, true));
     assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
     cx.simulate_click(replace.center(), Default::default());
     cx.run_until_parked();
+    view.update(cx, |this, _| this.confirm_device_key(old_ticket, true));
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
     let confirm = cx
         .debug_bounds("settings-key-confirm")
         .unwrap_or_else(|| panic!("confirm"));
+    cx.simulate_click(confirm.center(), Default::default());
     cx.simulate_click(confirm.center(), Default::default());
     view.update(cx, |this, _| {
         assert!(this.settings.as_ref().and_then(|h| h.keys.line()).is_none());
@@ -161,10 +187,38 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
     });
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
+            assert!(this.settings.as_ref().is_some_and(|h| h.keys.busy()));
             this.end_settings_modal(window, cx);
             this.begin_settings_modal(window, cx);
+            assert!(this.settings.as_ref().is_some_and(|h| h.keys.busy()));
+            this.read_device_key(cx);
         })
     });
+    // Both actual Add Host controls must consult the same unresolved owner.
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("clipboard-positive".into()));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.end_settings_modal(window, cx);
+            this.terminal.open = false;
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    for id in ["key-create", "key-copy"] {
+        let bounds = cx
+            .debug_bounds(id)
+            .unwrap_or_else(|| panic!("Add Host control {id}"));
+        cx.simulate_click(bounds.center(), Default::default());
+    }
+    assert_eq!(fake.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("clipboard-positive")
+    );
+    cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
     while view.update(cx, |this, cx| {
         this.poll_settings(cx);
         this.settings.as_ref().is_some_and(|h| h.keys.busy())

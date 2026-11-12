@@ -21,6 +21,10 @@ pub(crate) trait Provider: Send + Sync {
     fn identity(&self) -> &'static str {
         IDENTITY
     }
+    // Capability provenance comes from the selected object, never environment flags.
+    fn injected(&self) -> bool {
+        false
+    }
     fn supported(&self) -> bool;
     fn read_or_initialize(&self) -> Result<String, Failure>;
     fn replace(&self) -> Result<String, Failure>;
@@ -74,6 +78,9 @@ fn classify(error: sheprd_client::Error) -> Failure {
 struct Injected;
 #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
 impl Provider for Injected {
+    fn injected(&self) -> bool {
+        true
+    }
     fn supported(&self) -> bool {
         true
     }

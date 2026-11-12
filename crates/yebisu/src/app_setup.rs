@@ -3,7 +3,7 @@ use crate::{
     app::Smoke,
     setup::{Job, Reply},
 };
-use gpui::{AnyElement, ClipboardItem, Context, canvas, div, prelude::*, rgb};
+use gpui::{AnyElement, Context, canvas, div, prelude::*, rgb};
 
 impl Smoke {
     pub(crate) fn start_job(&mut self, job: Job, cx: &mut Context<Self>) {
@@ -52,6 +52,7 @@ impl Smoke {
         let pending = self.setup.pending.is_some();
         div()
             .id("keys-hosts")
+            .children(self.key_qa_label())
             .size_full()
             .bg(rgb(0x2e3440))
             .text_color(rgb(0xeceff4))
@@ -118,10 +119,7 @@ impl Smoke {
             .child(
                 button("key-copy", "Copy authorized_keys line", busy || !key_ready).on_click(
                     cx.listener(|this, _, _, cx| {
-                        if !this.setup.busy
-                            && let Some(line) = this.settings.as_ref().and_then(|h| h.keys.line())
-                        {
-                            cx.write_to_clipboard(ClipboardItem::new_string(line.to_owned()));
+                        if !this.setup.busy && this.copy_device_key(cx) {
                             this.setup.status = "Copied restricted public key.".into();
                             cx.notify();
                         }
@@ -239,6 +237,7 @@ impl Smoke {
 fn button(id: &'static str, label: &'static str, disabled: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .debug_selector(move || id.to_owned())
         .px_4()
         .py_2()
         .rounded_lg()
