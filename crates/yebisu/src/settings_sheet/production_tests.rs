@@ -11,20 +11,25 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 const RAW: &str = "restrict ssh-ed25519 RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM herdr-ipad-injected";
 struct Injected {
     replaces: AtomicUsize,
+    reject: AtomicBool,
 }
 impl Provider for Injected {
     fn supported(&self) -> bool {
         true
     }
     fn read_or_initialize(&self) -> Result<String, Failure> {
-        Ok(RAW.into())
+        if self.reject.load(Ordering::SeqCst) {
+            Ok("FAKE_PRIVATE_SENTINEL".into())
+        } else {
+            Ok(RAW.into())
+        }
     }
     fn replace(&self) -> Result<String, Failure> {
         self.replaces.fetch_add(1, Ordering::SeqCst);
@@ -93,12 +98,13 @@ fn p11_production_font_button_persists_real_consumer(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn p11_f01_f03_f07_f18_f24_actual_buttons_single_owner_and_nonsecret_receipts(
+fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipts(
     cx: &mut TestAppContext,
 ) {
     let root = directory("keys-buttons");
     let fake = Arc::new(Injected {
         replaces: AtomicUsize::new(0),
+        reject: AtomicBool::new(false),
     });
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1100.), px(900.)));
@@ -150,6 +156,8 @@ fn p11_f01_f03_f07_f18_f24_actual_buttons_single_owner_and_nonsecret_receipts(
     cx.simulate_click(confirm.center(), Default::default());
     view.update(cx, |this, _| {
         assert!(this.settings.as_ref().and_then(|h| h.keys.line()).is_none());
+        this.select_host("injected-other-host");
+        assert!(this.settings.as_ref().and_then(|h| h.keys.line()).is_none());
     });
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
@@ -171,6 +179,16 @@ fn p11_f01_f03_f07_f18_f24_actual_buttons_single_owner_and_nonsecret_receipts(
             Some(State::Unknown)
         );
     });
+    cx.run_until_parked();
+    fake.reject.store(true, Ordering::SeqCst);
+    view.update(cx, |this, cx| this.read_device_key(cx));
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
     cx.run_until_parked();
     let output = records
         .try_iter()
