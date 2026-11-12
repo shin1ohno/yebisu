@@ -8,7 +8,7 @@ The repository root LICENSE includes that license. No remote or custom audio
 paths are accepted. The bounded worker is modeled on that reference's
 sound/playback.rs; its local-file reader and external configuration are omitted.
 
-Rodio 0.22.2 is MIT OR Apache-2.0. CPAL and Symphonia resolved versions and
-license texts must be checked from the final lockfile before release. The
-reference uses CPAL 0.17.3 (Apache-2.0) and Symphonia 0.5.5 MP3 components
-(MPL-2.0); this is reference provenance, not proof of this consumer's resolution.
+The resolved consumer lock records Rodio 0.22.2 (MIT OR Apache-2.0), CPAL 0.17.3
+(Apache-2.0), and Symphonia 0.5.5 MP3 components (MPL-2.0). The reference notice
+above records those license families. Preserve their complete third-party
+license texts with any binary distribution; this source stage ships no binary.

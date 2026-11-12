@@ -50,11 +50,11 @@ integration and narrow-layout behavior remain pending P11's stable contract.
 
 Source static batch passed formatting, provenance (105 rows), sorted regions,
 file limits and diff checks before final integration edits. Native build/test
-results are NOT available. Lockfile regeneration needs an authorized guarded
-native dependency resolution; no Linux Rust product build was run.
+results are NOT available. Both lockfiles are resolved and the exact SDK pin is
+verified by locked offline metadata; no Linux Rust product build was run.
 
-Under explicit controller lease: regenerate only changed dependency closure,
-run exact-head guarded check/lint-ios/test, then run private-peer SemanticNotification
+Under explicit controller lease: run exact-head guarded check/lint-ios/test,
+then run private-peer SemanticNotification
 through real native authorization/submission/response APIs. Record actual native
 receiving callbacks and negative mutations for stale generation, old boot,
 disconnected, incoherent projection, denied permission, duplicate, flood, mute,
