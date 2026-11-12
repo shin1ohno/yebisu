@@ -20,7 +20,7 @@ Source baseline: yebisu `dc2511fe695935cdce60ba6bb3cfb4288a425778`; read-only up
 
 1. Add `#[cfg(any(target_os = "ios", test))] mod settings_pages;` beside `settings_spike` in `crates/yebisu/src/main.rs:102-106`, then mount `Page::ALL` through the production sheet page registry.
 2. The sheet editor maps `Density::apply` and `set_terminal_priority` into the existing `SettingsHost` draft, then calls the existing poll/flush owner path. `settings_view.rs:28-53,61-75` and `settings.rs:85-105` are the current owner entry points.
-3. Font renderer apply remains at `terminal_view.rs:212-215`; retain SauceCodePro Nerd Font Mono and regular 14/20, compact 12/17. The only exposed font control is the persisted density preset.
+3. Font renderer apply remains at `terminal_view.rs:212-235`; keep the same face/size inputs in `input.rs:248-255` for IME composition indexing and geometry. Retain SauceCodePro Nerd Font Mono and regular 14/20, compact 12/17. The only exposed font control is the persisted density preset.
 4. Keyboard rows are a projection of `actions::catalog`; do not synthesize unavailable actions or introduce a second shortcut table. The toggle edits `Values.terminal_priority`, which `actions::shortcut` reads.
 5. The production key view must receive `Reply::Key`, hold the returned formatted public line via `KeyView::from_formatted_worker_line`, and use `KeyView::copy_text` for clipboard gating. Loading/retry/error UI, focus isolation, stale reply rejection, invalidation after replacement, owner-confirmed replacement, and credential-worker wiring remain pending.
 6. Bind `general::Document::{License,Notice}` to scrollable UI and verify both displayed byte strings match the shipped root files.
