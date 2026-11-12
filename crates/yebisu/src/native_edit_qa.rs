@@ -61,7 +61,7 @@ impl Smoke {
     unsafe_code,
     reason = "Simulator QA schedules a real SDK responder selector on UIKit's main run loop"
 )]
-fn schedule_selector(action: &str) -> bool {
+pub(crate) fn schedule_selector(action: &str) -> bool {
     use objc2::{
         class, msg_send,
         rc::Retained,

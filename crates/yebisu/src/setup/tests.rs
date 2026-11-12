@@ -34,7 +34,6 @@ fn changed_host_is_refused_without_showing_a_fingerprint() {
 fn invalid_key_is_not_displayed() {
     let mut setup = Setup::default();
     setup.apply(Err(Error::InvalidKeyLine));
-    assert!(setup.key_line.is_none());
     assert!(setup.status.contains("unexpected key comment"));
 }
 

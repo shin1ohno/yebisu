@@ -1,4 +1,6 @@
 //! Container-local draft ownership. Disk work is serialized off the UI thread.
+pub(crate) mod font;
+pub(crate) mod key_ops;
 mod store;
 mod worker;
 
@@ -13,6 +15,7 @@ use worker::{Completion, Request};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
     pub notifications: crate::notifications::Policy,
+    pub font: font::TerminalFont,
     pub compact: bool,
     pub terminal_priority: bool,
     pub board_hidden: bool,
@@ -24,6 +27,7 @@ impl Default for Values {
     fn default() -> Self {
         Self {
             notifications: Default::default(),
+            font: font::TerminalFont::default(),
             compact: false,
             terminal_priority: false,
             board_hidden: false,
@@ -37,6 +41,8 @@ impl Default for Values {
 #[derive(Default)]
 struct Edited {
     notifications: crate::notifications::Edits,
+    font_size: bool,
+    font_family: bool,
     compact: bool,
     terminal_priority: bool,
     board_hidden: bool,
@@ -45,6 +51,7 @@ struct Edited {
 }
 
 pub(crate) struct SettingsHost {
+    pub keys: key_ops::Owner,
     pub draft: Values,
     pub error: Option<String>,
     revision: u64,
@@ -67,6 +74,7 @@ impl SettingsHost {
     pub fn open(root: PathBuf) -> Result<Self> {
         let (sender, receiver) = worker::start(root)?;
         Ok(Self {
+            keys: key_ops::Owner::default(),
             draft: Values::default(),
             error: None,
             revision: 0,
@@ -86,11 +94,17 @@ impl SettingsHost {
     }
 
     pub fn edit(&mut self, values: Values) {
+        if let Err(error) = values.font.validate() {
+            self.error = Some(error.to_string());
+            return;
+        }
         if self.draft != values {
             if !self.loaded {
                 self.edited_before_load
                     .notifications
                     .track(&self.draft.notifications, &values.notifications);
+                self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
+                self.edited_before_load.font_family |= self.draft.font.family != values.font.family;
                 self.edited_before_load.compact |= self.draft.compact != values.compact;
                 self.edited_before_load.terminal_priority |=
                     self.draft.terminal_priority != values.terminal_priority;
@@ -121,6 +135,12 @@ impl SettingsHost {
                             self.edited_before_load
                                 .notifications
                                 .merge(&mut self.draft.notifications, values.notifications);
+                            if !self.edited_before_load.font_size {
+                                self.draft.font.size = values.font.size;
+                            }
+                            if !self.edited_before_load.font_family {
+                                self.draft.font.family = values.font.family;
+                            }
                             if !self.edited_before_load.compact {
                                 self.draft.compact = values.compact;
                             }
@@ -217,6 +237,12 @@ impl SettingsHost {
         }
     }
 
+    pub fn retry(&mut self) {
+        self.write_failed = false;
+        self.retry_requested = true;
+        self.flush();
+    }
+
     pub fn ready(&self) -> bool {
         self.loaded && !self.blocked && self.saved == self.revision
     }
@@ -242,3 +268,9 @@ mod retry_tests;
 
 #[cfg(test)]
 mod selection_tests;
+
+#[cfg(test)]
+mod font_tests;
+
+#[cfg(test)]
+mod notification_tests;
