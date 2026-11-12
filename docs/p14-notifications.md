@@ -2,7 +2,7 @@
 
 Base: dc2511fe695935cdce60ba6bb3cfb4288a425778. SDK draft PR:
 https://github.com/shin1ohno/herdr-uikit/pull/10 at
-`a157c4b87cde721ac6aba6948c09711de60c9fdb`. No SDK8/9 integration.
+`fbb7522f9a55490acb524dc261150c6e7977e460`. No SDK8/9 integration.
 Do not merge this consumer before separate SDK review and approval.
 
 The current source adapter mounts controls on Hosts and polls from the existing
@@ -62,3 +62,9 @@ quiet hours and cancellation. Model tests alone cannot prove OS delivery.
 
 Physical grant/denial, real volume/silent mode, background/suspension and signing
 remain owner gates. Never answer dialogs or alter permission databases.
+
+The reader and Link invalidate a shared notification generation immediately
+on disconnect, mismatch, reset or drop. Native submission additionally rechecks
+this proof, event age and the coherent inbox after authorization and after OS
+completion (`post_notification_when`). Sound checks that same generation in its
+worker, independently of the UI poll cadence.

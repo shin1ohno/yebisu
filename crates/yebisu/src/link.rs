@@ -8,6 +8,7 @@ use std::sync::{
 use std::thread::JoinHandle;
 
 pub(crate) struct Link {
+    pub notification_active: Arc<AtomicBool>,
     pub generation: u64,
     pub stop_reason: Arc<OnceLock<sheprd_client::VersionMismatch>>,
     pub reader: Option<JoinHandle<()>>,
@@ -22,6 +23,7 @@ impl Default for Link {
     fn default() -> Self {
         let live = Live::default();
         Self {
+            notification_active: Arc::new(AtomicBool::new(true)),
             generation: 0,
             stop_reason: live.version_mismatch.clone(),
             reader: None,
@@ -46,6 +48,8 @@ impl Link {
     }
     /// Invalidate callbacks and payloads without losing the reader's stop reason.
     pub fn pause(&mut self) -> u64 {
+        self.notification_active.store(false, Ordering::Release);
+        self.notification_active = Arc::new(AtomicBool::new(true));
         if let Some(handle) = self.handle.take() {
             handle.disconnect();
         }
@@ -91,15 +95,23 @@ impl Link {
                 self.handle = Some(client.handle);
                 let inbox = self.inbox.clone();
                 let drained = self.drained.clone();
+                let notification_active = self.notification_active.clone();
                 match std::thread::Builder::new()
                     .name("yebisu-events".into())
                     .spawn(move || {
                         while let Ok(event) = client.events.recv() {
+                            if matches!(
+                                &event,
+                                ClientEvent::Disconnected { .. } | ClientEvent::VersionMismatch(_)
+                            ) {
+                                notification_active.store(false, Ordering::Release);
+                            }
                             if let Ok(mut live) = inbox.lock() {
                                 live.apply(event);
                             }
                         }
                         drained.store(true, Ordering::Release);
+                        notification_active.store(false, Ordering::Release);
                     }) {
                     Ok(reader) => self.reader = Some(reader),
                     Err(e) => {
@@ -113,6 +125,7 @@ impl Link {
         }
     }
     fn startup_failed(&self, reason: String) {
+        self.notification_active.store(false, Ordering::Release);
         crate::diagnostics::record("connection_error");
         if let Ok(mut live) = self.inbox.lock() {
             live.apply(ClientEvent::Disconnected { reason, ssh: None });
@@ -147,6 +160,7 @@ impl Link {
 }
 impl Drop for Link {
     fn drop(&mut self) {
+        self.notification_active.store(false, Ordering::Release);
         if let Some(handle) = &self.handle {
             handle.disconnect();
         }

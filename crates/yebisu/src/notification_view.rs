@@ -137,7 +137,13 @@ impl State {
     fn fail(&mut self, error: Failure) {
         self.status = format!("Notifications: {error:?}");
     }
-    fn submit(&mut self, event: Event, target: TargetContext) {
+    fn submit(
+        &mut self,
+        event: Event,
+        target: TargetContext,
+        active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        inbox: std::sync::Arc<std::sync::Mutex<crate::live::Live>>,
+    ) {
         let now = Instant::now();
         if now.saturating_duration_since(event.received) >= notifications::MAX_AGE {
             self.fail(Failure::Stale);
@@ -160,7 +166,7 @@ impl State {
                 }
             }
             if let Some(service) = &self.sound
-                && let Err(error) = service.submit(sound, self.policy.volume)
+                && let Err(error) = service.submit(sound, self.policy.volume, active.clone())
             {
                 self.fail(error);
             }
@@ -191,6 +197,7 @@ impl State {
                 let _ = old;
             }
         }
+        let validation = target.clone();
         self.posted.push_back(Posted {
             tag: tag.clone(),
             target,
@@ -213,20 +220,36 @@ impl State {
             let sender = self.sender.clone();
             let epoch = self.epoch;
             #[cfg(target_os = "ios")]
-            herdr_uikit::post_notification(notification, move |result| {
-                let result = result.map_err(|e| match e {
-                    herdr_uikit::NotificationError::Permission(state) => {
-                        Failure::Permission(state.into())
-                    }
-                    herdr_uikit::NotificationError::Busy => Failure::Busy,
-                    herdr_uikit::NotificationError::Cancelled => Failure::Stale,
-                    _ => Failure::Native,
-                });
-                let _ = sender.try_send((epoch, result));
-            });
+            herdr_uikit::post_notification_when(
+                notification,
+                move || {
+                    active.load(std::sync::atomic::Ordering::Acquire)
+                        && event.received.elapsed() < notifications::MAX_AGE
+                        && inbox
+                            .try_lock()
+                            .map(|live| {
+                                validation
+                                    .validate(&live, &validation.host, validation.generation)
+                                    .is_ok()
+                            })
+                            .unwrap_or(false)
+                },
+                move |result| {
+                    let result = result.map_err(|e| match e {
+                        herdr_uikit::NotificationError::Permission(state) => {
+                            Failure::Permission(state.into())
+                        }
+                        herdr_uikit::NotificationError::Busy => Failure::Busy,
+                        herdr_uikit::NotificationError::Cancelled => Failure::Stale,
+                        _ => Failure::Native,
+                    });
+                    let _ = sender.try_send((epoch, result));
+                },
+            );
             #[cfg(not(target_os = "ios"))]
             {
                 let _ = notification;
+                let _ = (active, inbox, validation);
                 let _ = sender.try_send((epoch, Err(Failure::Native)));
             }
             self.status = "Notifications: OS submission pending".into();
@@ -350,10 +373,11 @@ impl Smoke {
                     return Err(Failure::Disconnected);
                 }
                 let live = t.link.inbox.try_lock().map_err(|_| Failure::Busy)?;
-                target.validate(&live, &t.reconnect.target, t.link.generation)
+                target.validate(&live, &t.reconnect.target, t.link.generation)?;
+                Ok((t.link.notification_active.clone(), t.link.inbox.clone()))
             });
             match valid {
-                Ok(()) => self.notifications.submit(event, target),
+                Ok((active, inbox)) => self.notifications.submit(event, target, active, inbox),
                 Err(error) => self.notifications.fail(error),
             }
         }
@@ -444,3 +468,6 @@ impl Smoke {
         panel.into_any_element()
     }
 }
+
+#[cfg(test)]
+mod tests;
