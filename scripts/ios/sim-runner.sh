@@ -25,18 +25,17 @@ if [[ $binary != /* ]]; then binary=$PWD/$binary; fi
 
 udid=$(ios_sim_boot "$HERDR_IOS_SIMULATOR")
 
-# simctl hands the process only SIMCTL_CHILD_-prefixed variables: forward what
-# the test harness and Cargo-built tests read.
-child_environment=()
-while IFS= read -r variable; do
-  case "$variable" in
-    RUST_* | CARGO_* | HERDR_TEST_*) child_environment+=("SIMCTL_CHILD_$variable=${!variable}") ;;
-  esac
-done < <(compgen -e)
+# Bash cannot enumerate OS environment names containing hyphens. Keep that
+# boundary in Python, which reads the raw environment without evaluating it.
+environment_helper=$(dirname "${BASH_SOURCE[0]}")/sim-runner-env.py
+if [[ ! -f $environment_helper ]]; then
+  echo "sim-runner.sh: missing environment helper: $environment_helper" >&2
+  exit 1
+fi
 
 # Cargo binary names can contain hyphens: valid OS environment names but not
 # shell identifiers. env preserves those names and literal values without eval.
 if [[ ${binary##*/} == ios_clipboard-* ]]; then
-  exec /usr/bin/env "${child_environment[@]}" bash "$(dirname "${BASH_SOURCE[0]}")/clipboard-test-runner.sh" "$udid" "$binary" "$@"
+  exec python3 "$environment_helper" -- bash "$(dirname "${BASH_SOURCE[0]}")/clipboard-test-runner.sh" "$udid" "$binary" "$@"
 fi
-exec /usr/bin/env "${child_environment[@]}" xcrun simctl spawn "$udid" "$binary" "$@"
+exec python3 "$environment_helper" -- xcrun simctl spawn "$udid" "$binary" "$@"
