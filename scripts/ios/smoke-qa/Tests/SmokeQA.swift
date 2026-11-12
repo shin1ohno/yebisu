@@ -37,13 +37,41 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    func testP11Settings() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_QA"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launch()
+        sleep(4)
+        try tapText("Settings", in: app)
+        sleep(1)
+        try tapText("Larger", in: app)
+        try tapText("Probe modal callbacks", in: app)
+        sleep(3)
+        save("p11-modal")
+        try tapText("Close", in: app)
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(1)
+        app.activate()
+        save("p11-font")
+        app.terminate()
+        app.launch()
+        sleep(4)
+        save("p11-relaunch")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP2KeysAndRestart() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         XCUIDevice.shared.orientation = .portrait
         app.activate()
         sleep(3)
         save("p2-initial")
-        try tapText("Create / show public key", in: app)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-key")
         try tapText("Copy authorized_keys line", in: app)
@@ -55,9 +83,10 @@ final class SmokeQA: XCTestCase {
         app.activate()
         app.terminate()
         app.launchEnvironment["YEBISU_P2_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launch()
         sleep(3)
-        try tapText("Create / show public key", in: app)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-restarted")
         XCTAssertEqual(app.state, .runningForeground)

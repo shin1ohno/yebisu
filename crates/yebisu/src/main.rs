@@ -97,6 +97,10 @@ mod core_mock;
 #[cfg(any(target_os = "ios", test))]
 mod settings;
 #[cfg(any(target_os = "ios", test))]
+mod settings_pages;
+#[cfg(any(target_os = "ios", test))]
+mod settings_sheet;
+#[cfg(any(target_os = "ios", test))]
 mod settings_view;
 
 #[cfg(any(target_os = "ios", test))]
@@ -104,3 +108,11 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(any(target_os = "ios", test))]
+#[path = "host_settings/availability.rs"]
+mod host_settings_availability;
+#[cfg(any(target_os = "ios", test))]
+mod p15_settings_view;
+#[cfg(any(target_os = "ios", test))]
+mod theme_picker;

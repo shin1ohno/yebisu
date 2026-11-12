@@ -156,6 +156,7 @@ impl Smoke {
         let mut next = self.board.hidden.remove(host).unwrap_or_default();
         if self.settings.is_some() {
             next.compact = self.terminal.compact;
+            next.font = self.terminal.font.clone();
         }
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();
