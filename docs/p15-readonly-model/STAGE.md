@@ -1,4 +1,7 @@
-# P15 read-only stage, not product acceptance
+# P15 read-only historical f83d7be stage, not product acceptance
+
+Current integration status is in INTEGRATED-CANDIDATE.md. The text below records
+the earlier unmounted source stage and is not the current mount status.
 
 Model origin: PR31 at329fbbb6e05085ed76c8065e93ce5539b843c4f1.
 Security contract: security-plan-2.md, SHA256

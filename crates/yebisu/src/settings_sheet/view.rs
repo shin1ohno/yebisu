@@ -70,6 +70,7 @@ impl Smoke {
         }
         let content = match self.settings_page {
             Page::Fonts => self.settings_fonts(&values, can_edit, cx),
+            Page::Appearance => self.render_p15_settings(cx),
             Page::Keyboard => self.settings_keyboard(&values, can_edit, cx),
             Page::DeviceKey => self.settings_keys(cx),
             Page::General => div()
@@ -117,9 +118,7 @@ impl Smoke {
                     cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
                 ));
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        {
-            header = header.children(self.settings_qa_controls(cx));
-        }
+        let header = header.children(self.settings_qa_controls(cx));
         let body = div()
             .flex()
             .min_h_0()

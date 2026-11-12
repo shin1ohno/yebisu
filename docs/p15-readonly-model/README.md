@@ -1,7 +1,10 @@
 # P15 read-only model preparation
 
-This is an isolated source deliverable, not a network/UI feature or native acceptance.
-The app does not register these modules yet. No Linux Rust builds were performed.
+Current candidate mounts theme selection and pre-dispatch Unavailable into the P11
+production sheet. See INTEGRATED-CANDIDATE.md for the current source and native gates.
+The model/reader are dormant; no SSH adapter or native acceptance is claimed.
+The following entry-point notes describe the historical model proposal, not current
+credential capability. security-plan-2.md supersedes its identity/worker details.
 
 ## Provenance and authority
 
@@ -18,7 +21,7 @@ original implementation, not a copy of its lenient parser or racy shell reader.
 Owner D5: task71c4ec6ae3c444a6/evidence/A.md:10,14 and D.md:21 override old P15
 write acceptance. Never add save, CAS, reload or remote editing.
 
-## Entry points for the P11 integrator (not applied)
+## Historical model entry points (superseded by integrated candidate and plan 2)
 
 1. Register `mod host_settings; mod theme_picker;` in the consumer root, add the pinned
    `toml` dependency consistent with the harness, map model errors into crate Error.
@@ -58,7 +61,7 @@ No standalone harness pass establishes app registration, UI, transport or device
 The source-only Python check verifies fixture TOML, baseline preservation and a
 negative write-vocabulary mutation; it does not execute Rust or prove outbound IO.
 
-Current proposal is `security-plan-2.md`, awaiting independent re-review. The original
+The admitted plan is `security-plan-2.md`; taskfc78cac79b124149 gave plan-only PASS. The original
 `security-plan.md` is preserved after REQUEST_CHANGES. A plan PASS and actual T2
 receiving IO proof are separate; neither is claimed here. No network implementation.
 Remaining full P15 gates: controlled two-host actual outbound no-write evidence,

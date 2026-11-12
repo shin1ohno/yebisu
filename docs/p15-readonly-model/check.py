@@ -39,11 +39,15 @@ def check():
         except tomllib.TOMLDecodeError:
             actual = "InvalidToml"
         assert actual == fixture.get("error", fixture.get("expected")), fixture["name"]
-    # Positive control: git can read the known tracked palette before byte comparison.
-    for name in ["theme.rs", "settings.rs", "settings/store.rs", "main.rs"]:
-        relative = f"crates/yebisu/src/{name}"
-        baseline = subprocess.check_output(["git", "-C", str(ROOT), "show", f"{BASE}:{relative}"])
-        assert baseline and baseline == (ROOT / relative).read_bytes(), f"baseline drift: {name}"
+    # Positive control: retain the exact owner-default implementation across integration.
+    relative = "crates/yebisu/src/theme.rs"
+    baseline = subprocess.check_output(["git", "-C", str(ROOT), "show", f"{BASE}:{relative}"]).decode()
+    marker = "impl Default for Theme"
+    assert marker in baseline and marker in (ROOT / relative).read_text()
+    assert baseline.split(marker, 1)[1] == (ROOT / relative).read_text().split(marker, 1)[1]
+    main = (SRC / "main.rs").read_text()
+    assert "mod theme_picker;" in main and 'host_settings/availability.rs' in main
+    assert "Page::Appearance => self.render_p15_settings(cx)" in (SRC / "settings_sheet/view.rs").read_text()
     for directory in [SRC / "host_settings", SRC / "theme_picker"]:
         for file in directory.rglob("*.rs"):
             assert len(file.read_text().splitlines()) <= 1000, file
@@ -51,7 +55,7 @@ def check():
         "result":"pass", "scope":"Python source/fixture validation only; Rust NOT run",
         "toml_fixtures":len(fixtures["toml"]),
         "request_positive_control":True, "source_write_mutation_rejected":True,
-        "preserved_baseline_files":4,
+        "preserved_default_palette":True, "mounted_route_source":True,
         "adapter_negatives_unverified":len(fixtures["adapter_negatives_unverified"]),
         "network_receipts":False, "native_acceptance":False,
     }, indent=2))

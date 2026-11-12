@@ -674,3 +674,17 @@ key, and install that exact new blob on an authorized disposable host. Confirm a
 fresh connection, back up and remove only the recorded old blob, confirm another
 fresh connection, and verify other app/device keys still work. No worker may
 perform these trust/keychain mutations. Record device/iPadOS, head and receipts.
+# P15 candidate: terminal theme and unavailable host settings
+
+Source integration is not device acceptance. After controller-authorized build and
+owner installation, open Settings > appearance, choose High contrast, and observe
+the next terminal paint. Background and relaunch; verify the selected theme and the
+receiving `yebisu-settings.json` agree while Start: Drag / Copy: Manual, font and
+other settings remain unchanged. Choose Owner default and compare original colors.
+Simulator evidence does not prove physical IME, keyboard, suspension or trust.
+
+Change the selected host while the sheet is open, then disconnect. The host label
+and unavailable/disconnected state must follow current selection; no remote values
+or guessed path may appear. The current provider cannot supply retained read
+authority, so no remote read is dispatched. This check does not satisfy two-host
+SSH read or R01-R16 receiving acceptance; those require separately reviewed APIs.

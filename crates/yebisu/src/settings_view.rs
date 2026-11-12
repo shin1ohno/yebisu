@@ -33,6 +33,7 @@ impl Smoke {
     }
     pub(crate) fn settings_values(&self) -> Values {
         Values {
+            theme: self.local_theme,
             font: self.terminal.font.clone(),
             compact: self.terminal.compact,
             terminal_priority: self.actions.terminal_priority,
@@ -51,7 +52,8 @@ impl Smoke {
             cx.notify();
         }
         if host.poll() {
-            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.observation.record(serde_json::json!({"kind":"settings-loaded", "theme":host.draft.theme.key(), "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.local_theme = host.draft.theme;
             self.terminal.font = host.draft.font.clone();
             self.terminal.compact = host.draft.compact;
             self.actions.terminal_priority = host.draft.terminal_priority;
@@ -98,6 +100,7 @@ impl Smoke {
         if self.settings.is_none() || values.font.validate().is_err() {
             return;
         }
+        self.local_theme = values.theme;
         self.terminal.font = values.font.clone();
         self.terminal.compact = values.compact;
         self.actions.terminal_priority = values.terminal_priority;

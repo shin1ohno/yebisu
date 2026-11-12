@@ -17,11 +17,12 @@
   Close: native and physical evidence attached separately; delete on closure.
 # Integration and receiving gates added by task9c49b897b8024dfe
 
-- Mount theme and pre-dispatch Unavailable UI only after P11's author freezes its head.
-  Reason: current dd8128b is source stage and still owns key/layout changes.
-  First step: rebase the task-local integration patch onto that exact frozen head.
+- Reconcile the mounted candidate with P11 final API and verify native behavior.
+  Reason: candidate source integration is not an exact-final-head test result.
+  First step: diff the controller-confirmed P11 final merge against the integrated
+  candidate and run exact-head gates plus actual Appearance button/lifecycle tests.
   Close: mounted route, immediate theme, early-edit/background/relaunch persistence
-  and unchanged owner defaults/other fields pass exact-head native tests and Simulator.
+  and unchanged owner defaults/other fields pass native tests and Simulator.
 - Supply retained authority and observable teardown through separately owned APIs.
   Reason: the current public-line/convenience API cannot satisfy the reviewed contract.
   First step: review the task-local API proposal artifact against the owner and SDK.
