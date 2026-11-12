@@ -10,9 +10,12 @@ impl Smoke {
             .on_click(cx.listener(|this,_,window,cx| {
                 let step=STEP.fetch_add(1,Ordering::Relaxed);
                 if step==0 { this.open_find(window,cx); }
-                else if step==7 {
-                    this.close_find(window,cx);
+                else if step==9 {
+                    let mut repeat=qa_key("escape");repeat.is_held=true;
+                    this.terminal_key_down(&repeat,window,cx);
+                    this.terminal_key_up(&KeyUpEvent{keystroke:qa_key("escape").keystroke},window,cx);
                     let focused=this.terminal_focus.is_focused(window);
+                    this.terminal_key_down(&qa_key("f"),window,cx);
                     this.replace_text_in_range(None,"P13-fresh",window,cx);
                     this.observation.record(serde_json::json!({"kind":"p13-close","focused":focused,"active":this.find.is_some()}));
                 } else if let Some(bar)=&this.find {
@@ -25,7 +28,12 @@ impl Smoke {
                                 field.replace_text_in_range(None,if step==1 {"needle"}else{"日本語"},window,cx);
                             }
                             3 => {
-                                field.replace_and_mark_text_in_range(None,"変換中",Some(0..1),window,cx);
+                                field.replace_and_mark_text_in_range(None,"変😀中",Some(1..3),window,cx);
+                                let span=field.input.marked.clone();
+                                if let Some(span)=span {
+                                    field.replace_text_in_range(Some(span.start+1..span.start+3),"",window,cx);
+                                    this.observation.record(serde_json::json!({"kind":"p13-partial-mark","retained":field.input.marked.is_some()}));
+                                }
                                 field.key(&qa_key("escape"),window,cx);
                             }
                             4 => field.key(&qa_key("enter"),window,cx),
@@ -34,6 +42,11 @@ impl Smoke {
                                 field.input.selected=0..field.input.text.encode_utf16().count();
                                 cx.write_to_clipboard(ClipboardItem::new_string("needle"));
                             }
+                            7 => {
+                                field.input.selected=0..field.input.text.encode_utf16().count();
+                                field.replace_text_in_range(None,"beyond",window,cx);
+                            }
+                            8 => field.key(&qa_key("escape"),window,cx),
                             _=>{}
                         }
                     });

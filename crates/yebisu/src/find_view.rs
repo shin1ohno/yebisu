@@ -92,7 +92,12 @@ impl Smoke {
         let field = cx.new(Field::new);
         let changed = cx.subscribe_in(&field, window, |this, field, event, window, cx| {
             match event {
+                Event::OwnEscape => {
+                    this.actions.consumed.insert("escape".into());
+                }
                 Event::Close => {
+                    // The closing press belongs to the UI through its release.
+                    this.actions.consumed.insert("escape".into());
                     this.close_find(window, cx);
                     return;
                 }
@@ -154,7 +159,6 @@ impl Smoke {
         }
         self.refresh_terminal_input();
         if self.terminal.open {
-            self.terminal.input.fresh_gesture();
             self.terminal_focus.focus(window, cx);
         } else {
             self.focus.focus(window, cx);
@@ -445,3 +449,7 @@ impl Smoke {
 #[cfg(test)]
 #[path = "find/adapter_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "find/regression_tests.rs"]
+mod regression_tests;

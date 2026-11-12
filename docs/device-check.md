@@ -678,3 +678,20 @@ isolated XCTest project under the evidence directory and records actual
 receiver, coherent paint, native UIKit paste-selector and focus evidence.
 Its offline validator fixtures prove the validator only. Physical results and
 P11/P12 integration remain separate acceptance obligations.
+
+### P13 D1-D3 correction acceptance
+
+Hold the Escape that closes search through repeat and release in both daemon
+keyboard-report modes. No part of that press may enter terminal input; a fresh
+next press must reach only the current target. Delete a partial native selection
+inside a marked Japanese/emoji clause, then replace another partial span: the
+remaining marked span stays uncommitted and Escape cancels it without closing
+search. Repeat with a nonzero mark offset and inspect candidate bounds.
+
+The leased mutation batch is `just guarded python3 scripts/ios/p13-mutate.py
+<new-evidence-directory> --expected-head <exact-head>`. It removes D1-D3 fixes
+one at a time, requires each named runtime assertion to fail, restores bytes,
+and requires the same targeted test to pass. Compile failures do not qualify
+as runtime negative controls. Both host tests and iOS Simulator graph must
+compile before acceptance. Delayed wrong-boot socket replies with colliding
+connection IDs and an offscreen source-text match/scroll must also be observed.

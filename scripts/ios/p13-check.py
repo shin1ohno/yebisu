@@ -25,7 +25,7 @@ final class P13QA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launch()
         sleep(3)
-        for step in 0..<8 {
+        for step in 0..<10 {
             try tap("P13 Next", app)
             sleep(2)
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -89,9 +89,9 @@ def validate(records, messages):
                 for m in messages if "ClientShellEndpointRequest" in m]
     searches = [r["params"] for r in requests if r["method"] == "pane.copy_search"]
     queries = [r["query"] for r in searches]
-    if not queries or queries[0] != "needle" or "日本語" not in queries or queries[-1] != "needle":
+    if not queries or queries[0] != "needle" or "日本語" not in queries or queries[-1] != "beyond" or queries.count("needle") < 2:
         raise ValueError("missing ordered ASCII/Japanese/native-paste receiving queries")
-    if any(q not in {"needle", "日本語"} for q in queries):
+    if any(q not in {"needle", "日本語", "beyond"} for q in queries):
         raise ValueError("composing or unrelated text reached search wire")
     if not {"forward", "backward"}.issubset({r["direction"] for r in searches}):
         raise ValueError("next/previous receiving requests missing")
@@ -103,8 +103,12 @@ def validate(records, messages):
     if len(closes) != 1 or not closes[0].get("focused") or closes[0].get("active"):
         raise ValueError("close did not restore current terminal focus")
     steps = {r["step"]: r for r in records if r.get("kind") == "p13-step"}
-    if set(steps) != set(range(8)) or not steps[3].get("active") or steps[3].get("marked") is not None:
+    if set(steps) != set(range(10)) or not steps[3].get("active") or steps[3].get("marked") is not None:
         raise ValueError("composition cancellation/step coverage missing")
+    if not any(r.get("kind") == "p13-partial-mark" and r.get("retained") is True for r in records):
+        raise ValueError("native partial selection deletion did not retain marked text")
+    if not any(r["method"] == "pane.scroll" and 0 <= r["params"].get("offset_from_bottom", 100) < 100 for r in requests):
+        raise ValueError("offscreen search never reached receiving pane.scroll")
     terminal = [event for m in messages if "ClientShellPaneInput" in m
                 for event in m["ClientShellPaneInput"]["events"]]
     if terminal != [{"TextCommit": "P13-fresh"}]:
@@ -112,7 +116,7 @@ def validate(records, messages):
     if any("ClientShellPopupInput" in m for m in messages):
         raise ValueError("search leaked popup input")
     paints = [r for r in records if r.get("kind") == "terminal" and r.get("p13_search")]
-    for query in ("needle", "日本語"):
+    for query in ("needle", "日本語", "beyond"):
         matched = [r for r in paints if r["p13_search"].get("query") == query
                    and r["p13_search"].get("state") == "Matches"
                    and r.get("p13_highlights", 0) > 0

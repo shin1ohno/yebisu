@@ -7,6 +7,7 @@ use std::ops::Range;
 pub(crate) enum Event {
     Changed,
     Close,
+    OwnEscape,
     Next(bool),
 }
 pub(crate) struct Field {
@@ -74,7 +75,29 @@ impl Field {
             return;
         }
         self.oversized = false;
+        // UIKit uses ordinary replacement for selection deletion inside marked
+        // text. Keep the surrounding uncommitted clause, including its offset.
+        let retained_mark = self.input.marked.clone().filter(|span| {
+            !marked
+                && range.as_ref().is_some_and(|range| {
+                    range.start <= range.end
+                        && span.start <= range.start
+                        && range.end <= span.end
+                        && range != span
+                })
+        });
+        let removed_utf16 = self.input.text
+            [self.input.byte(chosen.start)..self.input.byte(chosen.end.max(chosen.start))]
+            .encode_utf16()
+            .count();
         self.input.replace(range, text, marked, selected);
+        if let Some(span) = retained_mark {
+            let end = span
+                .end
+                .saturating_sub(removed_utf16)
+                .saturating_add(text.encode_utf16().count());
+            self.input.marked = (span.start < end).then_some(span.start..end);
+        }
         self.changed(window, cx);
     }
     pub fn query(&self) -> Option<&str> {
@@ -125,6 +148,7 @@ impl Field {
         let key = event.keystroke.key.as_str();
         if key == "escape" {
             if !event.is_held {
+                cx.emit(Event::OwnEscape);
                 if let Some(marked) = self.input.marked.clone() {
                     self.input.replace(Some(marked), "", false, None);
                     self.changed(window, cx);

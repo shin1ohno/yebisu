@@ -9,62 +9,32 @@ use std::{
     sync::mpsc::{Receiver, sync_channel},
     time::Duration,
 };
-const LINES: [&str; 2] = ["ASCII needle needle", "日本語 日本語"];
+const LINES: [(u32, &str); 3] = [
+    (0, "ASCII needle needle"),
+    (1, "日本語 日本語"),
+    (100, "beyond"),
+];
 pub(crate) fn surface() -> PaneSurfaceFrame {
-    let mut surface = crate::mock_peer::surface(7);
-    surface.graphics.placements.clear();
-    for cell in &mut surface.frame.cells {
-        cell.symbol = " ".into();
-        cell.skip = false;
-    }
-    for (row, line) in LINES.iter().enumerate() {
-        let mut col = 0;
-        for ch in line.chars() {
-            let width = unicode_width::UnicodeWidthChar::width(ch)
-                .unwrap_or(1)
-                .max(1);
-            surface.frame.cells[row * 80 + col].symbol = ch.to_string();
-            if width == 2 {
-                surface.frame.cells[row * 80 + col + 1].symbol.clear();
-            }
-            col += width;
-        }
-    }
-    let rect = SurfaceRect {
-        x: 0,
-        y: 0,
-        width: 80,
-        height: 24,
-    };
-    surface.panes = vec![PaneSurfacePane {
-        pane_id: "w1:p1".into(),
-        content_revision: 4,
-        rect,
-        inner_rect: rect,
-        scrollbar_rect: None,
-        scroll: Some(PaneSurfaceScrollMetrics {
-            offset_from_bottom: 0,
-            max_offset_from_bottom: 0,
-            viewport_rows: 24,
-        }),
-        focused: true,
-        mouse_reporting: false,
-        sgr_pixel_mouse: false,
-        alternate_screen_active: false,
-        pixel_width: 0,
-        pixel_height: 0,
-    }];
-    surface
+    resized(80, 24, 1, 100)
 }
-fn resized(cols: u16, rows: u16, serial: u64) -> PaneSurfaceFrame {
-    let mut frame = surface();
-    let blank = frame.frame.cells[79].clone();
+fn resized(cols: u16, rows: u16, serial: u64, offset: u64) -> PaneSurfaceFrame {
+    let mut frame = crate::mock_peer::surface(7);
+    frame.graphics.placements.clear();
+    let mut blank = frame.frame.cells[79].clone();
+    blank.symbol = " ".into();
+    blank.skip = false;
     frame.frame.cells = vec![blank; usize::from(cols) * usize::from(rows)];
     frame.frame.width = cols;
     frame.frame.height = rows;
     frame.frame.cursor = None;
     frame.surface_revision = serial;
-    for (row, line) in LINES.iter().take(usize::from(rows)).enumerate() {
+    let top = 100u64.saturating_sub(offset);
+    for (absolute, line) in LINES {
+        let row = u64::from(absolute);
+        if row < top || row >= top.saturating_add(u64::from(rows)) {
+            continue;
+        }
+        let row = (row - top) as usize;
         let mut col = 0;
         for ch in line.chars() {
             let width = unicode_width::UnicodeWidthChar::width(ch)
@@ -82,26 +52,44 @@ fn resized(cols: u16, rows: u16, serial: u64) -> PaneSurfaceFrame {
             col += width;
         }
     }
-    frame.panes[0].rect.width = cols;
-    frame.panes[0].rect.height = rows;
-    frame.panes[0].inner_rect = frame.panes[0].rect;
+    let rect = SurfaceRect {
+        x: 0,
+        y: 0,
+        width: cols,
+        height: rows,
+    };
+    frame.panes = vec![PaneSurfacePane {
+        pane_id: "w1:p1".into(),
+        content_revision: 4,
+        rect,
+        inner_rect: rect,
+        scrollbar_rect: None,
+        scroll: Some(PaneSurfaceScrollMetrics {
+            offset_from_bottom: offset,
+            max_offset_from_bottom: 100,
+            viewport_rows: u64::from(rows),
+        }),
+        focused: true,
+        mouse_reporting: false,
+        sgr_pixel_mouse: false,
+        alternate_screen_active: false,
+        pixel_width: 0,
+        pixel_height: 0,
+    }];
     frame
 }
 
 fn search(params: &CopySearchParams) -> CopySearchResult {
     let mut matches = Vec::new();
     if !params.query.is_empty() {
-        for (row, line) in LINES.iter().enumerate() {
+        for (row, line) in LINES {
             for (byte, text) in line.match_indices(params.query.as_str()) {
                 let col = unicode_width::UnicodeWidthStr::width(&line[..byte]) as u16;
                 let width = unicode_width::UnicodeWidthStr::width(text) as u16;
                 matches.push(TextRange {
-                    start: TextPoint {
-                        row: row as u32,
-                        col,
-                    },
+                    start: TextPoint { row, col },
                     end: TextPoint {
-                        row: row as u32,
+                        row,
                         col: col.saturating_add(width.saturating_sub(1)),
                     },
                 });
@@ -131,6 +119,23 @@ fn search(params: &CopySearchParams) -> CopySearchResult {
     }
 }
 pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
+    connect_mode(None, false)
+}
+#[cfg(test)]
+pub(crate) fn connect_delayed(
+    wrong_boot: bool,
+) -> crate::Result<(
+    Client,
+    Receiver<ClientMessage>,
+    std::sync::mpsc::SyncSender<()>,
+)> {
+    let (release, gate) = sync_channel(1);
+    connect_mode(Some(gate), wrong_boot).map(|(client, received)| (client, received, release))
+}
+fn connect_mode(
+    mut gate: Option<Receiver<()>>,
+    mut wrong_boot: bool,
+) -> crate::Result<(Client, Receiver<ClientMessage>)> {
     let (local, mut server) = Stream::pair()?;
     let (receipts, receiver) = sync_channel(64);
     std::thread::Builder::new()
@@ -177,6 +182,8 @@ pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
                     &ServerMessage::PaneSurface(surface()),
                     MAX_FRAME_SIZE,
                 )?;
+                let mut serial = surface().surface_revision;
+                let (mut cols, mut rows, mut offset) = (80, 24, 100);
                 loop {
                     let message: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
                     let _ = receipts.try_send(message.clone());
@@ -184,12 +191,15 @@ pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
                     record(&message);
                     if let ClientMessage::ClientShellResize { surface_size, .. } = &message {
                         serial += 1;
+                        cols = surface_size.cols;
+                        rows = surface_size.rows;
                         write_message(
                             &mut server,
                             &ServerMessage::PaneSurface(resized(
                                 surface_size.cols,
                                 surface_size.rows,
                                 serial,
+                                offset,
                             )),
                             MAX_FRAME_SIZE,
                         )?;
@@ -197,6 +207,29 @@ pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
                     if let ClientMessage::ClientShellEndpointRequest { boot_id, request } = message
                     {
                         let request: serde_json::Value = serde_json::from_str(&request)?;
+                        if request["method"] == "pane.copy_search"
+                            && let Some(wait) = gate.take()
+                        {
+                            wait.recv_timeout(Duration::from_secs(10))?;
+                        }
+                        if request["method"] == "pane.scroll" {
+                            offset = request["params"]["offset_from_bottom"]
+                                .as_u64()
+                                .unwrap_or(100)
+                                .min(100);
+                            serial += 1;
+                            write_message(
+                                &mut server,
+                                &ServerMessage::PaneSurface(resized(cols, rows, serial, offset)),
+                                MAX_FRAME_SIZE,
+                            )?;
+                        }
+                        let boot_id = if wrong_boot {
+                            wrong_boot = false;
+                            "wrong-boot".into()
+                        } else {
+                            boot_id
+                        };
                         let result = if request["method"] == "pane.copy_search" {
                             let params: CopySearchParams =
                                 serde_json::from_value(request["params"].clone())?;
