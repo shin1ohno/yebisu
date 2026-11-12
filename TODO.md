@@ -41,3 +41,13 @@
 - Painter wide-separator continuation handling remains outside SH1-150. Reason: the brief excludes the painter's next.skip check. First step: inspect crates/yebisu/src/upstream/terminal_painter.rs for next.skip and reproduce with a Herdr 1 full/patch separator fixture. Close condition: wide-separator paint behavior has receiving-image evidence and regression tests; delete in the resolving commit.
 
 - SH1-151 physical persistence acceptance awaits the owner. Reason: the locked login keychain prevents worker signing and touch/trackpad feel requires M5. First step: locally unlock the keychain and follow docs/device-check.md SH1-151 using the absolute just ipad command. Close condition: PR QA records device/iPadOS, selection defaults, both independent toggles, background/lock/relaunch persistence and unchanged other settings; delete in the resolving commit.
+
+- SH1-156 input recovery and composition-origin contract remain blocked. Reason:
+  the brief requires discarded composition never to be sent, whereas the pinned
+  UIKit adapter gives late IME commits and new direct text the same callback and
+  D4 expressly accepts late commits after resumption. First step: decide the
+  freshness boundary or authorize a separate SDK origin/cancellation change,
+  then enable `sh1_156_new_composition_after_discard_without_tap`, add hardware,
+  reconnect, Detach and barrier wire regressions, and implement recovery.
+  Close condition: all Z1-Z7 gates pass, including Simulator receiving evidence
+  and device-check steps; delete this item in the resolving commit.

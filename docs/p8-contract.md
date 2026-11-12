@@ -57,3 +57,14 @@ image. Command-Shift-C is not a clipboard chord. Adding Option, Control or Funct
 to any chord bypasses clipboard access and follows the existing terminal path.
 The Command: Ctrl plus Terminal priority exclusion still applies to all physical
 clipboard chords. Native edit actions retain their independent SDK-origin route.
+
+
+SH1-156 investigation: the preceding D4 late-commit allowance conflicts with the
+new requirement that discarded composition never be sent. A fresh GPUI KeyDown
+already clears `TerminalInput.cancelled`, but `send_terminal` still refuses input
+while `selection` or `select_mode` is active. `mark` refuses a new composition
+while cancelled. The pinned UIKit adapter passes both ordinary input and IME
+commit through `replace_text_in_range(None, text)` without origin/epoch. Changing
+only the cancelled flag cannot establish the stronger lifetime guarantee. The
+ignored SH1-156 adapter regression records the new-composition failure; it is not
+an acceptance pass. Resolve the callback-origin contract before changing D4.

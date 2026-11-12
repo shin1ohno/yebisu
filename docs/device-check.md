@@ -643,3 +643,30 @@ Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad f
 5. Change each button separately and relaunch after each change; verify the other
    choice, density, shortcut priority and board visibility stay unchanged.
 6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.
+
+
+## SH1-156: hardware input after composition discard (blocked investigation)
+
+These are acceptance steps, not recorded passes. Do not deploy this diagnostic
+branch as a fix. Signing requires the owner's locally unlocked login keychain;
+never put the password in a command or send it to a worker.
+
+1. In an authorized disposable Herdr 1 terminal, enter `cat` and Return. Start
+   Japanese composition, select terminal text, then type `select-156` on the
+   hardware keyboard without tapping the terminal. Record whether the first key
+   arrives, whether selection remains, and the exact status message. The required
+   result is one copy of the new input and none of the discarded composition.
+2. Start another composition, reconnect with the existing reconnect control, wait
+   for a coherent terminal frame, then type `reconnect-156` without tapping.
+   Also type while reconnect is pending: pending keys must never be replayed.
+3. On Herdr 2, enter `cat`, start composition, Detach, reattach, wait for the frame,
+   then type `detach-156` without tapping. The first new key must arrive once.
+4. Repeat all three using a new software-keyboard Japanese composition; commit
+   it without first tapping the terminal. Only the new composition must arrive.
+5. Repeat a tab/pane command with its reply deliberately delayed. Type during
+   the barrier, then after it resolves. Only post-barrier input may arrive, in
+   order. Record device/iPadOS/layout, build SHA, and receiving terminal output.
+6. To settle the callback-origin boundary, capture whether UIKit can deliver an
+   old `insertText:` after a new KeyDown or `setMarkedText:`. The consumer currently
+   receives no composition identity. Host adapter tests cannot prove the ordering
+   of physical UIKit callbacks.
