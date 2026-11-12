@@ -91,6 +91,9 @@ impl Smoke {
 #[cfg(any(target_os = "ios", test))]
 impl EntityInputHandler for Smoke {
     fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
+        if self.settings_modal {
+            return false;
+        }
         if self.terminal.open {
             self.terminal
                 .input
@@ -132,6 +135,9 @@ impl EntityInputHandler for Smoke {
         self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings_modal {
+            return;
+        }
         self.active_input_mut().marked = None;
         if self.terminal.open {
             self.terminal.input.composition = Input::default();
@@ -146,7 +152,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.active_focus().is_focused(window) {
+        if self.settings_modal || !self.active_focus().is_focused(window) {
             return;
         }
         if self.terminal.open {
@@ -182,7 +188,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.active_focus().is_focused(window) {
+        if self.settings_modal || !self.active_focus().is_focused(window) {
             return;
         }
         if self.terminal.open {
@@ -231,7 +237,7 @@ impl EntityInputHandler for Smoke {
             range,
             t.geometry.cursor(t.live.surface.as_deref()),
             t.geometry.area(t.live.surface.as_deref()),
-            &gpui::font("SauceCodePro Nerd Font Mono"),
+            &gpui::font(t.font.family.clone()),
             window,
         ))
     }
@@ -250,7 +256,7 @@ impl EntityInputHandler for Smoke {
             point,
             t.geometry.cursor(t.live.surface.as_deref()),
             t.geometry.area(t.live.surface.as_deref()),
-            &gpui::font("SauceCodePro Nerd Font Mono"),
+            &gpui::font(t.font.family.clone()),
             window,
         )
     }
@@ -263,6 +269,9 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.settings_modal {
+            return;
+        }
         let start = self.active_input().byte(range.start);
         let end = self.active_input().byte(range.end.max(range.start));
         self.active_input_mut().selected = self.active_input().text[..start].encode_utf16().count()

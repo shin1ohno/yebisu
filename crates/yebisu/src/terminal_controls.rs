@@ -7,7 +7,7 @@ use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::
 impl Smoke {
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if terminal.navigating.is_some() || self.actions.palette {
+        if self.settings_modal || terminal.navigating.is_some() || self.actions.palette {
             terminal.input.detach();
             return;
         }
@@ -36,7 +36,7 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
-        if self.terminal.navigating.is_some() || self.actions.palette {
+        if self.settings_modal || self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
         }
@@ -64,7 +64,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.terminal_focus.is_focused(window) {
+        if self.settings_modal || !self.terminal_focus.is_focused(window) {
             return;
         }
         #[cfg(target_os = "ios")]
