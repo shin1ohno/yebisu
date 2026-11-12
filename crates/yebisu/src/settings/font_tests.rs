@@ -77,3 +77,46 @@ fn invalid_font_file_is_preserved() {
     }
     fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
 }
+
+#[gpui::test]
+fn font_consumer_adapter_flushes_background_and_reloads(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    let root = directory("font-consumer");
+    let host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+    let view = cx.new(crate::app::Smoke::new);
+    view.update(cx, |this, cx| {
+        this.settings = Some(host);
+        this.terminal.font.size = Some(24.);
+        this.terminal.font.family = "Menlo".into();
+        this.terminal.compact = true;
+        // UIKit interrupts before the periodic SettingsHost poll sees this edit.
+        this.lifecycle(gpui::AppLifecyclePhase::Background, cx);
+        wait(
+            this.settings.as_mut().unwrap_or_else(|| panic!("host")),
+            SettingsHost::ready,
+        );
+    });
+    let stored = store::load(&root).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(stored.font.size, Some(24.));
+    assert_eq!(stored.font.family, "Menlo");
+    assert_eq!(stored.font.metrics(stored.compact), (24., 34.));
+    let reopened = cx.new(crate::app::Smoke::new);
+    reopened.update(cx, |this, cx| {
+        this.settings = Some(SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}")));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            this.poll_settings(cx);
+            if this.settings.as_ref().is_some_and(SettingsHost::ready) {
+                break;
+            }
+            assert!(std::time::Instant::now() < until, "adapter load timeout");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(this.settings_values(), stored);
+        assert_eq!(
+            this.terminal.font.metrics(this.terminal.compact),
+            (24., 34.)
+        );
+    });
+    fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}

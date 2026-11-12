@@ -1,5 +1,5 @@
 use crate::{app::Smoke, input::Input};
-use gpui::{EntityInputHandler, TestAppContext};
+use gpui::{EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext};
 
 #[gpui::test]
 fn modal_rejects_native_commits_composition_actions_and_clipboard(cx: &mut TestAppContext) {
@@ -17,6 +17,14 @@ fn modal_rejects_native_commits_composition_actions_and_clipboard(cx: &mut TestA
             assert!(this.settings_modal);
             assert!(this.terminal.input.composition.text.is_empty());
             assert!(!this.accepts_text_input(window, cx));
+            let mut actual = Some(0..1);
+            assert!(this.text_for_range(0..1, &mut actual, window, cx).is_none());
+            assert!(actual.is_none());
+            assert!(this.selected_text_range(false, window, cx).is_none());
+            assert!(this.marked_text_range(window, cx).is_none());
+            assert!(this.text_length_utf16(window, cx).is_none());
+            this.set_selected_text_range(0..99, window, cx);
+            this.unmark_text(window, cx);
             this.replace_text_in_range(None, "must not send", window, cx);
             this.replace_and_mark_text_in_range(None, "candidate", Some(0..1), window, cx);
             this.start_paste(false, cx);
@@ -76,7 +84,37 @@ fn modal_native_input_has_zero_wire_events_between_positive_controls(cx: &mut Te
             this.replace_and_mark_text_in_range(None, "漏れ", Some(0..1), window, cx);
             this.start_paste(false, cx);
             this.flush_terminal();
+            let closing_key = Keystroke {
+                key: "enter".into(),
+                key_char: None,
+                modifiers: Default::default(),
+            };
+            this.terminal_key_down(
+                &KeyDownEvent {
+                    keystroke: closing_key.clone(),
+                    is_held: false,
+                },
+                window,
+                cx,
+            );
             this.end_settings_modal(window, cx);
+            // Neither held closing keys nor late composition can become a fresh gesture.
+            this.terminal_key_down(
+                &KeyDownEvent {
+                    keystroke: closing_key.clone(),
+                    is_held: true,
+                },
+                window,
+                cx,
+            );
+            this.replace_text_in_range(None, "late-close-tail", window, cx);
+            this.terminal_key_up(
+                &KeyUpEvent {
+                    keystroke: closing_key,
+                },
+                window,
+                cx,
+            );
             this.terminal.size = None;
             this.refresh_terminal_input();
             this.terminal.input.fresh_gesture();

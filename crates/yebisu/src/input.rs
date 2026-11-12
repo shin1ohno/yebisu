@@ -112,6 +112,10 @@ impl EntityInputHandler for Smoke {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
+        if self.settings_modal {
+            *actual = None;
+            return None;
+        }
         let start = self.active_input().byte(range.start);
         let end = self.active_input().byte(range.end.max(range.start));
         *actual = Some(
@@ -126,12 +130,18 @@ impl EntityInputHandler for Smoke {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if self.settings_modal {
+            return None;
+        }
         Some(UTF16Selection {
             range: self.active_input().selected.clone(),
             reversed: false,
         })
     }
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+        if self.settings_modal {
+            return None;
+        }
         self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -221,7 +231,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        if !self.terminal.open {
+        if self.settings_modal || !self.terminal.open {
             return None;
         }
         self.refresh_terminal_input();
@@ -247,7 +257,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<usize> {
-        if !self.terminal.open || !self.terminal.geometry.contains(point) {
+        if self.settings_modal || !self.terminal.open || !self.terminal.geometry.contains(point) {
             return None;
         }
         let t = &self.terminal;
@@ -261,6 +271,9 @@ impl EntityInputHandler for Smoke {
         )
     }
     fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+        if self.settings_modal {
+            return None;
+        }
         Some(self.active_input().text.encode_utf16().count())
     }
     fn set_selected_text_range(
