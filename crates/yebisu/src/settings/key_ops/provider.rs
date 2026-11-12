@@ -1,6 +1,11 @@
 use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Failure {
+    // Native device production always supports this provider; other targets may not.
+    #[cfg_attr(
+        all(target_os = "ios", not(target_abi = "sim"), not(test)),
+        allow(dead_code)
+    )]
     Unsupported,
     Locked,
     Missing,
