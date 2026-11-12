@@ -696,3 +696,31 @@ It requires a clean checkout, runs the regression, restores the global navigatio
 gate, requires the specific D1 assertion failure, restores original source bytes,
 and reruns the regression. This is consumer adapter evidence, not a substitute for
 Simulator menu/Command-hold screenshots/receipts or physical hardware and IME.
+
+### P12 installed OS menu harness (source only until exercised)
+
+Under a new exclusive Mac lease, freeze the current PR30 head and run the three
+standard gates plus the D1 mutation batch. Then run:
+`just guarded python3 scripts/ios/p12-check.py --output <new-task-evidence-directory>`.
+The runner builds only Simulator, uses a separate P12 XCTest project, guards every
+compiler/test subprocess, and preserves xcresult, real screenshots, app/Springboard
+hierarchies, GUI pick records, native consumer records and private-peer wire logs.
+Never replace missing GUI records with direct consumer invocation.
+
+The actual OS Terminal menu must send Split Right once. While its controlled RPC
+is pending, Toggle Sidebar and Command Palette must each toggle once. After explicit
+peer release, delayed host/pane/revision/focus/capability faults retain the installed
+menu; an enabled stale item must reach consumer rejection, or the real native GUI
+must report it disabled. The verdict distinguishes these outcomes. Final peer FIFO
+fence receipt is mandatory, with no other terminal input and only one split RPC.
+All QA controls are Simulator-only and only prepare/fault/reset/release fixtures.
+
+This uses the installed top-edge OS menu facility observed in the SH1-153 reference,
+not a claimed hardware Command-hold facility. The artifacts preserve OS version,
+Simulator device inventory and actual menu hierarchy. Owner: on a physical iPad,
+hold Command, capture the real shortcut HUD, compare labels/availability with the
+catalog and OS menu, and invoke each command while recording peer traffic. If a
+Simulator keyboard-hold facility is exposed in the installed GUI, record that GUI
+and exercise it; absence of a CLI flag does not establish lack of support. Until
+that observation, Command-hold, physical IME/keyboard and P11/P13 modal integration
+remain unverified regardless of this OS-menu oracle's result.

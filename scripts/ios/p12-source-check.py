@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = ["native_menus.rs", "native_menus_tests.rs", "native_menus_adapter_tests.rs", "actions.rs", "app.rs", "terminal_controls.rs"]
+FILES = ["native_menus.rs", "native_menus_tests.rs", "native_menus_adapter_tests.rs", "native_menus_qa.rs", "actions.rs", "app.rs", "terminal_controls.rs"]
 
 
 def violations(sources):

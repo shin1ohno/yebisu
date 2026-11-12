@@ -177,7 +177,17 @@ fn serve(
             if fault != "response-first"
                 && let Some(gate) = &gate
             {
-                let _ = gate.recv_timeout(Duration::from_secs(5));
+                let timeout =
+                    if cfg!(target_abi = "sim") && std::env::var_os("YEBISU_P12_QA").is_some() {
+                        120
+                    } else {
+                        5
+                    };
+                if gate.recv_timeout(Duration::from_secs(timeout)).is_err()
+                    && std::env::var_os("YEBISU_P12_QA").is_some()
+                {
+                    return Err("P12 gate expired before explicit release".into());
+                }
             }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
                 write_message(
@@ -486,4 +496,10 @@ fn handoff_graphics() -> SurfaceGraphicsScene {
         };
     }
     SurfaceGraphicsScene::default()
+}
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) fn connect_p12() -> crate::Result<(Client, std::sync::mpsc::SyncSender<()>)> {
+    let (release, gate) = std::sync::mpsc::sync_channel(1);
+    connect_gated(1, false, "", Some(gate)).map(|(client, _)| (client, release))
 }

@@ -135,6 +135,10 @@ impl Smoke {
     }
 
     pub(crate) fn install_native_menus(&mut self, window: &Window, cx: &mut Context<Self>) {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if self.p12_qa.freeze {
+            return;
+        }
         if !self.native_menus.bindings_installed {
             let bindings = actions::catalog(&self.terminal)
                 .into_iter()
@@ -183,6 +187,8 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let before = (self.actions.board_hidden, self.actions.palette);
         let result = self
             .native_menus
             .take(action, &self.terminal, &self.actions, focused)
@@ -191,6 +197,8 @@ impl Smoke {
             "kind": "native-menu", "name": action.name, "revision": action.revision,
             "accepted": result.is_ok(), "error": result.as_ref().err().map(ToString::to_string),
         }));
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.p12_menu_receipt(&action.name, action.revision, result.is_ok(), before);
         if let Err(error) = result {
             self.terminal.live.status = error.to_string();
         }
@@ -207,3 +215,10 @@ mod tests;
 #[cfg(test)]
 #[path = "native_menus_adapter_tests.rs"]
 mod adapter_tests;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+impl Smoke {
+    pub(crate) fn p12_invalidate_revision(&mut self) {
+        self.native_menus.revision = self.native_menus.revision.saturating_add(1);
+    }
+}
