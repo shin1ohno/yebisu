@@ -684,3 +684,15 @@ paste worker, cancels it, drains notifications, and checks completion invalidati
 with smoke mode off and a silent private peer. Its wire barrier rejects replay of
 both the cancelled payload and held input. Removing the completion notification
 must fail the invalidation assertion; restoring it must pass.
+
+## SH1-155: keep the connection while inactive
+
+Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physical suspension behavior.
+
+1. Unlock the login keychain locally, connect/unlock M5, then run `/Users/shin1ohno/ManagedProjects/cos-ad147c708b1e42fb-1/tools/just ipad` in `~/ManagedProjects/yebisu` from an interactive login shell. Never send the password to the worker.
+2. Connect to an authorized disposable Herdr 1 host with Return: Automatic. Copy an image, tap Paste image, and record the staged path. On the host, record UTC time and the file birth/mtime (Linux: `date -u; stat --format='%n birth=%w modified=%y' -- /the/staged/path`). Start a timestamped existence monitor: `while test -e /the/staged/path; do date -u +%FT%TZ; sleep 0.2; done; date -u +deleted-observed=%FT%TZ`. Keep its output.
+3. Open the app switcher or move Stage Manager focus to another visible window, wait at least 5 seconds, return and send the pasted path. Confirm the host still has that exact file, record its original creation time and the return/send times. Confirm input and painting continue without a reconnect. Distinguish inactive-only from true Background in the lifecycle log: a full-screen app switch can background yebisu and is not covered by this retention guarantee. Repeat with Control Center and a system sheet.
+4. Enter the Home screen (true Background). Confirm the connection closes and record the staged file's deletion observation time (including the monitor's 0.2-second resolution), as in the pro-dev monitor on 2026-11-11. Return and confirm Automatic reconnects and fresh input works; do not expect the old staged file to survive Background.
+5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
+6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
+7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
