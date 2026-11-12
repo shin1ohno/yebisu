@@ -34,6 +34,7 @@ pub(super) fn load(root: &Path) -> Result<Values> {
             .ok_or_else(|| Error::Settings(format!("invalid {key}"))),
     };
     Ok(Values {
+        notifications: crate::notifications::Policy::decode(value.get("notifications"))?,
         compact: boolean("compact")?,
         terminal_priority: boolean("terminal_priority")?,
         board_hidden: boolean("board_hidden")?,
@@ -49,6 +50,7 @@ pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
         let mut file = fs::File::create(&pending)?;
         file.write_all(
             serde_json::json!({"version":1,"language":"en-US",
+            "notifications": values.notifications.encode(),
             "compact":values.compact,"terminal_priority":values.terminal_priority,
             "board_hidden":values.board_hidden,
             "drag_select":values.drag_select,"copy_on_select":values.copy_on_select})

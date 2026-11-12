@@ -28,6 +28,12 @@ mod link;
 #[cfg(any(target_os = "ios", test))]
 mod live;
 #[cfg(any(target_os = "ios", test))]
+mod notification_settings;
+#[cfg(any(target_os = "ios", test))]
+mod notification_view;
+#[cfg(any(target_os = "ios", test))]
+mod notifications;
+#[cfg(any(target_os = "ios", test))]
 #[allow(dead_code, unused_imports)]
 mod upstream;
 #[cfg(any(target_os = "ios", test))]

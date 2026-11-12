@@ -105,6 +105,7 @@ fn sh1_151_strip_edit_before_load_preserves_other_fields(cx: &mut TestAppContext
             board_hidden: true,
             drag_select: !copy,
             copy_on_select: !copy,
+            notifications: Default::default(),
         };
         store::save(&root, &stored).unwrap_or_else(|e| panic!("{e}"));
         let expected = Values {

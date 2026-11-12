@@ -12,6 +12,7 @@ use worker::{Completion, Request};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
+    pub notifications: crate::notifications::Policy,
     pub compact: bool,
     pub terminal_priority: bool,
     pub board_hidden: bool,
@@ -22,6 +23,7 @@ pub(crate) struct Values {
 impl Default for Values {
     fn default() -> Self {
         Self {
+            notifications: Default::default(),
             compact: false,
             terminal_priority: false,
             board_hidden: false,
@@ -34,6 +36,7 @@ impl Default for Values {
 // Edit tracking is independent of setting defaults (Drag defaults to true).
 #[derive(Default)]
 struct Edited {
+    notifications: bool,
     compact: bool,
     terminal_priority: bool,
     board_hidden: bool,
@@ -85,6 +88,8 @@ impl SettingsHost {
     pub fn edit(&mut self, values: Values) {
         if self.draft != values {
             if !self.loaded {
+                self.edited_before_load.notifications |=
+                    self.draft.notifications != values.notifications;
                 self.edited_before_load.compact |= self.draft.compact != values.compact;
                 self.edited_before_load.terminal_priority |=
                     self.draft.terminal_priority != values.terminal_priority;
@@ -112,6 +117,9 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
+                            if !self.edited_before_load.notifications {
+                                self.draft.notifications = values.notifications;
+                            }
                             if !self.edited_before_load.compact {
                                 self.draft.compact = values.compact;
                             }

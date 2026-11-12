@@ -133,7 +133,11 @@ impl Link {
         }
         live.dirty = false;
         let clipboard = std::mem::take(&mut live.clipboard);
+        let notifications = std::mem::take(&mut live.notifications.pending);
+        let failure = live.notifications.failure.take();
         let mut result = live.clone();
+        result.notifications.pending = notifications;
+        result.notifications.failure = failure;
         result.clipboard = clipboard;
         Some(result)
     }

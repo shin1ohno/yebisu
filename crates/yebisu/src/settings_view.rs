@@ -27,6 +27,7 @@ impl Smoke {
     }
     pub(crate) fn settings_values(&self) -> Values {
         Values {
+            notifications: self.notifications.policy.clone(),
             compact: self.terminal.compact,
             terminal_priority: self.actions.terminal_priority,
             board_hidden: self.actions.board_hidden,
@@ -43,6 +44,7 @@ impl Smoke {
         if host.poll() {
             self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
             self.terminal.compact = host.draft.compact;
+            self.notifications.policy = host.draft.notifications.clone();
             self.actions.terminal_priority = host.draft.terminal_priority;
             self.actions.board_hidden = host.draft.board_hidden;
             self.handoff.drag_select = host.draft.drag_select;

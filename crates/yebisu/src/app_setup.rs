@@ -63,6 +63,7 @@ impl Smoke {
             .p_8()
             .track_focus(&self.focus)
             .child(div().text_3xl().child("yebisu · Saved hosts · P9"))
+            .child(self.render_notification_settings(cx))
             .child(
                 button("core-connect", "Open Herdr 2", busy).on_click(cx.listener(
                     |this, _, _, cx| {

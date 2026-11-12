@@ -10,6 +10,7 @@ use std::{
 
 #[derive(Clone, Default)]
 pub(crate) struct Live {
+    pub notifications: crate::notifications::Inbox,
     pub connected: bool,
     /// Preserves target changes even when the latest-state mailbox skips a frame.
     pub input_epoch: u64,
@@ -111,6 +112,7 @@ impl Live {
                 self.surface = None;
             }
             ClientEvent::Disconnected { reason, ssh: _ } => {
+                self.notifications.clear();
                 crate::diagnostics::record("disconnected");
                 self.connected = false;
                 if self.version_mismatch.get().is_none() {
@@ -125,6 +127,11 @@ impl Live {
                 self.pending_surface_images = None;
             }
             ClientEvent::Message(message) => match message {
+                ServerMessage::SemanticNotification(event) => {
+                    let now = std::time::Instant::now();
+                    let captured = crate::notifications::Event::capture(self, event, now);
+                    self.notifications.push(captured, now);
+                }
                 ServerMessage::ClientShellKeyboardReportAll { enabled } => {
                     self.keyboard_report_all = enabled
                 }
@@ -149,7 +156,6 @@ impl Live {
                 | ServerMessage::GraphicsTransmissionRetired { .. }
                 | ServerMessage::ClientShellSnapshot(_)
                 | ServerMessage::PaneSurface(_)
-                | ServerMessage::SemanticNotification(_)
                 | ServerMessage::ClientShellError { .. }
                 | ServerMessage::DirectTerminalKeyboardProtocol { .. }
                 | ServerMessage::ClientShellEndpointResponseChunk { .. }

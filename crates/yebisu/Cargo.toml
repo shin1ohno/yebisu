@@ -20,10 +20,12 @@ serde_json.workspace = true
 unicode-width.workspace = true
 tracing.workspace = true
 image.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 gpui.workspace = true
 herdr-uikit.workspace = true
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "tracing"] }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }
 objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIPasteboard", "std"] }
