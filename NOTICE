@@ -110,3 +110,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+P14 notification policy and bounded sound worker are modeled on
+shin1ohno/herdr-gpui 398c132a06723a0cc1494842a34666d173ec0200,
+crates/sheprd-gpui/src/config/notifications.rs and sound/playback.rs.
+assets/sounds/done.mp3 and request.mp3 are unmodified Apache-2.0 Herdr assets,
+originally from herdrdev/herdr 8ac9542757292f7a8d42a2d532bc6a8a33c7ffce.
+See docs/p14-sound-notice.md for decoder attribution.
