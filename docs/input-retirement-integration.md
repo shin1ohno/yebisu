@@ -84,3 +84,36 @@ sequence through a FIFO sentinel or acknowledged drain, not a quiet sleep.
 not execution evidence. All must run with exact-head Mac gates after an exclusive
 build lease. `check-discard-mutations.py` requires each expected assertion reason;
 a fixture timeout or compiler error cannot certify a mutation negative.
+
+## SDK PR 9 candidate: adoption gate
+
+The controller relayed experimental commit
+`e02ca054eccd2c73b91d4a072ff91443f1db75bf` from SDK PR 9. It is a prototype,
+not reviewed native acceptance. Its `src/text_input_retirement.rs` exports
+`retire_text_input_session`, a receipt with window-local retired/replacement IDs,
+and `text_input_session_state`. `src/window/retirement.rs` fences the old client,
+then invokes the consumer callback after the GPUI update, before replacement
+responder acquisition. `src/window/text_input/retirement.rs` refuses an active
+native callback with `NativeCallbackInFlight`; `Pending` and failed acquisition
+are explicitly not readiness.
+
+Before adoption, test these consumer-specific consequences against the concrete
+reviewed SDK head:
+
+- Mouse/menu selection, reconnect completion and Detach can request retirement
+  only when the SDK accepts the actual calling context. Key/text callbacks must
+  preserve refusal; do not replace it with deferred key replay or a timer reset.
+- Match the retired/replacement IDs and a consumer discard revision captured at
+  request time. An old callback must not release a newer discard, focus change,
+  host transition or closed view. Keep destination and paste FIFO checks intact.
+- Clear old marked state inside the accepted callback using weak entity/window
+  handles. Observe the receipt and current native responder separately before
+  reporting recovery; the callback runs before native acquisition completes.
+- Keep failed acquisition, window closure and duplicate/in-flight refusal as
+  explicit outcomes. A nested native event loop can expose a retired client
+  before replacement; test fresh-input loss and OS-retargeted old commits with
+  receiving evidence, including identical strings and IME-first hardware input.
+
+This head does not pin that SDK or release the existing U1 fence. SDK-native
+verification and independent review are still required. A source-only protocol
+model cannot certify OS delivery or turn the ignored new-composition test green.

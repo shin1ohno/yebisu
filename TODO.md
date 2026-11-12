@@ -43,12 +43,13 @@
 - SH1-151 physical persistence acceptance awaits the owner. Reason: the locked login keychain prevents worker signing and touch/trackpad feel requires M5. First step: locally unlock the keychain and follow docs/device-check.md SH1-151 using the absolute just ipad command. Close condition: PR QA records device/iPadOS, selection defaults, both independent toggles, background/lock/relaunch persistence and unchanged other settings; delete in the resolving commit.
 
 - SH1-156 full composition recovery and exact-head acceptance remain open. Reason:
-  D1 clean-connection/direct-text correction and real-adapter regressions are
-  prepared but not Mac-executed; U1 native retirement/new IME remains unresolved.
-  A separately authorized SDK worker owns the retirement API. First step: after
-  an explicit Mac lease, run the exact PR22 head's ordinary direct-text tests,
-  discard negatives, `just check`, `just lint-ios`, `just test` and the mutation
-  script (expected assertion reasons, not timeout/compile failure). Integrate
+  D1 direct-text/discard adapters and all 16 prepared mutations passed on the
+  Mac at 5b6a0bf; U1 native retirement/new IME remains unresolved. These are
+  injected adapter results, not proof of native keyboard delivery. A separately
+  authorized SDK worker owns the retirement API. First step: inspect its native
+  responder/delivery evidence and refusal contract, then integrate and rerun
+  exact-head `just check`, `just lint-ios`, `just test`, mutations and Simulator.
+  Integrate
   only the concrete reviewed SDK API/head relayed by the controller, using
   docs/input-retirement-integration.md; never infer native delivery from injected
   callbacks. Keep the ignored new-composition test visible until it truly passes.
