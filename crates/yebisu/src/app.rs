@@ -305,6 +305,12 @@ pub(crate) fn run() {
                                 },
                             ));
                         }
+                    } else if std::env::var_os("YEBISU_P13_QA").is_some() {
+                        this.terminal.link.install(
+                            generation,
+                            crate::find::peer::connect().map(|(client, _)| client),
+                        );
+                        this.actions.board_hidden = true;
                     } else {
                         this.terminal
                             .link

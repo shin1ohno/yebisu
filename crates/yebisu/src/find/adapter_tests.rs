@@ -43,6 +43,7 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
         })
     });
     for query in ["needle", "日本語"] {
+        let deadline = Instant::now() + Duration::from_secs(10);
         cx.update(|window, cx| {
             field.update(cx, |field, cx| {
                 field.input.selected = 0..field.input.text.encode_utf16().count();
@@ -170,4 +171,79 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
     println!(
         "P13 search native adapter: exact ASCII/Japanese queries received; zero terminal bytes until close; one fresh post-close commit; physical IME unverified"
     );
+}
+
+#[gpui::test]
+fn authoritative_target_and_connection_retire_before_a_colliding_reply_can_paint(
+    cx: &mut TestAppContext,
+) {
+    use sheprd_client::{ClientEvent, protocol::ClientShellSnapshot};
+    for fault in [
+        "generation",
+        "boot",
+        "pane",
+        "epoch",
+        "mailbox",
+        "disconnect",
+    ] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        view.update(cx, |this, _| {
+            this.select_host("a");
+            let mut live = Live::default();
+            live.connected = true;
+            live.methods = vec!["pane.copy_search".into()];
+            let snapshot: ClientShellSnapshot =
+                serde_json::from_str(crate::mock_peer::SNAPSHOT).unwrap();
+            live.apply(ClientEvent::Snapshot(Arc::new(snapshot)));
+            live.apply(ClientEvent::Surface(Arc::new(crate::find::peer::surface())));
+            this.terminal.live = live.clone();
+            *this.terminal.link.inbox.lock().unwrap() = live;
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.open_find(window, cx);
+                let bar = this.find.as_mut().unwrap();
+                bar.search.set_query("needle");
+                let params = bar.search.next(4, TextPoint::default()).unwrap();
+                bar.search.sent("collision".into(), &params, Instant::now());
+                let mut live = bar.inbox.lock().unwrap();
+                live.search.ticket = Some((bar.search.scope.clone(), "collision".into()));
+            })
+        });
+        view.update(cx,|this,cx| {
+            let old=this.terminal.link.inbox.clone();
+            {
+                let mut live=old.lock().unwrap();
+                match fault {
+                    "generation"=>this.terminal.link.generation+=1,
+                    "boot"=> {
+                        let mut snapshot=live.snapshot.as_deref().unwrap().clone();
+                        let mut surface=live.surface.as_deref().unwrap().clone();
+                        snapshot.boot_id="new-boot".into();surface.boot_id="new-boot".into();
+                        live.snapshot=Some(Arc::new(snapshot));live.surface=Some(Arc::new(surface));
+                    }
+                    "pane"=> {
+                        let mut snapshot=live.snapshot.as_deref().unwrap().clone();
+                        snapshot.focused_pane_id=Some("other-pane".into());
+                        live.snapshot=Some(Arc::new(snapshot));
+                    }
+                    "epoch"=>live.input_epoch+=1,
+                    "mailbox"=>{},
+                    "disconnect"=>live.apply(ClientEvent::Disconnected {reason:"after send".into(),ssh:None}),
+                    _=>unreachable!(),
+                }
+                // This is the reader's real response dispatch, before UI focus updates.
+                live.apply(ClientEvent::Response {request_id:"collision".into(),response:serde_json::json!({"result":{"type":"pane_copy_search","pane_id":"w1:p1","content_revision":4,"matches":[],"total":0}})});
+            }
+            if fault=="mailbox" {
+                // A new host can reuse the same boot/pane/generation and request ID.
+                // The connection mailbox identity is still different.
+                this.terminal.link.inbox=Arc::new(Mutex::new(this.terminal.live.clone()));
+                this.terminal.reconnect.target="b".into();
+            }
+            this.poll_find(cx);
+            assert!(this.find.is_none(),"{fault} did not retire the production adapter");
+            assert!(this.find_highlights().is_empty());
+        });
+    }
 }

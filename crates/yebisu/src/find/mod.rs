@@ -83,6 +83,14 @@ impl Search {
         if matches!(self.state, State::Closed | State::Unsupported) {
             return;
         }
+        if self.query == query
+            && !matches!(
+                self.state,
+                State::TimedOut | State::SendFailed | State::Malformed | State::Oversized
+            )
+        {
+            return;
+        }
         self.result = None;
         self.queued = None;
         self.query.clear();
@@ -253,3 +261,6 @@ mod tests;
 
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 pub(crate) mod peer;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) mod qa;

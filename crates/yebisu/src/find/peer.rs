@@ -56,6 +56,38 @@ pub(crate) fn surface() -> PaneSurfaceFrame {
     }];
     surface
 }
+fn resized(cols: u16, rows: u16, serial: u64) -> PaneSurfaceFrame {
+    let mut frame = surface();
+    let blank = frame.frame.cells[79].clone();
+    frame.frame.cells = vec![blank; usize::from(cols) * usize::from(rows)];
+    frame.frame.width = cols;
+    frame.frame.height = rows;
+    frame.frame.cursor = None;
+    frame.surface_revision = serial;
+    for (row, line) in LINES.iter().take(usize::from(rows)).enumerate() {
+        let mut col = 0;
+        for ch in line.chars() {
+            let width = unicode_width::UnicodeWidthChar::width(ch)
+                .unwrap_or(1)
+                .max(1);
+            if col + width > usize::from(cols) {
+                break;
+            }
+            frame.frame.cells[row * usize::from(cols) + col].symbol = ch.to_string();
+            if width == 2 {
+                frame.frame.cells[row * usize::from(cols) + col + 1]
+                    .symbol
+                    .clear();
+            }
+            col += width;
+        }
+    }
+    frame.panes[0].rect.width = cols;
+    frame.panes[0].rect.height = rows;
+    frame.panes[0].inner_rect = frame.panes[0].rect;
+    frame
+}
+
 fn search(params: &CopySearchParams) -> CopySearchResult {
     let mut matches = Vec::new();
     if !params.query.is_empty() {
@@ -105,6 +137,13 @@ pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
         .name("yebisu-p13-peer".into())
         .spawn(move || {
             let mut serve = || -> Result<(), Box<dyn std::error::Error>> {
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                if let Some(home) = std::env::var_os("HOME") {
+                    std::fs::write(
+                        std::path::PathBuf::from(home).join("Documents/p13-peer.jsonl"),
+                        "",
+                    )?;
+                }
                 server.set_read_timeout(Some(Duration::from_secs(30)))?;
                 let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
                 let mut welcome: serde_json::Value =
@@ -143,6 +182,18 @@ pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
                     let _ = receipts.try_send(message.clone());
                     #[cfg(all(target_os = "ios", target_abi = "sim"))]
                     record(&message);
+                    if let ClientMessage::ClientShellResize { surface_size, .. } = &message {
+                        serial += 1;
+                        write_message(
+                            &mut server,
+                            &ServerMessage::PaneSurface(resized(
+                                surface_size.cols,
+                                surface_size.rows,
+                                serial,
+                            )),
+                            MAX_FRAME_SIZE,
+                        )?;
+                    }
                     if let ClientMessage::ClientShellEndpointRequest { boot_id, request } = message
                     {
                         let request: serde_json::Value = serde_json::from_str(&request)?;

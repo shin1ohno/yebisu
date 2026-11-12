@@ -60,6 +60,7 @@ impl Smoke {
             if let Some(bar) = &self.find {
                 let focus = bar.field.read(cx).focus.clone();
                 focus.focus(window, cx);
+                window.request_virtual_keyboard();
             }
             return;
         }
@@ -123,6 +124,7 @@ impl Smoke {
         });
         let focus = field.read(cx).focus.clone();
         focus.focus(window, cx);
+        window.request_virtual_keyboard();
         self.find = Some(FindBar {
             field,
             search: Search::new(scope, true),
@@ -348,6 +350,17 @@ impl Smoke {
     fn close_find_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.close_find(window, cx);
     }
+    pub(crate) fn p13_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        {
+            self.p13_qa(cx)
+        }
+        #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+        {
+            let _ = cx;
+            None
+        }
+    }
     pub(crate) fn find_highlights(&self) -> Vec<crate::terminal_painter::Highlight> {
         let mut out = Vec::new();
         let Some(bar) = &self.find else {
@@ -387,6 +400,9 @@ impl Smoke {
         if pane.content_revision != result.content_revision {
             return out;
         }
+        if pane.inner_rect.width == 0 || pane.inner_rect.height == 0 {
+            return out;
+        }
         let top = viewport_top(pane);
         let bottom = top.saturating_add(u32::from(pane.inner_rect.height));
         for (index, range) in result.matches.iter().enumerate() {
@@ -406,6 +422,9 @@ impl Smoke {
                     continue;
                 }
                 if let Ok(y) = u16::try_from(row - top) {
+                    if out.len() == 4096 {
+                        return out;
+                    }
                     out.push(crate::terminal_painter::Highlight {
                         row: pane.inner_rect.y.saturating_add(y),
                         columns: pane.inner_rect.x.saturating_add(start)
