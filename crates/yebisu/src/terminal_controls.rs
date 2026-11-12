@@ -64,7 +64,19 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings_modal || !self.terminal_focus.is_focused(window) {
+        if self.settings_modal {
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        if !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        // A held closing key is not a fresh gesture that can resume input.
+        if event.is_held && self.terminal.input.requires_gesture() {
+            cx.stop_propagation();
+            window.prevent_default();
             return;
         }
         #[cfg(target_os = "ios")]
@@ -151,6 +163,11 @@ impl Smoke {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.settings_modal {
+            self.actions.consumed.remove(&event.keystroke.key);
+            cx.stop_propagation();
+            return;
+        }
         #[cfg(target_os = "ios")]
         if herdr_uikit::native_edit_action().is_some() {
             cx.stop_propagation();
