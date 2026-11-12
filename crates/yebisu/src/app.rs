@@ -9,6 +9,7 @@ const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
     pub(crate) settings: Option<crate::settings::SettingsHost>,
+    pub(crate) settings_modal: bool,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
@@ -77,6 +78,7 @@ impl Smoke {
         .detach();
         Self {
             settings: None,
+            settings_modal: false,
             settings_error: None,
             focus,
             terminal_focus: cx.focus_handle(),
