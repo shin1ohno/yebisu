@@ -1,5 +1,39 @@
 use super::{Policy, Route};
 use crate::{Error, Result};
+#[derive(Default)]
+pub(crate) struct Edits {
+    route: bool,
+    sound: bool,
+    volume: bool,
+    muted: bool,
+    quiet: bool,
+}
+impl Edits {
+    pub fn track(&mut self, old: &Policy, new: &Policy) {
+        self.route |= old.route != new.route;
+        self.sound |= old.sound != new.sound;
+        self.volume |= old.volume != new.volume;
+        self.muted |= old.muted != new.muted;
+        self.quiet |= old.quiet != new.quiet;
+    }
+    pub fn merge(&self, draft: &mut Policy, loaded: Policy) {
+        if !self.route {
+            draft.route = loaded.route;
+        }
+        if !self.sound {
+            draft.sound = loaded.sound;
+        }
+        if !self.volume {
+            draft.volume = loaded.volume;
+        }
+        if !self.muted {
+            draft.muted = loaded.muted;
+        }
+        if !self.quiet {
+            draft.quiet = loaded.quiet;
+        }
+    }
+}
 impl Policy {
     pub fn encode(&self) -> serde_json::Value {
         serde_json::json!({"route": match self.route { Route::Off => "off", Route::Toast => "toast", Route::System => "system" }, "sound":self.sound,"volume":self.volume,"muted":self.muted,"quiet":self.quiet})

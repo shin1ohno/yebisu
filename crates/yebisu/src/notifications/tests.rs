@@ -157,3 +157,25 @@ fn persistence_preserves_defaults_and_rejects_invalid_ranges() {
         assert!(format!("{:?}", Failure::Permission(state)).starts_with("Permission"));
     }
 }
+
+#[test]
+fn editing_sound_before_load_preserves_other_notification_preferences() {
+    let before = Policy::default();
+    let mut draft = before.clone();
+    draft.sound = false;
+    let mut edits = Edits::default();
+    edits.track(&before, &draft);
+    let loaded = Policy {
+        route: Route::System,
+        volume: 25,
+        muted: true,
+        quiet: Some((1320, 480)),
+        ..before
+    };
+    edits.merge(&mut draft, loaded.clone());
+    assert!(!draft.sound);
+    assert_eq!(draft.route, loaded.route);
+    assert_eq!(draft.volume, loaded.volume);
+    assert_eq!(draft.muted, loaded.muted);
+    assert_eq!(draft.quiet, loaded.quiet);
+}

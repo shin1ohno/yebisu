@@ -36,7 +36,7 @@ impl Default for Values {
 // Edit tracking is independent of setting defaults (Drag defaults to true).
 #[derive(Default)]
 struct Edited {
-    notifications: bool,
+    notifications: crate::notifications::Edits,
     compact: bool,
     terminal_priority: bool,
     board_hidden: bool,
@@ -88,8 +88,9 @@ impl SettingsHost {
     pub fn edit(&mut self, values: Values) {
         if self.draft != values {
             if !self.loaded {
-                self.edited_before_load.notifications |=
-                    self.draft.notifications != values.notifications;
+                self.edited_before_load
+                    .notifications
+                    .track(&self.draft.notifications, &values.notifications);
                 self.edited_before_load.compact |= self.draft.compact != values.compact;
                 self.edited_before_load.terminal_priority |=
                     self.draft.terminal_priority != values.terminal_priority;
@@ -117,9 +118,9 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
-                            if !self.edited_before_load.notifications {
-                                self.draft.notifications = values.notifications;
-                            }
+                            self.edited_before_load
+                                .notifications
+                                .merge(&mut self.draft.notifications, values.notifications);
                             if !self.edited_before_load.compact {
                                 self.draft.compact = values.compact;
                             }
