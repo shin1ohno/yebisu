@@ -132,13 +132,15 @@ impl EntityInputHandler for Smoke {
         self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.terminal.open {
-            self.terminal.input.discard();
-        } else {
-            self.active_input_mut().marked = None;
-        }
-        window.notify_text_input_changed(self.active_focus());
-        cx.notify();
+        self.input_transition(|this| {
+            if this.terminal.open {
+                this.terminal.input.discard();
+            } else {
+                this.active_input_mut().marked = None;
+            }
+            window.notify_text_input_changed(this.active_focus());
+            cx.notify();
+        })
     }
     fn replace_text_in_range(
         &mut self,

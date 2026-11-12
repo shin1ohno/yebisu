@@ -64,6 +64,9 @@ impl TerminalView {
 }
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.connect_terminal_inner(cx))
+    }
+    fn connect_terminal_inner(&mut self, cx: &mut Context<Self>) {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
@@ -86,6 +89,9 @@ impl Smoke {
         }
     }
     pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_host_connection_inner(target, cx))
+    }
+    fn start_host_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
         if self.terminal.core_mode && self.terminal.reconnect.target == target {
             self.connect_core(cx);
             return;

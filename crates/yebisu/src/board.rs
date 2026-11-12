@@ -141,6 +141,9 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
 
 impl Smoke {
     pub(crate) fn select_host(&mut self, host: &str) {
+        self.input_transition(|this| this.select_host_inner(host))
+    }
+    fn select_host_inner(&mut self, host: &str) {
         if !self.terminal.open {
             let marked = if self.smoke_mode {
                 self.input.marked.is_some()
@@ -205,6 +208,15 @@ impl Smoke {
         }
     }
     pub(crate) fn navigate_board(
+        &mut self,
+        host: &str,
+        target: Target,
+        boot: &str,
+        generation: u64,
+    ) -> crate::Result<()> {
+        self.input_transition(|this| this.navigate_board_inner(host, target, boot, generation))
+    }
+    fn navigate_board_inner(
         &mut self,
         host: &str,
         target: Target,

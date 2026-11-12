@@ -21,6 +21,7 @@ pub(crate) struct Smoke {
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
     pub(crate) actions: crate::actions::Actions,
+    pub(crate) retirement: crate::input_retirement::Retirement,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -88,6 +89,7 @@ impl Smoke {
             terminal: Default::default(),
             board: Default::default(),
             actions: Default::default(),
+            retirement: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -102,6 +104,8 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "ios")]
+        self.bind_text_retirement(window, cx);
         let screen = self.render_screen(window, cx);
         let Some(error) = self.settings_error.as_ref() else {
             return screen;

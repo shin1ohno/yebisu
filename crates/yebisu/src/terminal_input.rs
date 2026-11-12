@@ -60,6 +60,7 @@ pub(crate) struct TerminalInput {
     pub options: InputOptions,
     pending: Option<HeldInput>,
     cancelled: bool,
+    discard_revision: u64,
     pub ready: bool,
     pub report_all: bool,
 }
@@ -90,27 +91,54 @@ impl TerminalInput {
     pub fn detach(&mut self) {
         self.discard();
         let cancelled = self.cancelled;
+        let revision = self.discard_revision;
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
         self.cancelled = cancelled;
+        self.discard_revision = revision;
     }
     /// The native text client is shared across hosts, unlike terminal queues.
     pub fn retain_discard(&mut self, cancelled: bool) {
-        self.cancelled |= cancelled;
+        if cancelled && !self.cancelled {
+            self.record_discard();
+        }
     }
     /// A rejected marked callback can still have a later native commit.
     pub fn reject_mark(&mut self, text: &str) {
         self.discard();
-        self.cancelled |= !text.is_empty();
+        if !text.is_empty() {
+            self.record_discard();
+        }
     }
     pub fn discard(&mut self) {
-        self.cancelled |= !self.composition.text.is_empty();
+        if !self.composition.text.is_empty() {
+            self.record_discard();
+        }
         self.composition = Input::default();
     }
     pub fn requires_gesture(&self) -> bool {
         self.cancelled
     }
+    fn record_discard(&mut self) {
+        self.cancelled = true;
+        self.discard_revision = self.discard_revision.saturating_add(1);
+    }
+    pub fn discard_revision(&self) -> u64 {
+        self.discard_revision
+    }
+    /// Called only after a correlated native client retirement callback.
+    /// Saturation is permanently closed: an old receipt must never match again.
+    pub fn acknowledge_retirement(&mut self, revision: u64) -> bool {
+        if !self.cancelled || revision != self.discard_revision || revision == u64::MAX {
+            return false;
+        }
+        self.composition = Input::default();
+        self.cancelled = false;
+        true
+    }
+    // Fixture setup only; production gestures cannot acknowledge retirement.
+    #[cfg(test)]
     pub fn fresh_gesture(&mut self) {
         self.cancelled = false;
     }

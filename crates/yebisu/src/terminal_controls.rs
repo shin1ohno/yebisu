@@ -24,7 +24,15 @@ impl Smoke {
             return "Waiting for terminal frame · input paused".into();
         }
         if self.terminal.input.requires_gesture() {
-            return "Text input paused · use terminal keys or tap to retry text".into();
+            return self
+                .retirement
+                .reason
+                .unwrap_or("Text input paused · native retirement required")
+                .into();
+        }
+        #[cfg(target_os = "ios")]
+        if let Some(status) = self.native_retirement_status() {
+            return status.into();
         }
         self.terminal.live.status.clone()
     }
@@ -81,6 +89,14 @@ impl Smoke {
         }
     }
     pub(crate) fn terminal_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input_transition(|this| this.terminal_key_down_inner(event, window, cx))
+    }
+    fn terminal_key_down_inner(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
@@ -345,7 +361,6 @@ impl Smoke {
                             .child("QA mark")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.terminal_focus.focus(window, cx);
-                                this.terminal.input.fresh_gesture();
                                 this.replace_and_mark_text_in_range(
                                     None,
                                     "かな😀変換",

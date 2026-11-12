@@ -5,7 +5,7 @@ use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
 use std::time::{Duration, Instant};
 
 #[gpui::test]
-fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext) {
+fn controlled_retirement_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext) {
     for (paste, select) in [(true, true), (false, true), (true, false)] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         cx.simulate_resize(size(px(1200.), px(1000.)));
@@ -73,9 +73,11 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
                 } else {
                     this.toggle_selection();
                 }
-                // Legacy D4 diagnostic, not SH1-156 acceptance: this explicit gesture
-                // still admits callbacks without native composition identity.
+                // A gesture alone cannot acknowledge native cancellation.
                 this.replace_text_in_range(None, "old-composition-after-resume", window, cx);
+                assert!(this.terminal.input.requires_gesture());
+                // Controlled SDK boundary only, not native/OS evidence.
+                this.controlled_text_retirement();
                 this.replace_text_in_range(None, "soft-text", window, cx);
                 this.replace_and_mark_text_in_range(None, "かな", Some(0..2), window, cx);
                 assert_eq!(this.terminal.input.composition.text, "かな");
@@ -134,9 +136,6 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
         if paste {
             expected.push(ClientPaneInputEvent::Paste("resume-paste".into()));
         }
-        expected.push(ClientPaneInputEvent::TextCommit(
-            "old-composition-after-resume".into(),
-        ));
         expected.extend([
             ClientPaneInputEvent::TextCommit("soft-text".into()),
             ClientPaneInputEvent::TextCommit("仮名".into()),
@@ -147,7 +146,7 @@ fn selection_exit_resumes_soft_text_and_ime_after_paste(cx: &mut TestAppContext)
         );
         view.update(cx, |this, _| this.terminal.link.pause());
         eprintln!(
-            "D4 PASS paste={paste} select={select}: soft text / IME / FIFO / selected late commit rejected"
+            "CONTROLLED RETIREMENT PASS paste={paste} select={select}: soft text / IME / FIFO / selected late commit rejected"
         );
     }
 }
