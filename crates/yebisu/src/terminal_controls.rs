@@ -67,10 +67,10 @@ impl Smoke {
         if self.settings_modal {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_P11_QA").is_some()
-                && herdr_uikit::native_edit_action().is_some()
+                && let Some(action) = herdr_uikit::native_edit_action()
             {
                 self.observation
-                    .record(serde_json::json!({"kind":"p11-native-blocked"}));
+                    .record(serde_json::json!({"kind":"p11-native-blocked", "action":format!("{action:?}")}));
             }
             self.actions.consumed.insert(event.keystroke.key.clone());
             cx.stop_propagation();
@@ -89,6 +89,12 @@ impl Smoke {
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
             use herdr_uikit::NativeEditAction;
+            #[cfg(target_abi = "sim")]
+            if std::env::var_os("YEBISU_NATIVE_QA").is_some() {
+                self.observation.record(serde_json::json!({
+                    "kind":"native-consumer", "action":format!("{action:?}"), "modal":self.settings_modal
+                }));
+            }
             match action {
                 NativeEditAction::Paste => self.start_paste(false, cx),
                 NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),
