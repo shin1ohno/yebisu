@@ -13,7 +13,7 @@ spec.loader.exec_module(p14)
 def fixture():
     commands = ["p14-live", "p14-quiet", "p14-invalid", "p14-disconnect"]
     records = [dict(kind="p14-step", step=i, sent=i < 5, generation_before=1, generation_after=1) for i in range(1, 6)]
-    base = dict(kind="p14-paint", step=1, toast=None, bounds=[1, 1, 200, 80], boot="boot-v1", host="qa@private-peer", active=True, connected=True, pane="w1:p1", authorization="NotDetermined")
+    base = dict(kind="p14-paint", step=1, generation=1, toast=None, bounds=[1, 1, 200, 80], boot="boot-v1", host="qa@private-peer", active=True, connected=True, pane="w1:p1", authorization="NotDetermined")
     records += [dict(base, toast="Agent needs attention"), dict(base, pane="w1:p3")]
     records += [dict(base, step=step, status=status, active=step < 4, connected=step < 4) for step, status in [(2, "QuietHours"), (3, "InvalidTarget"), (4, "Disconnected"), (5, "Stale")]]
     messages = [{"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"Paste": command}]}} for command in commands]
@@ -68,4 +68,10 @@ class P14Oracle(unittest.TestCase):
         data = fixture()
         data[0][4]["generation_after"] = 2
         with self.assertRaisesRegex(ValueError, "reconnected"):
+            p14.validate(*data)
+
+    def test_wrong_generation_is_not_current_context(self):
+        data = fixture()
+        data[0][5]["generation"] = 99
+        with self.assertRaisesRegex(ValueError, "coherent actual toast"):
             p14.validate(*data)
