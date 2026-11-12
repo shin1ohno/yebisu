@@ -192,7 +192,25 @@ ios_export_deployment_target
 
 # Entitlements are derived per build and never kept: a stale file could sign
 # a bundle with another app's identifiers.
-work=$(mktemp -d /tmp/herdr-ios-bundle.XXXXXX)
+# Opt-in evidence paths are for the task-owned Simulator runner only.
+provenance=${YEBISU_BUNDLE_PROVENANCE_DIR:-}
+if [[ -n $provenance ]]; then
+  if [[ $platform != iPhoneSimulator || $package != yebisu || $kind != bin || $name != yebisu ]]; then
+    echo "error: provenance mode requires the yebisu Simulator binary" >&2
+    exit 2
+  fi
+  python3 -I scripts/ios/bundle-provenance.py init --directory "$provenance" --source "$root"
+  # Force the actual build's manifest; do not rely on inherited Cargo cwd/config.
+  if ((${#manifest_args[@]} > 0)) && [[ ${manifest_args[1]} != "$root/Cargo.toml" ]]; then
+    echo "error: provenance mode requires this checkout's manifest" >&2
+    exit 2
+  fi
+  manifest_args=(--manifest-path "$root/Cargo.toml")
+  work=$(mktemp -d "$provenance/bundle-temp.XXXXXX")
+  printf '%s\n' "$work" > "$provenance/temporary-path.txt"
+else
+  work=$(mktemp -d "${YEBISU_BUNDLE_TEMP_ROOT:-/tmp}/herdr-ios-bundle.XXXXXX")
+fi
 trap 'rm -rf -- "$work"' EXIT
 signing=false
 if [[ $platform == iPhoneOS && (-n $team || -n $signing_profile) ]]; then
@@ -236,11 +254,16 @@ elif [[ $signing == true ]]; then
   identity=$(python3 -I scripts/ios/profile.py identity --profile "$signing_profile" \
     --identities "$work/identities.txt")
 fi
-messages=$(cargo "$cargo_subcommand" --locked --package "$package" --target "$target" \
+# Keep JSON from the very build that supplies the bundled executable, including
+# a failing build. No second build is substituted for this transcript.
+cargo_messages=$work/cargo.jsonl
+if [[ -n $provenance ]]; then cargo_messages=$provenance/cargo.jsonl; fi
+cargo "$cargo_subcommand" --locked --package "$package" --target "$target" \
   ${manifest_args[@]+"${manifest_args[@]}"} \
   "--$kind" "$name" ${profile_args[@]+"${profile_args[@]}"} \
   ${feature_args[@]+"${feature_args[@]}"} --message-format=json-render-diagnostics \
-  ${link_args[@]+"${link_args[@]}"})
+  ${link_args[@]+"${link_args[@]}"} >"$cargo_messages"
+messages=$(cat "$cargo_messages")
 artifact=$(python3 -I -c '
 import json, sys
 
@@ -267,12 +290,18 @@ print(*found, sep="\n")
 executable=${artifact%$'\n'*}
 version=${artifact##*$'\n'}
 
+if [[ -n $provenance ]]; then
+  python3 -I scripts/ios/bundle-provenance.py artifact --directory "$provenance" --executable "$executable"
+fi
 app="${executable%/*}/$name.app"
 # The whole bundle is this script's own output, rebuilt from scratch so a
 # renamed executable leaves nothing stale behind.
 rm -rf "$app"
 mkdir -p "$app"
 cp "$executable" "$app/$name"
+if [[ -n $provenance ]]; then
+  python3 -I scripts/ios/bundle-provenance.py copy --directory "$provenance" --app "$app"
+fi
 
 plist="$app/Info.plist"
 cp scripts/ios/Info.plist "$plist"
@@ -320,5 +349,8 @@ fi
 # to the signature, as the simulator's installer expects.
 codesign --force --sign - --timestamp=none "$app" >&2
 codesign --verify --strict "$app" >&2
+if [[ -n $provenance ]]; then
+  python3 -I scripts/ios/bundle-provenance.py signed --directory "$provenance" --app "$app"
+fi
 echo "Bundled $bundle_id ($version) for the simulator" >&2
 printf '%s\n' "$app"

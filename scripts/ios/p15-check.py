@@ -3,11 +3,14 @@
 
 Synthetic unit fixtures validate this checker only, never native acceptance.
 """
+import argparse
 import importlib.util
+import os
 import json
 from pathlib import Path
 import shutil
 import time
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SEED = dict(version=1, language="en-US", theme="owner-default", compact=False,
@@ -100,12 +103,64 @@ def main():
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     run = runner.run
-    out = ROOT / "target/ios-p15" / time.strftime("%Y%m%d-%H%M%S")
-    out.mkdir(parents=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--own-root", type=Path)
+    parser.add_argument("--expected-head")
+    parser.add_argument("--simulator")
+    args = parser.parse_args()
+    environment = os.environ.copy()
+    provenance = None
+    if args.own_root:
+        own = args.own_root.resolve(strict=True)
+        if not ROOT.is_relative_to(own) or not args.expected_head or not args.simulator:
+            raise ValueError("owned source, full expected head and leased simulator UUID required")
+        if len(args.expected_head) != 40:
+            raise ValueError("full source head required")
+        import uuid
+        uuid.UUID(args.simulator)  # Never resolve a shared device by its default name.
+        evidence = own / "evidence"
+        evidence.mkdir(exist_ok=True)
+        out = Path(tempfile.mkdtemp(prefix="p15-", dir=evidence))
+        provenance = out / "provenance"
+        provenance.mkdir()
+        target = own / "target-cargo"
+        target.mkdir(exist_ok=True)
+        if not target.resolve().is_relative_to(own):
+            raise ValueError("shared Cargo target symlink")
+        environment.update(CARGO_TARGET_DIR=str(target.resolve()),
+                           YEBISU_OWN_ROOT=str(own), YEBISU_EXPECTED_HEAD=args.expected_head,
+                           YEBISU_BUNDLE_PROVENANCE_DIR=str(provenance),
+                           HERDR_IOS_SIMULATOR=args.simulator,
+                           PYTHONDONTWRITEBYTECODE="1")
+        environment.pop("HERDR_IOS_TEAM", None)
+        project = out / "smoke-qa"
+        shutil.copytree(ROOT / "scripts/ios/smoke-qa", project,
+                        ignore=shutil.ignore_patterns("*.xcodeproj", "__pycache__"))
+        derived = out / "DerivedData"
+    else:
+        if args.expected_head or args.simulator:
+            raise ValueError("provenance arguments require --own-root")
+        out = ROOT / "target/ios-p15" / time.strftime("%Y%m%d-%H%M%S")
+        out.mkdir(parents=True)
+        project = ROOT / "scripts/ios/smoke-qa"
+        derived = ROOT / "target/ios-smoke/build"
+    original_run = run
+    def run(*arguments, **kwargs):
+        return original_run(*arguments, env=environment, **kwargs)
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu")
     device = run("bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"').stdout.split()[0]
     run("xcrun", "simctl", "install", device, bundle.stdout.strip().splitlines()[-1])
+    if provenance:
+        installed = run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "app").stdout.strip()
+        run("python3", "-I", "scripts/ios/bundle-provenance.py", "installed",
+            "--directory", str(provenance), "--app", installed, "--device", device)
     container = Path(run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data").stdout.strip())
+    if provenance:
+        (out / "execution-paths.json").write_text(json.dumps(dict(
+            source=str(ROOT), head=args.expected_head, target=environment["CARGO_TARGET_DIR"],
+            evidence=str(out.resolve()), project=str(project.resolve()), derived=str(derived.resolve()),
+            device=device, app=installed, data=str(container.resolve()),
+            fixture=str(container / "Library/Application Support/herdr/gpui/p15-qa")), indent=2))
     # Only this test namespace is seeded; preserve every pre-existing byte as evidence.
     settings = container / "Library/Application Support/herdr/gpui/p15-qa/yebisu-settings.json"
     settings.parent.mkdir(parents=True, exist_ok=True)
@@ -117,13 +172,12 @@ def main():
     peer_path = container / "Documents/p4-peer.jsonl"
     peer_previous = len(peer_path.read_text().splitlines()) if peer_path.exists() else 0
     previous = len(records_path.read_text().splitlines()) if records_path.exists() else 0
-    project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = out / "result.xcresult"
     try:
         tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"),
                      "-scheme", "SmokeOracle", "-destination", "id=" + device,
-                     "-derivedDataPath", str(ROOT / "target/ios-smoke/build"),
+                     "-derivedDataPath", str(derived),
                      "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
                      "-only-testing:SmokeOracle/SmokeQA/testP15Theme")
     finally:
