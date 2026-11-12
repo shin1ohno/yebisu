@@ -675,11 +675,11 @@ missing capability without offering an actionable search command.
 The leased Simulator gate is `just guarded python3 scripts/ios/p13-check.py
 <new-evidence-directory> --run --expected-head <exact-head>`. It generates an
 isolated XCTest project under the evidence directory and records actual
-receiver, coherent paint, native UIKit paste-selector and focus evidence.
+receiver, coherent paint, native UIKit paste/cut selectors and focus evidence.
 Its offline validator fixtures prove the validator only. Physical results and
 P11/P12 integration remain separate acceptance obligations.
 
-### P13 D1-D3 correction acceptance
+### P13 D1-D4 correction acceptance
 
 Hold the Escape that closes search through repeat and release in both daemon
 keyboard-report modes. No part of that press may enter terminal input; a fresh
@@ -689,9 +689,17 @@ remaining marked span stays uncommitted and Escape cancels it without closing
 search. Repeat with a nonzero mark offset and inspect candidate bounds.
 
 The leased mutation batch is `just guarded python3 scripts/ios/p13-mutate.py
-<new-evidence-directory> --expected-head <exact-head>`. It removes D1-D3 fixes
+<new-evidence-directory> --expected-head <exact-head>`. It removes D1-D4 fixes
 one at a time, requires each named runtime assertion to fail, restores bytes,
 and requires the same targeted test to pass. Compile failures do not qualify
 as runtime negative controls. Both host tests and iOS Simulator graph must
 compile before acceptance. Delayed wrong-boot socket replies with colliding
 connection IDs and an offscreen source-text match/scroll must also be observed.
+
+For D4, start with `pre:変😀中:post`, marked UTF-16 range `4..8` and selected
+range `5..7`. Both native Cut and Command-X must copy only `😀`, leave
+`pre:変中:post` with marked range `4..6`, and allow the next Escape to cancel
+the remaining mark while keeping search open and terminal input silent.
+An ordinary IME commit with no explicit replacement range must still replace
+the entire marked clause. The Simulator observes the real UIKit `cut:` selector;
+host tests exercise its production callback and the hardware key branch.

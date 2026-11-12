@@ -1,4 +1,4 @@
-//! D1-D3 regressions exercise production callback and actual receiving sockets.
+//! D1-D4 regressions exercise production callbacks and actual receiving sockets.
 #![allow(clippy::unwrap_used)]
 use super::*;
 use gpui::{EntityInputHandler, TestAppContext, VisualTestContext};
@@ -203,6 +203,90 @@ fn d3_native_partial_mark_delete_replace_then_escape_keeps_search_open(cx: &mut 
             "D3 Escape after partial edit closed search"
         )
     });
+    assert!(terminal(&receipts).is_empty());
+}
+#[gpui::test]
+fn d4_native_cut_preserves_unselected_mark_then_escape(cx: &mut TestAppContext) {
+    cut_then_escape(cx, false);
+}
+#[gpui::test]
+fn d4_command_x_preserves_unselected_mark_then_escape(cx: &mut TestAppContext) {
+    cut_then_escape(cx, true);
+}
+fn cut_then_escape(cx: &mut TestAppContext, command: bool) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d4", client);
+    let field = open(&view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.set_text("pre::post".into());
+            field.replace_and_mark_text_in_range(Some(4..4), "変😀中", Some(1..3), window, cx);
+            assert_eq!(field.input.text, "pre:変😀中:post");
+            assert_eq!(field.input.marked, Some(4..8));
+            assert_eq!(field.input.selected, 5..7);
+            cx.write_to_clipboard(ClipboardItem::new_string("sentinel"));
+            if command {
+                field.key(&key("cmd-x", false), window, cx);
+            } else {
+                // This is the production native Cut callback. The Simulator
+                // gate separately exercises UIKit's selector and origin guard.
+                field.cut(window, cx);
+            }
+            assert_eq!(
+                cx.read_from_clipboard()
+                    .and_then(|item| item.text())
+                    .as_deref(),
+                Some("😀"),
+                "D4 Cut copied outside the explicit UTF16 selection"
+            );
+            assert_eq!(
+                field.input.text, "pre:変中:post",
+                "D4 Cut deleted unselected marked text"
+            );
+            assert_eq!(
+                field.input.marked,
+                Some(4..6),
+                "D4 Cut committed remaining mark"
+            );
+            assert_eq!(field.input.selected, 5..5);
+            field.key(&key("escape", false), window, cx);
+            assert_eq!(field.input.text, "pre::post");
+            assert!(field.input.marked.is_none());
+        })
+    });
+    view.update(cx, |this, _| {
+        assert!(this.find.is_some(), "D4 Escape after Cut closed search");
+    });
+    // A later round-trip on the same FIFO socket is a receiving-side barrier.
+    edit(&field, cx, "needle");
+    matched(&view, cx);
+    assert!(
+        terminal(&receipts).is_empty(),
+        "D4 Cut/Escape leaked terminal bytes"
+    );
+}
+#[gpui::test]
+fn d4_ime_commit_none_still_replaces_whole_marked_clause(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d4-commit", client);
+    let field = open(&view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.set_text("pre::post".into());
+            field.replace_and_mark_text_in_range(Some(4..4), "変😀中", Some(1..3), window, cx);
+            field.replace_text_in_range(None, "確定", window, cx);
+            assert_eq!(
+                field.input.text, "pre:確定:post",
+                "D4 IME None contract changed"
+            );
+            assert!(field.input.marked.is_none());
+            assert_eq!(field.input.selected, 6..6);
+        })
+    });
+    edit(&field, cx, "needle");
+    matched(&view, cx);
     assert!(terminal(&receipts).is_empty());
 }
 #[gpui::test]

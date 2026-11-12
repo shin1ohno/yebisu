@@ -117,6 +117,22 @@ impl Field {
             self.replace(None, &text, false, None, window, cx);
         }
     }
+    pub(crate) fn cut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.retired || !self.focus.is_focused(window) {
+            return;
+        }
+        self.copy(cx);
+        // Cut deletes exactly what Copy selected. An IME commit uses None to
+        // replace the entire marked clause instead.
+        self.replace(
+            Some(self.input.selected.clone()),
+            "",
+            false,
+            None,
+            window,
+            cx,
+        );
+    }
     pub(crate) fn key(
         &mut self,
         event: &KeyDownEvent,
@@ -131,10 +147,7 @@ impl Field {
         if let Some(action) = herdr_uikit::native_edit_action() {
             match action {
                 herdr_uikit::NativeEditAction::Copy => self.copy(cx),
-                herdr_uikit::NativeEditAction::Cut => {
-                    self.copy(cx);
-                    self.replace(None, "", false, None, window, cx);
-                }
+                herdr_uikit::NativeEditAction::Cut => self.cut(window, cx),
                 herdr_uikit::NativeEditAction::Paste => self.paste(window, cx),
                 herdr_uikit::NativeEditAction::SelectAll => {
                     self.input.selected = 0..self.input.text.encode_utf16().count();
@@ -167,10 +180,7 @@ impl Field {
                     self.changed(window, cx);
                 }
                 "c" => self.copy(cx),
-                "x" => {
-                    self.copy(cx);
-                    self.replace(None, "", false, None, window, cx);
-                }
+                "x" => self.cut(window, cx),
                 "v" => self.paste(window, cx),
                 _ => {}
             }

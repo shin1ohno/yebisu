@@ -25,7 +25,7 @@ final class P13QA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launch()
         sleep(3)
-        for step in 0..<10 {
+        for step in 0..<14 {
             try tap("P13 Next", app)
             sleep(2)
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -97,14 +97,26 @@ def validate(records, messages):
         raise ValueError("next/previous receiving requests missing")
     if any(r["pane_id"] != "w1:p1" or r["content_revision"] != 4 for r in searches):
         raise ValueError("search used wrong pane/content")
-    if not any(r.get("kind") == "p13-native-selector" and r.get("scheduled") is True for r in records):
-        raise ValueError("real UIKit paste selector was not scheduled")
+    for action in ("paste", "cut"):
+        if not any(r.get("kind") == "p13-native-selector" and r.get("action") == action and r.get("scheduled") is True for r in records):
+            raise ValueError("real UIKit " + action + " selector was not scheduled")
     closes = [r for r in records if r.get("kind") == "p13-close"]
     if len(closes) != 1 or not closes[0].get("focused") or closes[0].get("active"):
         raise ValueError("close did not restore current terminal focus")
     steps = {r["step"]: r for r in records if r.get("kind") == "p13-step"}
-    if set(steps) != set(range(10)) or not steps[3].get("active") or steps[3].get("marked") is not None:
+    if set(steps) != set(range(14)) or not steps[3].get("active") or steps[3].get("marked") is not None:
         raise ValueError("composition cancellation/step coverage missing")
+    cuts = [r for r in records if r.get("kind") == "p13-cut"]
+    if len(cuts) != 2 or {r.get("action") for r in cuts} != {"nativeCut", "commandX"}:
+        raise ValueError("D4 nativeCut/commandX callback coverage missing")
+    for cut in cuts:
+        if (cut.get("text"), cut.get("marked"), cut.get("selected"), cut.get("clipboard")) != ("pre:変中:post", {"start": 4, "end": 6}, [5, 5], "😀"):
+            raise ValueError("D4 Cut deleted unselected marked text or copied outside selection")
+    cancels = [r for r in records if r.get("kind") == "p13-cut-cancel"]
+    if len(cancels) != 2 or {r.get("step") for r in cancels} != {8, 9} or any(r.get("text") != "pre::post" or r.get("marked") is not None for r in cancels) or not all(steps[s].get("active") for s in (8, 9)):
+        raise ValueError("D4 Escape after Cut failed to cancel or closed search")
+    if not any(r.get("kind") == "p13-ime-none" and r.get("text") == "pre:確定:post" and r.get("marked") is None for r in records):
+        raise ValueError("D4 IME None contract changed")
     if not any(r.get("kind") == "p13-partial-mark" and r.get("retained") is True for r in records):
         raise ValueError("native partial selection deletion did not retain marked text")
     if not any(r["method"] == "pane.scroll" and 0 <= r["params"].get("offset_from_bottom", 100) < 100 for r in requests):

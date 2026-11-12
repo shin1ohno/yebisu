@@ -10,7 +10,7 @@ impl Smoke {
             .on_click(cx.listener(|this,_,window,cx| {
                 let step=STEP.fetch_add(1,Ordering::Relaxed);
                 if step==0 { this.open_find(window,cx); }
-                else if step==9 {
+                else if step==13 {
                     let mut repeat=qa_key("escape");repeat.is_held=true;
                     this.terminal_key_down(&repeat,window,cx);
                     this.terminal_key_up(&KeyUpEvent{keystroke:qa_key("escape").keystroke},window,cx);
@@ -42,17 +42,36 @@ impl Smoke {
                                 field.input.selected=0..field.input.text.encode_utf16().count();
                                 cx.write_to_clipboard(ClipboardItem::new_string("needle"));
                             }
-                            7 => {
+                            7 | 9 | 10 => {
+                                field.input.set_text("pre::post".into());
+                                field.replace_and_mark_text_in_range(Some(4..4),"変😀中",Some(1..3),window,cx);
+                                if step==9 {
+                                    field.key(&qa_key("cmd-x"),window,cx);
+                                } else if step==10 {
+                                    field.replace_text_in_range(None,"確定",window,cx);
+                                    this.observation.record(serde_json::json!({"kind":"p13-ime-none","text":field.input.text,"marked":field.input.marked}));
+                                }
+                            }
+                            11 => {
                                 field.input.selected=0..field.input.text.encode_utf16().count();
                                 field.replace_text_in_range(None,"beyond",window,cx);
                             }
-                            8 => field.key(&qa_key("escape"),window,cx),
+                            12 => field.key(&qa_key("escape"),window,cx),
                             _=>{}
                         }
+                        if step==8 || step==9 {
+                            this.observation.record(serde_json::json!({"kind":"p13-cut","action":if step==8 {"nativeCut"}else{"commandX"},"text":field.input.text,"marked":field.input.marked,"selected":[field.input.selected.start,field.input.selected.end],"clipboard":cx.read_from_clipboard().and_then(|item|item.text())}));
+                            field.key(&qa_key("escape"),window,cx);
+                            this.observation.record(serde_json::json!({"kind":"p13-cut-cancel","step":step,"text":field.input.text,"marked":field.input.marked}));
+                        }
+                        if (8..=10).contains(&step) {
+                            field.input.selected=0..field.input.text.encode_utf16().count();
+                            field.replace_text_in_range(None,"needle",window,cx);
+                        }
                     });
-                    if step==6 {
-                        let scheduled=schedule_paste();
-                        this.observation.record(serde_json::json!({"kind":"p13-native-selector","scheduled":scheduled}));
+                    if step==6 || step==7 {
+                        let scheduled=schedule_edit(step==7);
+                        this.observation.record(serde_json::json!({"kind":"p13-native-selector","action":if step==7 {"cut"}else{"paste"},"scheduled":scheduled}));
                     }
                 }
                 this.observation.record(serde_json::json!({"kind":"p13-step","step":step,"active":this.find.is_some(),"marked":this.find.as_ref().and_then(|b|b.field.read(cx).input.marked.clone())}));
@@ -69,13 +88,13 @@ fn qa_key(name: &str) -> KeyDownEvent {
 }
 #[allow(
     unsafe_code,
-    reason = "Simulator QA invokes UIKit's real paste selector on its main run loop"
+    reason = "Simulator QA invokes UIKit's real edit selectors on its main run loop"
 )]
-fn schedule_paste() -> bool {
+fn schedule_edit(cut: bool) -> bool {
     use objc2::{class, msg_send, rc::Retained, runtime::AnyObject, sel};
     use objc2_foundation::NSArray;
     // SAFETY: UI-thread only. Retained UIKit arrays own each traversal node.
-    unsafe fn visit(view: &AnyObject) -> bool {
+    unsafe fn visit(view: &AnyObject, cut: bool) -> bool {
         unsafe {
             if view
                 .class()
@@ -83,16 +102,17 @@ fn schedule_paste() -> bool {
                 .to_string_lossy()
                 .contains("::GPUITextInputView")
             {
-                let _: () = msg_send![view,performSelector:sel!(paste:),withObject:std::ptr::null::<AnyObject>(),afterDelay:0.1f64];
+                let selector = if cut { sel!(cut:) } else { sel!(paste:) };
+                let _: () = msg_send![view,performSelector:selector,withObject:std::ptr::null::<AnyObject>(),afterDelay:0.1f64];
                 return true;
             }
             let children: Retained<NSArray<AnyObject>> = msg_send![view, subviews];
-            children.iter().any(|child| visit(&child))
+            children.iter().any(|child| visit(&child, cut))
         }
     }
     unsafe {
         let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
         let windows: Retained<NSArray<AnyObject>> = msg_send![app, windows];
-        windows.iter().any(|window| visit(&window))
+        windows.iter().any(|window| visit(&window, cut))
     }
 }
