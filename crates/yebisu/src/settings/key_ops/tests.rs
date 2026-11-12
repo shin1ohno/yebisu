@@ -250,3 +250,125 @@ fn f26_wrong_identity_refuses_even_supported_provider() {
     assert!(!owner.read_or_initialize());
     assert!(owner.confirmation().is_none());
 }
+
+#[test]
+fn f08_old_view_read_finishes_owner_without_publishing_into_reopened_view() {
+    struct SlowRead {
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Provider for SlowRead {
+        fn supported(&self) -> bool {
+            true
+        }
+        fn read_or_initialize(&self) -> Result<String, Failure> {
+            self.release
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .recv()
+                .map_err(|_| Failure::Worker)?;
+            Ok(RAW.into())
+        }
+        fn replace(&self) -> Result<String, Failure> {
+            panic!("read must exclude replacement")
+        }
+    }
+    let (release, wait) = mpsc::sync_channel(1);
+    let mut owner = Owner::new(Arc::new(SlowRead {
+        release: Mutex::new(wait),
+    }));
+    owner.read_or_initialize();
+    owner.view_open();
+    assert!(owner.confirmation().is_none());
+    assert!(!owner.read_or_initialize());
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    settle(&mut owner);
+    assert!(!owner.busy());
+    assert!(owner.line().is_none());
+    assert_eq!(owner.state, State::Unavailable);
+}
+#[test]
+fn f12_panicked_worker_is_joined_but_never_retried_implicitly() {
+    struct Panics;
+    impl Provider for Panics {
+        fn supported(&self) -> bool {
+            true
+        }
+        fn read_or_initialize(&self) -> Result<String, Failure> {
+            Ok(RAW.into())
+        }
+        fn replace(&self) -> Result<String, Failure> {
+            panic!("injected worker termination")
+        }
+    }
+    let mut owner = Owner::new(Arc::new(Panics));
+    owner.read_or_initialize();
+    settle(&mut owner);
+    let ticket = owner.confirmation().unwrap_or_else(|| panic!("ticket"));
+    owner.confirm(ticket, true, false);
+    settle(&mut owner);
+    assert_eq!(owner.state, State::Unknown);
+    assert_eq!(owner.failure, Some(Failure::Worker));
+    assert!(owner.confirmation().is_none());
+    assert!(owner.line().is_none());
+}
+#[test]
+fn f15_f16_injected_slot_faults_reconcile_authoritative_key_only() {
+    struct Slots {
+        active: Mutex<Option<&'static str>>,
+        retired: Mutex<Option<&'static str>>,
+        fail_promote: bool,
+        calls: AtomicUsize,
+    }
+    const OLD: &str = "restrict ssh-ed25519 YWJjZA== herdr-ipad-old";
+    const NEW: &str = "restrict ssh-ed25519 ZWZnaA== herdr-ipad-new";
+    impl Provider for Slots {
+        fn supported(&self) -> bool {
+            true
+        }
+        fn read_or_initialize(&self) -> Result<String, Failure> {
+            let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+            if active.is_none() {
+                *active = self
+                    .retired
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+            }
+            active.map(str::to_owned).ok_or(Failure::Missing)
+        }
+        fn replace(&self) -> Result<String, Failure> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+            *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = active.take();
+            if self.fail_promote {
+                return Err(Failure::Provider);
+            }
+            *active = Some(NEW); // Deliberately leave retired behind: injected cleanup failure.
+            Ok(NEW.into())
+        }
+    }
+    for fail_promote in [false, true] {
+        let provider = Arc::new(Slots {
+            active: Mutex::new(Some(OLD)),
+            retired: Mutex::new(None),
+            fail_promote,
+            calls: AtomicUsize::new(0),
+        });
+        let mut owner = Owner::new(provider.clone());
+        owner.read_or_initialize();
+        settle(&mut owner);
+        let ticket = owner.confirmation().unwrap_or_else(|| panic!("ticket"));
+        owner.confirm(ticket, true, false);
+        settle(&mut owner);
+        assert_eq!(owner.state, State::Unknown);
+        assert!(owner.line().is_none());
+        assert!(owner.confirmation().is_none());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        owner.read_or_initialize();
+        settle(&mut owner);
+        let expected = crate::keys::authorized_line(if fail_promote { OLD } else { NEW })
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(owner.line(), Some(expected.as_str()));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+}
