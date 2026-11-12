@@ -34,6 +34,7 @@ pub(super) fn load(root: &Path) -> Result<Values> {
             .ok_or_else(|| Error::Settings(format!("invalid {key}"))),
     };
     Ok(Values {
+        font: super::font::TerminalFont::from_json(&value)?,
         compact: boolean("compact")?,
         terminal_priority: boolean("terminal_priority")?,
         board_hidden: boolean("board_hidden")?,
@@ -43,12 +44,14 @@ pub(super) fn load(root: &Path) -> Result<Values> {
 }
 
 pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
+    values.font.validate()?;
     fs::create_dir_all(root)?;
     let pending = root.join("yebisu-settings.pending");
     let result = (|| -> Result<()> {
         let mut file = fs::File::create(&pending)?;
         file.write_all(
             serde_json::json!({"version":1,"language":"en-US",
+            "terminal_font_size":values.font.size,"terminal_font_family":values.font.family,
             "compact":values.compact,"terminal_priority":values.terminal_priority,
             "board_hidden":values.board_hidden,
             "drag_select":values.drag_select,"copy_on_select":values.copy_on_select})
