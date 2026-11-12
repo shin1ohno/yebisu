@@ -2,6 +2,8 @@
 
 P11 candidate e5d32a6b9066e3b702d42412a9458356993e9143 is incorporated in the
 task-owned P15 branch. This is NOT a claim of frozen P11 API or P11 native success.
+The subsequently verified PR29 head172199564e37bf7011240f8c2fcc07372abc2363 is
+also merged, including its font host-switch fix and additional source tests.
 The earlier STAGE.md describes the pre-integration f83d7be stage only.
 
 ## Mounted source

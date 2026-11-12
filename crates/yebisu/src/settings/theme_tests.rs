@@ -1,9 +1,15 @@
-use super::{
-    SettingsHost, Values, store,
-    tests::{directory, wait},
-};
+use super::{SettingsHost, Values, store, tests::wait};
 use crate::{theme::Theme, theme_picker::Palette};
 use std::fs;
+
+fn directory(name: &str) -> std::path::PathBuf {
+    std::env::var_os("P15_FIXTURE_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/p15-tests")
+        })
+        .join(format!("{}-{name}", std::process::id()))
+}
 
 #[test]
 fn explicit_default_before_load_overrides_stored_theme_only() {
