@@ -39,7 +39,7 @@ upload のツール受理と TestFlight 配達は別です。所有者が ASC �
 参照 revision は [shin1ohno/herdr-gpui@398c132a06723a0cc1494842a34666d173ec0200](https://github.com/shin1ohno/herdr-gpui/tree/398c132a06723a0cc1494842a34666d173ec0200) です。コピーした helper/tests は `PROVENANCE.tsv` に記録しています。
 
 - `examples/ios-distribution/testflight.sh.example` の build → package → upload の段階分離と `distribution.py` の package/upload を採用しました。bundle ID と Cargo package/bin を yebisu に変更し、既定 features を使います。App Store profile 検査、一時 Keychain、秘密値を出力しない subprocess エラー処理を継承します。
-- `examples/ios-distribution/github.yml.example` の macos-26、専用 target、同時実行1本、checkout の `persist-credentials: false` を採用しました。actions の pin は yebisu の既存 CI に合わせて `@v4` です。
+- `examples/ios-distribution/github.yml.example` の macos-26、専用 target、同時実行1本、checkout の `persist-credentials: false` を採用しました。この署名 job の checkout は `actions/checkout` の v4.3.1 commit `34e114876b0b11c390a56381ad16ebd13914f8d5` に固定しています。
 - `docs/ios-app-plan.md` の「TestFlight from CI」から environment 名、API キー secret 名、一時ファイル除去、run number 採番を採用しました。Swift Xcode project 用の archive/export と自動 provisioning は採用していません。Rust bundle の署名は `.p12` と App Store profile を使います。
 - `examples/ios-distribution/self-hosted.md` と `PREPARE.md` の既存 Mac/OTA 案は比較資料です。self-hosted runner の設定、Ad Hoc 配信、Mac mini 操作は追加していません。
 
