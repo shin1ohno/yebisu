@@ -424,7 +424,7 @@ fn f22_current_destination_rechecked_after_host_generation_boot_and_pane_change(
         }
         assert_eq!(
             events,
-            if change == "host" {
+            if change == "host" || change == "boot" {
                 vec![]
             } else {
                 vec![ClientPaneInputEvent::TextCommit("fresh".into())]
