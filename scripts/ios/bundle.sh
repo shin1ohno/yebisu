@@ -209,7 +209,7 @@ if [[ -n $provenance ]]; then
   work=$(mktemp -d "$provenance/bundle-temp.XXXXXX")
   printf '%s\n' "$work" > "$provenance/temporary-path.txt"
 else
-  work=$(mktemp -d "${YEBISU_BUNDLE_TEMP_ROOT:-/tmp}/herdr-ios-bundle.XXXXXX")
+  work=$(mktemp -d "${YEBISU_BUNDLE_TEMP_ROOT:-${TMPDIR:-/tmp}}/herdr-ios-bundle.XXXXXX")
 fi
 if [[ -z $provenance ]]; then trap 'rm -rf -- "$work"' EXIT; fi
 signing=false

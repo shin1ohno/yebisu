@@ -115,7 +115,50 @@ def build_owned(session, directory, source, device, environment, head):
                                  environment, expected=expected)
 
 
+def admit_owned(session, args, environment):
+    """Read-only caller admission before evidence creation or native dispatch.
+
+    The session still performs its full contract admission and lock acquisition.
+    Like that API, this is not a fence against hostile same-UID races.
+    """
+    import re
+    import subprocess
+    import uuid
+    if not args.expected_head or not args.simulator:
+        raise ValueError("owned source, full expected head and leased simulator UUID required")
+    if not re.fullmatch('[0-9a-f]{40}', args.expected_head):
+        raise ValueError("full source head required")
+    uuid.UUID(args.simulator)  # Never resolve a shared device by its default name.
+    # Check the original argument: resolve() would erase a caller's symlink alias.
+    own = session.canonical(args.own_root)
+    source = session.child(ROOT, own)
+    evidence = session.child(own / 'evidence', own, exists=False)
+    if source.is_relative_to(evidence) or evidence.is_relative_to(source):
+        raise ValueError('evidence overlaps source')
+    paths = {own, source}
+    paths.update(parent for parent in source.parents if parent.is_relative_to(own))
+    if evidence.exists():
+        paths.add(evidence)
+    if any(not path.is_dir() for path in paths):
+        raise ValueError('ownership paths must be directories')
+    if any(path.stat().st_uid != os.getuid() for path in paths):
+        raise ValueError('ownership uid mismatch')
+
+    def git(*arguments):
+        return subprocess.check_output(['git', '-C', str(source), *arguments], text=True,
+                                       env=dict(environment, GIT_OPTIONAL_LOCKS='0')).strip()
+
+    if git('rev-parse', '--show-toplevel') != str(source) or git('rev-parse', 'HEAD') != args.expected_head:
+        raise ValueError('unexpected source checkout/head')
+    if git('status', '--porcelain', '--untracked-files=no'):
+        raise ValueError('tracked source is dirty')
+    return own, evidence
+
+
 def main():
+    import sys
+    # Admission must not create sibling bytecode before checking ownership.
+    sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location("p11_runner", Path(__file__).with_name("p11-check.py"))
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
@@ -128,14 +171,10 @@ def main():
     environment = os.environ.copy()
     provenance = None
     if args.own_root:
-        own = args.own_root.resolve(strict=True)
-        if not ROOT.is_relative_to(own) or not args.expected_head or not args.simulator:
-            raise ValueError("owned source, full expected head and leased simulator UUID required")
-        if len(args.expected_head) != 40:
-            raise ValueError("full source head required")
-        import uuid
-        uuid.UUID(args.simulator)  # Never resolve a shared device by its default name.
-        evidence = own / "evidence"
+        spec = importlib.util.spec_from_file_location('provenance_session', ROOT / 'scripts/ios/provenance_session.py')
+        session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(session)
+        own, evidence = admit_owned(session, args, environment)
         evidence.mkdir(exist_ok=True)
         out = Path(tempfile.mkdtemp(prefix="p15-", dir=evidence))
         provenance = out / "provenance"
@@ -166,9 +205,6 @@ def main():
         return original_run(*arguments, env=environment, **kwargs)
     device = run("bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"').stdout.split()[0]
     if provenance:
-        spec = importlib.util.spec_from_file_location('provenance_session', ROOT / 'scripts/ios/provenance_session.py')
-        session = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(session)
         binding = build_owned(session, provenance, ROOT, device, environment, args.expected_head)
         installed = binding['installed']
     else:

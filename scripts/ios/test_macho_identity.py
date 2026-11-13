@@ -73,7 +73,7 @@ def fixture(payload=b'fixture', extra=(), children=None, tail=0, text_sections=N
     offsets, cursor = {}, 32
     for part in parts:
         cmd = struct.unpack_from('<I', part)[0]
-        key = part[8:24].rstrip(b'\0') if cmd == 0x19 else cmd
+        key = bytes(part[8:24]).rstrip(b'\0') if cmd == 0x19 else cmd
         offsets.setdefault(key, cursor)
         cursor += len(part)
     commands = b''.join(parts)

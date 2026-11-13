@@ -1,6 +1,14 @@
 import copy
 import importlib.util
+import hashlib
+import json
+import os
 from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
 import unittest
 
 spec = importlib.util.spec_from_file_location("p15", Path(__file__).with_name("p15-check.py"))
@@ -129,6 +137,148 @@ class ProvenanceCaller(unittest.TestCase):
         self.assertIs(first.args[4], env)
         uuid.UUID(expected['run_id'])
         self.assertNotEqual(expected['run_id'], second.kwargs['expected']['run_id'])
+
+
+class MainAdmission(unittest.TestCase):
+    """Exercise the real entry point, including writes before the session API."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.own = self.base / 'owned'
+        self.source = self.own / 'source'
+        scripts = self.source / 'scripts/ios'
+        scripts.mkdir(parents=True)
+        for name in ('p15-check.py', 'p11-check.py', 'provenance_session.py'):
+            shutil.copy2(Path(__file__).with_name(name), scripts / name)
+        shutil.copytree(Path(__file__).with_name('smoke-qa'), scripts / 'smoke-qa',
+                        ignore=shutil.ignore_patterns('*.xcodeproj', '__pycache__'))
+        self.git('init', '-q')
+        self.git('add', '.')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                 '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+                 'commit', '-qm', 'fixture: capture exact caller scripts')
+        self.head = self.git('rev-parse', 'HEAD').strip()
+        self.outside = self.base / 'outside'
+        self.outside.mkdir()
+        (self.outside / 'sentinel').write_bytes(b'preserve outside bytes\x00')
+        (self.outside / 'link').symlink_to('sentinel')
+        self.calls = self.base / 'native-calls.jsonl'
+        self.calls.write_text('')
+        tools = self.base / 'tools'
+        tools.mkdir()
+        for name in ('bash', 'cargo', 'rustc', 'xcrun', 'xcodebuild', 'xcodegen', 'codesign', 'security'):
+            tool = tools / name
+            tool.write_text(f'#!{sys.executable}\nimport json, os, sys\n'
+                            'with open(os.environ["TEST_NATIVE_CALLS"], "a") as out:\n'
+                            '    out.write(json.dumps(sys.argv) + "\\n")\n'
+                            'sys.exit("TEST_NATIVE_REJECTED")\n')
+            tool.chmod(0o755)
+        self.env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
+                        TEST_NATIVE_CALLS=str(self.calls), GIT_OPTIONAL_LOCKS='0')
+        self.arguments = ['--own-root', str(self.own), '--expected-head', self.head,
+                          '--simulator', '11111111-2222-3333-4444-555555555555']
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.source), *args], text=True)
+
+    def inventory(self, root):
+        result = {}
+
+        def visit(path):
+            info = path.lstat()
+            entry = dict(mode=stat.S_IMODE(info.st_mode), uid=info.st_uid)
+            if stat.S_ISLNK(info.st_mode):
+                entry.update(type='link', target=os.readlink(path))
+            elif stat.S_ISREG(info.st_mode):
+                entry.update(type='file', sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            elif stat.S_ISDIR(info.st_mode):
+                entry.update(type='directory')
+                for child in sorted(path.iterdir()):
+                    visit(child)
+            else:
+                entry.update(type='special')
+            result[str(path.relative_to(root))] = entry
+
+        visit(root)
+        return result
+
+    def invoke(self, reason=None):
+        before = {name: self.inventory(path) for name, path in
+                  [('owned', self.own), ('outside', self.outside)]}
+        result = subprocess.run([sys.executable, '-I', '-B',
+                                 str(self.source / 'scripts/ios/p15-check.py'), *self.arguments],
+                                cwd=self.source, env=self.env, text=True, capture_output=True, timeout=15)
+        after = {name: self.inventory(path) for name, path in
+                 [('owned', self.own), ('outside', self.outside)]}
+        calls = self.calls.read_text()
+        if destination := os.environ.get('YEBISU_HELPER_WITNESS_DIR'):
+            (Path(destination) / (self._testMethodName + '.json')).write_text(json.dumps(dict(
+                head=self.head, argv=self.arguments, returncode=result.returncode,
+                stdout=result.stdout, stderr=result.stderr, native_calls=calls,
+                before=before, after=after), indent=2))
+        self.assertNotEqual(result.returncode, 0)
+        if reason:
+            self.assertIn(reason, result.stderr)
+            self.assertEqual(before, after)
+            self.assertEqual(calls, '')
+        else:
+            self.assertIn('TEST_NATIVE_REJECTED', result.stdout + result.stderr)
+            recorded = [json.loads(line) for line in calls.splitlines()]
+            self.assertEqual(len(recorded), 1)
+            self.assertEqual(Path(recorded[0][0]).name, 'bash')
+            runs = list((self.own / 'evidence').iterdir())
+            self.assertEqual(len(runs), 1)
+            for name in ('provenance', 'cargo-target', 'smoke-qa'):
+                self.assertTrue((runs[0] / name).is_dir())
+            self.assertEqual(before['outside'], after['outside'])
+
+    def test_main_rejects_evidence_symlink_before_writes(self):
+        (self.own / 'evidence').symlink_to(self.outside, target_is_directory=True)
+        self.invoke('requires canonical absolute path without symlinks')
+
+    def test_main_rejects_dangling_evidence_symlink_before_writes(self):
+        (self.own / 'evidence').symlink_to(self.outside / 'absent')
+        self.invoke('requires canonical absolute path without symlinks')
+
+    def test_main_rejects_own_alias_before_writes(self):
+        alias = self.base / 'alias'
+        alias.symlink_to(self.own, target_is_directory=True)
+        self.arguments[1] = str(alias)
+        self.invoke('requires canonical absolute path without symlinks')
+
+    def test_main_rejects_wrong_head_before_writes(self):
+        self.arguments[3] = '0' * 40
+        self.invoke('unexpected source checkout/head')
+
+    def test_main_rejects_dirty_source_before_writes(self):
+        with (self.source / 'scripts/ios/p11-check.py').open('a') as out:
+            out.write('\n# dirty fixture\n')
+        self.invoke('tracked source is dirty')
+
+    def test_main_rejects_non_directory_evidence_before_writes(self):
+        (self.own / 'evidence').write_text('preserve')
+        self.invoke('ownership paths must be directories')
+
+    def test_main_rejects_missing_required_argument_before_writes(self):
+        self.arguments = self.arguments[:-2]
+        self.invoke('owned source, full expected head and leased simulator UUID required')
+
+    def test_main_rejects_invalid_head_before_writes(self):
+        self.arguments[3] = 'g' * 40
+        self.invoke('full source head required')
+
+    def test_main_rejects_invalid_simulator_before_writes(self):
+        self.arguments[-1] = 'not-a-uuid'
+        self.invoke('badly formed hexadecimal UUID string')
+
+    def test_main_canonical_root_reaches_only_rejecting_native_stub(self):
+        self.invoke()
+
+    def test_main_existing_evidence_reaches_only_rejecting_native_stub(self):
+        (self.own / 'evidence').mkdir()
+        self.invoke()
 
 
 if __name__ == "__main__":
