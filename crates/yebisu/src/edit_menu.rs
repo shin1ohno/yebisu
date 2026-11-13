@@ -199,6 +199,8 @@ impl Smoke {
             stamp: self.handoff.stamp.clone(),
             selection: self.handoff.selection.as_ref().map(SelectionKey::from),
         });
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.sh1_152_capture(token, cx);
         Some(token)
     }
 

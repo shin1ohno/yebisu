@@ -70,10 +70,18 @@ impl Smoke {
             self.hold_for_paste(event);
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let receipt = serde_json::json!({"kind":"terminal-input", "variant":match &event.event {
+            sheprd_client::protocol::ClientPaneInputEvent::Paste(_) => "Paste",
+            sheprd_client::protocol::ClientPaneInputEvent::Key(_) => "Key",
+            _ => "TextCommit",
+        }, "terminal":format!("{:?}",event.destination.target)});
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.observation.record(receipt);
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {

@@ -386,6 +386,7 @@ impl Smoke {
             .children(self.handoff_qa_controls(cx))
             .children(self.native_edit_qa_controls(cx))
             .children(self.edit_menu_qa_controls(cx))
+            .children(self.sh1_152_controls(cx))
             .child(
                 div()
                     .id("terminal-input")
@@ -431,3 +432,10 @@ impl Smoke {
 #[cfg(test)]
 #[path = "terminal_view_tests.rs"]
 mod tests;
+
+#[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+impl Smoke {
+    fn sh1_152_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+}

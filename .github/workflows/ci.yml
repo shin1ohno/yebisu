@@ -7,6 +7,29 @@ on:
 permissions:
   contents: read
 jobs:
+  edit-menu:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install simulator tools
+        run: brew install just xcodegen
+      - name: Fetch
+        run: just guarded cargo fetch --locked
+      - name: Native edit menu receiving-system checks
+        run: just guarded python3 scripts/ios/ci-sh1-152.py
+      - name: Upload menu receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edit-menu-evidence
+          path: |
+            target/ios-sh1-152/
+            target/disk.log
   simulator-smoke:
     runs-on: macos-26
     timeout-minutes: 40

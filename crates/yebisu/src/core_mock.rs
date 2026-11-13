@@ -162,8 +162,15 @@ impl Host {
                     server.write_all(&encode(0, Kind::Data, reply.to_string().as_bytes())?)?;
                     if let Some(channel) = channel {
                         let modes = if report_all { "\x1b[>11u" } else { "" };
+                        let bracketed = if cfg!(target_abi = "sim")
+                            && std::env::var_os("YEBISU_SH1_152_CASE").is_some()
+                        {
+                            "\x1b[?2004h"
+                        } else {
+                            ""
+                        };
                         let output = format!(
-                            "{modes}\x1b[2J\x1b[H\x1b[38;2;136;192;208myebisu P9 Herdr 2\r\nprivate core wire peer · {} · pane {channel}\r\n日本語 IME · Split · Detach / Reattach\x1b[0m\r\n$ ",
+                            "{modes}{bracketed}\x1b[2J\x1b[H\x1b[38;2;136;192;208myebisu P9 Herdr 2\r\nprivate core wire peer · {} · pane {channel}\r\n日本語 IME · Split · Detach / Reattach\x1b[0m\r\n$ ",
                             channels
                                 .get(&channel)
                                 .map(String::as_str)

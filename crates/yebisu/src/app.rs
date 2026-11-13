@@ -21,6 +21,8 @@ pub(crate) struct Smoke {
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
     pub(crate) edit_menu: crate::edit_menu::EditMenu,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub(crate) menu_qa: crate::edit_menu_qa_sh1_152::MenuQa,
     pub(crate) front_layers: crate::front_layer::FrontLayers,
     pub(crate) actions: crate::actions::Actions,
     ticks: u64,
@@ -95,6 +97,8 @@ impl Smoke {
                 ..Default::default()
             },
             edit_menu: Default::default(),
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            menu_qa: Default::default(),
             front_layers: Default::default(),
             ticks: 0,
             taps: 0,
