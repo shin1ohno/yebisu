@@ -69,7 +69,7 @@ impl Smoke {
             });
         });
     }
-    fn p13_native_barrier(&self, label: &str) {
+    pub(super) fn p13_native_barrier(&self, label: &str) {
         if let (Some(handle), Some(snapshot)) =
             (&self.terminal.link.handle, &self.terminal.live.snapshot)
         {

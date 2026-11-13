@@ -4,6 +4,8 @@ pub(crate) mod adapter;
 pub(crate) mod field;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "p13-native-probe"))]
 mod native_probe;
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "p13-native-probe"))]
+mod native_queries;
 pub(crate) mod retirement;
 use sheprd_client::scrollback::{
     CopySearchParams, CopySearchResult, MAX_SEARCH_QUERY_BYTES, SearchDirection, TextPoint,

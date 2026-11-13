@@ -6,6 +6,10 @@ static STEP: AtomicUsize = AtomicUsize::new(0);
 impl Smoke {
     pub(crate) fn p13_qa(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_P13_QA")?;
+        #[cfg(feature = "p13-native-probe")]
+        if std::env::var_os("YEBISU_P13_QUERY_QA").is_some() {
+            return Some(self.p13_query_control(cx));
+        }
         Some(div().id("p13-next").px_4().py_2().child("P13 Next")
             .on_click(cx.listener(|this,_,window,cx| {
                 let step=STEP.fetch_add(1,Ordering::Relaxed);
@@ -89,7 +93,7 @@ fn qa_key(name: &str) -> KeyDownEvent {
     unsafe_code,
     reason = "Simulator QA invokes UIKit's real edit selectors on its main run loop"
 )]
-fn schedule_edit(cut: bool) -> bool {
+pub(super) fn schedule_edit(cut: bool) -> bool {
     use objc2::{class, msg_send, rc::Retained, runtime::AnyObject, sel};
     use objc2_foundation::NSArray;
     // SAFETY: UI-thread only. Retained UIKit arrays own each traversal node.

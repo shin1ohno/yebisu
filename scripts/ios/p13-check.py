@@ -170,15 +170,17 @@ def run(args, directory, name):
     return result.stdout
 
 
-def collect(directory, expected_head):
+def collect(directory, expected_head, query_mode=False, verify_mutant=None):
     if platform.system() != "Darwin":
         raise RuntimeError("P13 --run requires leased Mac checkout; Linux builds are forbidden")
     head = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
     dirty = subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain"], text=True)
-    if dirty:
+    if dirty and verify_mutant is None:
         raise RuntimeError("P13 exact-head run requires a clean source checkout")
     if head != expected_head:
         raise RuntimeError("P13 exact-head mismatch")
+    if verify_mutant is not None:
+        verify_mutant()
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "head.txt").write_text(head + "\n")
     bundle = run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", "--features", "p13-native-probe"], directory, "bundle").strip().splitlines()[-1]
@@ -186,7 +188,10 @@ def collect(directory, expected_head):
     run(["xcrun", "simctl", "install", device, bundle], directory, "install")
     project = directory / "oracle"
     (project / "Tests").mkdir(parents=True)
-    (project / "Tests/P13QA.swift").write_text(SWIFT)
+    swift = SWIFT
+    if query_mode:
+        swift = swift.replace('app.launchEnvironment["YEBISU_P13_QA"] = "1"', 'app.launchEnvironment["YEBISU_P13_QA"] = "1"\n        app.launchEnvironment["YEBISU_P13_QUERY_QA"] = "1"').replace('0..<14', '0..<6')
+    (project / "Tests/P13QA.swift").write_text(swift)
     (project / "project.yml").write_text(PROJECT)
     run(["xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project)], directory, "generate")
     result = directory / "result.xcresult"
