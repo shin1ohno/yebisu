@@ -34,6 +34,10 @@ final class P12QA: XCTestCase {
         for label in ["Host", "Pane", "Boot", "Focus", "Capability"] {
             try fixture("P12 " + label)
             try choose("Split Right", caseName: label.lowercased(), negative: true)
+            if label == "Focus" {
+                try fixture("P12 Current")
+                try choose("Split Right", caseName: "focus-current", negative: false, observeOnly: true)
+            }
             try fixture("P12 Reset")
         }
         try fixture("P12 Finish")
@@ -45,7 +49,7 @@ final class P12QA: XCTestCase {
                        "os": ProcessInfo.processInfo.operatingSystemVersionString])
     }
 
-    private func choose(_ title: String, caseName: String, negative: Bool) throws {
+    private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
         sleep(1)
@@ -67,11 +71,18 @@ final class P12QA: XCTestCase {
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 3), "Native command missing: \(title)")
         XCTAssertTrue(item.isEnabled, "Captured native command must start enabled")
+        if observeOnly {
+            events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
+                           "owner": "com.apple.springboard", "buttonLabel": item.label,
+                           "time": Date().timeIntervalSince1970])
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            return
+        }
         if negative { sleep(7) } // App injects the current-context fault after 6 seconds.
         XCTAssertTrue(item.exists, "Native menu disappeared; this is not refusal evidence")
         let enabled = item.isEnabled
         let tapped = enabled && item.isHittable
-        if !negative { XCTAssertTrue(tapped, "Positive native command must be actionable") }
+        if !negative || caseName == "focus" { XCTAssertTrue(tapped, "Positive native command must be actionable") }
         if enabled { XCTAssertTrue(item.isHittable, "Enabled item must remain hittable") }
         screenshot("p12-before-" + caseName)
         let pickStart = Date().timeIntervalSince1970

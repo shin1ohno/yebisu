@@ -58,6 +58,18 @@ fn displayed_scope_changes_reject_but_physical_keys_use_current_state() {
     for mutation in 0..10 {
         let mut t = terminal();
         let a = actions::Actions::default();
+        if mutation == 3 {
+            let snapshot = Arc::make_mut(
+                t.live
+                    .snapshot
+                    .as_mut()
+                    .unwrap_or_else(|| panic!("snapshot")),
+            );
+            let mut other = snapshot.panes[0].clone();
+            other.pane_id = "w1:p3".into();
+            other.focused = false;
+            snapshot.panes.push(other);
+        }
         let mut menus = NativeMenus::default();
         menus.refresh(&t, &a, true);
         assert!(
@@ -79,13 +91,16 @@ fn displayed_scope_changes_reject_but_physical_keys_use_current_state() {
                 .boot_id = "other".into()
             }
             3 => {
-                Arc::make_mut(
+                let snapshot = Arc::make_mut(
                     t.live
                         .snapshot
                         .as_mut()
                         .unwrap_or_else(|| panic!("snapshot")),
-                )
-                .focused_pane_id = Some("other".into())
+                );
+                snapshot.focused_pane_id = Some("w1:p3".into());
+                for pane in &mut snapshot.panes {
+                    pane.focused = Some(&pane.pane_id) == snapshot.focused_pane_id.as_ref();
+                }
             }
             4 => t.live.input_epoch += 1,
             5 => t.live.methods.clear(),
@@ -104,7 +119,15 @@ fn displayed_scope_changes_reject_but_physical_keys_use_current_state() {
             assert!(
                 menus
                     .command_gate(Command::SplitRight, false, &t, &a, focused)
-                    .is_ok()
+                    .is_ok(),
+                "current key intent: mutation {mutation}"
+            );
+            assert!(menus.refresh(&t, &a, focused));
+            assert!(
+                menus
+                    .command_gate(Command::SplitRight, true, &t, &a, focused)
+                    .is_ok(),
+                "refreshed menu: mutation {mutation}"
             );
         }
     }

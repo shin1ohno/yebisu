@@ -41,9 +41,9 @@ def fixture():
                             catalog=[dict(name=name, label=label, enabled=True)]))
         negative = case in p12.NEGATIVE
         if negative:
-            field = {"host":"original_host", "pane":"original_pane", "boot":"original_boot", "focus":"focused", "capability":"split_capability"}[case]
+            field = {"host":"original_host", "pane":"original_pane", "boot":"original_boot", "focus":"original_pane", "capability":"split_capability"}[case]
             state[field] = False
-            records.append(dict(kind="p12-mutated", case=case, time=clock+.1, state=copy.deepcopy(state)))
+            records.append(dict(kind="p12-mutated", case=case, time=clock+.1, state=copy.deepcopy(state), valid_focus_target=True, current_split_enabled=True))
             clock += 2
         before = [state["sidebar"], state["palette"]]
         entry = dict(kind="p12-menu-entry", case=case, name=name, time=clock+.1,
@@ -62,6 +62,12 @@ def fixture():
         ui.append(dict(kind="os-menu-pick", case=case, started=clock, ended=clock+1,
                        owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True))
         clock += 2
+        if case == "focus":
+            setup("current")
+            records.append(dict(kind="p12-current", case=case, time=clock-1.5, state=copy.deepcopy(state)))
+            ui.append(dict(kind="current-native-menu", case=case, time=clock, enabled=True,
+                           owner="com.apple.springboard", buttonLabel="Split Right　⌘D"))
+            clock += 2
         if negative:
             records.append(dict(kind="p12-reset", case=case, sidebar=state["sidebar"], palette=state["palette"], mutated=True))
             state = copy.deepcopy(prepared)
@@ -70,7 +76,7 @@ def fixture():
     records.append(dict(kind="p12-finish", enqueued=True, time=clock-1.5))
     messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=2,
                          message=dict(input=["fifo_fence"]), time=clock-1.5))
-    shots = {"p12-finished", *[f"p12-{stage}-{case}" for stage in ("menu", "before", "after") for case in p12.CASES]}
+    shots = {"p12-finished", "p12-menu-focus-current", *[f"p12-{stage}-{case}" for stage in ("menu", "before", "after") for case in p12.CASES]}
     return records, messages, ui, shots
 
 
@@ -127,9 +133,25 @@ class P12OracleTests(unittest.TestCase):
         data = fixture()
         r,m,u,s = data
         for kind in ("p12-menu-entry", "p12-menu-receiver"):
-            r.remove(select(r,kind,"focus"))
-        select(u,"os-menu-pick","focus").update(tapped=False, enabled=False)
-        self.assertEqual(p12.validate(*data)["negative_routes"]["focus"], "native_gui_disabled_no_consumer_dispatch")
+            r.remove(select(r,kind,"capability"))
+        select(u,"os-menu-pick","capability").update(tapped=False, enabled=False)
+        self.assertEqual(p12.validate(*data)["negative_routes"]["capability"], "native_gui_disabled_no_consumer_dispatch")
+
+    def test_focus_requires_existing_available_target(self):
+        for field in ("valid_focus_target", "current_split_enabled"):
+            self.rejected(lambda r,m,u,s: select(r,"p12-mutated","focus").update({field:False}),
+                          "focus must move to an available existing pane")
+
+    def test_current_focus_menu_must_be_enabled(self):
+        self.rejected(lambda r,m,u,s: select(u,"current-native-menu").update(enabled=False),
+                      "current native menu unavailable")
+
+    def test_focus_cannot_pass_as_disabled_without_receiver(self):
+        def edit(r,m,u,s):
+            for kind in ("p12-menu-entry", "p12-menu-receiver"):
+                r.remove(select(r,kind,"focus"))
+            select(u,"os-menu-pick","focus").update(tapped=False, enabled=False)
+        self.rejected(edit, "valid focus stale menu must reach consumer rejection")
 
     def test_key_route_never_fabricates_native_identity(self):
         def edit(r,m,u,s):

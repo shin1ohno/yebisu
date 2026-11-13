@@ -51,6 +51,7 @@ impl Smoke {
                         ("P12 Pane", "pane"),
                         ("P12 Boot", "boot"),
                         ("P12 Focus", "focus"),
+                        ("P12 Current", "current"),
                         ("P12 Capability", "capability"),
                         ("P12 Reset", "reset"),
                         ("P12 Finish", "finish"),
@@ -74,9 +75,13 @@ impl Smoke {
             // a stale snapshot, an inbox, a handle or a transport generation.
             match self.p12_qa.case {
                 "host" => self.terminal.reconnect.target = host,
-                "pane" => {
+                "pane" | "focus" => {
                     if let Some(snapshot) = self.terminal.live.snapshot.as_mut() {
-                        Arc::make_mut(snapshot).focused_pane_id = pane;
+                        let snapshot = Arc::make_mut(snapshot);
+                        snapshot.focused_pane_id = pane;
+                        for pane in &mut snapshot.panes {
+                            pane.focused = Some(&pane.pane_id) == snapshot.focused_pane_id.as_ref();
+                        }
                     }
                 }
                 "capability" => self.terminal.live.methods = methods,
@@ -101,6 +106,13 @@ impl Smoke {
             self.observation.record(serde_json::json!({"kind":"p12-reset", "case":self.p12_qa.case,
                 "sidebar":self.actions.board_hidden,"palette":self.actions.palette,"mutated":self.p12_qa.mutated}));
             self.p12_restore(window, cx);
+        } else if case == "current" {
+            self.p12_qa.freeze = false;
+            self.install_native_menus(window, cx);
+            self.observation.record(
+                serde_json::json!({"kind":"p12-current", "case":self.p12_qa.case,
+                "state":self.p12_state(window)}),
+            );
         } else if case == "release" {
             let released = self
                 .p12_qa
@@ -171,12 +183,27 @@ impl Smoke {
                     Arc::make_mut(snapshot).boot_id = "p12-other-boot".into();
                 }
             }
-            "focus" => self.focus.focus(window, cx),
+            "focus" => {
+                if let Some(snapshot) = self.terminal.live.snapshot.as_mut() {
+                    let snapshot = Arc::make_mut(snapshot);
+                    // The private peer already supplies this pane in the current tab.
+                    snapshot.focused_pane_id = Some("w1:p3".into());
+                    for pane in &mut snapshot.panes {
+                        pane.focused = Some(&pane.pane_id) == snapshot.focused_pane_id.as_ref();
+                    }
+                }
+            }
             "capability" => self.terminal.live.methods.retain(|m| m != "pane.split"),
             _ => return,
         }
         self.p12_qa.mutated = true;
         self.observation.record(serde_json::json!({"kind":"p12-mutated","case":self.p12_qa.case,
+            "valid_focus_target":crate::board::snapshot(&self.terminal.live).is_some_and(|s| s.panes.iter().any(|p|
+                Some(&p.pane_id) == s.focused_pane_id.as_ref() && Some(&p.tab_id) == s.focused_tab_id.as_ref()
+                && Some(&p.workspace_id) == s.focused_workspace_id.as_ref())),
+            "current_split_enabled":crate::native_menus::catalog_rows(&self.terminal, &self.actions,
+                self.terminal_focus.is_focused(window) && window.is_window_active()).iter()
+                .any(|row| row.info.command == sheprd_commands::Command::SplitRight && row.available),
             "state":self.p12_state(window),"focused":self.terminal_focus.is_focused(window),"sidebar":self.actions.board_hidden,"palette":self.actions.palette}));
         cx.notify();
     }
@@ -191,7 +218,7 @@ impl Smoke {
             "generation":self.terminal.link.generation,
             // Fixture host/pane identity is expressed as equality, not arbitrary user data.
             "original_host":self.terminal.reconnect.target != "p12-other-host",
-            "original_pane":snapshot.and_then(|s|s.focused_pane_id.as_deref()) != Some("p12-other-pane"),
+            "original_pane":snapshot.and_then(|s|s.focused_pane_id.as_deref()) == Some("w1:p1"),
             "split_capability":self.terminal.live.methods.iter().any(|m|m == "pane.split"),
             "sidebar":self.actions.board_hidden,"palette":self.actions.palette,
         })

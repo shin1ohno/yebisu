@@ -44,6 +44,21 @@ def validate(records, messages, ui, screenshots):
             require(len(mutations) == 1 and len(resets) == 1 and resets[0]["mutated"], "stale fault not observed/restored")
             before = [prepare["sidebar"], prepare["palette"]]
             require([resets[0]["sidebar"], resets[0]["palette"]] == before, "stale command changed local state")
+            if case == "focus":
+                require(pick.get("tapped") is True, "valid focus stale menu must reach consumer rejection")
+                require(mutations[0].get("valid_focus_target") is True and mutations[0].get("current_split_enabled") is True,
+                        "focus must move to an available existing pane")
+                current = [r for r in records if r.get("kind") == "p12-current"]
+                shown = [r for r in ui if r.get("kind") == "current-native-menu"]
+                control = next(c for c in ui if c.get("kind") == "fixture-control" and c["step"] == "current")
+                require(len(current) == len(shown) == 1 and current[0]["case"] == shown[0]["case"] == "focus",
+                        "current focus menu observation missing")
+                require(inside(current[0], control) and pick["ended"] < control["started"] < control["ended"] < shown[0]["time"],
+                        "current menu must follow stale rejection and rebuild")
+                require(current[0]["state"] == mutations[0]["state"], "current menu changed valid focus")
+                require(shown[0].get("enabled") is True and shown[0].get("owner") == "com.apple.springboard"
+                        and shown[0].get("buttonLabel", "").split("　")[0] == "Split Right", "current native menu unavailable")
+                require("p12-menu-focus-current" in screenshots, "current native menu screenshot missing")
             if pick.get("tapped"):
                 require(pick.get("enabled") is True and len(received) == 1, "stale enabled GUI pick lacks one receiver")
                 negative_routes[case] = "consumer_rejected_actual_os_pick"
@@ -70,7 +85,7 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
     # every fixture click must have zero command effect. Wall clocks must be
     # the same Simulator clock; missing/ambiguous observations fail closed.
     steps = ["remote", "sidebar", "palette", "release",
-             *[s for case in NEGATIVE for s in (case, "reset")], "finish"]
+             *[s for case in NEGATIVE for s in ((case, "current", "reset") if case == "focus" else (case, "reset"))], "finish"]
     controls = [r for r in ui if r.get("kind") == "fixture-control"]
     begins = [r for r in records if r.get("kind") == "p12-setup-begin"]
     ends = [r for r in records if r.get("kind") == "p12-setup-end"]
@@ -114,7 +129,7 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
             require(len(mutations) == 1, "stale fault not observed")
             actual = mutations[0]["state"]
             expected = dict(state)
-            field = {"host":"original_host", "pane":"original_pane", "boot":"original_boot", "focus":"focused", "capability":"split_capability"}[case]
+            field = {"host":"original_host", "pane":"original_pane", "boot":"original_boot", "focus":"original_pane", "capability":"split_capability"}[case]
             expected[field] = False
             require(actual == expected, "wrong actual negative state")
     actions = [r for r in records if r.get("kind") == "action"]
