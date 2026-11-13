@@ -114,9 +114,7 @@ def main():
             data = (export / attachment["exportedFileName"]).read_bytes()
             if name.startswith("p12-ui-events"):
                 ui = json.loads(data)
-            for expected in ["p12-finished", *[f"p12-{stage}-{case}" for stage in ["menu", "before", "after"] for case in oracle.CASES]]:
-                if name.startswith(expected) and (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8")):
-                    screenshots.add(expected)
+            screenshots.update(oracle.screenshot_names(name, data))
     tested.check_returncode()
     oracle.require(ui is not None, "actual XCTest UI event attachment missing")
     records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]

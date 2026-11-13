@@ -142,6 +142,16 @@ class P12OracleTests(unittest.TestCase):
             self.rejected(lambda r,m,u,s: select(r,"p12-mutated","focus").update({field:False}),
                           "focus must move to an available existing pane")
 
+    def test_xcresult_screenshot_names_include_current_without_aliasing_stale(self):
+        # xcresulttool attachment names use the label followed by _index_UUID.
+        name = "p12-menu-focus-current_0_276531E2-7FFC-41F2-891A-B135417934A2.png"
+        self.assertEqual(p12.screenshot_names(name, b"\x89PNG\r\n\x1a\n"), {"p12-menu-focus-current"})
+        self.assertEqual(p12.screenshot_names(name, b"APP hierarchy"), set())
+        self.assertEqual(p12.screenshot_names("p12-menu-focus_0_UUID.jpeg", b"\xff\xd8"), {"p12-menu-focus"})
+
+    def test_current_focus_screenshot_is_required(self):
+        self.rejected(lambda r,m,u,s: s.remove("p12-menu-focus-current"), "current native menu screenshot missing")
+
     def test_current_focus_menu_must_be_enabled(self):
         self.rejected(lambda r,m,u,s: select(u,"current-native-menu").update(enabled=False),
                       "current native menu unavailable")

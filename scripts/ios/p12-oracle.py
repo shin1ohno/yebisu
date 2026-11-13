@@ -9,6 +9,14 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def screenshot_names(name, data):
+    if not (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8")):
+        return set()
+    expected = ["p12-finished", "p12-menu-focus-current",
+                *[f"p12-{stage}-{case}" for stage in ["menu", "before", "after"] for case in CASES]]
+    return {item for item in expected if name.startswith(item + "_") or name.startswith(item + ".")}
+
+
 def validate(records, messages, ui, screenshots):
     picks = [r for r in ui if r.get("kind") == "os-menu-pick"]
     require([r.get("case") for r in picks] == CASES, "actual OS menu cases missing/duplicated")
