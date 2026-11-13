@@ -102,5 +102,34 @@ class InstalledUIWireOracle(unittest.TestCase):
             p15.validate_ui_wire(records, messages, ui)
 
 
+class ProvenanceCaller(unittest.TestCase):
+    def test_passes_p15_pin_profile_and_unique_run_to_real_api_shape(self):
+        import tomllib
+        import uuid
+        from unittest.mock import Mock
+        session = Mock()
+        session.build_install.return_value = {'installed': '/owned/installed.app'}
+        env = {'YEBISU_EXPECTED_HEAD': 'a' * 40}
+        for _ in range(2):
+            result = p15.build_owned(session, Path('/owned/run'), Path('/owned/source'),
+                                     '11111111-2222-3333-4444-555555555555', env, 'a' * 40)
+            self.assertEqual(result['installed'], '/owned/installed.app')
+        first, second = session.build_install.call_args_list
+        expected = first.kwargs['expected']
+        manifest = tomllib.loads((p15.ROOT / 'Cargo.toml').read_text())
+        pins = {p['name']: p['revision'] for p in expected['sdk']}
+        for name in ('herdr-uikit', 'herdr-ssh'):
+            self.assertEqual(pins[name], manifest['workspace']['dependencies'][name]['rev'])
+        self.assertEqual(expected['profile'], dict(opt_level='0', debuginfo=0,
+                         debug_assertions=True, overflow_checks=True, test=False))
+        self.assertEqual(expected['target'], 'aarch64-apple-ios-sim')
+        self.assertEqual(expected['features'], [])
+        self.assertEqual(expected['head'], 'a' * 40)
+        self.assertEqual(first.args[3], ['--package', 'yebisu', '--bin', 'yebisu'])
+        self.assertIs(first.args[4], env)
+        uuid.UUID(expected['run_id'])
+        self.assertNotEqual(expected['run_id'], second.kwargs['expected']['run_id'])
+
+
 if __name__ == "__main__":
     unittest.main()

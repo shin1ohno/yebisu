@@ -98,6 +98,23 @@ def validate_ui_wire(records, messages, ui):
         raise ValueError("missing FIFO positive controls or terminal wire leak")
 
 
+def build_owned(session, directory, source, device, environment, head):
+    """Explicit P15 expectations; never infer the SDK identity from build output."""
+    import uuid
+    expected = dict(schema='cargo-provenance-v2', head=head, run_id=str(uuid.uuid4()),
+                    package='yebisu', binary='yebisu', target='aarch64-apple-ios-sim',
+                    features=[], no_default_features=False, profile_name='dev',
+                    profile=dict(opt_level='0', debuginfo=0, debug_assertions=True,
+                                 overflow_checks=True, test=False),
+                    sdk=[dict(name='herdr-uikit', url='https://github.com/shin1ohno/herdr-uikit',
+                              revision='b2fa7811fa9fad9592f47b06d851fc0c33facb16'),
+                         dict(name='herdr-ssh', url='https://github.com/shin1ohno/herdr-gpui',
+                              revision='398c132a06723a0cc1494842a34666d173ec0200')])
+    return session.build_install(directory, source, device,
+                                 ['--package', 'yebisu', '--bin', 'yebisu'],
+                                 environment, expected=expected)
+
+
 def main():
     spec = importlib.util.spec_from_file_location("p11_runner", Path(__file__).with_name("p11-check.py"))
     runner = importlib.util.module_from_spec(spec)
@@ -152,8 +169,7 @@ def main():
         spec = importlib.util.spec_from_file_location('provenance_session', ROOT / 'scripts/ios/provenance_session.py')
         session = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(session)
-        binding = session.build_install(provenance, ROOT, device,
-                                        ['--package', 'yebisu', '--bin', 'yebisu'], environment)
+        binding = build_owned(session, provenance, ROOT, device, environment, args.expected_head)
         installed = binding['installed']
     else:
         bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu")
