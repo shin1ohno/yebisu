@@ -5,7 +5,7 @@ use crate::{
     terminal_painter::{Ground, TerminalPainter},
     theme::Theme,
 };
-use gpui::{AnyElement, ClipboardItem, Context, canvas, div, font, prelude::*, rgb};
+use gpui::{AnyElement, ClipboardItem, Context, div, font, prelude::*, rgb};
 use sheprd_client::{ConnectOptions, ConnectTarget};
 
 #[derive(Default)]
