@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+sys.dont_write_bytecode = True
 from urllib.parse import unquote, urlparse
 
 
@@ -88,48 +90,71 @@ def select_artifact(messages, source, target_root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["init", "metadata", "artifact", "copy", "signed", "preinstall", "installed"])
+    parser.add_argument("phase", choices=["init", "metadata", "artifact", "copy", "signed", "preinstall", "installed", "output"])
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--app", type=Path)
     parser.add_argument("--device")
     args = parser.parse_args()
-    directory = args.directory.resolve(strict=True)
+    directory = session.canonical(args.directory)
     receipt = directory / "binding.json"
-    session.require_owner(directory)
+    owner = session.require_owner(directory)
+    expected = owner["expected"]
+    session.validate_contract(expected)
     if args.phase == "init":
         if receipt.exists():
             raise ValueError("refuse to overwrite a prior build binding")
-        root = Path(os.environ["YEBISU_OWN_ROOT"]).resolve(strict=True)
-        inside(directory, root)
-        source = inside(args.source, root)
-        target = inside(os.environ["CARGO_TARGET_DIR"], root)
-        if target == source or target == root:
-            raise ValueError("target must be a dedicated child directory")
+        root, source, target = [Path(owner[k]) for k in ('own_root', 'source', 'target')]
+        if (args.source != source or os.environ['YEBISU_OWN_ROOT'] != str(root) or
+                os.environ['CARGO_TARGET_DIR'] != str(target)):
+            raise ValueError('admitted source/root/target changed')
+        for path in (source, target, directory):
+            session.child(path, root)
         head = command("git", "-C", str(source), "rev-parse", "HEAD")
-        if head != os.environ["YEBISU_EXPECTED_HEAD"]:
+        if head != expected['head']:
             raise ValueError("unexpected source head")
         if command("git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"):
             raise ValueError("tracked source is dirty")
         paths = subprocess.check_output(["git", "-C", str(source), "ls-files", "-z"]).decode().split('\0')
-        inputs = {p: digest(source / p) for p in paths if p and (source / p).is_file()}
+        if any((source / p).is_symlink() or not (source / p).is_file() for p in paths if p):
+            raise ValueError('tracked source symlink/non-file unsupported')
+        inputs = {p: digest(source / p) for p in paths if p}
         data = dict(head=head, own_root=str(root), source=str(source), target=str(target),
-                    inputs=inputs, signing="Simulator ad-hoc identity '-' only", phases=[])
+                    expected=expected, run_id=expected["run_id"], inputs=inputs, signing="Simulator ad-hoc identity '-' only", phases=[])
     else:
         data = json.loads(receipt.read_text())
         root, source = Path(data["own_root"]), Path(data["source"])
+        if data['expected'] != expected or data['run_id'] != expected['run_id']:
+            raise ValueError('run contract changed')
         phases = ['init', 'metadata', 'artifact', 'copy', 'signed', 'preinstall', 'installed']
-        if data['phases'] != phases[:phases.index(args.phase)]:
+        phase = 'copy' if args.phase == 'output' else args.phase
+        if data['phases'] != phases[:phases.index(phase)]:
             raise ValueError('invalid provenance phase order')
         compiler.unchanged(data.get('packages', {}), data.get('compiler_inputs', []))
+        if session.configs(source, os.environ) != owner['config']:
+            raise ValueError('Cargo config changed during build/install')
+        if data.get('metadata_sha256') and digest(directory / 'metadata.json') != data['metadata_sha256']:
+            raise ValueError('metadata changed after snapshot')
+        for script in data.get('build_scripts', []):
+            if compiler.tree_files(script['message']['out_dir']) != script['outputs']:
+                raise ValueError('build-script generated outputs changed')
+        if data.get('invocation'):
+            invocation = json.loads((directory / 'invocation.json').read_text())
+            if invocation != data['invocation']:
+                raise ValueError('actual invocation changed')
+            for path, digest_ in invocation['link_input'].items():
+                if digest(path) != digest_:
+                    raise ValueError('linker input changed')
+            if digest(directory / 'cargo.jsonl') != data['cargo_json_sha256']:
+                raise ValueError('actual Cargo JSON changed')
         inside(directory, root)
         if any(digest(source / p) != sha for p, sha in data["inputs"].items()):
             raise ValueError("source changed during bundle/install")
         if args.phase == 'metadata':
             raw = directory / 'metadata.json'
             metadata = json.loads(raw.read_text())
-            data.update(metadata_sha256=digest(raw), packages=compiler.metadata_snapshot(metadata, source))
+            data.update(metadata_sha256=digest(raw), packages=compiler.metadata_snapshot(metadata, source, expected))
         elif args.phase == "artifact":
             raw = directory / "cargo.jsonl"
             messages = [json.loads(line) for line in raw.read_text().splitlines() if line.startswith('{')]
@@ -139,13 +164,25 @@ def main():
             metadata = json.loads((directory / 'metadata.json').read_text())
             if digest(directory / 'metadata.json') != data['metadata_sha256']:
                 raise ValueError('metadata changed after snapshot')
-            records = compiler.validate_artifacts(messages, metadata, data['packages'], source,
-                                                   Path(data['target']), directory)
+            records, scripts = compiler.validate_artifacts(messages, metadata, data['packages'], source,
+                                                   Path(data['target']), directory, expected)
+            invocation = json.loads((directory / 'invocation.json').read_text())
+            if (invocation.get('returncode') != 0 or invocation['expected'] != expected or
+                    invocation['cargo_json_sha256'] != digest(raw) or
+                    invocation['metadata_sha256'] != data['metadata_sha256']):
+                raise ValueError('actual Cargo invocation/result mismatch')
             compiled = identity(executable)
             shutil.copyfile(executable, directory / 'unsigned.macho')
             same_binary(compiled, identity(directory / 'unsigned.macho'))
             data.update(compiler_artifact=item, cargo_json_sha256=digest(raw),
-                        compiler_inputs=records, compiled=compiled)
+                        compiler_inputs=records, build_scripts=scripts, invocation=invocation, compiled=compiled)
+        elif args.phase == 'output':
+            executable = session.child(args.executable, Path(data['target']))
+            app = session.child(args.app, directory, exists=False)
+            if str(executable) != data['compiled']['path'] or str(app) != owner['app'] or app.exists():
+                raise ValueError('bundle output differs from admitted app/executable or already exists')
+            same_binary(data['compiled'], identity(executable))
+            return  # Read-only guard: no phase or receipt mutation.
         elif args.phase == "copy":
             app = inside(args.app, directory)
             copied = identity(app / "yebisu")

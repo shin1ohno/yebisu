@@ -1,54 +1,98 @@
-# Shared P11/P15 compiler-to-install provenance
+# Shared P11/P15 compiler-to-install provenance, API 2
 
-Status: source candidate; native and independent review gates are UNRUN.
+Status: source candidate. Actual compiler, signing, installation and independent
+source admission remain UNRUN. Historical 808/d2bc/27-test records remain historical.
+This is a NEW helper API/blob set, not an unchanged808 transfer.
 
-Use `provenance_session.py:build_install(directory, source, device, bundle_args,
-environment)` from either collector. `directory` must be a newly created run-owned
-directory below YEBISU_OWN_ROOT. The source checkout and CARGO_TARGET_DIR must also
-be below that root; YEBISU_EXPECTED_HEAD must be its full clean commit. Pass the
-leased Simulator UUID, never a device name. The return value contains the run app,
-installed app and binding.json paths. Do not separately install or re-sign them.
-The session owns an exclusive lock from bundle construction through receiving
-verification. A failed/abandoned run cannot be resumed using the same directory.
-Only cooperative writers are in scope: no defense against malicious same-UID
-processes rewriting validators, locks or evidence. One Mini build remains required.
+Call `provenance_session.build_install(directory, source, device, bundle_args,
+environment, expected=contract)`. All path arguments are canonical absolute paths;
+symlinks, `..`, wrong roots, stale/nonempty run directories, overlapping source/run/
+target paths, wrong source head and nested wrappers fail before the first owner,
+lock or log write. Create an empty dedicated run directory and a dedicated target
+under YEBISU_OWN_ROOT. A target inside the checkout is allowed only under .git.
+Set YEBISU_EXPECTED_HEAD, CARGO_TARGET_DIR and YEBISU_BUNDLE_PROVENANCE_DIR consistently.
+The session retains its flock through bundle/sign/preinstall/install/receiving checks.
+Do not resume failed runs, install separately or sign separately. Same-UID hostile
+writers and malicious build scripts are outside this cooperative ownership model.
 
-`bundle.sh` captures the full actual `cargo rustc` JSON and `cargo metadata --locked`
-with the same feature/target arguments. Metadata is snapshotted before compilation.
-All resolved Git dependency revisions and tracked blobs are matched to Git objects;
-all compiler artifacts bind package, manifest, target source, features, profile and
-parsed depfile input hashes. Workspace and Git SDK artifacts must be fresh; cached
-artifacts fail closed. Prepare a fresh owned target or a separately reviewed cache
-invalidation under the controller lease. Never remove another task's target/cache.
-Registry caches retain Cargo's trust model; this is not hermetic compiler attestation.
-Generated inputs are recorded and rechecked, not claimed to be tracked source.
-Unsupported depfile/metadata layouts fail closed. Full metadata/JSON and depfiles
-remain on disk along with unsigned, signed and installed executable copies.
+The mandatory contract has exactly these fields (no inferred SDK/profile defaults):
 
-The code identity accepts only little-endian thin ARM64 MH_EXECUTE with exactly one
-LC_UUID, one pre-existing LC_CODE_SIGNATURE and one terminal __LINKEDIT. It hashes
-EVERY byte before the fixed aligned signature offset, normalizing only the signature
-command datasize and __LINKEDIT filesize. A bounded terminal signature SuperBlob
-may change and grow/shrink. All other load commands, section data, non-signature
-linkedit bytes, UUID, VM sizes/protection, offsets and padding remain bound. An
-added signature command, moved range, changed VM size, universal binary or malformed
-layout is rejected. This conservative contract can reject legitimate signing layouts;
-it must not silently fall back to UUID/text-only checks. `codesign --verify --strict`
-remains mandatory. Fixture SuperBlobs model allowed structure, not cryptographic
-validity. An actual linker/ad-hoc pair must be observed under a separate Mini lease.
+```python
+contract = {
+    'schema': 'cargo-provenance-v2',
+    'head': full_consumer_commit,
+    'run_id': str(uuid.uuid4()),
+    'package': 'yebisu', 'binary': 'yebisu',
+    'target': 'aarch64-apple-ios-sim',
+    'features': [], 'no_default_features': False,
+    'profile_name': 'dev',
+    'profile': {'opt_level': '0', 'debuginfo': 0, 'debug_assertions': True,
+                'overflow_checks': True, 'test': False},
+    'sdk': [{'name': 'herdr-uikit', 'url': 'https://github.com/shin1ohno/herdr-uikit',
+             'revision': independently_expected_full_sdk_revision}],
+}
+```
 
-The copied executable must equal the compiler output by SHA/UUID; signed output
-must equal its non-signature code identity. Preinstall checks the signed executable
-and exact resource inventory. Installed bytes/UUID and exact resources must equal
-the signed bundle, and the source bundle is rechecked after installation. Symlinks,
-special files, run reuse and phase reordering are rejected. Bundle/temp/receipt
-paths live in the unique run directory, never the executable-adjacent fixed app.
-The temporary linker entitlements stay as evidence through install.
+The caller must use its own reviewed SDK: P15 b2fa7811fa9fad9592f47b06d851fc0c33facb16;
+P11's separate 2dcd revision must be supplied by its source owner in full. Neither
+consumer imports the other's Cargo manifests/lock or SettingsHost implementation.
+Features are sorted requested Cargo features; artifact features are the actual
+per-build-unit set, a subset of metadata's resolver feature union. The application
+profile is exact; dependencies/host build units bind their own rustc options/profile.
+Only the explicit yebisu Simulator binary is supported in provenance mode. Generic
+non-provenance device/example/binary callers retain the existing bundle interface.
+HERDR_IOS_ARTIFACT_ROOT retains its default pre-rm/mkdir containment guard. In owned
+mode the explicit target root and separate run app root replace that default guard;
+neither root is widened to admit an escaped artifact.
 
-P11 adoption: take only the helper commit's bundle.sh, bundle-provenance.py,
-macho_identity.py, compiler_inputs.py, provenance_session.py and their tests/doc.
-Adapt the collector to `build_install`; retain P11 feature arguments, QA config,
-privacy sinks, observer/FIFO gates and its final installed verification. Do not take
-P15 settings/store/Cargo pins wholesale. This helper cannot admit SDK changes.
-P15/P11 source manifests alone are not compiler-input proof; acceptance additionally
-needs exact-head real Mac execution and independent receiving-system review.
+`compiler_inputs.py` is also the opt-in RUSTC_WRAPPER. The collector captures the
+actual Cargo argv/cwd, full locked metadata and resolve edges, complete Cargo JSON,
+config candidate hashes (including absence), environment value hashes, source head/
+tracked bytes and independently expected SDK packages/revisions. Cargo includes,
+nested wrappers and alternate build-dir configuration are currently unsupported.
+Source/config additions or changes fail closed. Config bytes are not dumped into
+logs; no credential files are read. Source snapshots do not attest toolchain purity.
+
+For each actual rustc compilation the adapter records argv/cwd, compiler bytes,
+context (target vs host), feature cfgs, profile, pre-compile extern object hashes
+and generated OUT_DIR inventory. It asks that compiler `--print=file-names` for
+output identities, then runs the original invocation. A freshly changed depfile
+must have rules for those actual outputs AND its own dep-info output, with the
+same inputs. Relative names resolve against that actual rustc cwd; make escaping,
+continuations and literal dollar names are parsed without shell interpretation.
+Unescaped ambiguous make syntax is unsupported. No adjacent filename guess or
+main.rs substring match can establish binding. Rustc's current output formatter
+itself does not escape every make-special output character; use ordinary paths.
+
+Cargo final binary/custom-build copies must match a compiler-reported output's
+bytes. Non-final artifact bytes are recorded too. Each --extern maps to a resolved
+package edge and the captured object bytes; every explicitly expected SDK must
+connect to the actual executable's dependency objects. Actual custom-build artifacts
+may have executable=null; host/proc-macro contexts stay distinct from target builds.
+Unused resolve nodes are preserved in full metadata, not mislabeled compiled objects.
+Workspace/Git artifacts must be fresh. Registry cache objects retain Cargo trust.
+
+All named workspace/SDK inputs must match their pre-build tracked snapshots.
+Generated inputs must match the inventory captured BEFORE their rustc invocation;
+changed/new/unowned inputs reject. Build-script-executed JSON and output inventories
+are retained and rechecked. Cargo's stable JSON does not expose complete rerun-if
+or external-read provenance: build-script execution/rerun policy, proc-macro reads,
+registry source/cache, sysroot, linker/native system libraries remain explicit
+Cargo/toolchain trust. This is NOT hermetic compiler-input closure or an assertion
+that unreported external reads cannot occur. There is no new vendor/cache framework.
+
+Compiled bytes equal the copied app executable. Signed bytes preserve the admitted
+non-signature Mach-O identity; signed/installed binary and resource inventories
+must then match exactly. Unsigned/signed/installed snapshots, raw metadata/Cargo
+JSON/depfiles and rustc receipts remain in the run. Linker entitlements remain
+hashed and immutable through install. Native `codesign --verify --strict` remains
+mandatory. The existing nonzero-signature-tail pair is Unsupported, not native PASS;
+linker-to-first-sign evidence needs a separately authorized Mac lease.
+
+P11 adoption: take the NEW frozen helper's nine paths only (five helper/producer
+files, three test files, this document). The self-contained package is based on
+its agreed P11 base with all other paths unchanged. P11 owns caller wiring and
+must bind returned run_id/binding to case/XCTest/runtime-image receipts, preserving
+privacy, observer/FIFO, feature and full26 assertions. Cherry-pick once only after
+controller GO. P15 caller wiring is a separate follow-up commit. Helpers alone do
+not satisfy P1-P5, physical/key/trust gates, SDK merge or native application checks.

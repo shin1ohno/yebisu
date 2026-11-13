@@ -62,6 +62,28 @@ class ArtifactBinding(unittest.TestCase):
                 p.same_binary(original, other)
 
 
+class MakeBinding(unittest.TestCase):
+    def test_escaped_outputs_inputs_continuations_and_relative_cwd(self):
+        text = 'obj\\ name dep.d: src\\ name.rs \\\n next.rs cash$$name.rs hash\\#name.rs colon\\:name.rs\n'
+        rules = p.compiler.dep_rules(text, '/compile')
+        self.assertEqual(rules, [dict(outputs=['/compile/obj name', '/compile/dep.d'],
+                                     inputs=['/compile/src name.rs', '/compile/next.rs',
+                                             '/compile/cash$name.rs', '/compile/hash#name.rs', '/compile/colon:name.rs'])])
+        inputs, outputs = p.compiler.match_depfile(text, '/compile', ['/compile/obj name'],
+                                                   '/compile/src name.rs', '/compile/dep.d')
+        self.assertIn('/compile/obj name', outputs)
+        self.assertIn('/compile/next.rs', inputs)
+
+    def test_foreign_output_and_missing_depinfo_are_distinct_rejections(self):
+        for text in ('foreign dep.d: src.rs\n', 'object: src.rs\n'):
+            with self.assertRaisesRegex(ValueError, 'actual rustc outputs/dep-info'):
+                p.compiler.match_depfile(text, '/compile', ['/compile/object'], '/compile/src.rs', '/compile/dep.d')
+
+    def test_no_make_variable_execution(self):
+        with self.assertRaisesRegex(ValueError, 'make expansion unsupported'):
+            p.compiler.dep_rules('object: $(shell touch /foreign)\n', '/compile')
+
+
 # The full adapter fixture is in test_provenance_chain.py.
 
 if __name__ == '__main__':
