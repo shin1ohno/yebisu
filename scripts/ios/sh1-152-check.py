@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("sh1_152_oracle", Path(__file__).with_name("sh1_152_oracle.py"))
 oracle = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(oracle)
+transition_spec = importlib.util.spec_from_file_location("sh1_152_transitions", Path(__file__).with_name("sh1_152_transitions.py"))
+transitions = importlib.util.module_from_spec(transition_spec)
+transition_spec.loader.exec_module(transitions)
 
 
 def run(*args, **kwargs):
@@ -37,10 +40,11 @@ def main():
     try:
         result = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
                      "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
-                     "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA/testSH1152Basic")
+                     "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA")
         (directory / "xctest.log").write_text(result.stdout + result.stderr)
-        if "testSH1152Basic]' passed" not in result.stdout:
-            raise ValueError("native menu XCTest did not execute and pass")
+        for method in ["testSH1152Basic", "testSH1152Transitions", "testSH1152DismissAndSystemEdit"]:
+            if f"{method}]' passed" not in result.stdout:
+                raise ValueError(f"native menu XCTest did not execute and pass: {method}")
     finally:
         for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
             if path.exists():
@@ -48,7 +52,8 @@ def main():
     read = lambda path: [json.loads(line) for line in path.read_text().splitlines()]
     records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
     verdict = oracle.validate_basic(records, read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl"))
-    (directory / "verdict.json").write_text(json.dumps({"basic": verdict, "full_acceptance": False}))
+    transition_verdicts = transitions.validate(records, read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl"), result.stdout)
+    (directory / "verdict.json").write_text(json.dumps({"basic": verdict, "transitions": transition_verdicts, "full_acceptance": False}))
     print(verdict, directory, flush=True)
 
 

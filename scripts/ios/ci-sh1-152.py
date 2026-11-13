@@ -18,7 +18,7 @@ def main():
     device = subprocess.check_output(["xcrun", "simctl", "create", "SH1-152 menu acceptance", device_type, runtime], text=True).strip()
     print("SH1-152 simulator", device, runtime, flush=True)
     try:
-        for script in ["sh1-152-check.py"]:
+        for script in ["sh1-152-check.py", "sh1-153-check.py", "p8-native-check.py", "selection-settings-check.py"]:
             subprocess.run([sys.executable, str(Path(__file__).with_name(script))], env={**os.environ, "HERDR_IOS_SIMULATOR": device}, check=True)
     finally:
         subprocess.run(["xcrun", "simctl", "shutdown", device], check=False)

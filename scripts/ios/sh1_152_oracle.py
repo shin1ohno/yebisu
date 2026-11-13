@@ -46,27 +46,41 @@ def check_switch(record):
     return "pass"
 
 
-def core_segment(wire, case, stage=0):
-    start = f"\x1b[200~sh1-152-start-{case}-{stage}\x1b[201~".encode()
-    end = f"\x1b[200~sh1-152-end-{case}-{stage}\x1b[201~".encode()
-    active, destination, found, data = False, None, False, bytearray()
+def core_intervals(wire):
+    active, intervals = None, {}
     for row in wire:
         payload = bytes(row["bytes"])
-        if payload == start:
-            if active or found:
-                raise ValueError("duplicate core start")
-            active, found, destination = True, True, row["terminal"]
-        elif payload == end:
-            if not active:
+        marker = None
+        if payload.startswith(b"\x1b[200~") and payload.endswith(b"\x1b[201~"):
+            marker = MARKER.fullmatch(payload[6:-6].decode("utf-8"))
+        if marker:
+            edge, case, stage = marker.groups()
+            key = (case, int(stage))
+            if edge == "start":
+                if active is not None or key in intervals:
+                    raise ValueError("duplicate or overlapping core start")
+                active = key
+                intervals[key] = {"destination": row["terminal"], "events": []}
+            elif active != key:
                 raise ValueError("unmatched core end")
-            active = False
-        elif active:
-            if row["terminal"] != destination:
-                raise ValueError("core input reached another terminal")
-            data.extend(payload)
-    if active or not found:
+            else:
+                active = None
+        elif active is None:
+            raise ValueError("core input outside interval")
+        else:
+            intervals[active]["events"].append((row["terminal"], payload))
+    if active is not None:
+        raise ValueError("unfinished core interval")
+    return intervals
+
+
+def core_segment(wire, case, stage=0):
+    interval = core_intervals(wire).get((case, stage))
+    if interval is None:
         raise ValueError("core interval missing")
-    return bytes(data)
+    if any(destination != interval["destination"] for destination, _ in interval["events"]):
+        raise ValueError("core input reached another terminal")
+    return b"".join(payload for _, payload in interval["events"])
 
 
 def validate_basic(records, messages, wire):
@@ -90,6 +104,9 @@ def validate_basic(records, messages, wire):
             semantic = [r for r in rows if r.get("kind") == "terminal-input"]
             if [r["variant"] for r in semantic] != ([] if copy else ["Paste"]):
                 raise ValueError(f"core semantic event mismatch: {case}")
+            destination = core_intervals(wire)[(case, 0)]["destination"]
+            if destination != "t1" or any(r["terminal"] != destination for r in semantic):
+                raise ValueError(f"core semantic/wire destination mismatch: {case}")
             expected_bytes = b"" if copy else b"\x1b[200~" + expected.encode() + b"\x1b[201~"
             if core_segment(wire, case) != expected_bytes:
                 raise ValueError(f"core exact bytes mismatch: {case}")

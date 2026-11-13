@@ -60,7 +60,7 @@ impl Smoke {
             // This future runs on the main thread without a GPUI update borrow.
             let capture = native::capture(token).map(Rc::new);
             let _ = weak.update(cx, |this, _| {
-                this.observation.record(serde_json::json!({"kind":"sh1-152-capture", "case":case(), "stage":this.menu_qa.stage, "count":capture.as_ref().map(|c| c.commands.len()), "responder":capture.as_ref().and_then(|c| native::responder(&c.window)), "token":token.value()}));
+                this.observation.record(serde_json::json!({"kind":"sh1-152-capture", "case":case(), "stage":this.menu_qa.stage, "count":capture.as_ref().map(|c| c.commands.len()), "responder":capture.as_ref().and_then(|c| native::responder(&c.window)), "token":token.value(), "generation":this.terminal.link.generation, "destination":this.handoff.stamp.as_ref().map(|s| format!("{:?}",s.destination.target))}));
                 this.menu_qa.capture = capture;
             });
         }).detach();
@@ -134,6 +134,7 @@ impl Smoke {
             "End" => {
                 self.observation.record(serde_json::json!({"kind":"sh1-152-result", "case":case(), "stage":self.menu_qa.stage,
                     "clipboard":cx.read_from_clipboard().and_then(|c| c.text()),
+                    "generation":self.terminal.link.generation, "destination":self.handoff.stamp.as_ref().map(|s| format!("{:?}",s.destination.target)),
                     "status":self.menu_qa.token.map(|t| format!("{:?}", herdr_uikit::native_edit_menu_status(window.window_handle(),t))),
                     "responder":self.menu_qa.capture.as_ref().and_then(|c| native::responder(&c.window))}));
                 self.sh1_152_marker("end");

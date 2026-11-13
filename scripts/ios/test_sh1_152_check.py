@@ -23,8 +23,8 @@ class MenuOracleTests(unittest.TestCase):
             values = [f"sh1-152-start-{case}-0", *([] if copying else [payload]), f"sh1-152-end-{case}-0"]
             if case.endswith("core"):
                 if not copying:
-                    records.append({"case": case, "kind": "terminal-input", "variant": "Paste"})
-                wire.extend({"terminal": "core-A", "bytes": list(b"\x1b[200~" + value.encode() + b"\x1b[201~")} for value in values)
+                    records.append({"case": case, "kind": "terminal-input", "variant": "Paste", "terminal": "t1"})
+                wire.extend({"terminal": "t1", "bytes": list(b"\x1b[200~" + value.encode() + b"\x1b[201~")} for value in values)
             else:
                 messages.extend({"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"Paste": value}]}} for value in values)
         return records, messages, wire

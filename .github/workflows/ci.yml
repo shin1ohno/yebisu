@@ -29,6 +29,9 @@ jobs:
           name: edit-menu-evidence
           path: |
             target/ios-sh1-152/
+            target/ios-sh1-153/
+            target/ios-p8-native/
+            target/ios-selection-settings/
             target/disk.log
   simulator-smoke:
     runs-on: macos-26

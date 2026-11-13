@@ -59,8 +59,7 @@ final class EditMenuQA: XCTestCase {
             if name == "E3i" {
                 try tap("152 Fresh", app)
                 sleep(2)
-                // Keep the original owned configuration to ask for unrelated suggestions.
-                // The ordinary-command probe is performed before capturing a new token.
+                // Ask the real delegate for an unrelated configuration, then replay its ordinary commands.
                 try menu(app, name)
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
                 try tap("152 Ordinary", app)
