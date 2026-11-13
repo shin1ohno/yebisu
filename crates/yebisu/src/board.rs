@@ -141,6 +141,17 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
 
 impl Smoke {
     pub(crate) fn select_host(&mut self, host: &str) {
+        self.input_transition(|this| this.select_host_inner(host))
+    }
+    fn select_host_inner(&mut self, host: &str) {
+        if !self.terminal.open {
+            let marked = if self.smoke_mode {
+                self.input.marked.is_some()
+            } else {
+                self.setup_input.marked.is_some()
+            };
+            self.terminal.input.retain_discard(marked);
+        }
         self.handoff.cancel();
         self.handoff.selection = None;
         if self.terminal.reconnect.target == host {
@@ -153,7 +164,9 @@ impl Smoke {
             self.terminal.live = Live::default();
         }
         self.terminal.input.detach();
+        let discarded = self.terminal.input.requires_gesture();
         let mut next = self.board.hidden.remove(host).unwrap_or_default();
+        next.input.retain_discard(discarded);
         if self.settings.is_some() {
             next.compact = self.terminal.compact;
         }
@@ -195,6 +208,15 @@ impl Smoke {
         }
     }
     pub(crate) fn navigate_board(
+        &mut self,
+        host: &str,
+        target: Target,
+        boot: &str,
+        generation: u64,
+    ) -> crate::Result<()> {
+        self.input_transition(|this| this.navigate_board_inner(host, target, boot, generation))
+    }
+    fn navigate_board_inner(
         &mut self,
         host: &str,
         target: Target,

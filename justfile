@@ -59,3 +59,7 @@ ios-p9:
 # Native lifecycle, atomic settings persistence and process restart.
 ios-p10:
     python3 scripts/guarded.py python3 scripts/ios/p10-check.py
+
+# The same subject rule used by hosted CI.
+check-commits:
+    python3 scripts/release/check-commit-messages.py range origin/main..HEAD

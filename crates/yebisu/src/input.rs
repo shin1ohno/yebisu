@@ -132,12 +132,15 @@ impl EntityInputHandler for Smoke {
         self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.active_input_mut().marked = None;
-        if self.terminal.open {
-            self.terminal.input.composition = Input::default();
-        }
-        window.notify_text_input_changed(self.active_focus());
-        cx.notify();
+        self.input_transition(|this| {
+            if this.terminal.open {
+                this.terminal.input.discard();
+            } else {
+                this.active_input_mut().marked = None;
+            }
+            window.notify_text_input_changed(this.active_focus());
+            cx.notify();
+        })
     }
     fn replace_text_in_range(
         &mut self,
@@ -150,7 +153,7 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
-            if self.handoff.selection.is_some() || self.handoff.select_mode {
+            if self.handoff.blocks_input() {
                 return;
             }
             self.refresh_terminal_input();
@@ -183,10 +186,16 @@ impl EntityInputHandler for Smoke {
         cx: &mut Context<Self>,
     ) {
         if !self.active_focus().is_focused(window) {
+            if self.terminal.open {
+                self.terminal.input.reject_mark(text);
+                cx.notify();
+            }
             return;
         }
         if self.terminal.open {
-            if self.handoff.selection.is_some() || self.handoff.select_mode {
+            if self.handoff.blocks_input() {
+                self.terminal.input.reject_mark(text);
+                cx.notify();
                 return;
             }
             self.refresh_terminal_input();
