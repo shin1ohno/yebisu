@@ -73,8 +73,9 @@ impl Smoke {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let receipt = serde_json::json!({"kind":"terminal-input", "variant":match &event.event {
             sheprd_client::protocol::ClientPaneInputEvent::Paste(_) => "Paste",
-            sheprd_client::protocol::ClientPaneInputEvent::Key(_) => "Key",
-            _ => "TextCommit",
+            sheprd_client::protocol::ClientPaneInputEvent::Key { .. } => "Key",
+            sheprd_client::protocol::ClientPaneInputEvent::TextCommit(_) => "TextCommit",
+            sheprd_client::protocol::ClientPaneInputEvent::Mouse { .. } => "Mouse",
         }, "terminal":format!("{:?}",event.destination.target)});
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
