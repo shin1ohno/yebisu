@@ -46,6 +46,9 @@ impl Smoke {
         if case().is_empty() || self.menu_qa.capture.is_some() {
             return;
         }
+        #[cfg(not(test))]
+        let MenuToken::Native(token) = token;
+        #[cfg(test)]
         let token = match token {
             MenuToken::Native(token) => token,
             #[cfg(test)]
@@ -157,7 +160,7 @@ impl Smoke {
 
     fn sh1_152_mutate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match case().as_str() {
-            "E3a" | "E3i" => {
+            "E3a" | "E3i" | "E3a-core" => {
                 let result = if let Some(core) = &self.terminal.core {
                     self.terminal.input.detach();
                     core.send(crate::core::Command::Split)

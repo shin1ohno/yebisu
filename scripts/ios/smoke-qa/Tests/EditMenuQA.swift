@@ -21,6 +21,89 @@ final class EditMenuQA: XCTestCase {
         }
     }
 
+    func testSH1152Transitions() throws {
+        for name in ["E3a", "E3b", "E3c", "E3d", "E3e", "E3f-text", "E3f-key", "E3g-text", "E3g-key", "E3h", "E3i", "E3a-core"] {
+            let app = launch(name)
+            try tap("152 Begin", app)
+            sleep(2)
+            if name == "E3c" || name.hasPrefix("E3f") { try tap("152 Select", app); sleep(1) }
+            try menu(app, name)
+            if name == "E3d" {
+                XCUIDevice.shared.press(.home)
+                sleep(2)
+                app.activate()
+                sleep(4)
+            } else if name == "E3e" {
+                let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
+                let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                top.press(forDuration: 0.1, thenDragTo: bottom)
+                sleep(2)
+                bottom.press(forDuration: 0.1, thenDragTo: top)
+                sleep(2)
+            } else {
+                if name == "E3h" {
+                    print("SH1-152 HIDE KEYBOARD QUERY\n\(app.debugDescription)")
+                    let hide = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+                    if hide.exists && hide.isHittable { hide.tap(); sleep(1) }
+                    else { print("SH1-152 E3h keyboard hide key unavailable; independent switch inputs still recorded") }
+                }
+                try tap("152 Mutate", app)
+                sleep(2)
+                if name.hasPrefix("E3f") { try tap("152 Restore", app); sleep(2) }
+            }
+            try tap("152 Replay", app)
+            sleep(2)
+            try tap("152 End", app)
+            sleep(1)
+            save("stale-\(name)")
+            if name == "E3i" {
+                try tap("152 Fresh", app)
+                sleep(2)
+                // Keep the original owned configuration to ask for unrelated suggestions.
+                // The ordinary-command probe is performed before capturing a new token.
+                try menu(app, name)
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+                try tap("152 Ordinary", app)
+                sleep(2)
+                try tap("152 End", app)
+            }
+            try tap("152 Fresh", app)
+            sleep(2)
+            try menu(app, name)
+            app.menuItems["Paste"].tap()
+            sleep(2)
+            try tap("152 End", app)
+            sleep(1)
+            app.terminate()
+        }
+    }
+
+    func testSH1152DismissAndSystemEdit() throws {
+        for name in ["E4-text", "E4-key", "E7"] {
+            let app = launch(name)
+            try tap("152 Begin", app)
+            sleep(2)
+            try menu(app, name)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+            if name == "E7" {
+                let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
+                if edit.exists && edit.isHittable {
+                    edit.tap()
+                    sleep(1)
+                    XCTAssertTrue(app.menuItems["Paste"].exists)
+                    app.menuItems["Paste"].tap()
+                    print("SH1-152 E7 system Edit Paste selected")
+                } else { print("SH1-152 E7 unverified: system Edit not exposed; device item 9") }
+            } else {
+                app.typeText("x")
+            }
+            sleep(2)
+            try tap("152 End", app)
+            sleep(1)
+            app.terminate()
+        }
+    }
+
     private func launch(_ name: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
