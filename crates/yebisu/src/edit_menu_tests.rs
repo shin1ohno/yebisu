@@ -14,6 +14,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "edit_menu_overlay_tests.rs"]
+mod overlays;
+#[path = "edit_menu_state_tests.rs"]
+mod states;
+
 #[derive(Default)]
 struct Calls {
     availability: Option<Availability>,
