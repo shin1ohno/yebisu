@@ -32,7 +32,7 @@ macos-26 上で Xcode/SDK を記録し、repository の Rust pin と `aarch64-ap
 
 marketing version は Cargo version、`CFBundleVersion` は workflow run number です。1..9999 を許容し、10000 到達前には採番方式の変更が必要です。再実行は同じ build number なので、既に ASC が受理した run の再送は重複になります。新しい手動 run を開始してください。手動配布後も marketing version は同じまま新しい build number を付けられます。
 
-upload のツール受理と TestFlight 配達は別です。所有者が ASC の validation/processing、internal group の配達、iPad 上のインストール・上書き起動・設定と Keychain 資格情報の保持を確認します。AppIcon/Assets.car、配布用 SDK メタデータ、privacy/encryption 宣言を含む現行 Rust bundle の ASC 受理は、初回実アップロードで検証する必要があります。拒否された項目は bundle helper で修正します。CI 成功だけで TestFlight 配布完了とは報告しません。[Apple の upload 手順](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)と[外部テスターの審査手順](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/)を参照してください。
+upload のツール受理と TestFlight 配達は別です。所有者が ASC の validation/processing、internal group の配達、iPad 上のインストール・上書き起動・設定と Keychain 資格情報の保持を確認します。配布 build は `scripts/ios/icons.py` で不透明 RGB の Y アイコン（iPad 各サイズと1024px marketing）を生成し、`xcrun actool` で `Assets.car` と PNG を作り、生成された icon plist entries を bundle に統合します。package/upload は catalog・参照 PNG・plist entries の欠落を拒否します。macOS CI は実 actool の bundle と IPA を検査し、欠落の負例も確認します。AppIcon を含む完成 IPA、配布用 SDK メタデータ、privacy/encryption 宣言の ASC 受理は初回実アップロードで検証します。CI 成功だけで TestFlight 配布完了とは報告しません。[Apple の upload 手順](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)と[外部テスターの審査手順](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/)を参照してください。
 
 ## fork から再利用した部分
 

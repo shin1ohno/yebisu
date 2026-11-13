@@ -8,6 +8,8 @@ import plistlib
 import subprocess
 import tempfile
 import unittest
+import zipfile
+from distribution_fixtures import ICON_INFO, add_icons
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
@@ -30,7 +32,8 @@ class PackageTests(unittest.TestCase):
         (self.app / "fixture").write_bytes(b"original executable fixture")
         (self.app / "Info.plist").write_bytes(plistlib.dumps(dict(
             CFBundleIdentifier=d.BUNDLE, CFBundleSupportedPlatforms=["iPhoneOS"],
-            CFBundleExecutable="fixture", CFBundleVersion="1", CFBundleShortVersionString="1.0")))
+            CFBundleExecutable="fixture", CFBundleVersion="1", CFBundleShortVersionString="1.0", **ICON_INFO)))
+        add_icons(self.app)
         self.secret = self.root / "injected-fixture"
         self.secret.write_bytes(b"fixture bytes; no credentials")
         self.helper = Mock()
@@ -61,7 +64,10 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(plistlib.loads((staged / "Info.plist").read_bytes())["CFBundleVersion"], "2")
             self.assertEqual((staged / "embedded.mobileprovision").read_bytes(), self.secret.read_bytes())
         if argv[0] == "ditto":
-            Path(argv[-1]).write_bytes(b"signed fixture archive")
+            with zipfile.ZipFile(argv[-1], "w") as archive:
+                for file in Path(argv[-2]).rglob("*"):
+                    if file.is_file():
+                        archive.write(file, file.relative_to(Path(argv[-2]).parent))
             if self.collide:
                 self.args.output.write_bytes(b"other writer's output")
         return subprocess.CompletedProcess(argv, 0, stdout='"/fixture/login keychain-db"\n')
@@ -82,9 +88,28 @@ class PackageTests(unittest.TestCase):
         original = snapshot(self.app)
         self.package()
         self.assertEqual(snapshot(self.app), original)
-        self.assertEqual(self.args.output.read_bytes(), b"signed fixture archive")
+        self.assertEqual(d.ipa_metadata(self.args.output)["CFBundleVersion"], "2")
+        with zipfile.ZipFile(self.args.output) as archive:
+            self.assertIn("Payload/frozen-input.app/Assets.car", archive.namelist())
         self.assertEqual(self.args.output.stat().st_mode & 0o777, 0o600)
         self.assert_cleanup()
+
+    def test_iconless_bundle_is_rejected_before_signing(self):
+        for name in ('Assets.car', 'AppIcon76x76@2x~ipad.png'):
+            file = self.app / name
+            original = file.read_bytes()
+            file.unlink()
+            with self.subTest(missing=name), self.assertRaisesRegex(ValueError, 'AppIcon'):
+                self.package()
+            self.assertFalse(self.calls)
+            self.assertFalse(self.args.output.exists())
+            file.write_bytes(original)
+        info = plistlib.loads((self.app / 'Info.plist').read_bytes())
+        del info['CFBundleIcons~ipad']
+        (self.app / 'Info.plist').write_bytes(plistlib.dumps(info))
+        with self.assertRaisesRegex(ValueError, 'AppIcon'):
+            self.package()
+        self.assertFalse(self.calls)
 
     def test_failures_cleanup_and_do_not_publish_or_modify_source(self):
         original = snapshot(self.app)

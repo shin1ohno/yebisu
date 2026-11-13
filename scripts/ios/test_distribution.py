@@ -9,6 +9,7 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import Mock, patch
+from distribution_fixtures import ICON_INFO, add_icons
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
 d = importlib.util.module_from_spec(SPEC)
@@ -65,8 +66,10 @@ class DistributionTests(unittest.TestCase):
             result = subprocess.CompletedProcess([], 3, stdout=str(app) + "\n")
             with patch.dict(os.environ, {"CARGO_TARGET_DIR": temporary, "HERDR_IOS_TEAM": "UNWANTED"}), \
                     patch.object(sys, "argv", ["distribution.py", "build"]), \
-                    patch.object(subprocess, "run", return_value=result) as runner:
+                    patch.object(subprocess, "run", return_value=result) as runner, \
+                    patch.object(d, "load_helper") as icons:
                 self.assertEqual(d.main(), 0)
+                icons.return_value.compile_icons.assert_called_once_with(app)
                 command = runner.call_args.args[0]
                 self.assertEqual(command, ["bash", "scripts/ios/bundle.sh", "--package", "yebisu",
                     "--bin", "yebisu", "--target", "aarch64-apple-ios", "--release",
@@ -83,7 +86,8 @@ class DistributionTests(unittest.TestCase):
             (app / "fixture").write_bytes(b"fixture")
             (app / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": d.BUNDLE, "CFBundleSupportedPlatforms": ["iPhoneOS"],
-                "CFBundleExecutable": "fixture"}))
+                "CFBundleExecutable": "fixture", **ICON_INFO}))
+            add_icons(app)
             secret = root / "fixture-secret"
             secret.write_bytes(b"not a real credential")
             helper = Mock()
@@ -114,10 +118,6 @@ class DistributionTests(unittest.TestCase):
                                         "-s", "/fixture/login.keychain-db"])
             self.assertFalse(args.output.exists())
 
-    def test_missing_upload_credentials_exit_nonzero(self):
-        result = subprocess.run([sys.executable, str(Path(d.__file__)), "upload", "--ipa", "/nonexistent.ipa"], capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn(b"Upload accepted", result.stdout)
 
 
 if __name__ == "__main__":

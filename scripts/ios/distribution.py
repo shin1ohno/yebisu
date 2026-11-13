@@ -58,11 +58,15 @@ def distribution_entitlements(profile, method, helper):
     return derived
 
 
-def profile_helper():
-    spec = importlib.util.spec_from_file_location("ios_profile", ROOT / "scripts/ios/profile.py")
+def load_helper(filename):
+    spec = importlib.util.spec_from_file_location("ios_" + filename, ROOT / "scripts/ios" / filename)
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     return helper
+
+
+def profile_helper():
+    return load_helper("profile.py")
 
 
 def package(args):
@@ -87,6 +91,7 @@ def package(args):
         raise ValueError("bundle executable must be a local filename")
     if not (app / executable).is_file():
         raise ValueError("bundle executable is missing")
+    load_helper("icons.py").validate(info, {path.name for path in app.iterdir() if path.is_file()})
     helper = profile_helper()
     try:
         profile = helper.decode(profile_path)
@@ -159,6 +164,9 @@ def ipa_metadata(ipa):
             raise ValueError("IPA must have exactly one bounded top-level app Info.plist")
         with archive.open(candidates[0]) as stream:
             info = plistlib.loads(stream.read(1_048_577))
+        prefix = candidates[0].filename.removesuffix("Info.plist")
+        load_helper("icons.py").validate(info, {item.filename.removeprefix(prefix)
+            for item in archive.infolist() if item.file_size > 0 and item.filename.startswith(prefix)})
     if not isinstance(info, dict) or info.get("CFBundleIdentifier") != BUNDLE:
         raise ValueError("IPA bundle identity differs from the existing app")
     if info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
@@ -239,6 +247,7 @@ def main():
             app = Path(result.stdout.strip().splitlines()[-1])
             if not (app / "Info.plist").is_file():
                 raise ValueError("unsigned bundle output is missing")
+            load_helper("icons.py").compile_icons(app)
             print(app)
         elif args.stage == "package":
             package(args)

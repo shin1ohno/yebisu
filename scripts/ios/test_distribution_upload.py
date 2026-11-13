@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from distribution_fixtures import ICON_INFO, ICON_FILES
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
 d = importlib.util.module_from_spec(SPEC)
@@ -23,7 +24,7 @@ class UploadTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.ipa = self.root / "fixture package.ipa"
         self.info = dict(CFBundleIdentifier=d.BUNDLE, CFBundleSupportedPlatforms=["iPhoneOS"],
-                         CFBundleVersion="12.3", CFBundleShortVersionString="1.2.0")
+                         CFBundleVersion="12.3", CFBundleShortVersionString="1.2.0", **ICON_INFO)
         self.key = self.root / "injected key with spaces.p8"
         self.key.write_bytes(b"FIXTURE ONLY; NOT A PRIVATE KEY")
         self.env = dict(ASC_KEY_FILE=str(self.key), ASC_KEY_ID="FIXTUREKEY",
@@ -33,6 +34,8 @@ class UploadTests(unittest.TestCase):
     def write_ipa(self, info, extra=None):
         with zipfile.ZipFile(self.ipa, "w") as archive:
             archive.writestr("Payload/fixture.app/Info.plist", plistlib.dumps(info))
+            for name, content in ICON_FILES.items():
+                archive.writestr("Payload/fixture.app/" + name, content)
             if extra:
                 archive.writestr(extra, plistlib.dumps(info))
 
@@ -56,6 +59,29 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(list(self.root.rglob("*.p8")), [self.key])
         for flag in ("--file", "--type", "--apiKey", "--apiIssuer", "-t", "--apple-id", "--bundle-id", "--bundle-version", "--bundle-short-version-string"):
             self.assertNotIn(flag, argv)
+
+    def test_missing_upload_credentials_exit_nonzero(self):
+        # A structurally valid IPA gets past metadata and reaches credential validation.
+        self.assertEqual(d.ipa_metadata(self.ipa)['CFBundleVersion'], '12.3')
+        with patch.dict(os.environ, {}, clear=True), patch.object(d, 'run') as runner, \
+                patch('sys.argv', ['distribution.py', 'upload', '--ipa', str(self.ipa)]), \
+                contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(d.main(), 1)
+        self.assertIn('ASC_KEY_FILE must name an existing secret file', stderr.getvalue())
+        self.assertNotIn('IPA is missing', stderr.getvalue())
+        runner.assert_not_called()
+
+    def test_iconless_ipa_is_rejected_before_transport(self):
+        for missing in ICON_FILES:
+            with zipfile.ZipFile(self.ipa, 'w') as archive:
+                archive.writestr('Payload/fixture.app/Info.plist', plistlib.dumps(self.info))
+                for name, content in ICON_FILES.items():
+                    if name != missing:
+                        archive.writestr('Payload/fixture.app/' + name, content)
+            with self.subTest(missing=missing), patch.object(d, 'run') as runner:
+                with self.assertRaisesRegex(ValueError, 'AppIcon'):
+                    d.upload_ipa(self.ipa)
+                runner.assert_not_called()
 
     def test_optional_provider_and_invalid_auth_metadata(self):
         provider = "11111111-1111-1111-1111-111111111111"
