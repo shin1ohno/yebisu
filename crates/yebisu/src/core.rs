@@ -1,5 +1,7 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
+pub(crate) mod publication_probe;
+#[cfg(test)]
 mod regression_tests;
 mod screen;
 mod store;
@@ -23,6 +25,10 @@ pub(crate) enum Command {
     Orientation,
     #[cfg(test)]
     PauseInput(crate::handoff::PublicationGate),
+    #[cfg(test)]
+    ArmPublicationProbe(Box<publication_probe::AfterCompare>),
+    #[cfg(test)]
+    FinishPublicationProbe(publication_probe::Key, SyncSender<publication_probe::Key>),
 }
 
 pub(super) struct Queued {
@@ -100,6 +106,10 @@ impl Session {
     // require an SDK writer fence and are not claimed cancelled by this epoch.
     pub fn invalidate_input(&self) {
         self.input_epoch.fetch_add(1, Ordering::AcqRel);
+    }
+    #[cfg(test)]
+    pub(crate) fn probe_input_epoch(&self) -> u64 {
+        self.input_epoch.load(Ordering::Acquire)
     }
     pub fn send(&self, command: Command) -> crate::Result<()> {
         self.queue

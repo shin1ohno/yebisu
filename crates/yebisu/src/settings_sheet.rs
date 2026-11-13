@@ -100,3 +100,6 @@ mod qa;
 mod preflight_tests;
 #[cfg(test)]
 mod publication_tests;
+
+#[cfg(test)]
+mod publication_reproducers;
