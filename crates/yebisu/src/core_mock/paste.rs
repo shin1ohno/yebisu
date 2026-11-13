@@ -11,6 +11,7 @@ use std::{
 pub(crate) struct Probe {
     pub state: Arc<Mutex<State>>,
     pub closed: Arc<AtomicBool>,
+    pub eof: Arc<AtomicBool>,
     pub close: Arc<AtomicBool>,
     pub end: Arc<AtomicBool>,
     pub advertise: bool,
@@ -24,6 +25,7 @@ impl Default for Probe {
         Self {
             state: Arc::default(),
             closed: Arc::default(),
+            eof: Arc::default(),
             close: Arc::default(),
             end: Arc::default(),
             advertise: true,

@@ -151,8 +151,10 @@ fn host_paths_and_bracketed_paste_reach_the_expected_terminal(cx: &mut TestAppCo
             &format!("/{}", "a".repeat(3999)),
         ] {
             let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-            let mut probe = Probe::default();
-            probe.bracketed = bracketed;
+            let probe = Probe {
+                bracketed,
+                ..Default::default()
+            };
             probe
                 .lock()
                 .replies

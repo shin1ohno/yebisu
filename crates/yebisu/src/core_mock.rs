@@ -40,7 +40,7 @@ impl Host {
     ) -> crate::Result<(CoreBackend, Receipts)> {
         #[cfg(test)]
         {
-            return self.with_transport(report_all, probe, None);
+            self.with_transport(report_all, probe, None)
         }
         #[cfg(not(test))]
         self.with_transport(report_all, probe)
@@ -123,6 +123,7 @@ impl Host {
                             Err(e) => return Err(e.into()),
                         };
                         if count == 0 {
+                            probe.eof.store(true, std::sync::atomic::Ordering::Release);
                             return Ok(());
                         }
                         decoder.push(&buffer[..count]);

@@ -124,7 +124,7 @@ fn cancellation_sources_fence_preparation_and_waiting_put(cx: &mut TestAppContex
 
 #[gpui::test]
 fn queued_cancel_preserves_already_released_keys_and_blocks_next_paste(cx: &mut TestAppContext) {
-    for mode in [0, 1, 4, 8] {
+    for mode in [0, 1, 2, 4] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         let probe = Probe::default();
         let control = Control::default();
@@ -327,5 +327,85 @@ fn two_hosts_and_detach_do_not_deliver_old_paths(cx: &mut TestAppContext) {
         connect(&view, cx, fresh.clone(), Control::default(), "first");
         assert!(inputs(&fresh).is_empty());
         assert!(inputs(&first).is_empty());
+    }
+}
+
+#[gpui::test]
+fn queued_host_switch_closes_old_connection_without_stale_input_or_completion(
+    cx: &mut TestAppContext,
+) {
+    for delayed_completion in [false, true] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let first = Probe::default();
+        let control = Control::default();
+        let hooks = Arc::new(TestHooks::default());
+        hooks.before_input.arm();
+        if delayed_completion {
+            hooks.notification.arm();
+        }
+        connect(&view, cx, first.clone(), control.clone(), "first-queued");
+        let finished = view.update(cx, |this, _| {
+            this.handoff.core_test = Some(hooks.clone());
+            this.terminal
+                .core
+                .as_ref()
+                .unwrap_or_else(|| panic!("session"))
+                .finished
+                .clone()
+        });
+        clipboard(cx, false);
+        start(&view, cx, true);
+        key(&view, cx, "old-one");
+        key(&view, cx, "old-two");
+        key(&view, cx, "old-three");
+        wait(&view, cx, |_| {
+            hooks.before_input.reached.load(Ordering::Acquire)
+        });
+        control.read.arm();
+        wait(&view, cx, |_| control.read.reached.load(Ordering::Acquire));
+        hooks.before_input.resume();
+        wait(&view, cx, |this| {
+            this.handoff
+                .core_ticket
+                .as_ref()
+                .and_then(|ticket| ticket.delivery())
+                == Some(sheprd_core_client::Delivery::Queued)
+        });
+        if !delayed_completion {
+            wait(&view, cx, |this| this.handoff.workers == 0);
+        }
+        let second = Probe::default();
+        connect(
+            &view,
+            cx,
+            second.clone(),
+            Control::default(),
+            "second-queued",
+        );
+        let (serial, generation) = view.update(cx, |this, _| {
+            (this.handoff.serial, this.terminal.link.generation)
+        });
+        // Observe the old Session worker's exit, so disconnect must precede
+        // the transport's resume instead of racing SDK queue drainage.
+        wait(&view, cx, |_| finished.load(Ordering::Acquire));
+        control.read.resume();
+        if delayed_completion {
+            hooks.notification.resume();
+        }
+        wait(&view, cx, |this| {
+            first.eof.load(Ordering::Acquire) && this.handoff.workers == 0
+        });
+        assert!(inputs(&first).is_empty());
+        assert!(inputs(&second).is_empty());
+        view.update(cx, |this, _| {
+            assert_eq!(this.handoff.serial, serial);
+            assert_eq!(this.terminal.link.generation, generation);
+            assert!(this.handoff.held.is_empty());
+            assert!(this.terminal.live.connected);
+            assert!(!this.handoff.preparing);
+        });
+        key(&view, cx, "fresh");
+        wait(&view, cx, |_| second.lock().inputs.len() == 1);
+        assert_eq!(inputs(&second), [b"fresh".to_vec()]);
     }
 }

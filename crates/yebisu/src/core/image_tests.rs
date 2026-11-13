@@ -215,8 +215,10 @@ fn refused_and_invalid_puts_release_slot_discard_keys_and_allow_new_paste(cx: &m
 fn optional_method_and_injected_busy_fail_without_retry(cx: &mut TestAppContext) {
     for mode in 0..3 {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        let mut probe = Probe::default();
-        probe.advertise = mode != 0;
+        let probe = Probe {
+            advertise: mode != 0,
+            ..Default::default()
+        };
         connect(&view, cx, probe.clone(), Control::default(), "busy");
         let hooks = Arc::new(TestHooks::default());
         hooks.put_busy.store(mode == 1, Ordering::Release);
