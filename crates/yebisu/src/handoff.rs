@@ -249,7 +249,7 @@ impl AsyncPublicationGate {
     }
 }
 #[cfg(test)]
-impl std::future::Future for AsyncPublicationGate {
+impl Future for AsyncPublicationGate {
     type Output = ();
     fn poll(
         self: std::pin::Pin<&mut Self>,
