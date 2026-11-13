@@ -19,6 +19,8 @@ pub(crate) struct Probe {
     pub spawn_address: Option<String>,
     #[cfg(test)]
     pub before_read: Arc<super::transport::Latch>,
+    #[cfg(test)]
+    pub replies_written: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Default for Probe {
     fn default() -> Self {
@@ -33,6 +35,8 @@ impl Default for Probe {
             spawn_address: None,
             #[cfg(test)]
             before_read: Arc::default(),
+            #[cfg(test)]
+            replies_written: Arc::default(),
         }
     }
 }

@@ -108,4 +108,5 @@ pub(crate) struct TestHooks {
     pub input_busy: std::sync::atomic::AtomicBool,
     pub before_input: crate::core_mock::transport::Latch,
     pub notification: crate::core_mock::transport::Latch,
+    pub ui_completion: crate::core_mock::transport::Latch,
 }

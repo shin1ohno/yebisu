@@ -20,7 +20,9 @@ pub(crate) fn outcome(
     PENDING.with(|pending| pending.borrow_mut().push(shared.clone()));
     let worker = shared.clone();
     std::thread::spawn(move || {
+        let hooks = ticket.test.clone();
         let result = crate::core_paste_view::await_outcome(receive, ticket, timeout);
+        hooks.ui_completion.pass();
         let mut shared = worker.lock().unwrap_or_else(|e| e.into_inner());
         shared.0 = Some(result);
     });

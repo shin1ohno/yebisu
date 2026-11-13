@@ -156,6 +156,58 @@ fn queued_cancel_preserves_already_released_keys_and_blocks_next_paste(cx: &mut 
     }
 }
 
+// Release the real old UI outcome only after the new connection is usable.
+fn assert_reconnected_after_old_completion(
+    view: &Entity<Smoke>,
+    cx: &mut TestAppContext,
+    old: &Probe,
+    hooks: &TestHooks,
+) {
+    wait(view, cx, |_| {
+        hooks.ui_completion.reached.load(Ordering::Acquire)
+    });
+    let new = Probe::default();
+    connect(view, cx, new.clone(), Control::default(), "fresh-session");
+    let (serial, generation, status) = view.update(cx, |this, _| {
+        assert_eq!(this.handoff.workers, 1);
+        assert!(this.handoff.held.is_empty());
+        assert!(!this.handoff.preparing);
+        assert!(this.terminal.live.connected);
+        (
+            this.handoff.serial,
+            this.terminal.link.generation,
+            this.terminal.live.status.clone(),
+        )
+    });
+    assert!(inputs(old).is_empty());
+    assert!(inputs(&new).is_empty());
+    hooks.ui_completion.resume();
+    wait(view, cx, |this| this.handoff.workers == 0);
+    view.update(cx, |this, _| {
+        assert_eq!(this.handoff.serial, serial, "old completion changed serial");
+        assert_eq!(this.terminal.link.generation, generation);
+        assert_eq!(
+            this.terminal.live.status, status,
+            "old completion changed new status"
+        );
+        assert!(this.handoff.held.is_empty());
+        assert!(!this.handoff.preparing);
+        assert!(this.terminal.live.connected);
+    });
+    assert!(inputs(old).is_empty());
+    assert!(inputs(&new).is_empty());
+    // Y29 cancelled via Select; leave that input-blocking mode explicitly.
+    view.update(cx, |this, _| {
+        if this.handoff.select_mode {
+            this.toggle_selection();
+        }
+    });
+    key(view, cx, "fresh");
+    wait(view, cx, |_| new.lock().inputs.len() == 1);
+    assert_eq!(inputs(&new), [b"fresh".to_vec()]);
+    assert!(inputs(old).is_empty());
+}
+
 #[gpui::test]
 fn partial_cancel_disconnects_and_finished_cancel_does_not_replay(cx: &mut TestAppContext) {
     for partial in [true, false] {
@@ -164,10 +216,17 @@ fn partial_cancel_disconnects_and_finished_cancel_does_not_replay(cx: &mut TestA
         let control = Control::default();
         let hooks = Arc::new(TestHooks::default());
         hooks.before_input.arm();
+        if partial {
+            hooks.ui_completion.arm();
+        }
         connect(&view, cx, probe.clone(), control.clone(), "cancel-host");
         view.update(cx, |this, _| this.handoff.core_test = Some(hooks.clone()));
         clipboard(cx, false);
         start(&view, cx, true);
+        if partial {
+            key(&view, cx, "old-one");
+            key(&view, cx, "old-two");
+        }
         wait(&view, cx, |_| {
             hooks.before_input.reached.load(Ordering::Acquire)
         });
@@ -189,9 +248,9 @@ fn partial_cancel_disconnects_and_finished_cancel_does_not_replay(cx: &mut TestA
         if partial {
             control.writing.resume();
             wait(&view, cx, |this| {
-                probe.closed.load(Ordering::Acquire) && this.handoff.workers == 0
+                probe.eof.load(Ordering::Acquire) && !this.terminal.live.connected
             });
-            assert!(inputs(&probe).is_empty());
+            assert_reconnected_after_old_completion(&view, cx, &probe, &hooks);
         } else {
             assert!(!probe.closed.load(Ordering::Acquire));
             assert_eq!(inputs(&probe).len(), 1);
@@ -205,16 +264,26 @@ fn inactive_continues_but_background_closes_even_across_response_race(cx: &mut T
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         let probe = Probe::default();
         let control = Control::default();
+        let hooks = Arc::new(TestHooks::default());
+        if mode != 0 {
+            hooks.ui_completion.arm();
+        }
         probe.lock().replies.push_back(None);
         connect(&view, cx, probe.clone(), control.clone(), "lifecycle");
+        view.update(cx, |this, _| this.handoff.core_test = Some(hooks.clone()));
         clipboard(cx, false);
         start(&view, cx, true);
+        if mode != 0 {
+            key(&view, cx, "old-one");
+            key(&view, cx, "old-two");
+        }
         wait(&view, cx, |_| probe.lock().puts.len() == 1);
         if mode == 2 {
             control.after_read.arm();
             release(&probe, 0);
             wait(&view, cx, |_| {
-                control.after_read.reached.load(Ordering::Acquire)
+                probe.replies_written.load(Ordering::Acquire) == 1
+                    && control.after_read.reached.load(Ordering::Acquire)
             });
         }
         view.update(cx, |this, cx| {
@@ -229,22 +298,27 @@ fn inactive_continues_but_background_closes_even_across_response_race(cx: &mut T
         });
         if mode == 2 {
             control.after_read.resume();
-        } else {
+        } else if mode == 0 {
             release(&probe, 0);
         }
-        wait(&view, cx, |this| this.handoff.workers == 0);
         if mode == 0 {
-            wait(&view, cx, |_| probe.lock().inputs.len() == 1);
+            wait(&view, cx, |this| {
+                this.handoff.workers == 0 && probe.lock().inputs.len() == 1
+            });
         } else {
-            wait(&view, cx, |_| probe.closed.load(Ordering::Acquire));
+            // Y26 leaves put pending; Y31 has already written and read its reply.
+            // Neither case may mistake a failed late response write for EOF.
+            wait(&view, cx, |_| probe.eof.load(Ordering::Acquire));
+            assert_eq!(
+                probe.replies_written.load(Ordering::Acquire),
+                usize::from(mode == 2)
+            );
             assert!(inputs(&probe).is_empty());
             view.update(cx, |this, cx| {
                 this.terminal.reconnect_pending = false;
                 this.lifecycle(Phase::Active, cx);
             });
-            let new = Probe::default();
-            connect(&view, cx, new.clone(), Control::default(), "fresh-session");
-            assert!(inputs(&new).is_empty());
+            assert_reconnected_after_old_completion(&view, cx, &probe, &hooks);
         }
     }
 }

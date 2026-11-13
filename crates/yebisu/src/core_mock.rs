@@ -103,6 +103,10 @@ impl Host {
                         for (index, receipt) in released {
                             if let Some(request) = pending.remove(&index) {
                                 send_put_reply(&mut server, &request, receipt)?;
+                                #[cfg(test)]
+                                probe
+                                    .replies_written
+                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
                             }
                         }
                         #[cfg(test)]
@@ -188,7 +192,13 @@ impl Host {
                         #[cfg(all(target_os = "ios", target_abi = "sim"))]
                         record_put(&request, bytes.len());
                         match reply {
-                            Some(reply) => send_put_reply(&mut server, &request, reply)?,
+                            Some(reply) => {
+                                send_put_reply(&mut server, &request, reply)?;
+                                #[cfg(test)]
+                                probe
+                                    .replies_written
+                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                            }
                             None => {
                                 pending.insert(index, request);
                             }
