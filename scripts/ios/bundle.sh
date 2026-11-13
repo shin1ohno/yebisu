@@ -211,7 +211,7 @@ if [[ -n $provenance ]]; then
 else
   work=$(mktemp -d "${YEBISU_BUNDLE_TEMP_ROOT:-/tmp}/herdr-ios-bundle.XXXXXX")
 fi
-trap 'rm -rf -- "$work"' EXIT
+if [[ -z $provenance ]]; then trap 'rm -rf -- "$work"' EXIT; fi
 signing=false
 if [[ $platform == iPhoneOS && (-n $team || -n $signing_profile) ]]; then
   signing=true
@@ -258,6 +258,11 @@ fi
 # a failing build. No second build is substituted for this transcript.
 cargo_messages=$work/cargo.jsonl
 if [[ -n $provenance ]]; then cargo_messages=$provenance/cargo.jsonl; fi
+if [[ -n $provenance ]]; then
+  cargo metadata --locked --format-version 1 --filter-platform "$target" \
+    "${manifest_args[@]}" ${feature_args[@]+"${feature_args[@]}"} >"$provenance/metadata.json"
+  python3 -I scripts/ios/bundle-provenance.py metadata --directory "$provenance"
+fi
 cargo "$cargo_subcommand" --locked --package "$package" --target "$target" \
   ${manifest_args[@]+"${manifest_args[@]}"} \
   "--$kind" "$name" ${profile_args[@]+"${profile_args[@]}"} \
@@ -294,6 +299,10 @@ if [[ -n $provenance ]]; then
   python3 -I scripts/ios/bundle-provenance.py artifact --directory "$provenance" --executable "$executable"
 fi
 app="${executable%/*}/$name.app"
+if [[ -n $provenance ]]; then
+  app="$provenance/$name.app"
+  if [[ -e $app ]]; then echo 'error: refuse run bundle reuse' >&2; exit 2; fi
+fi
 # The whole bundle is this script's own output, rebuilt from scratch so a
 # renamed executable leaves nothing stale behind.
 rm -rf "$app"

@@ -62,53 +62,7 @@ class ArtifactBinding(unittest.TestCase):
                 p.same_binary(original, other)
 
 
-class PhaseAdapter(unittest.TestCase):
-    def test_actual_json_file_copy_sign_install_binding_and_foreign_install(self):
-        # Executable bytes/UUID are controlled fixtures, not a Mach-O/runtime claim.
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            source, target, evidence = [root / name for name in ['source', 'target', 'evidence']]
-            evidence.mkdir()
-            main = source / 'crates/yebisu/src/main.rs'
-            main.parent.mkdir(parents=True)
-            main.write_text('fixture source')
-            executable = target / 'aarch64-apple-ios-sim/debug/yebisu'
-            executable.parent.mkdir(parents=True)
-            executable.write_bytes(b'compiled')
-            executable.with_suffix('.d').write_text(str(main) + ' ' + str(main.parent / 'p15_settings_view.rs'))
-            item = dict(reason='compiler-artifact', executable=str(executable),
-                        manifest_path=str(source / 'crates/yebisu/Cargo.toml'),
-                        package_id='path+' + (source / 'crates/yebisu').as_uri() + '#0.1.0',
-                        target=dict(name='yebisu', kind=['bin'], src_path=str(main)), profile=dict(test=False))
-            (evidence / 'cargo.jsonl').write_text(json.dumps(item) + '\n')
-            def cmd(*args):
-                return 'f' * 40 if args[-2:] == ('rev-parse', 'HEAD') else ''
-            def phase(name, *args):
-                with patch('sys.argv', ['provenance', name, '--directory', str(evidence), *args]):
-                    p.main()
-            with patch.dict(os.environ, YEBISU_OWN_ROOT=str(root), CARGO_TARGET_DIR=str(target), YEBISU_EXPECTED_HEAD='f'*40), \
-                 patch.object(p, 'command', side_effect=cmd), \
-                 patch.object(p.subprocess, 'check_output', return_value=b'crates/yebisu/src/main.rs\0'), \
-                 patch.object(p, 'uuids', return_value=dict(raw='fixture UUID', values=[['UUID', 'arm64']])):
-                phase('init', '--source', str(source))
-                phase('artifact', '--executable', str(executable))
-                app = executable.parent / 'yebisu.app'
-                app.mkdir()
-                shutil.copyfile(executable, app / 'yebisu')
-                phase('copy', '--app', str(app))
-                (app / 'yebisu').write_bytes(b'signed fixture')
-                phase('signed', '--app', str(app))
-                installed = root / 'installed.app'
-                shutil.copytree(app, installed)
-                phase('installed', '--app', str(installed), '--device', 'leased-fixture-uuid')
-                data = json.loads((evidence / 'binding.json').read_text())
-                self.assertEqual(data['phases'], ['init', 'artifact', 'copy', 'signed', 'installed'])
-                self.assertEqual(data['compiler_artifact'], item)
-                self.assertEqual(data['installed']['sha256'], p.digest(installed / 'yebisu'))
-                (installed / 'yebisu').write_bytes(b'foreign build')
-                with self.assertRaisesRegex(ValueError, 'hash/UUID'):
-                    phase('installed', '--app', str(installed), '--device', 'leased-fixture-uuid')
-
+# The full adapter fixture is in test_provenance_chain.py.
 
 if __name__ == '__main__':
     unittest.main()

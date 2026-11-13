@@ -2,12 +2,33 @@
 """Opt-in Simulator provenance. Never builds, installs, signs or acquires keys."""
 import argparse
 import hashlib
+import importlib.util
+import shutil
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 from urllib.parse import unquote, urlparse
+
+
+def sibling(name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+macho = sibling('macho_identity')
+compiler = sibling('compiler_inputs')
+session = sibling('provenance_session')
+
+
+def bundle_files(app):
+    paths = list(app.rglob('*'))
+    if any(p.is_symlink() or not (p.is_file() or p.is_dir()) for p in paths):
+        raise ValueError('bundle symlink/special file rejected')
+    return {str(p.relative_to(app)): digest(p) for p in paths if p.is_file()}
 
 
 def digest(path):
@@ -35,7 +56,7 @@ def uuids(path):
 
 def identity(path):
     path = Path(path).resolve(strict=True)
-    return dict(path=str(path), sha256=digest(path), size=path.stat().st_size, uuid=uuids(path))
+    return dict(path=str(path), sha256=digest(path), size=path.stat().st_size, uuid=uuids(path), code=macho.code_identity(path.read_bytes()))
 
 
 def same_binary(left, right):
@@ -67,7 +88,7 @@ def select_artifact(messages, source, target_root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["init", "artifact", "copy", "signed", "installed"])
+    parser.add_argument("phase", choices=["init", "metadata", "artifact", "copy", "signed", "preinstall", "installed"])
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--executable", type=Path)
@@ -76,6 +97,7 @@ def main():
     args = parser.parse_args()
     directory = args.directory.resolve(strict=True)
     receipt = directory / "binding.json"
+    session.require_owner(directory)
     if args.phase == "init":
         if receipt.exists():
             raise ValueError("refuse to overwrite a prior build binding")
@@ -97,49 +119,74 @@ def main():
     else:
         data = json.loads(receipt.read_text())
         root, source = Path(data["own_root"]), Path(data["source"])
+        phases = ['init', 'metadata', 'artifact', 'copy', 'signed', 'preinstall', 'installed']
+        if data['phases'] != phases[:phases.index(args.phase)]:
+            raise ValueError('invalid provenance phase order')
+        compiler.unchanged(data.get('packages', {}), data.get('compiler_inputs', []))
         inside(directory, root)
         if any(digest(source / p) != sha for p, sha in data["inputs"].items()):
             raise ValueError("source changed during bundle/install")
-        if args.phase == "artifact":
+        if args.phase == 'metadata':
+            raw = directory / 'metadata.json'
+            metadata = json.loads(raw.read_text())
+            data.update(metadata_sha256=digest(raw), packages=compiler.metadata_snapshot(metadata, source))
+        elif args.phase == "artifact":
             raw = directory / "cargo.jsonl"
             messages = [json.loads(line) for line in raw.read_text().splitlines() if line.startswith('{')]
             item, executable = select_artifact(messages, source, Path(data["target"]))
             if executable != args.executable.resolve(strict=True):
                 raise ValueError("bundle selected another executable")
-            depfile = executable.with_suffix('.d')
-            deps = depfile.read_text().replace('\\ ', ' ')
-            for relative in ["crates/yebisu/src/main.rs", "crates/yebisu/src/p15_settings_view.rs"]:
-                if str(source / relative) not in deps:
-                    raise ValueError("depfile lacks this checkout's source")
-            (directory / "app.d").write_bytes(depfile.read_bytes())
+            metadata = json.loads((directory / 'metadata.json').read_text())
+            if digest(directory / 'metadata.json') != data['metadata_sha256']:
+                raise ValueError('metadata changed after snapshot')
+            records = compiler.validate_artifacts(messages, metadata, data['packages'], source,
+                                                   Path(data['target']), directory)
+            compiled = identity(executable)
+            shutil.copyfile(executable, directory / 'unsigned.macho')
+            same_binary(compiled, identity(directory / 'unsigned.macho'))
             data.update(compiler_artifact=item, cargo_json_sha256=digest(raw),
-                        depfile=dict(path=str(depfile), sha256=digest(depfile)), compiled=identity(executable))
+                        compiler_inputs=records, compiled=compiled)
         elif args.phase == "copy":
-            app = inside(args.app, data["target"])
+            app = inside(args.app, directory)
             copied = identity(app / "yebisu")
             same_binary(data["compiled"], copied)
             data.update(app=str(app), copied=copied)
         elif args.phase == "signed":
-            app = inside(args.app, data["target"])
+            app = inside(args.app, directory)
             if str(app) != data["app"]:
                 raise ValueError("signed another bundle")
             signed = identity(app / "yebisu")
-            if data["copied"]["uuid"]["values"] != signed["uuid"]["values"]:
-                raise ValueError("signing changed Mach-O UUID")
-            data.update(signed=signed, bundle_files={str(p.relative_to(app)): digest(p)
-                        for p in app.rglob('*') if p.is_file()})
+            same_binary(data['compiled'], identity(directory / 'unsigned.macho'))
+            macho.same_code(data['compiled']['code'], signed['code'])
+            shutil.copyfile(app / 'yebisu', directory / 'signed.macho')
+            same_binary(signed, identity(directory / 'signed.macho'))
+            data.update(signed=signed, bundle_files=bundle_files(app))
+        elif args.phase == 'preinstall':
+            app = inside(args.app, directory)
+            if str(app) != data['app']:
+                raise ValueError('install requested another bundle')
+            same_binary(data['signed'], identity(app / 'yebisu'))
+            if bundle_files(app) != data['bundle_files']:
+                raise ValueError('bundle changed before install')
         else:
             if not args.device:
                 raise ValueError("installed binding requires leased device UUID")
             app = args.app.resolve(strict=True)
             installed = identity(app / "yebisu")
             same_binary(data["signed"], installed)
-            for name, sha in data["bundle_files"].items():
-                if digest(app / name) != sha:
-                    raise ValueError("installed bundle content mismatch")
+            owner = json.loads((directory / 'owner.json').read_text())
+            if args.device != owner['device']:
+                raise ValueError('installed device differs from lease')
+            same_binary(data['signed'], identity(Path(data['app']) / 'yebisu'))
+            if bundle_files(app) != data['bundle_files'] or bundle_files(Path(data['app'])) != data['bundle_files']:
+                raise ValueError('installed bundle content mismatch')
+            shutil.copyfile(app / 'yebisu', directory / 'installed.macho')
+            same_binary(installed, identity(directory / 'installed.macho'))
             data.update(installed=installed, device=args.device)
     data["phases"].append(args.phase)
-    receipt.write_text(json.dumps(data, indent=2) + '\n')
+    pending = directory / 'binding.pending'
+    pending.write_text(json.dumps(data, indent=2) + '\n')
+    pending.replace(receipt)
 
 
 if __name__ == "__main__":
