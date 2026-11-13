@@ -98,12 +98,17 @@ class UploadTests(unittest.TestCase):
 
     def test_invalid_package_never_reaches_transport(self):
         for update in [dict(CFBundleIdentifier="other.app"), dict(CFBundleVersion=""),
-                dict(CFBundleShortVersionString="1; shell"), dict(CFBundleSupportedPlatforms=["iPhoneSimulator"])]:
+                dict(CFBundleShortVersionString="1; shell"), dict(CFBundleSupportedPlatforms=["iPhoneSimulator"]),
+                {"CFBundleIcons~ipad": None}, {"CFBundleIcons~ipad": {"CFBundlePrimaryIcon": []}},
+                {"CFBundleIcons~ipad": {"CFBundlePrimaryIcon": {"CFBundleIconName": "AppIcon", "CFBundleIconFiles": "icon"}}}]:
             self.write_ipa(dict(self.info, **update))
             with self.subTest(update=update), patch.dict(os.environ, self.env, clear=True), patch.object(d, "run") as run:
                 with self.assertRaises(ValueError):
                     d.upload_ipa(self.ipa)
                 run.assert_not_called()
+        self.write_ipa(["invalid plist root"])
+        with self.assertRaises(ValueError):
+            d.ipa_metadata(self.ipa)
         self.write_ipa(self.info, "Payload/second.app/Info.plist")
         with self.assertRaises(ValueError):
             d.ipa_metadata(self.ipa)

@@ -47,11 +47,17 @@ def catalog(root):
 
 
 def icon_files(info):
+    if not isinstance(info, dict):
+        raise ValueError('compiled AppIcon plist must be a dictionary')
     files = []
     for key in ('CFBundleIcons', 'CFBundleIcons~ipad'):
-        primary = info.get(key, {}).get('CFBundlePrimaryIcon', {})
-        if primary.get('CFBundleIconName') == 'AppIcon':
-            files.extend(primary.get('CFBundleIconFiles', []))
+        group = info.get(key, {})
+        primary = group.get('CFBundlePrimaryIcon', {}) if isinstance(group, dict) else {}
+        if isinstance(primary, dict) and primary.get('CFBundleIconName') == 'AppIcon':
+            entries = primary.get('CFBundleIconFiles', [])
+            if not isinstance(entries, list):
+                raise ValueError('compiled AppIcon file entries must be a list')
+            files.extend(entries)
     if not files or any(not isinstance(name, str) or Path(name).name != name for name in files):
         raise ValueError('compiled AppIcon plist entries are missing')
     return files
