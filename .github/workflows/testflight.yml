@@ -48,10 +48,12 @@ jobs:
           grep -q -- '--p8-file-path' "$RUNNER_TEMP/altool-upload-help.txt"
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install just
+        run: brew install just
       - name: Fetch
-        run: python3 scripts/guarded.py cargo fetch --locked
+        run: just guarded cargo fetch --locked
       - name: Build release device bundle
-        run: python3 scripts/guarded.py python3 -I -B scripts/ios/distribution.py build
+        run: just guarded python3 -I -B scripts/ios/distribution.py build
       - name: Sign and package for TestFlight
         env:
           IOS_P12_FILE: ${{ runner.temp }}/yebisu-testflight/distribution.p12
