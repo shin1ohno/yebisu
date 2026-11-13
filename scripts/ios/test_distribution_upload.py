@@ -99,7 +99,7 @@ class UploadTests(unittest.TestCase):
     def test_invalid_package_never_reaches_transport(self):
         for update in [dict(CFBundleIdentifier="other.app"), dict(CFBundleVersion=""),
                 dict(CFBundleShortVersionString="1; shell"), dict(CFBundleSupportedPlatforms=["iPhoneSimulator"]),
-                {"CFBundleIcons~ipad": None}, {"CFBundleIcons~ipad": {"CFBundlePrimaryIcon": []}},
+                {"CFBundleIcons~ipad": "invalid dictionary"}, {"CFBundleIcons~ipad": {"CFBundlePrimaryIcon": []}},
                 {"CFBundleIcons~ipad": {"CFBundlePrimaryIcon": {"CFBundleIconName": "AppIcon", "CFBundleIconFiles": "icon"}}}]:
             self.write_ipa(dict(self.info, **update))
             with self.subTest(update=update), patch.dict(os.environ, self.env, clear=True), patch.object(d, "run") as run:
