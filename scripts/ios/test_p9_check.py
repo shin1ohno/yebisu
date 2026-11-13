@@ -65,3 +65,22 @@ class ImageEvidenceTests(unittest.TestCase):
                 wire[3] = {"terminal": "t7"}
             with self.subTest(mode=mode), self.assertRaises(ValueError):
                 p9.validate_images(wire)
+
+
+class FailureEvidenceTests(unittest.TestCase):
+    def test_raw_receipts_survive_failed_native_attachment_export(self):
+        import subprocess
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = root / "evidence"
+            evidence.mkdir()
+            paints = root / "app.jsonl"
+            wire = root / "core.jsonl"
+            paints.write_text('{"kind":"p8-image-source","bytes":128}\n')
+            wire.write_text('{"method":"terminal.put","terminal":"t3","decoded":100}\n')
+            with patch.object(p9, "run", side_effect=subprocess.CalledProcessError(65, ["xcrun"])):
+                p9.collect_evidence(evidence, root / "failed.xcresult", paints, wire)
+            self.assertEqual((evidence / "paints.jsonl").read_bytes(), paints.read_bytes())
+            self.assertEqual((evidence / "wire.jsonl").read_bytes(), wire.read_bytes())

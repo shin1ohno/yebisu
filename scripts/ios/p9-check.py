@@ -74,6 +74,25 @@ def validate_images(wire):
     print("SH1-154 receiving-system PASS: three PNG puts, three escaped paths, one text paste", flush=True)
 
 
+def collect_evidence(directory, result, paints_path, wire_path):
+    # Preserve app-side evidence before CI deletes its disposable Simulator,
+    # including when XCTest fails before the validation/screenshot assertions.
+    for source, name in [(paints_path, "paints.jsonl"), (wire_path, "wire.jsonl")]:
+        if source.is_file():
+            shutil.copyfile(source, directory / name)
+    try:
+        export = directory / "attachments"
+        run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
+        for test in json.loads((export / "manifest.json").read_text()):
+            for attachment in test["attachments"]:
+                if attachment["suggestedHumanReadableName"].startswith("p9-reattached"):
+                    shutil.copyfile(export / attachment["exportedFileName"], directory / "screenshot.png")
+                if attachment["suggestedHumanReadableName"].startswith("sh154-core-image"):
+                    shutil.copyfile(export / attachment["exportedFileName"], directory / "sh154-core-image.png")
+    except subprocess.CalledProcessError as error:
+        print(f"P9 attachment export failed: {error}", flush=True)
+
+
 def main():
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
@@ -93,17 +112,12 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
     try:
-        run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
-            "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()", "-destination", "id=" + device,
-            "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
-        export = directory / "attachments"
-        run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
-        for test in json.loads((export / "manifest.json").read_text()):
-            for attachment in test["attachments"]:
-                if attachment["suggestedHumanReadableName"].startswith("p9-reattached"):
-                    shutil.copyfile(export / attachment["exportedFileName"], directory / "screenshot.png")
-                if attachment["suggestedHumanReadableName"].startswith("sh154-core-image"):
-                    shutil.copyfile(export / attachment["exportedFileName"], directory / "sh154-core-image.png")
+        try:
+            run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
+                "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()", "-destination", "id=" + device,
+                "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
+        finally:
+            collect_evidence(directory, result, paints_path, wire_path)
         if not (directory / "screenshot.png").is_file():
             raise ValueError("XCTest did not execute the P9 screenshot step")
         if not (directory / "sh154-core-image.png").is_file():

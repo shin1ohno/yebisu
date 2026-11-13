@@ -8,6 +8,7 @@ impl Smoke {
             match id {
                 "qa-text"=>cx.write_to_clipboard(ClipboardItem::new_string("P8-text-かな".into())),
                 "qa-image" | "qa-image-only"=> {
+                    this.handoff.qa_image_ready=false;
                     let work=cx.background_executor().spawn(async move {
                         let mut state=1u32;
                         let image=image::RgbaImage::from_fn(2200,2200,|_,_| {
@@ -24,6 +25,7 @@ impl Smoke {
                             if let Ok(bytes)=result {
                                 this.observation.record(serde_json::json!({"kind":"p8-image-source","bytes":bytes.len(),"width":2200,"height":2200}));
                                 seed_representation(&bytes, id == "qa-image-only");
+                                this.handoff.qa_image_ready=true;
                                 this.terminal.live.status="QA image ready".into(); cx.notify();
                             }
                         });
@@ -53,7 +55,7 @@ impl Smoke {
                 }, _=>{}
             }
             cx.notify();
-        })))).into_any_element())
+        })))).child(if self.handoff.qa_image_ready { "QA image ready" } else { "" }).into_any_element())
     }
 }
 

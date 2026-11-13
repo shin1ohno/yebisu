@@ -25,6 +25,8 @@ pub(crate) struct Stamp {
 }
 #[derive(Default)]
 pub(crate) struct Handoff {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub qa_image_ready: bool,
     #[cfg(test)]
     pub clipboard_reads: usize,
     #[cfg(test)]
