@@ -1,7 +1,10 @@
 # Shared P11/P15 compiler-to-install provenance, API 2
 
-Status: source candidate. Actual compiler, signing, installation and independent
-source admission remain UNRUN. Historical 808/d2bc/27-test records remain historical.
+Status: restricted source candidate, NOT admitted for native use or P11 adoption.
+Actual compiler, signing and installation remain UNRUN. Independent phase1 review
+blocks S3 at the P15 main caller's pre-admission mkdir/mkdtemp and I1 at the P11
+package's default TMPDIR fallback. Neither is corrected by this Mach-O change.
+Historical 808/d2bc/27-test records remain historical.
 This is a NEW helper API/blob set, not an unchanged808 transfer.
 
 Call `provenance_session.build_install(directory, source, device, bundle_args,
@@ -88,6 +91,31 @@ JSON/depfiles and rustc receipts remain in the run. Linker entitlements remain
 hashed and immutable through install. Native `codesign --verify --strict` remains
 mandatory. The existing nonzero-signature-tail pair is Unsupported, not native PASS;
 linker-to-first-sign evidence needs a separately authorized Mac lease.
+
+Mach-O identity schema `arm64-terminal-signature-v2` admits only thin little-endian
+ARM64 subtype0 MH_EXECUTE with the explicitly enumerated mapping, section and
+load-command forms in `macho_identity.py`. Every nonempty symbol/dyld/linkedit
+payload and relocation mode is Unsupported, even if its outer range is in bounds.
+Ordinary dynamic apps, including the retained real U1 pair, remain Unsupported.
+This is a deliberately restricted structural subset, not actual yebisu readiness.
+
+The terminal signature requires zero allocation tail, unique bounded slots, a
+v0x20400 ad-hoc SHA256 CodeDirectory with codeLimit64=0, exact code-slot coverage
+(page exponent0/12/14), and bounded identifier/hash arrays. Its executable segment
+must equal TEXT; only empty requirements and the specified entitlement/ad-hoc CMS
+metadata forms are admitted. Nonzero trailing padding is diagnosed before deferred
+header/segment/section/payload subset exclusions. No padding rule is relaxed.
+
+All bytes before the fixed signature offset remain hashed, including opaque
+LINKEDIT bytes, UUID, entry point, VM mappings and command strings. Incremental
+memoryview hashing virtually normalizes ONLY signature.datasize and LINKEDIT.filesize.
+The latter becomes signature_offset minus LINKEDIT.fileoff. File size is checked
+before reading (128MiB cap); command bytes/count, sections, signature bytes and slots
+are capped at1MiB/4096/16384/16MiB/64. This is an allocation contract, not measured RSS.
+Structural placeholder hashes in synthetic fixtures do not establish signature
+authenticity, security policy equivalence, deployed kernel/dyld compatibility,
+external dylib/OS identity or arbitrary code's behavior when reading its own file.
+Native strict verification and actual receiving evidence remain separate gates.
 
 P11 adoption: take the NEW frozen helper's nine paths only (five helper/producer
 files, three test files, this document). The self-contained package is based on

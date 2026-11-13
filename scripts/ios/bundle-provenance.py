@@ -58,7 +58,15 @@ def uuids(path):
 
 def identity(path):
     path = Path(path).resolve(strict=True)
-    return dict(path=str(path), sha256=digest(path), size=path.stat().st_size, uuid=uuids(path), code=macho.code_identity(path.read_bytes()))
+    size = path.stat().st_size
+    macho.check_file_size(size)  # Bound allocation before reading the executable.
+    with path.open('rb') as stream:
+        blob = stream.read(size)
+        if len(blob) != size or stream.read(1):
+            raise ValueError('Mach-O size changed during read')
+    code, sha256 = macho.code_identity(blob), hashlib.sha256(blob).hexdigest()
+    del blob
+    return dict(path=str(path), sha256=sha256, size=size, uuid=uuids(path), code=code)
 
 
 def same_binary(left, right):
