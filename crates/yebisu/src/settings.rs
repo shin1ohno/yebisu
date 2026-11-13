@@ -47,6 +47,12 @@ struct Edited {
     copy_on_select: bool,
 }
 
+enum EditIntent {
+    Snapshot,
+    Density,
+    FontFamily,
+}
+
 pub(crate) struct SettingsHost {
     pub keys: key_ops::Owner,
     pub draft: Values,
@@ -91,26 +97,37 @@ impl SettingsHost {
     }
 
     pub fn edit(&mut self, values: Values) {
-        self.edit_values(values, false);
+        self.edit_values(values, EditIntent::Snapshot);
     }
 
     // A density gesture resets both fields, even when the pending draft already
     // equals Regular. Polling snapshots must never acquire this explicit intent.
     pub(crate) fn edit_density(&mut self, values: Values) {
-        self.edit_values(values, true);
+        self.edit_values(values, EditIntent::Density);
     }
 
-    fn edit_values(&mut self, values: Values, density_selected: bool) {
+    // Selecting the displayed default before Loaded still overrides the disk family.
+    pub(crate) fn edit_font_family(&mut self, values: Values) {
+        self.edit_values(values, EditIntent::FontFamily);
+    }
+
+    fn edit_values(&mut self, values: Values, intent: EditIntent) {
         if let Err(error) = values.font.validate() {
             self.error = Some(error.to_string());
             return;
         }
-        let pending_density = density_selected && !self.loaded;
-        if pending_density {
-            self.edited_before_load.compact = true;
-            self.edited_before_load.font_size = true;
+        let pending_intent = !self.loaded && !matches!(intent, EditIntent::Snapshot);
+        if !self.loaded {
+            match intent {
+                EditIntent::Density => {
+                    self.edited_before_load.compact = true;
+                    self.edited_before_load.font_size = true;
+                }
+                EditIntent::FontFamily => self.edited_before_load.font_family = true,
+                EditIntent::Snapshot => {}
+            }
         }
-        if self.draft != values || pending_density {
+        if self.draft != values || pending_intent {
             if !self.loaded {
                 self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
                 self.edited_before_load.font_family |= self.draft.font.family != values.font.family;
@@ -277,3 +294,6 @@ mod selection_tests;
 
 #[cfg(test)]
 mod font_tests;
+
+#[cfg(test)]
+mod family_tests;

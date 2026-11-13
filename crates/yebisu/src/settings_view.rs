@@ -161,6 +161,19 @@ impl Smoke {
         self.apply_settings(values, cx);
     }
 
+    pub(crate) fn select_settings_font_family(
+        &mut self,
+        family: String,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let mut values = self.settings_values();
+        values.font.family = family;
+        if let Some(host) = &mut self.settings {
+            host.edit_font_family(values.clone());
+        }
+        self.apply_settings(values, cx);
+    }
+
     pub(crate) fn apply_settings(&mut self, values: Values, cx: &mut gpui::Context<Self>) {
         if self.settings.is_none() || values.font.validate().is_err() {
             return;

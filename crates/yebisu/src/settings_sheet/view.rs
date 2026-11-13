@@ -238,9 +238,7 @@ impl Smoke {
             view = view.child(
                 button(format!("font-family-{index}"), family.clone(), enabled).on_click(
                     cx.listener(move |this, _, _, cx| {
-                        let mut v = this.settings_values();
-                        v.font.family = family.clone();
-                        this.apply_settings(v, cx);
+                        this.select_settings_font_family(family.clone(), cx);
                     }),
                 ),
             );

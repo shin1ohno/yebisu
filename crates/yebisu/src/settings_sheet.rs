@@ -37,9 +37,7 @@ impl Smoke {
             cx.spawn(async move |weak, cx| {
                 let fonts = work.await;
                 let _ = weak.update(cx, |this, cx| {
-                    this.settings_fonts = fonts;
-                    this.settings_fonts_loading = false;
-                    cx.notify();
+                    this.complete_settings_font_enumeration(fonts, cx);
                 });
             })
             .detach();
@@ -52,6 +50,16 @@ impl Smoke {
         self.handoff.select_mode = false;
         self.terminal.needs_focus = false;
         window.notify_text_input_changed(&self.terminal_focus);
+        cx.notify();
+    }
+
+    pub(crate) fn complete_settings_font_enumeration(
+        &mut self,
+        fonts: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_fonts = fonts;
+        self.settings_fonts_loading = false;
         cx.notify();
     }
 

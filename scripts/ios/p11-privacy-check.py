@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Aggregate actual native sinks; missing collection is a failure, never clean."""
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
 import re
 
-SECRETS = (b"FAKE_PUBLIC_KEY_SENTINEL", b"FAKE_PRIVATE_SENTINEL",
-           b"RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM", b"RkFLRV9QMl9RQQ==")
+# Finite fixture encodings, not a general secret detector. Keep both key classes
+# and the older injected QA blob under the same detector for every supplied sink.
+LITERAL_SENTINELS = (b"FAKE_PUBLIC_KEY_SENTINEL", b"FAKE_PRIVATE_SENTINEL", b"FAKE_P2_QA")
+SECRETS = tuple(value for literal in LITERAL_SENTINELS
+                for value in (literal, base64.b64encode(literal)))
 REQUIRED = {"observation", "diagnostics", "native_stderr", "runner_stdout"}
 
 def scan(sinks):

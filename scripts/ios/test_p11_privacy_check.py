@@ -14,10 +14,28 @@ class PrivacyOracle(unittest.TestCase):
                 "runner_stdout":b'P11 COMMAND native probe\n'}
     def test_controls(self):privacy.scan(self.fixture())
     def test_each_sink_and_encoded_key_negative(self):
-        for role in self.fixture():
-            for secret in privacy.SECRETS:
-                sinks=self.fixture();sinks[role]+=secret
-                with self.assertRaisesRegex(ValueError,"secret detected"):privacy.scan(sinks)
+        # Independent expected bytes: never derive witnesses from detector SECRETS.
+        witnesses = (b"FAKE_PUBLIC_KEY_SENTINEL", b"FAKE_PRIVATE_SENTINEL",
+                     b"RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM",
+                     b"RkFLRV9QUklWQVRFX1NFTlRJTkVM",
+                     b"FAKE_P2_QA", b"RkFLRV9QMl9RQQ==")
+        roles = (*self.fixture(), "native_stdout", "rotated_diagnostics", "guard", "peer")
+        for role in roles:
+            for secret in witnesses:
+                with self.subTest(role=role, secret=secret):
+                    sinks = self.fixture()
+                    # Valid JSONL even in structured sinks: syntax must not mask a miss.
+                    sinks[role] = sinks.get(role, b"nonsecret collection control\n") + json.dumps(
+                        {"fixture": secret.decode("ascii")}).encode() + b"\n"
+                    with self.assertRaisesRegex(ValueError, "^secret detected in " + role + "$" ):
+                        privacy.scan(sinks)
+
+    def test_additional_clean_sinks(self):
+        sinks = self.fixture()
+        sinks.update(native_stdout=b"capture positive\n", rotated_diagnostics=b'{"event":"startup"}\n',
+                     guard=b"disk guard positive\n", peer=b"peer transcript positive\n")
+        privacy.scan(sinks)
+
     def test_no_stderr_is_not_clean(self):
         sinks=self.fixture();del sinks['native_stderr']
         with self.assertRaisesRegex(ValueError,"missing required"):privacy.scan(sinks)
