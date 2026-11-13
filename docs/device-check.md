@@ -721,3 +721,23 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
 6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
+
+## SH1-152
+
+以下は owner が実機 iPad（M5）で行う12項目です。Simulator の成功では完了にしません。
+実施日、iPadOS、入力機器、Herdr 1/2、送信先と受信結果を PR に記録します。
+
+- [ ] 1. 指で500 ms長押ししたときの感触、メニュー位置、指による隠れ方、Pencil の挙動を確認します。
+- [ ] 2. トラックパッドの副ボタンでメニューが開き、主ボタンの長押し・ドラッグは従来の選択になることを確認します。
+- [ ] 3. Start: Drag と Start: Select / double tap の両方で、指の長押しが選択を作らず、1セルの選択が残らず、直後の入力が届くことを確認します。
+- [ ] 4. software / hardware keyboard の両方で、メニューの Paste は1回、キー入力は0件になることを確認します。Command→Control と terminal priority を両方有効にしても同じ結果を確認します。
+- [ ] 5. text clipboard の物理 Command-V は既定設定で Paste が1回、Command→Control と terminal priority を両方有効にすると Ctrl-V が届くことを確認します。image-only の仕様は SH1-154 の対象です。
+- [ ] 6. メニューを開いたまま選択解除、送信先変更、切断、background 遷移を行い、古い Copy/Paste が実行されないことを確認します。
+- [ ] 7. Stage Manager の2ウィンドウで、メニュー位置、Copy の選択、Paste の送信先が各ウィンドウに属することを確認します。
+- [ ] 8. 指ドラッグで選択が始まるかを記録します。始まらない場合は別 issue を起票します。確認と必要な issue 起票でこの項目は完了です。
+- [ ] 9. メニューバー Edit の Copy/Paste が従来どおり各1回動くことを確認します。Simulator E7 で UI に到達できなかった場合も、この項目で確認します。
+- [ ] 10. メニューを出したまま Control Center / Notification Center を開いて戻し、古い操作は0回、新しい長押しの操作は1回になることを確認します。inactive-only と Background を区別します。
+- [ ] 11. 設定シートなど端末に重なる UI の上では長押しが端末メニューを開かず、その UI の操作が残ることを確認します。
+- [ ] 12. software keyboard の隠すキーで最小化し、端末をタップして開き直します。restart 到達、acquire の実戻り値、guard 終了時の両 responder の所有状態を記録します。失敗入力が成立したときは古い Paste 0回・clipboard 不変、新しい長押しは1回です。入力を作れなかった場合は未検証とします。hardware keyboard の抜き差しで内部切り替えが成功する場合は、保持メニューが1回動くことも確認します。
+
+12項目が完了するまでは SH1-152 の実機受け入れを未完了とします。

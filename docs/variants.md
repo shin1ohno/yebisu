@@ -149,3 +149,39 @@ selection; Paste is enabled for a focused, ready destination when no paste worke
 is active, regardless of software/hardware keyboard mode. This is correctness
 state, not a new preference. Cut keeps D3 copy-only semantics and Select All
 remains unavailable because the terminal has no such operation.
+
+## SH1-152
+
+A claimed touch long press opens a native Copy/Paste menu without starting a
+selection or synthesizing a tap. A secondary mouse-button press opens the same
+menu; primary-button selection and dragging retain their existing behavior.
+Focus moves to the terminal before availability is published. Failed presentation
+still consumes the long press. Cancelled touches dismiss only their own ticket.
+
+The window keeps a ticket containing the SDK token, destination stamp and exact
+selection identity (frame allocation plus endpoints). Destination, selection,
+focus and active-state changes revoke that ticket. SDK revocation is checked
+before execution and every availability publication. Returning to an active
+window never revives an old ticket. Native commands without a menu token retain
+the existing Edit-menu path; physical Command-V continues through its separate
+Command-to-Control and terminal-priority settings.
+
+Overlays intersecting terminal geometry must either use `.occlude()` or wrap
+their content with `front_layer`. The latter registers Normal hitboxes every
+frame and rejects terminal long presses without blocking scroll propagation.
+It also prevents a fallback overlay tap from starting terminal selection.
+
+The baseline overlay survey found six syntax matches in four groups:
+
+| Group | Source | Handling |
+| --- | --- | --- |
+| Settings error banner | `app.rs` | Explicit occlusion and a registered front layer |
+| Input canvases on other screens | `app.rs`, `app_setup.rs` | Never layered over the terminal |
+| Smoke paint receipt canvas | `app.rs` | Drawing observation only; no input listener |
+| Settings sheet spike (two matches) | `settings_spike/sheet.rs` | Already occluded; `settings_spike.rs` confirms it is unmounted by `app::run` |
+
+The SDK preflight selected UICommand items and an empty UIMenu for a revoked
+owned configuration. Therefore S2c and E3i require zero children; UIAction S8 is
+not applicable. An unrelated configuration may retain the two ordinary suggested
+commands. Simulator tests and [device acceptance](device-check.md#sh1-152) remain
+separate evidence.

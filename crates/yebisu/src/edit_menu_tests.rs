@@ -26,6 +26,7 @@ struct Calls {
     dismissed: Vec<MenuToken>,
     fail: bool,
     revoked: bool,
+    receipts: Option<std::sync::mpsc::Receiver<sheprd_client::protocol::ClientMessage>>,
 }
 struct Recorder(Rc<RefCell<Calls>>);
 impl MenuPresenter for Recorder {
@@ -56,7 +57,10 @@ fn fixture(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext, R
         this.terminal.open = true;
         this.actions.board_hidden = true;
         let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, mock_peer::connect());
+        let (client, receipts) =
+            mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+        calls.borrow_mut().receipts = Some(receipts);
+        this.terminal.link.install(generation, Ok(client));
     });
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -83,6 +87,24 @@ fn fixture(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext, R
         });
     });
     cx.run_until_parked();
+    // Initial paint requests a real resize. Wait for its matching frame rather
+    // than treating the earlier handshake surface as input-ready.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        cx.run_until_parked();
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.refresh_terminal_input();
+            this.terminal.input.ready && this.terminal.geometry.grid.size.width > px(0.)
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "peer did not acknowledge painted size"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
     (view, cx, calls)
 }
 

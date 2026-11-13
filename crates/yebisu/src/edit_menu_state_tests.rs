@@ -61,12 +61,51 @@ fn h9_h10_every_consumer_revocation_rejects_before_clipboard_and_without_redraw(
 
 #[gpui::test]
 fn h11_dismissed_menu_leaves_regular_input_available(cx: &mut TestAppContext) {
-    let (view, cx, _) = fixture(cx);
+    let (view, cx, calls) = fixture(cx);
     let at = position(&view, cx);
     hold(cx, at);
     touch(cx, TouchPhase::Ended, at);
     cx.update(|window, cx| view.update(cx, |this, _| this.dismiss_edit_menu(window)));
     cx.simulate_input("x");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let received = loop {
+        cx.run_until_parked();
+        let messages: Vec<_> = calls
+            .borrow()
+            .receipts
+            .as_ref()
+            .unwrap_or_else(|| panic!("receipt channel"))
+            .try_iter()
+            .collect();
+        let events: Vec<_> = messages
+            .into_iter()
+            .filter_map(|m| match m {
+                sheprd_client::protocol::ClientMessage::ClientShellPaneInput {
+                    pane_id,
+                    events,
+                    ..
+                } => Some((pane_id, events)),
+                _ => None,
+            })
+            .collect();
+        if !events.is_empty() {
+            break events;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "ordinary input after menu dismissal was lost"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert_eq!(
+        received,
+        vec![(
+            "w1:p1".into(),
+            vec![sheprd_client::protocol::ClientPaneInputEvent::TextCommit(
+                "x".into()
+            )]
+        )]
+    );
     view.update(cx, |this, _| {
         assert!(this.handoff.selection.is_none());
         assert!(!this.handoff.select_mode);
