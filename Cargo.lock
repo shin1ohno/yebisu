@@ -2363,7 +2363,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=1748c77a5b7086998fd8c29caf3ecb711c1f7a2b#1748c77a5b7086998fd8c29caf3ecb711c1f7a2b"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=2dcd11a9f20762bb7070c3fdefb72d93ed952781#2dcd11a9f20762bb7070c3fdefb72d93ed952781"
 dependencies = [
  "anyhow",
  "block2",
@@ -6855,10 +6855,12 @@ checksum = "7a5a4b21e1a62b67a2970e6831bc091d7b87e119e7f9791aef9702e3bef04448"
 name = "yebisu"
 version = "0.1.0"
 dependencies = [
+ "dispatch2",
  "gpui-pre",
  "herdr-ssh",
  "herdr-uikit",
  "image",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-ui-kit",

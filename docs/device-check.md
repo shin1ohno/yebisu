@@ -721,3 +721,21 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
 6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
+
+## P11 settings owner acceptance
+
+After the exact-head native runner and independent source review, locally unlock
+and install through the existing `just ipad` workflow. On each supported window
+size, open Settings from Hosts and the terminal, scroll every page, edit font
+family/size, density, shortcut priority, board visibility and selection toggles;
+background/lock/relaunch immediately and compare restored consumers. Check
+native VoiceOver/FKA, keyboard Escape/focus return, floating keyboard and no
+terminal input while the sheet or confirmation is open. Simulator is not this proof.
+
+Compare both installed apps' signed entitlement groups. Record the old exact
+public blob before intentionally replacing the yebisu key. Cancel once, then
+confirm once, wait for worker termination, explicitly read/initialize current
+key, and install that exact new blob on an authorized disposable host. Confirm a
+fresh connection, back up and remove only the recorded old blob, confirm another
+fresh connection, and verify other app/device keys still work. No worker may
+perform these trust/keychain mutations. Record device/iPadOS, head and receipts.

@@ -1,5 +1,5 @@
 use super::{
-    Command,
+    Command, Queued,
     screen::{self, Screen},
     store,
 };
@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::Receiver,
     },
     time::Duration,
@@ -20,10 +20,11 @@ pub(super) fn run(
     host: String,
     generation: u64,
     inbox: &Arc<Mutex<Live>>,
-    stop: &AtomicBool,
-    commands: Receiver<Command>,
+    controls: (&AtomicBool, &AtomicU64),
+    commands: Receiver<Queued>,
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
+    let (stop, input_epoch) = controls;
     let storage = store::LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -59,6 +60,8 @@ pub(super) fn run(
     }
     store::save(root.as_deref(), &host, &saved)?;
     drop(storage);
+    #[cfg(test)]
+    let mut publication_probe: Option<Box<super::publication_probe::AfterCompare>> = None;
     while !stop.load(Ordering::Acquire) {
         let mut changed = false;
         let mut persist = false;
@@ -66,16 +69,44 @@ pub(super) fn run(
             if stop.load(Ordering::Acquire) {
                 return Ok(());
             }
-            match command {
+            let queued_epoch = command.input_epoch;
+            match command.command {
                 Command::Input(destination, event) => {
                     let current =
                         screen::publish(&screens, &saved, size, generation, revision, epoch);
-                    if !screens[saved.active].ended
+                    if queued_epoch == input_epoch.load(Ordering::Acquire)
+                        && !screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
                             == Some(&destination)
                     {
+                        #[cfg(test)]
+                        if let Some(probe) = publication_probe.take() {
+                            // Intentionally AFTER the successful comparison. This only
+                            // observes the existing race; it adds no cancellation check.
+                            probe.hold(&destination, &event, queued_epoch)?;
+                        }
                         terminals[saved.active].input(&event)?;
                     }
+                }
+                #[cfg(test)]
+                Command::PauseInput(gate) => gate.wait()?,
+                #[cfg(test)]
+                Command::ArmPublicationProbe(probe) => {
+                    if publication_probe.replace(probe).is_some() {
+                        return Err(crate::Error::CoreState);
+                    }
+                }
+                #[cfg(test)]
+                Command::FinishPublicationProbe(key, ack) => {
+                    if publication_probe.is_some() {
+                        return Err(crate::Error::CoreState);
+                    }
+                    // Fixture-only ordered RPC, followed by producer return. The
+                    // receiver still requires transport Drop + full EOF transcript.
+                    // A list reply alone is neither a writer fence nor a PTY drain.
+                    backend.core().list(true)?;
+                    ack.send(key).map_err(|_| crate::Error::CoreState)?;
+                    return Ok(());
                 }
                 Command::Resize(next) => {
                     size = next;

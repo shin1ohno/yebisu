@@ -4,7 +4,6 @@ use crate::Result;
 use crate::{
     Error,
     hosts::{Store, authentication_gate},
-    keys,
 };
 #[cfg(target_os = "ios")]
 use sheprd_client::ssh;
@@ -16,7 +15,6 @@ pub(crate) struct Setup {
     pub(crate) hosts: Vec<String>,
     pub(crate) status: String,
     pub(crate) target: String,
-    pub(crate) key_line: Option<String>,
     pub(crate) fingerprints: String,
     pub(crate) pending: Option<(String, NewHostKey)>,
 }
@@ -27,7 +25,6 @@ pub(crate) enum Job {
     Load,
     Save(String),
     SaveFailure,
-    Key,
     Scan(String),
     Trust(String, NewHostKey),
     Authenticate(String),
@@ -37,7 +34,6 @@ pub(crate) enum Job {
 pub(crate) enum Reply {
     Loaded(String, String),
     Hosts(crate::hosts::SavedHosts, String),
-    Key(String),
     Scanned(String, HostKeyScan, String),
     Saved(crate::hosts::SavedHosts, String),
     Authenticated(crate::hosts::SavedHosts, String),
@@ -80,11 +76,6 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             let store = store()?;
             store.save(&target)?;
             Ok(Reply::Hosts(store.load_hosts()?, String::new()))
-        }
-        Job::Key => {
-            let raw = ssh::authorized_key().map_err(map)?;
-            // No other path may display or copy the raw dependency comment.
-            Ok(Reply::Key(keys::authorized_line(&raw)?))
         }
         Job::Scan(target) => {
             let scan = ssh::scan_host_key(&target).map_err(map)?;
@@ -146,11 +137,6 @@ impl Setup {
                 self.apply(Ok(Reply::Loaded(hosts.selected, fingerprints)));
                 self.hosts = hosts.targets;
                 self.status = "Saved hosts loaded. Select a host or enter a new target.".into();
-            }
-            Ok(Reply::Key(line)) => {
-                self.key_line = Some(line);
-                self.status =
-                    "Copy this restricted public key to the host's authorized_keys.".into();
             }
             Ok(Reply::Scanned(target, scan, fingerprints)) => {
                 self.target = target.clone();

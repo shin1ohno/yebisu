@@ -37,13 +37,87 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    // SDK11 candidate source harness. UI waits never certify native completion;
+    // only the Rust state machine's actual callback/worker/peer receipts advance.
+    private func observerProbe(modal: Bool, drawing: Bool = false, disabled: Bool = false) throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launchEnvironment["YEBISU_P11_CAPTURE"] = "1"
+        app.launchEnvironment["YEBISU_P11_BINDING"] = "P11_BINDING_UNSET"
+        app.launchEnvironment[modal ? "YEBISU_P11_QA" : "YEBISU_NATIVE_QA"] = "1"
+        if drawing { app.launchEnvironment["YEBISU_P11_DRAWING"] = "1" }
+        if disabled { app.launchEnvironment["YEBISU_P11_OBSERVER_DISABLED"] = "1" }
+        app.launch()
+        sleep(3)
+        if modal {
+            try tapText("Settings", in: app)
+            try tapText("Larger", in: app)
+        }
+        let done = modal ? "Observer matrix collected" : "Native matrix collected"
+        var collected = false
+        for _ in 0..<160 {
+            if (try? tapText(done, in: app, tap: false)) != nil { collected = true; break }
+            try tapText(modal ? "Observer next" : "Native next", in: app)
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertTrue(collected, "Missing actual callback/worker/receiving completion")
+        save(modal ? "p11-observer-modal" : "p11-observer-positive")
+        if modal {
+            try tapText("Close", in: app)
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            app.terminate()
+            app.launch()
+            sleep(3)
+            save("p11-observer-relaunch")
+        }
+        app.terminate()
+        XCTAssertEqual(app.state, .notRunning)
+    }
+    func testP11ObserverText() throws { try observerProbe(modal: false) }
+    func testP11ObserverDrawing() throws { try observerProbe(modal: false, drawing: true) }
+    func testP11ObserverModal() throws { try observerProbe(modal: true) }
+    func testP11ObserverDisabled() throws { try observerProbe(modal: true, disabled: true) }
+
+    func testP11Settings() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_QA"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launch()
+        sleep(4)
+        try tapText("Settings", in: app)
+        sleep(1)
+        try tapText("Larger", in: app)
+        try tapText("Probe modal callbacks", in: app)
+        sleep(3)
+        save("p11-modal")
+        try tapText("Close", in: app)
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(1)
+        app.activate()
+        save("p11-font")
+        app.terminate()
+        app.launch()
+        sleep(4)
+        save("p11-relaunch")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP2KeysAndRestart() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         XCUIDevice.shared.orientation = .portrait
         app.activate()
         sleep(3)
         save("p2-initial")
-        try tapText("Create / show public key", in: app)
+        try tapText("QA injected key provider", in: app, tap: false)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-key")
         try tapText("Copy authorized_keys line", in: app)
@@ -55,9 +129,11 @@ final class SmokeQA: XCTestCase {
         app.activate()
         app.terminate()
         app.launchEnvironment["YEBISU_P2_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launch()
         sleep(3)
-        try tapText("Create / show public key", in: app)
+        try tapText("QA injected key provider", in: app, tap: false)
+        try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-restarted")
         XCTAssertEqual(app.state, .runningForeground)
@@ -513,7 +589,7 @@ final class SmokeQA: XCTestCase {
                 }
                 return
             }
-            print("OCR attempt \(attempt): \(candidates.map { $0.string })")
+            print("OCR attempt \(attempt): candidate count=\(candidates.count), text suppressed")
             sleep(1)
         }
         save("missing-control")

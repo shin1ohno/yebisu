@@ -19,14 +19,24 @@ impl Smoke {
                 } else {
                     root
                 };
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_P11_QA").is_some() {
+                    root.join("p11-qa")
+                } else {
+                    root
+                };
                 crate::settings::SettingsHost::open(root)
             }) {
-            Ok(host) => self.settings = Some(host),
+            Ok(host) => {
+                self.settings = Some(host);
+                let _ = self.key_provider_preflight("startup");
+            }
             Err(error) => self.update_settings_error(Some(error.to_string()), cx),
         }
     }
     pub(crate) fn settings_values(&self) -> Values {
         Values {
+            font: self.terminal.font.clone(),
             compact: self.terminal.compact,
             terminal_priority: self.actions.terminal_priority,
             board_hidden: self.actions.board_hidden,
@@ -40,8 +50,12 @@ impl Smoke {
             return;
         };
         host.edit(values);
+        if host.keys.poll(std::time::Instant::now()) {
+            cx.notify();
+        }
         if host.poll() {
-            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.observation.record(serde_json::json!({"kind":"settings-loaded", "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.terminal.font = host.draft.font.clone();
             self.terminal.compact = host.draft.compact;
             self.actions.terminal_priority = host.draft.terminal_priority;
             self.actions.board_hidden = host.draft.board_hidden;
@@ -73,5 +87,107 @@ impl Smoke {
             host.lifecycle(phase);
             self.observation.record(serde_json::json!({"kind":"settings-lifecycle", "phase":format!("{phase:?}"), "ready":host.ready()}));
         }
+    }
+}
+
+impl Smoke {
+    pub(crate) fn key_qa_required(&self) -> bool {
+        cfg!(test)
+            || (cfg!(all(target_os = "ios", target_abi = "sim"))
+                && std::env::vars_os().any(|(name, _)| {
+                    let name = name.to_string_lossy();
+                    name.starts_with("YEBISU_")
+                        && (name.ends_with("_QA") || name.ends_with("_OBSERVE"))
+                }))
+    }
+    pub(crate) fn key_provider_preflight(&self, phase: &'static str) -> bool {
+        if !self.key_qa_required() {
+            return true;
+        }
+        let injected = self.settings.as_ref().is_some_and(|h| h.keys.injected());
+        let admitted = self.observation.try_record(serde_json::json!({
+            "kind":"key-provider-preflight", "phase":phase, "injected":injected
+        }));
+        if admitted {
+            eprintln!("key-provider-preflight injected={injected}");
+        }
+        injected && admitted
+    }
+    pub(crate) fn key_qa_label(&self) -> Option<&'static str> {
+        (self.key_qa_required() && self.key_provider_preflight("view"))
+            .then_some("QA injected key provider")
+    }
+    pub(crate) fn copy_device_key(&self, cx: &mut gpui::Context<Self>) -> bool {
+        if !self.key_provider_preflight("copy") {
+            return false;
+        }
+        if let Some(line) = self.settings.as_ref().and_then(|h| h.keys.line()) {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(line.to_owned()));
+            return true;
+        }
+        false
+    }
+    pub(crate) fn confirm_device_key(
+        &mut self,
+        ticket: crate::settings::key_ops::Ticket,
+        visible: bool,
+    ) {
+        if self.key_provider_preflight("replace")
+            && let Some(host) = &mut self.settings
+        {
+            host.keys.confirm(ticket, visible, false);
+        }
+    }
+    pub(crate) fn read_device_key(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.key_provider_preflight("read") {
+            return;
+        }
+        if let Some(host) = &mut self.settings {
+            host.keys.read_or_initialize();
+        }
+        cx.notify();
+    }
+    pub(crate) fn select_settings_density(
+        &mut self,
+        density: crate::settings_pages::fonts::Density,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let mut values = self.settings_values();
+        density.apply(&mut values);
+        values.font.size = None;
+        if let Some(host) = &mut self.settings {
+            host.edit_density(values.clone());
+        }
+        self.apply_settings(values, cx);
+    }
+
+    pub(crate) fn select_settings_font_family(
+        &mut self,
+        family: String,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let mut values = self.settings_values();
+        values.font.family = family;
+        if let Some(host) = &mut self.settings {
+            host.edit_font_family(values.clone());
+        }
+        self.apply_settings(values, cx);
+    }
+
+    pub(crate) fn apply_settings(&mut self, values: Values, cx: &mut gpui::Context<Self>) {
+        if self.settings.is_none() || values.font.validate().is_err() {
+            return;
+        }
+        self.terminal.font = values.font.clone();
+        self.terminal.compact = values.compact;
+        self.actions.terminal_priority = values.terminal_priority;
+        self.actions.board_hidden = values.board_hidden;
+        self.handoff.drag_select = values.drag_select;
+        self.handoff.copy_on_select = values.copy_on_select;
+        if let Some(host) = &mut self.settings {
+            host.edit(values);
+            host.flush();
+        }
+        cx.notify();
     }
 }

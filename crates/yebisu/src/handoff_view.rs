@@ -6,7 +6,8 @@ use crate::{
 use gpui::{AnyElement, ClipboardItem, Context, Window, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn sync_handoff(&mut self) {
-        let stamp = if self.terminal.open
+        let stamp = if !self.settings_modal
+            && self.terminal.open
             && self.terminal.navigating.is_none()
             && !self.actions.palette
             && !self.terminal.reconnect.suspended
@@ -108,6 +109,8 @@ impl Smoke {
             self.handoff.clipboard_reads += 1;
         }
         let payload = crate::handoff_clipboard::read(image_only, cx);
+        #[cfg(test)]
+        let publication_gate = self.handoff.publication_gate.take();
         let work = cx
             .background_executor()
             .spawn(async move { payload.and_then(crate::handoff::prepare) });
@@ -129,6 +132,10 @@ impl Smoke {
                 // Publication may encode a large wire payload: never run on UI.
                 cx.background_executor()
                     .spawn(async move {
+                        // This seam is after UI stamp admission. The live target
+                        // check and SDK cancellation gate still run on release.
+                        #[cfg(test)]
+                        if let Some(gate) = publication_gate { gate.await; }
                         prepared.and_then(|p| {
                             let live = inbox
                                 .lock()
