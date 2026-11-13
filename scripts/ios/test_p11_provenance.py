@@ -10,7 +10,7 @@ RUN='f1c579db-a0d4-4c3f-a6b5-aa709ef3f908'
 class ProvenanceTests(unittest.TestCase):
     def test_owned_layout_and_inherited_output_rejection(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d);paths=p.layout(root,root/'target/p11-native'/HEAD/RUN,HEAD)
+            root=Path(d).resolve();paths=p.layout(root,root/'target/p11-native'/HEAD/RUN,HEAD)
             env=p.environment({'PATH':'/tools'},paths)
             self.assertEqual(env['TMPDIR'],str(paths['tmp']))
             for key in p.OVERRIDES | {'CARGO_BUILD_RUSTFLAGS','CARGO_BUILD_RUSTC_WRAPPER','CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER'}:
@@ -19,7 +19,7 @@ class ProvenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'checkout-owned'):p.layout(root,root/'shared'/RUN,HEAD)
     def test_symlink_and_reused_root_rejected(self):
         with tempfile.TemporaryDirectory() as d,tempfile.TemporaryDirectory() as other:
-            root=Path(d);(root/'target').symlink_to(other,target_is_directory=True)
+            root=Path(d).resolve();(root/'target').symlink_to(other,target_is_directory=True)
             with self.assertRaisesRegex(ValueError,'checkout-owned'):p.layout(root,root/'target/p11-native'/HEAD/RUN,HEAD)
             (root/'target').unlink();candidate=root/'target/p11-native'/HEAD/RUN;candidate.mkdir(parents=True)
             with self.assertRaisesRegex(ValueError,'fresh'):p.layout(root,candidate,HEAD)
