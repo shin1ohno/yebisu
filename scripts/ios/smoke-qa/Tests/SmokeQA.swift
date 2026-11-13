@@ -234,6 +234,9 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
         app.launch()
         sleep(3)
+        // Drag selection consumes the tap that must open native input here.
+        try tapText("Start: Drag", in: app)
+        try tapText("Start: Select / double tap", in: app, tap: false)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-native\n")
         try tapText("QA mark", in: app)
