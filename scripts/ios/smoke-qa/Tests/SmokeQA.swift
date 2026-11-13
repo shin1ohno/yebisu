@@ -258,6 +258,29 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH154CoreImage() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_CORE_QA"] = "1"
+        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launch()
+        try tapText("QA Image only", in: app, attempts: 15)
+        try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try tapText("Paste image", in: app)
+        try tapText("paste-0.png", in: app, tap: false, attempts: 30)
+        try tapText("Paste", in: app, excludingSuffix: " image")
+        try tapText("paste-1.png", in: app, tap: false, attempts: 30)
+        try tapText("QA Image", in: app, excludingSuffix: " only")
+        try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try tapText("Paste", in: app, excludingSuffix: " image")
+        sleep(1)
+        try tapText("Paste image", in: app)
+        try tapText("paste-2.png", in: app, tap: false, attempts: 30)
+        save("sh154-core-image")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP4Input() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -489,10 +512,10 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true) throws {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
-        for attempt in 0..<3 {
+        for attempt in 0..<attempts {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -506,6 +529,9 @@ final class SmokeQA: XCTestCase {
             for candidate in candidates {
                 guard let range = candidate.string.range(of: label),
                       let observation = try candidate.boundingBox(for: range) else { continue }
+                if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
+                    continue
+                }
                 let box = observation.boundingBox
                 print("OCR tap \(label) frame=\(app.frame) box=\(box)")
                 if tap {

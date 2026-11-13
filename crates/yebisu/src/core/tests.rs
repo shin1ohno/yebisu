@@ -218,8 +218,9 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                 let reads = this.handoff.clipboard_reads;
                 this.start_paste(true, cx);
                 assert_eq!(
-                    this.handoff.clipboard_reads, reads,
-                    "unsupported image must not be acquired"
+                    this.handoff.clipboard_reads,
+                    reads + 1,
+                    "image-only acquisition checks for an image even when only text is present"
                 );
                 // Fence all prior bytes with a final UIKit text commit.
                 this.replace_text_in_range(None, "END", window, cx);
