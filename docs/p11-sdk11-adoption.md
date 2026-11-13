@@ -5,17 +5,25 @@ admitted plan 0461ca658933341948bc47aa09fe5b1015fe6e1bb3d1be2f85a6f8623c6bf4d9,
 not the implementation. Dependency: herdr-uikit PR11 commit
 2dcd11a9f20762bb7070c3fdefb72d93ed952781, based on SDK8
 3e1d03c43965145f13860e8e344c27bf5b09521d. The old 944ff7e candidate received REQUEST_CHANGES B1/P2. Controller now
-authorizes this corrected provisional source pin; independent correction
-re-review and all actual target/native gates remain UNRUN. Do not merge SDK or treat this pin as
+authorizes this corrected provisional source pin. Independent source review
+61126e0212de42f9 found B1/P2 resolved in this correction; that review does not
+approve native behavior, consumer integration, or SDK merge. All actual
+target/native gates remain UNRUN. Do not merge SDK or treat this pin as
 proven. Revisions require a new exact-head review, not silent candidate drift.
 
-Consumer history merges only PR25 de65d2adcb7f77b9373c71f105c4621e1924954b
+Consumer history includes PR25 de65d2adcb7f77b9373c71f105c4621e1924954b
 (parent dc2511fe695935cdce60ba6bb3cfb4288a425778), retaining SH1-153 explicit
 edit availability, worker-slot notification, and regressions. Modal suppresses
-the production availability predicate. No P13/main sweep. Cargo.lock's SDK
+the production availability predicate. It also merges exact main
+aa457e9f0c06dbc706c64447cc3c4f839c3979f3 for PR34's raw-environment runner
+helper: only sim-runner-env.py, sim-runner.sh and test_sim_runner.py differ
+from the preceding consumer head. No P13 integration. Cargo.lock's SDK
 source locator and existing yebisu dependency list are edited to the exact
-candidate; dependency resolution and target compilation are UNRUN. No other
-SDK dependencies were moved.
+candidate. One `cargo metadata --locked --format-version 1 --all-features`
+resolved the exact SDK pin without changing the lock or dropping iOS/Simulator
+dependency edges. Target compilation remains UNRUN. No other SDK dependencies
+were moved. The four runner regression tests passed on Linux; this is not
+Mac or actual Simulator proof.
 
 ## Compile and runtime boundaries
 
