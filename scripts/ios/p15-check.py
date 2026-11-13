@@ -123,7 +123,7 @@ def main():
         out = Path(tempfile.mkdtemp(prefix="p15-", dir=evidence))
         provenance = out / "provenance"
         provenance.mkdir()
-        target = own / "target-cargo"
+        target = out / "cargo-target"
         target.mkdir(exist_ok=True)
         if not target.resolve().is_relative_to(own):
             raise ValueError("shared Cargo target symlink")
@@ -147,13 +147,17 @@ def main():
     original_run = run
     def run(*arguments, **kwargs):
         return original_run(*arguments, env=environment, **kwargs)
-    bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu")
     device = run("bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"').stdout.split()[0]
-    run("xcrun", "simctl", "install", device, bundle.stdout.strip().splitlines()[-1])
     if provenance:
-        installed = run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "app").stdout.strip()
-        run("python3", "-I", "scripts/ios/bundle-provenance.py", "installed",
-            "--directory", str(provenance), "--app", installed, "--device", device)
+        spec = importlib.util.spec_from_file_location('provenance_session', ROOT / 'scripts/ios/provenance_session.py')
+        session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(session)
+        binding = session.build_install(provenance, ROOT, device,
+                                        ['--package', 'yebisu', '--bin', 'yebisu'], environment)
+        installed = binding['installed']
+    else:
+        bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu")
+        run("xcrun", "simctl", "install", device, bundle.stdout.strip().splitlines()[-1])
     container = Path(run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data").stdout.strip())
     if provenance:
         (out / "execution-paths.json").write_text(json.dumps(dict(
