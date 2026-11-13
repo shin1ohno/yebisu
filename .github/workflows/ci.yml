@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Exact commit for SDK pin regression tests
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -57,7 +62,7 @@ jobs:
         run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
 
   edit-menu-preflight:
-    if: github.ref_name == 'test/native-edit-menu-preflight-sh1-177'
+    if: github.ref_name == 'test/native-edit-menu-preflight-sh1-177' && !inputs.target_ref
     runs-on: macos-26
     timeout-minutes: 40
     env:
@@ -101,4 +106,59 @@ jobs:
           name: edit-menu-preflight
           path: |
             target/ios-sh1-152-preflight/
+            target/disk.log
+
+  sdk-rev-regressions:
+    if: github.event_name == 'workflow_dispatch' && inputs.target_ref != ''
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Record tested source and install tools
+        run: |
+          git rev-parse HEAD
+          brew install just xcodegen
+          just guarded rustup show active-toolchain
+      - name: Run existing native editing and selection regressions
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('ci_smoke', Path('scripts/ios/ci-smoke.py'))
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json', 'devices', 'available'], text=True))['devices']
+          kind, runtime = module.select_template(devices)
+          device = subprocess.check_output(['xcrun', 'simctl', 'create', 'SDK pin regressions', kind, runtime], text=True).strip()
+          print('SDK REGRESSION device', device, runtime, flush=True)
+          try:
+              for script in ['sh1-153-check.py', 'p8-native-check.py', 'selection-settings-check.py']:
+                  subprocess.run(['just', 'guarded', 'python3', 'scripts/ios/' + script],
+                                 env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True)
+              subprocess.run(['git', 'diff', '--exit-code', '--', 'Cargo.toml', 'Cargo.lock'], check=True)
+          finally:
+              subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=False)
+              subprocess.run(['xcrun', 'simctl', 'delete', device], check=True)
+              print('SDK REGRESSION deleted', device, flush=True)
+          PY
+      - name: Upload receiving-system evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-rev-regressions
+          path: |
+            target/ios-sh1-153/
+            target/ios-p8-native/
+            target/ios-selection-settings/
             target/disk.log
