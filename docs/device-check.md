@@ -852,3 +852,19 @@ IME and Herdr protocol. Use an already authorized disposable terminal running
 8. Record each failed/unavailable row explicitly. Simulator native subset evidence
    does not replace these physical checks, and unsupported SDK contexts cannot
    be marked successful merely because their rejection preserved the fence.
+
+### SH1-156 evidence record for each physical sequence
+
+Before each sequence, clear the disposable receiver transcript and record the
+exact commit, keyboard/IME, protocol, Typing Clear/Keep highlight and report-all
+settings. Keep the terminal visible after the discard/reconnect/reattach; do not
+tap it, toggle input mode, or restart the app before entering the new marker.
+
+Record the first physical key separately from the full marker, the count of new
+commits at the receiver (expected one), and the count of discarded commits
+(expected zero). For identical old/new composition text, record the discard and
+new composition boundaries on video so one received copy is not misattributed.
+Save the receiver transcript and screenshot with the same sequence identifier.
+If the first key is lost, a tap is required, or retirement is refused, record
+FAIL and the visible status before performing any recovery. An unavailable
+physical sequence remains UNVERIFIED; a Simulator probe cannot fill its result.

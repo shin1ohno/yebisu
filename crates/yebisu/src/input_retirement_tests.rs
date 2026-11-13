@@ -29,7 +29,7 @@ fn retirement_rejects_each_changed_owner_and_newer_mark(cx: &mut TestAppContext)
                 5 => this.terminal.reconnect.suspended = true,
                 6 => this.terminal.core_mode = true,
                 _ => {
-                    this.terminal.input.destination = Some(crate::terminal_input::Destination {
+                    this.terminal.input.destination = Some(Destination {
                         generation: 1,
                         epoch: 1,
                         boot: "other".into(),
