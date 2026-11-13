@@ -106,3 +106,12 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu;
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu_gestures;
+#[cfg(test)]
+mod edit_menu_tests;
+#[cfg(any(target_os = "ios", test))]
+mod front_layer;

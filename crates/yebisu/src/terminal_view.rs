@@ -395,7 +395,22 @@ impl Smoke {
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                            this.selection_down(event, window, cx);
+                            if !this.front_layers.covers(event.position, window) {
+                                this.selection_down(event, window, cx);
+                            }
+                        }),
+                    )
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                            if !window.default_prevented()
+                                && this.terminal.geometry.contains(event.position)
+                                && !this.front_layers.covers(event.position, window)
+                            {
+                                this.present_edit_menu(event.position, window, cx);
+                                window.prevent_default();
+                                cx.stop_propagation();
+                            }
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))
@@ -407,7 +422,7 @@ impl Smoke {
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.selection_up(cx)),
                     )
-                    .child(canvas(|_, _, _| (), self.terminal_paint_callback(cx)).size_full()),
+                    .child(self.edit_menu_canvas(cx)),
             )
             .into_any_element()
     }
