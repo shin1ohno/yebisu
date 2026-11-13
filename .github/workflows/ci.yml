@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   simulator-smoke:
+    if: github.ref_name != 'test/native-edit-menu-preflight-sh1-177'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -31,6 +32,7 @@ jobs:
             target/ios-smoke/*/
             !target/ios-smoke/build/
   check:
+    if: github.ref_name != 'test/native-edit-menu-preflight-sh1-177'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -53,3 +55,50 @@ jobs:
       - name: Commit subjects
         if: github.event_name == 'pull_request'
         run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
+
+  edit-menu-preflight:
+    if: github.ref_name == 'test/native-edit-menu-preflight-sh1-177'
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: shin1ohno/herdr-uikit
+          ref: c5225b061627d221aa1c6e30e5c70baa3ceac7c7
+          path: sdk-probe
+          persist-credentials: false
+      - name: Install tools
+        run: |
+          brew install just xcodegen
+          just guarded rustup show active-toolchain
+      - name: Record source and apply uncommitted preflight patch
+        run: |
+          git rev-parse HEAD
+          git -C sdk-probe rev-parse HEAD
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          manifest = Path('Cargo.toml')
+          with manifest.open('a') as output:
+              output.write('\n[patch."https://github.com/shin1ohno/herdr-uikit"]\nherdr-uikit = { path = "sdk-probe" }\n')
+          PYCODE
+          just guarded cargo update -p herdr-uikit
+      - name: Check format and repository rules
+        run: just check
+      - name: Probe real Simulator menus
+        run: just guarded python3 scripts/ios/sh1-152-preflight.py
+      - name: Upload preflight observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edit-menu-preflight
+          path: |
+            target/ios-sh1-152-preflight/
+            target/disk.log

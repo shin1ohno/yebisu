@@ -15,6 +15,12 @@ impl Smoke {
                 .flex()
                 .gap_2()
                 .child(
+                    div().id("edit-probe").p_2().bg(rgb(0x3b4252)).child("Menu probe")
+                    .on_click(cx.listener(|this, _, _, _| {
+                        this.observation.record(serde_json::json!({"kind":"menu-preflight", "probe":menu_preflight()}));
+                    })),
+                )
+                .child(
                     div()
                         .id("edit-prepare")
                         .p_2()
@@ -154,5 +160,38 @@ fn probe_and_schedule(copy: bool) -> Option<serde_json::Value> {
         }
         Some(serde_json::json!({"enabled":enabled,"validated":validated,
             "responder":responder.class().name().to_string_lossy()}))
+    }
+}
+
+// Temporary P1-P4 preflight: call only the SDK's Simulator diagnostic selector.
+#[allow(
+    unsafe_code,
+    reason = "Simulator-only inspection of UIKit drawing view"
+)]
+fn menu_preflight() -> bool {
+    use objc2::{Message, class, msg_send, rc::Retained, runtime::AnyObject, sel};
+    use objc2_foundation::NSArray;
+    static PRESENT: AtomicUsize = AtomicUsize::new(0);
+    unsafe fn find(view: &AnyObject) -> Option<Retained<AnyObject>> {
+        unsafe {
+            let responds: bool = msg_send![view, respondsToSelector:sel!(sh1152ProbeEmpty:)];
+            if responds {
+                return Some(view.retain());
+            }
+            let children: Retained<NSArray<AnyObject>> = msg_send![view, subviews];
+            children.iter().find_map(|child| find(&child))
+        }
+    }
+    // SAFETY: traverse live UIView objects on the main thread and query before calling.
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+        let windows: Retained<NSArray<AnyObject>> = msg_send![app, windows];
+        if let Some(view) = windows.iter().find_map(|window| find(&window)) {
+            let empty = PRESENT.fetch_add(1, Ordering::Relaxed) % 2 == 1;
+            let _: () = msg_send![&*view, sh1152ProbeEmpty:empty];
+            true
+        } else {
+            false
+        }
     }
 }

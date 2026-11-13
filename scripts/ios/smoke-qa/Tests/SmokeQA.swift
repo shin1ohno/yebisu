@@ -63,6 +63,49 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1152Preflight() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_EDIT_MENU_QA"] = "1"
+        app.launchEnvironment["HERDR_EDIT_MENU_PROBE"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        for step in 0..<7 {
+            try tapText("Menu prepare", in: app)
+            sleep(2)
+            if step != 1 && step != 6 { continue }
+            try tapText("Menu select", in: app)
+            sleep(1)
+            for action in ["Paste", "Copy"] {
+                try tapText("Menu select", in: app)
+                sleep(1)
+                try tapText("Menu probe", in: app)
+                sleep(2)
+                print("SH1-152 P4 items step=\(step) action=\(action) count=\(app.menuItems.count) labels=\(app.menuItems.allElementsBoundByIndex.map { $0.label })")
+                print("SH1-152 P4 hierarchy\n\(app.debugDescription)")
+                save("sh1-152-items-\(step)-\(action)")
+                XCTAssertTrue(app.menuItems[action].exists, "Menu action must be actually visible")
+                app.menuItems[action].tap()
+                sleep(1)
+                try tapText("Menu probe", in: app)
+                sleep(2)
+                print("SH1-152 P4 empty step=\(step) count=\(app.menuItems.count) labels=\(app.menuItems.allElementsBoundByIndex.map { $0.label })")
+                save("sh1-152-empty-\(step)-\(action)")
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            }
+            let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
+            if edit.exists && edit.isHittable {
+                edit.tap()
+                sleep(1)
+                print("SH1-152 P2 hierarchy\n\(app.debugDescription)")
+                if app.menuItems["Paste"].exists { app.menuItems["Paste"].tap() }
+            } else { print("SH1-152 P2 menu bar unavailable in XCTest") }
+        }
+    }
+
     func testSH1153EditMenu() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
