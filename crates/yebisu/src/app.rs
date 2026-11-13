@@ -115,6 +115,8 @@ impl Render for Smoke {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_tick(window, cx);
         let screen = self.render_screen(window, cx);
+        #[cfg(target_os = "ios")]
+        self.publish_native_edits(window);
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()
             .relative()

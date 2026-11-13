@@ -176,6 +176,10 @@ fn serve(
         // Ingress is evidence even if parsing, the gate or a response fails.
         record(&message, transport, sequence)?;
         let _ = receipts.send(message.clone());
+        // Quiet fixtures must not mask missing UI invalidation with geometry responses.
+        if fault == "quiet" {
+            continue;
+        }
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
@@ -343,6 +347,11 @@ fn serve(
 pub(crate) fn connect() -> crate::Result<Client> {
     connect_burst(1)
 }
+#[cfg(test)]
+pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "quiet")
+}
+
 pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
     connect_recorded(frames).map(|(client, _)| client)
 }
