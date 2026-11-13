@@ -21,6 +21,9 @@ pub(crate) struct Smoke {
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
     pub(crate) actions: crate::actions::Actions,
+    pub(crate) native_menus: crate::native_menus::NativeMenus,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub(crate) p12_qa: crate::native_menus_qa::MenuQa,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -65,6 +68,10 @@ impl Smoke {
                     .await;
                 if weak
                     .update(cx, |this, cx| {
+                        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                        if this.p12_qa.deadline.is_some() {
+                            cx.notify();
+                        }
                         this.poll_settings(cx);
                         this.poll_terminal(cx)
                     })
@@ -88,10 +95,13 @@ impl Smoke {
             terminal: Default::default(),
             board: Default::default(),
             actions: Default::default(),
+            native_menus: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
             },
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            p12_qa: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -102,9 +112,22 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.p12_tick(window, cx);
         let screen = self.render_screen(window, cx);
-        #[cfg(target_os = "ios")]
-        self.publish_native_edits(window);
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let screen = div()
+            .relative()
+            .size_full()
+            .child(screen)
+            .children(self.p12_qa_controls(cx))
+            .into_any_element();
+        self.install_native_menus(window, cx);
+        let screen = div()
+            .size_full()
+            .on_action(cx.listener(Self::native_menu_action))
+            .child(screen)
+            .into_any_element();
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };
@@ -272,6 +295,11 @@ pub(crate) fn run() {
             })
             .detach();
             entity.update(cx, |this, cx| {
+                #[cfg(target_abi = "sim")]
+                if std::env::var_os("YEBISU_P12_QA").is_some() {
+                    // This fixture never loads saved hosts/settings or accesses keys.
+                    return;
+                }
                 this.start_settings(cx);
                 this.start_job(crate::setup::Job::Load, cx);
             });
@@ -280,7 +308,15 @@ pub(crate) fn run() {
                 entity.update(cx, |this, cx| {
                     this.terminal.reconnect.begin("qa@private-peer".into());
                     let generation = this.terminal.link.reset();
-                    if std::env::var_os("YEBISU_R5_QA").is_some() {
+                    if std::env::var_os("YEBISU_P12_QA").is_some() {
+                        match crate::mock_peer::connect_p12() {
+                            Ok((client, gate)) => {
+                                this.p12_qa.gate = Some(gate);
+                                this.terminal.link.install(generation, Ok(client));
+                            }
+                            Err(error) => this.terminal.link.install(generation, Err(error)),
+                        }
+                    } else if std::env::var_os("YEBISU_R5_QA").is_some() {
                         let (release, wait) = std::sync::mpsc::channel();
                         let old = this.terminal.link.inbox.clone();
                         this.terminal.late_reader_release = Some(release);

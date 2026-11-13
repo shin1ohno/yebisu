@@ -1,5 +1,5 @@
 //! P7's single catalog view, shared by shortcuts, buttons and the palette.
-//! Command-hold and native menus remain P12 responsibilities.
+//! Keyless native menus and Settings labels also derive from this catalog.
 use crate::{
     app::Smoke,
     board::{Navigation, Target, snapshot},
@@ -47,42 +47,67 @@ fn supported(command: Command) -> bool {
 fn local(command: Command) -> bool {
     matches!(command, Command::ToggleSidebar | Command::Palette)
 }
+// Shared command context, independent of whether a command needs an RPC.
+// Focus/scene and keyboard priority remain entry-point policy, not transport state.
+pub(crate) fn catalog_context_available(terminal: &TerminalView) -> bool {
+    terminal.open
+        && !terminal.core_mode
+        && terminal
+            .live
+            .surface
+            .as_ref()
+            .is_none_or(|s| s.popup.is_none())
+        && terminal.input.composition.text.is_empty()
+}
 pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
+    let context_available = catalog_context_available(terminal);
     sheprd_commands::COMMANDS
         .iter()
         .filter(|i| supported(i.command))
         .map(|info| {
             let label = crate::i18n::command(info);
-            let available = local(info.command)
-                || (terminal.live.connected
-                    && !terminal.reconnect.suspended
-                    && terminal.navigating.is_none()
-                    && terminal
-                        .live
-                        .surface
-                        .as_ref()
-                        .is_none_or(|s| s.popup.is_none())
-                    && snapshot(&terminal.live)
-                        .and_then(|s| sheprd_commands::request(info.command, s))
-                        .is_some_and(|(method, _)| {
-                            terminal.live.methods.iter().any(|m| m == method.as_str())
-                        }));
+            let available = context_available
+                && (local(info.command)
+                    || (terminal.live.connected
+                        && !terminal.reconnect.suspended
+                        && terminal.live.version_mismatch.get().is_none()
+                        && terminal.navigating.is_none()
+                        && snapshot(&terminal.live)
+                            .and_then(|s| sheprd_commands::request(info.command, s))
+                            .is_some_and(|(method, _)| {
+                                terminal.live.methods.iter().any(|m| m == method.as_str())
+                            })));
             Action {
                 info,
                 label,
                 shortcuts: info.default_shortcuts(),
-                // Core has its own controls and does not render the palette.
-                available: available && !terminal.core_mode,
+                available,
             }
         })
         .collect()
 }
+#[cfg(test)]
 pub(crate) fn shortcut(
     terminal: &TerminalView,
     actions: &Actions,
     key: &Keystroke,
 ) -> Option<Command> {
+    shortcut_candidate(terminal, actions, key).filter(|command| {
+        catalog(terminal)
+            .iter()
+            .any(|a| a.info.command == *command && a.available)
+    })
+}
+// Recognition precedes availability: stale native commands must not fall through
+// into terminal input when their capability disappears. Policy exclusions still
+// belong to the terminal/IME, as before.
+pub(crate) fn shortcut_candidate(
+    terminal: &TerminalView,
+    actions: &Actions,
+    key: &Keystroke,
+) -> Option<Command> {
     if !terminal.open
+        || terminal.core_mode
         || !terminal.input.composition.text.is_empty()
         || terminal
             .live
@@ -96,13 +121,12 @@ pub(crate) fn shortcut(
     catalog(terminal)
         .into_iter()
         .find(|a| {
-            a.available
-                && a.shortcuts.iter().any(|s| {
-                    Keystroke::parse(s).is_ok_and(|mut binding| {
-                        normalize_shortcut(&mut binding);
-                        binding.key == key.key && binding.modifiers == key.modifiers
-                    })
+            a.shortcuts.iter().any(|s| {
+                Keystroke::parse(s).is_ok_and(|mut binding| {
+                    normalize_shortcut(&mut binding);
+                    binding.key == key.key && binding.modifiers == key.modifiers
                 })
+            })
         })
         .map(|a| a.info.command)
 }
@@ -151,6 +175,7 @@ impl Smoke {
             .try_lock()
             .map_err(|_| crate::Error::Ssh("Host state busy; try again".into()))?;
         if !live.connected
+            || live.version_mismatch.get().is_some()
             || terminal.navigating.is_some()
             || live.surface.as_ref().is_some_and(|s| s.popup.is_some())
         {
@@ -171,6 +196,20 @@ impl Smoke {
         }
         let (method, params) = sheprd_commands::request(command, current)
             .ok_or_else(|| crate::Error::Ssh("Target unavailable".into()))?;
+        if !live
+            .methods
+            .iter()
+            .any(|available| available == method.as_str())
+        {
+            return Err(crate::Error::NativeMenu("capability changed"));
+        }
+        if !live
+            .methods
+            .iter()
+            .any(|candidate| candidate == method.as_str())
+        {
+            return Err(crate::Error::NativeMenu("capability changed"));
+        }
         let handle = terminal
             .link
             .handle

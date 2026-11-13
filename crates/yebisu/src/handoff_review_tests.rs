@@ -32,6 +32,8 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                     && !(command_control && terminal_priority);
                 let terminal_route = !clipboard_route && command_control;
                 let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+                cx.update(|window, _| window.activate_window());
+                cx.run_until_parked();
                 let (client, receipts) =
                     mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
                 view.update(cx, |this, _| {

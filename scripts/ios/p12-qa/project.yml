@@ -1,0 +1,21 @@
+name: P12Oracle
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  P12Oracle:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shin1ohno.yebisu.p12oracle
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  P12Oracle:
+    build:
+      targets:
+        P12Oracle: [test]
+    test:
+      targets: [P12Oracle]

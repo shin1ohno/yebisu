@@ -210,6 +210,8 @@ fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestA
     use gpui::{KeyDownEvent, KeyUpEvent};
     for (name, method) in [("t", "tab.create"), ("{", "tab.focus"), ("}", "tab.focus")] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
         let (client, receipts, release) =
             mock_peer::connect_controlled().unwrap_or_else(|e| panic!("peer {e}"));
         view.update(cx, |this, _| {
@@ -372,6 +374,8 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
     use gpui::{KeyDownEvent, KeyUpEvent, Modifiers};
     for report_all in [false, true] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
         let (client, receipts) =
             mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer {e}"));
         view.update(cx, |this, _| {

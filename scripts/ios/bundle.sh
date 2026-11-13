@@ -192,7 +192,7 @@ ios_export_deployment_target
 
 # Entitlements are derived per build and never kept: a stale file could sign
 # a bundle with another app's identifiers.
-work=$(mktemp -d /tmp/herdr-ios-bundle.XXXXXX)
+work=$(mktemp -d "${TMPDIR:-/tmp}/herdr-ios-bundle.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 signing=false
 if [[ $platform == iPhoneOS && (-n $team || -n $signing_profile) ]]; then
@@ -241,6 +241,10 @@ messages=$(cargo "$cargo_subcommand" --locked --package "$package" --target "$ta
   "--$kind" "$name" ${profile_args[@]+"${profile_args[@]}"} \
   ${feature_args[@]+"${feature_args[@]}"} --message-format=json-render-diagnostics \
   ${link_args[@]+"${link_args[@]}"})
+# Optional QA evidence sink. Never overwrite an earlier compiler transcript.
+if [[ -n ${YEBISU_P12_BUILD_MESSAGES:-} ]]; then
+  (set -C; printf '%s\n' "$messages" > "$YEBISU_P12_BUILD_MESSAGES")
+fi
 artifact=$(python3 -I -c '
 import json, sys
 
