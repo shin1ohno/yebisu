@@ -183,6 +183,20 @@ final class EditMenuQA: XCTestCase {
                 print("SH1-152 OCR \(label) \(box)")
                 return app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY))
             }
+            // An open edit menu can cover the leading digits of a control
+            // ("52 Mutate"). Accept only a whole candidate that is the same
+            // label with leading digits missing, and tap its visible word.
+            if label.hasPrefix("152 ") {
+                let rest = String(label.dropFirst(4))
+                for candidate in candidates {
+                    let text = candidate.string
+                    guard text.hasSuffix(" " + rest), "152".hasSuffix(String(text.dropLast(rest.count + 1))),
+                          let range = text.range(of: rest, options: .backwards), let observed = try candidate.boundingBox(for: range) else { continue }
+                    let box = observed.boundingBox
+                    print("SH1-152 OCR \(label) partially covered as '\(text)' \(box)")
+                    return app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY))
+                }
+            }
             print("SH1-152 OCR attempt \(attempt): \(candidates.map { $0.string })")
             sleep(1)
         }
