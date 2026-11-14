@@ -60,7 +60,8 @@ final class EditMenuQA: XCTestCase {
                 }
                 try tap("152 Mutate", app)
                 sleep(2)
-                if name.hasPrefix("E3f") { try tap("152 Restore", app); sleep(2) }
+                // Let the keyboard change settle before locating Replay (PR run 43633426435).
+                if name.hasPrefix("E3f") { try tap("152 Restore", app); sleep(4) }
             }
             try tap("152 Replay", app)
             sleep(2)

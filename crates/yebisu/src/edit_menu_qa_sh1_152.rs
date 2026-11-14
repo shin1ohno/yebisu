@@ -197,6 +197,9 @@ impl Smoke {
             "Replay" | "Ordinary" => {
                 let capture = self.menu_qa.capture.clone();
                 let ordinary = command == "Ordinary";
+                // Separates a missed tap from a replay that never reported
+                // (PR run 43633426435, E3f-key had no replay record).
+                self.observation.record(serde_json::json!({"kind":"sh1-152-replay-requested", "case":case(), "stage":self.menu_qa.stage, "ordinary":ordinary, "capture":capture.is_some()}));
                 cx.spawn(async move |weak, cx| {
                     let Some(capture) = capture else {
                         let _ = weak.update(cx, |this,_| this.observation.record(serde_json::json!({"kind":"sh1-152-probe-error","error":"missing capture"})));
