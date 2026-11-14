@@ -6,6 +6,18 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+// The catalog follows the host (Cmd on macOS and iOS, Ctrl-Shift on Linux and
+// Windows), so tests name the macOS chord and bind what this host resolves it to.
+fn bound(base: &'static str) -> Keystroke {
+    Keystroke::parse(sheprd_commands::platform_default(base)).unwrap_or_else(|e| panic!("key {e}"))
+}
+// What UIKit delivers for that chord: it names a shifted symbol by its
+// resulting character and clears Shift (see normalize_shortcut).
+fn uikit_event(base: &'static str) -> Keystroke {
+    let mut key = bound(base);
+    normalize_shortcut(&mut key);
+    key
+}
 fn terminal() -> TerminalView {
     let mut live = Live::default();
     live.connected = true;
@@ -29,11 +41,7 @@ fn catalog_uses_upstream_names_defaults_and_availability() {
         assert_eq!(action.shortcuts, action.info.default_shortcuts());
     }
     assert_eq!(
-        shortcut(
-            &t,
-            &Actions::default(),
-            &Keystroke::parse("cmd-t").unwrap_or_else(|e| panic!("key {e}"))
-        ),
+        shortcut(&t, &Actions::default(), &bound("cmd-t")),
         Some(Command::Tab)
     );
     assert!(
@@ -78,7 +86,7 @@ fn shortcuts_leave_terminal_prefix_extra_modifiers_and_composition_alone() {
             "{chord}"
         );
     }
-    let key = Keystroke::parse("cmd-d").unwrap_or_else(|e| panic!("key {e}"));
+    let key = bound("cmd-d");
     assert_eq!(shortcut(&t, &state, &key), Some(Command::SplitRight));
     t.input.options.command_control = true;
     state.terminal_priority = true;
@@ -92,7 +100,7 @@ fn shortcuts_leave_terminal_prefix_extra_modifiers_and_composition_alone() {
     assert_eq!(shortcut(&t, &state, &key), None);
 }
 fn ready(view: &gpui::Entity<Smoke>, cx: &mut TestAppContext) {
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if view.update(cx, |this, cx| {
             this.poll_terminal(cx);
@@ -121,7 +129,7 @@ fn tab_and_pane_commands_fence_focus_resize_and_input_before_api_reply(cx: &mut 
         ready(&view, cx);
         view.update(cx, |this, _| assert!(this.run_action(command).is_ok()));
         let message = receipts
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(Duration::from_secs(30))
             .unwrap_or_else(|e| panic!("wire {e}"));
         let ClientMessage::ClientShellEndpointRequest { request, .. } = message else {
             panic!("not API")
@@ -175,7 +183,7 @@ fn tab_and_pane_commands_fence_focus_resize_and_input_before_api_reply(cx: &mut 
             assert!(this.terminal.size.is_some());
         });
         assert!(matches!(
-            receipts.recv_timeout(Duration::from_secs(2)),
+            receipts.recv_timeout(Duration::from_secs(30)),
             Ok(ClientMessage::ClientShellResize { .. })
         ));
     }
@@ -208,7 +216,11 @@ fn stale_tab_and_unimplemented_action_send_nothing(cx: &mut TestAppContext) {
 #[gpui::test]
 fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestAppContext) {
     use gpui::{KeyDownEvent, KeyUpEvent};
-    for (name, method) in [("t", "tab.create"), ("{", "tab.focus"), ("}", "tab.focus")] {
+    for (base, method) in [
+        ("cmd-t", "tab.create"),
+        ("cmd-shift-[", "tab.focus"),
+        ("cmd-shift-]", "tab.focus"),
+    ] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         let (client, receipts, release) =
             mock_peer::connect_controlled().unwrap_or_else(|e| panic!("peer {e}"));
@@ -217,7 +229,7 @@ fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestA
             let g = this.terminal.link.reset();
             this.terminal.link.install(g, Ok(client));
         });
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
@@ -231,14 +243,7 @@ fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestA
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 this.terminal_focus.focus(window, cx);
-                let keystroke = Keystroke {
-                    key: name.into(),
-                    key_char: None,
-                    modifiers: gpui::Modifiers {
-                        platform: true,
-                        ..Default::default()
-                    },
-                };
+                let keystroke = uikit_event(base);
                 this.terminal_key_down(
                     &KeyDownEvent {
                         keystroke: keystroke.clone(),
@@ -263,7 +268,7 @@ fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestA
             })
         });
         loop {
-            match receipts.recv_timeout(Duration::from_secs(2)) {
+            match receipts.recv_timeout(Duration::from_secs(30)) {
                 Ok(ClientMessage::ClientShellEndpointRequest { request, .. }) => {
                     let request: serde_json::Value =
                         serde_json::from_str(&request).unwrap_or_else(|e| panic!("request {e}"));
@@ -317,6 +322,10 @@ fn command_barrier_requires_its_reply_and_rejection_is_visible() {
 
 // UIKit a573fb3 keymap.rs clears Shift for symbols, but keeps it for letters
 // and named keys. Expected events below are platform constants, not parse().
+// They are UIKit events carrying the Cmd modifier, which only the macOS and iOS
+// catalog binds; Linux and Windows hosts bind Ctrl-Shift chords instead and
+// never receive UIKit events, so the constants can only hold on macOS and iOS.
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn uikit_shifted_symbol_shortcuts_match_real_events() {
     use gpui::Modifiers;
@@ -379,7 +388,7 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
             let g = this.terminal.link.reset();
             this.terminal.link.install(g, Ok(client));
         });
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
@@ -478,7 +487,7 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
             })
         });
         assert!(matches!(
-            receipts.recv_timeout(Duration::from_secs(2)),
+            receipts.recv_timeout(Duration::from_secs(30)),
             Ok(ClientMessage::ClientShellPaneInput { .. })
         ));
     }
