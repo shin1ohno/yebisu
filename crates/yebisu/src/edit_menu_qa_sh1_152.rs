@@ -218,6 +218,9 @@ impl Smoke {
                 self.terminal
                     .link
                     .install(generation, crate::mock_peer::connect());
+                // As a real reconnect does, forget the old connection's size so
+                // the new one is resized and its input becomes ready again.
+                self.terminal.size = None;
             }
             "E3f-text" | "E3f-key" => {
                 let capture = self.menu_qa.capture.clone();
