@@ -135,7 +135,9 @@ def validate_basic(records, messages, wire):
             if [r["variant"] for r in semantic] != ([] if copy else ["Paste"]):
                 raise ValueError(f"core semantic event mismatch: {case}")
             destination = core_intervals(wire)[(case, 0)]["destination"]
-            if destination != "t1" or any(r["terminal"] != destination for r in semantic):
+            # The QA host allocates the terminal, so the menu's own recorded
+            # destination is the expectation rather than a fixed id.
+            if captures[0].get("destination") != f'Pane("{destination}")' or any(r["terminal"] != destination for r in semantic):
                 raise ValueError(f"core semantic/wire destination mismatch: {case}")
             expected_bytes = b"" if copy else b"\x1b[200~" + expected.encode() + b"\x1b[201~"
             if core_segment(wire, case) != expected_bytes:

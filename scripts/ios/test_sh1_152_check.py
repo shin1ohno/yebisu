@@ -16,15 +16,15 @@ class MenuOracleTests(unittest.TestCase):
             copying = case.startswith("E2")
             payload = f"sh1-152-clip-{case}-0"
             records.extend([
-                {"case": case, "kind": "sh1-152-capture", "count": 2, "time": 1},
+                {"case": case, "kind": "sh1-152-capture", "count": 2, "time": 1, "destination": 'Pane("t3")' if case.endswith("core") else 'Pane("w1:p1")'},
                 {"case": case, "kind": "edit-menu-exec", "result": "executed", "action": "Copy" if copying else "Paste", "time": 2},
                 {"case": case, "kind": "sh1-152-result", "clipboard": "日本語" if copying else payload, "time": 3},
             ])
             values = [f"sh1-152-start-{case}-0", *([] if copying else [payload]), f"sh1-152-end-{case}-0"]
             if case.endswith("core"):
                 if not copying:
-                    records.append({"case": case, "kind": "terminal-input", "variant": "Paste", "terminal": "t1"})
-                wire.extend({"terminal": "t1", "bytes": list(b"\x1b[200~" + value.encode() + b"\x1b[201~")} for value in values)
+                    records.append({"case": case, "kind": "terminal-input", "variant": "Paste", "terminal": "t3"})
+                wire.extend({"terminal": "t3", "bytes": list(b"\x1b[200~" + value.encode() + b"\x1b[201~")} for value in values)
             else:
                 messages.extend({"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"Paste": value}]}} for value in values)
         return records, messages, wire
@@ -32,7 +32,7 @@ class MenuOracleTests(unittest.TestCase):
     def test_real_shape_positive_and_same_text_key_wrong_pane_outside_interval_negatives(self):
         fixture = self.fixture()
         self.assertIn("PASS", oracle.validate_basic(*fixture))
-        for mutation in ["key", "pane", "outside", "duplicate", "clipboard", "core-key", "core-pane", "core-byte"]:
+        for mutation in ["key", "pane", "outside", "duplicate", "clipboard", "core-key", "core-pane", "core-byte", "core-menu-destination"]:
             records, messages, wire = copy.deepcopy(fixture)
             if mutation == "key":
                 messages[1]["ClientShellPaneInput"]["events"] = [{"Key": {"code": {"Char": "sh1-152-clip-E1-text-0"}}}]
@@ -47,6 +47,8 @@ class MenuOracleTests(unittest.TestCase):
                 next(r for r in records if r.get("kind") == "sh1-152-result")["clipboard"] = "wrong"
             elif mutation == "core-key":
                 next(r for r in records if r.get("kind") == "terminal-input")["variant"] = "Key"
+            elif mutation == "core-menu-destination":
+                next(r for r in records if r.get("case") == "E1-core" and r.get("kind") == "sh1-152-capture")["destination"] = 'Pane("t1")'
             elif mutation == "core-pane":
                 wire[1]["terminal"] = "core-B"
             else:
