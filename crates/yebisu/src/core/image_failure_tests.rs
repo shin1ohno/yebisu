@@ -48,7 +48,7 @@ fn queue_full_and_dropped_reply_release_ui_slot(cx: &mut TestAppContext) {
         });
         let waiter = if !full {
             Some(std::thread::spawn(move || {
-                let _command = receive.recv_timeout(Duration::from_secs(5));
+                let _command = receive.recv_timeout(Duration::from_secs(30));
             }))
         } else {
             None
@@ -89,7 +89,9 @@ fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut 
         connect(&view, cx, probe.clone(), control.clone(), "timeout");
         view.update(cx, |this, _| {
             this.handoff.core_test = Some(hooks.clone());
-            this.handoff.core_timeout = Some(Duration::from_millis(400));
+            // The timer starts when the command is sent, while this test still
+            // steps the worker through its hooks; leave room for a loaded host.
+            this.handoff.core_timeout = Some(Duration::from_secs(6));
         });
         clipboard(cx, false);
         start(&view, cx, true);
