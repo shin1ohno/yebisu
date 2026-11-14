@@ -44,7 +44,6 @@ impl Link {
         self.stop_reason = Arc::new(OnceLock::new());
         self.pause()
     }
-    /// Invalidate callbacks and payloads without losing the reader's stop reason.
     /// `drained` is set just before the reader returns, so a test that waits on
     /// it alone can still race `prepare_connection`, which refuses to dial while
     /// a retired reader is unfinished.
@@ -54,6 +53,7 @@ impl Link {
             .iter()
             .all(|reader| reader.is_finished())
     }
+    /// Invalidate callbacks and payloads without losing the reader's stop reason.
     pub fn pause(&mut self) -> u64 {
         if let Some(handle) = self.handle.take() {
             handle.disconnect();

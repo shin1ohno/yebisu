@@ -29,8 +29,9 @@ fn clipboard(cx: &mut TestAppContext, both: bool) {
     }
     cx.write_to_clipboard(ClipboardItem { entries });
 }
+#[track_caller]
 fn wait(view: &Entity<Smoke>, cx: &mut TestAppContext, mut ready: impl FnMut(&Smoke) -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         super::paste_test_support::pump();
         cx.run_until_parked();

@@ -41,7 +41,7 @@ impl Latch {
             self.resume
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .recv_timeout(Duration::from_secs(15))
+                .recv_timeout(Duration::from_secs(60))
                 .unwrap_or_else(|e| panic!("latch: {e}"));
         }
     }

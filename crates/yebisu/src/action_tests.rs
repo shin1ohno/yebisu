@@ -486,9 +486,56 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
                 this.terminal_key_up(&KeyUpEvent { keystroke: key }, window, cx);
             })
         });
-        assert!(matches!(
-            receipts.recv_timeout(Duration::from_secs(30)),
-            Ok(ClientMessage::ClientShellPaneInput { .. })
-        ));
+        // The fixed drain above can end before a late layout resize arrives, so
+        // skip resizes while waiting for the fresh press (as real_key_adapter does).
+        // The view only sends once its foreground work runs, so pump it while waiting.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            cx.run_until_parked();
+            view.update(cx, |this, cx| this.poll_terminal(cx));
+            match receipts.recv_timeout(Duration::from_millis(5)) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {
+                    continue;
+                }
+                Ok(ClientMessage::ClientShellPaneInput { events, .. }) => {
+                    assert!(
+                        matches!(
+                            events.as_slice(),
+                            [sheprd_client::protocol::ClientPaneInputEvent::Key {
+                                kind: sheprd_client::protocol::ClientKeyKind::Press,
+                                ..
+                            }]
+                        ),
+                        "expected one Escape press, got {events:?}"
+                    );
+                    break;
+                }
+                Ok(ClientMessage::ClientShellResize { .. }) => {}
+                other => panic!("expected the fresh Escape press, got {other:?}"),
+            }
+        }
+        // An Escape that leaked late would be a second press. Only the release of
+        // the fresh press (report-all mode) and a late resize may follow.
+        while let Ok(message) = receipts.recv_timeout(Duration::from_millis(120)) {
+            let release_only = |events: &[sheprd_client::protocol::ClientPaneInputEvent]| {
+                events.iter().all(|event| {
+                    matches!(
+                        event,
+                        sheprd_client::protocol::ClientPaneInputEvent::Key {
+                            kind: sheprd_client::protocol::ClientKeyKind::Release,
+                            ..
+                        }
+                    )
+                })
+            };
+            assert!(
+                match &message {
+                    ClientMessage::ClientShellResize { .. } => true,
+                    ClientMessage::ClientShellPaneInput { events, .. } => release_only(events),
+                    _ => false,
+                },
+                "Escape leaked: {message:?}"
+            );
+        }
     }
 }
