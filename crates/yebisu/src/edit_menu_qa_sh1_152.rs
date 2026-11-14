@@ -145,9 +145,24 @@ impl Smoke {
             "Select" => {
                 self.sync_handoff();
                 if let Some(surface) = &self.terminal.live.surface {
+                    // The Herdr 2 peer's 日本語 line can start below row 2
+                    // (run 43609891164 published a blank first row), so find it.
+                    let frame = &surface.frame;
+                    let row = if self.terminal.core_mode {
+                        (0..frame.height)
+                            .find(|&y| {
+                                frame
+                                    .cells
+                                    .get(usize::from(y) * usize::from(frame.width))
+                                    .is_some_and(|cell| cell.symbol == "日")
+                            })
+                            .unwrap_or(2)
+                    } else {
+                        2
+                    };
                     self.handoff.selection = Some(Selection {
                         frame: Arc::new(surface.frame.clone()),
-                        anchor: (if self.terminal.core_mode { 0 } else { 1 }, 2),
+                        anchor: (if self.terminal.core_mode { 0 } else { 1 }, row),
                         end: (
                             if case().starts_with("E5") {
                                 7
@@ -156,7 +171,7 @@ impl Smoke {
                             } else {
                                 6
                             },
-                            2,
+                            row,
                         ),
                         dragging: false,
                     });
