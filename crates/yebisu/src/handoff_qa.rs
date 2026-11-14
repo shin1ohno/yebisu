@@ -4,10 +4,11 @@ use gpui::{AnyElement, ClipboardItem, Context, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_HANDOFF_QA")?;
-        Some(div().flex().gap_2().px_4().children([("qa-cjk","QA CJK"),("qa-text","QA Text"),("qa-image","QA Image"),("qa-select","QA Selection")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,window,cx| {
+        Some(div().flex().gap_2().px_4().children([("qa-cjk","QA CJK"),("qa-text","QA Text"),("qa-image","QA Image"),("qa-image-only","QA Image only"),("qa-select","QA Selection")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,window,cx| {
             match id {
                 "qa-text"=>cx.write_to_clipboard(ClipboardItem::new_string("P8-text-かな".into())),
-                "qa-image"=> {
+                "qa-image" | "qa-image-only"=> {
+                    this.handoff.qa_image_ready=false;
                     let work=cx.background_executor().spawn(async move {
                         let mut state=1u32;
                         let image=image::RgbaImage::from_fn(2200,2200,|_,_| {
@@ -23,7 +24,8 @@ impl Smoke {
                         let _=weak.update(cx,|this,cx| {
                             if let Ok(bytes)=result {
                                 this.observation.record(serde_json::json!({"kind":"p8-image-source","bytes":bytes.len(),"width":2200,"height":2200}));
-                                seed_dual_representation(&bytes);
+                                seed_representation(&bytes, id == "qa-image-only");
+                                this.handoff.qa_image_ready=true;
                                 this.terminal.live.status="QA image ready".into(); cx.notify();
                             }
                         });
@@ -53,7 +55,7 @@ impl Smoke {
                 }, _=>{}
             }
             cx.notify();
-        })))).into_any_element())
+        })))).child(if self.handoff.qa_image_ready { "QA image ready" } else { "" }).into_any_element())
     }
 }
 
@@ -63,17 +65,21 @@ impl Smoke {
     unsafe_code,
     reason = "Simulator QA writes the pasteboard on the UI thread"
 )]
-fn seed_dual_representation(bytes: &[u8]) {
+fn seed_representation(bytes: &[u8], image_only: bool) {
     use objc2::runtime::AnyObject;
     use objc2_foundation::{NSArray, NSData, NSDictionary, NSString};
     let text = NSString::from_str("public.utf8-plain-text");
     let png = NSString::from_str("public.png");
     let string = NSData::with_bytes(b"P8-shadow");
     let image = NSData::with_bytes(bytes);
-    let item = NSDictionary::from_slices(
-        &[&*text, &*png],
-        &[&*string as &AnyObject, &*image as &AnyObject],
-    );
+    let item = if image_only {
+        NSDictionary::from_slices(&[&*png], &[&*image as &AnyObject])
+    } else {
+        NSDictionary::from_slices(
+            &[&*text, &*png],
+            &[&*string as &AnyObject, &*image as &AnyObject],
+        )
+    };
     let items = NSArray::from_slice(&[&*item]);
     // SAFETY: GPUI callback runs on UIKit main thread; values are immutable data.
     unsafe {

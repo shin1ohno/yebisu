@@ -1,5 +1,11 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
+mod image_tests;
+mod paste;
+mod paste_path;
+#[cfg(test)]
+pub(crate) mod paste_test_support;
+#[cfg(test)]
 mod regression_tests;
 mod screen;
 mod store;
@@ -17,10 +23,21 @@ use std::sync::{
 
 pub(crate) enum Command {
     Input(Destination, ClientPaneInputEvent),
+    PutImage {
+        destination: Destination,
+        ticket: crate::handoff_ticket::PasteTicket,
+        bytes: Vec<u8>,
+        reply: SyncSender<PasteOutcome>,
+    },
     Resize(Size),
     Split,
     Focus(usize),
     Orientation,
+}
+
+pub(crate) struct PasteOutcome {
+    pub serial: u64,
+    pub result: Result<crate::handoff_ticket::Queued, String>,
 }
 
 pub(crate) struct Session {
