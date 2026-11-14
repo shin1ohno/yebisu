@@ -151,7 +151,12 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
     require([m["sequence"] for m in ingress] == list(range(1, len(ingress)+1)), "ingress missing/duplicated")
     for control in controls:
         during = [m for m in ingress if inside(m, control)]
-        if control["step"] != "finish":
+        if control["step"] == "release":
+            # Releasing the held split response makes the app re-lay out the new
+            # pane and report geometry. That is the consequence of the release, not
+            # a command: any request or input in this window still fails.
+            require(all(m["message"] == {"geometry": True} for m in during), "release emitted non-geometry wire")
+        elif control["step"] != "finish":
             require(not during, "setup emitted wire")
         else:
             require(all(m["message"] == {"input":["fifo_fence"]} for m in during), "finish emitted non-fence wire")
