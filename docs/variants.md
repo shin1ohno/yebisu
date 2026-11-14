@@ -185,3 +185,11 @@ owned configuration. Therefore S2c and E3i require zero children; UIAction S8 is
 not applicable. An unrelated configuration may retain the two ordinary suggested
 commands. Simulator tests and [device acceptance](device-check.md#sh1-152) remain
 separate evidence.
+
+Visible items follow the iOS convention the owner chose on 2026-11-14: only
+usable items are shown. Without a selection the menu shows Paste alone; with a
+selection it shows Copy and Paste. The delegate still returns both Copy and
+Paste for a current token (Copy carries the Disabled attribute when there is
+no selection); hosted iOS 26.5 Simulator runs showed Paste alone for that
+menu. `canPerformAction:withSender:` and availability are unchanged. The Simulator checks assert the visible list
+per case, and the delegate-level item counts of S2c and E3i are unaffected.
