@@ -239,3 +239,63 @@ fn token_contract_binds_selection_all_destination_fields_and_active_state(cx: &m
         }
     });
 }
+
+#[gpui::test]
+fn h12_menu_keeps_fresh_defaults_and_saved_selection_settings(cx: &mut TestAppContext) {
+    for saved in [false, true] {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/settings-tests")
+            .join(format!("yebisu-h12-{}-{saved}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap_or_else(|e| panic!("{e}"));
+        let file = root.join("yebisu-settings.json");
+        if saved {
+            // Start: Select (drag_select false) and Copy: On selection, saved earlier.
+            std::fs::write(&file, br#"{"version":1,"language":"en-US","compact":false,"terminal_priority":false,"board_hidden":true,"drag_select":false,"copy_on_select":true}"#).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let (view, cx, _) = fixture(cx);
+        let host =
+            crate::settings::SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        let settle = |view: &Entity<Smoke>, cx: &mut VisualTestContext| {
+            let until = Instant::now() + Duration::from_secs(3);
+            while !view.update(cx, |this, cx| {
+                this.poll_settings(cx);
+                this.settings.as_ref().is_some_and(|h| h.ready())
+            }) {
+                assert!(Instant::now() < until, "settings did not settle");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            cx.run_until_parked();
+        };
+        view.update(cx, |this, _| this.settings = Some(host));
+        settle(&view, cx);
+        // Fresh: Start: Drag / Copy: Manual. Saved: the stored values.
+        let expected = (!saved, saved);
+        let values = |view: &Entity<Smoke>, cx: &VisualTestContext| {
+            view.read_with(cx, |this, _| {
+                (this.handoff.drag_select, this.handoff.copy_on_select)
+            })
+        };
+        assert_eq!(values(&view, cx), expected);
+        let before = std::fs::read(&file).ok();
+        let at = position(&view, cx);
+        hold(cx, at);
+        touch(cx, TouchPhase::Ended, at);
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("h12-paste".into()));
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.native_menu_action(
+                    EditAction::Paste,
+                    Some(MenuToken::Recorded(1)),
+                    window,
+                    cx,
+                );
+                assert_eq!(this.handoff.clipboard_reads, 1);
+            })
+        });
+        settle(&view, cx);
+        assert_eq!(values(&view, cx), expected, "saved={saved}");
+        assert_eq!(std::fs::read(&file).ok(), before, "saved={saved}");
+        std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+    }
+}
