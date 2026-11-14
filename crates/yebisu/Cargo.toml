@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+base64.workspace = true
 thiserror.workspace = true
 herdr-ssh.workspace = true
 sheprd-client.workspace = true
@@ -30,4 +31,5 @@ objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIPas
 
 [dev-dependencies]
 sheprd-client = { workspace = true, features = ["test-support"] }
+sheprd-commands = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }

@@ -22,7 +22,7 @@ jobs:
       - name: Fetch
         run: just guarded cargo fetch --locked
       - name: Build, launch and verify simulator
-        run: just guarded python3 scripts/ios/ci-smoke.py
+        run: just guarded python3 scripts/ios/ci-smoke.py --p9
       - name: Verify installed keyless native menus
         run: just guarded python3 scripts/ios/p12-ci.py
       - name: Upload native menu evidence
@@ -38,6 +38,7 @@ jobs:
           name: simulator-smoke-evidence
           path: |
             target/ios-smoke/*/
+            target/ios-p9/*/
             !target/ios-smoke/build/
   check:
     runs-on: macos-26
