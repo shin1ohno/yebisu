@@ -1,7 +1,4 @@
-use crate::{
-    app::Smoke,
-    terminal_input::{GeneratedInput, TerminalInput},
-};
+use crate::{app::Smoke, terminal_input::GeneratedInput};
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
@@ -52,6 +49,41 @@ impl Smoke {
         })
     }
 
+    /// Render the active refusal reason, not a historical composition event.
+    pub(crate) fn terminal_status(&self) -> String {
+        if !self.terminal.live.connected {
+            return if self.terminal.live.status.is_empty() {
+                "Connecting… · input paused".into()
+            } else {
+                self.terminal.live.status.clone()
+            };
+        }
+        if self.terminal.navigating.is_some() {
+            return "Navigating… · wait for the terminal, then type again".into();
+        }
+        if self.actions.palette {
+            return "Commands open · close Commands to type".into();
+        }
+        if self.handoff.blocks_input() {
+            return "Selection active · press a terminal key or turn Select off to type".into();
+        }
+        if self.terminal.input.destination.is_none() || !self.terminal.input.ready {
+            return "Waiting for terminal frame · input paused".into();
+        }
+        if self.terminal.input.requires_gesture() {
+            return self
+                .retirement
+                .reason
+                .unwrap_or("Text input paused · native retirement required")
+                .into();
+        }
+        #[cfg(target_os = "ios")]
+        if let Some(status) = self.native_retirement_status() {
+            return status.into();
+        }
+        self.terminal.live.status.clone()
+    }
+
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
         if terminal.navigating.is_some() || self.actions.palette {
@@ -69,7 +101,7 @@ impl Smoke {
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
         self.refresh_terminal_input();
         self.sync_handoff();
-        if self.handoff.selection.is_some() || self.handoff.select_mode {
+        if self.handoff.blocks_input() {
             return;
         }
         if self.handoff.preparing {
@@ -98,9 +130,7 @@ impl Smoke {
             };
             if let Err(error) = result {
                 self.terminal.live.status = error.to_string();
-                let options = std::mem::take(&mut self.terminal.input.options);
-                self.terminal.input = TerminalInput::default();
-                self.terminal.input.options = options;
+                self.terminal.input.detach(); // Preserve an actual discard on writer failure.
                 break;
             }
         }
@@ -111,6 +141,26 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        self.input_transition(|this| this.terminal_key_down_inner(event, window, cx))
+    }
+    fn terminal_key_down_inner(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        #[cfg(all(target_os = "ios", target_abi = "sim", feature = "retirement-probe"))]
+        if std::env::var_os("YEBISU_RETIREMENT_QA").is_some() && event.keystroke.key == "f18" {
+            // Probe through the real GPUI callback slot, with the SDK guard.
+            // This reserved fixture key is not proof of physical key delivery.
+            self.toggle_selection();
+            self.toggle_selection();
+            cx.notify();
+            return;
+        }
         if !self.terminal_focus.is_focused(window) {
             return;
         }
@@ -193,11 +243,21 @@ impl Smoke {
             return;
         }
         self.refresh_terminal_input();
+        self.sync_handoff();
+        // An old held key cannot end a new selection.
+        if event.is_held && self.handoff.blocks_input() {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         if let Some(input) = self
             .terminal
             .input
             .key_down(event, self.terminal.input.report_all)
         {
+            if !event.is_held {
+                self.handoff.resume_typing();
+            }
             self.send_terminal(input);
             cx.stop_propagation();
             window.prevent_default();
@@ -373,7 +433,6 @@ impl Smoke {
                             .child("QA mark")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.terminal_focus.focus(window, cx);
-                                this.terminal.input.fresh_gesture();
                                 this.replace_and_mark_text_in_range(
                                     None,
                                     "かな😀変換",

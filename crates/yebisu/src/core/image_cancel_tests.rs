@@ -389,7 +389,7 @@ fn two_hosts_and_detach_do_not_deliver_old_paths(cx: &mut TestAppContext) {
         start(&view, cx, true);
         wait(&view, cx, |_| first.lock().puts.len() == 1);
         if detach {
-            view.update(cx, |this, _| this.detach_core());
+            cx.update(|window, cx| view.update(cx, |this, cx| this.detach_core(window, cx)));
         }
         let second = Probe::default();
         connect(&view, cx, second.clone(), Control::default(), "second");

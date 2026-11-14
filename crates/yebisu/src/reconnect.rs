@@ -33,6 +33,9 @@ impl Reconnect {
 }
 impl Smoke {
     pub(crate) fn lifecycle(&mut self, phase: AppLifecyclePhase, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.lifecycle_inner(phase, cx))
+    }
+    fn lifecycle_inner(&mut self, phase: AppLifecyclePhase, cx: &mut Context<Self>) {
         self.settings_lifecycle(phase);
         crate::diagnostics::record(match phase {
             AppLifecyclePhase::Active => "active",

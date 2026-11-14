@@ -526,22 +526,26 @@ final class SmokeQA: XCTestCase {
             try VNImageRequestHandler(cgImage: image).perform([request])
             // Controls precede the terminal surface. Prefer the uppermost
             // match so shell output containing e.g. "Detach" cannot steal taps.
-            let candidates = (request.results ?? [])
+            let observations = (request.results ?? [])
                 .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-                .flatMap { $0.topCandidates(5) }
-            for candidate in candidates {
-                guard let range = candidate.string.range(of: label),
-                      let observation = try candidate.boundingBox(for: range) else { continue }
-                if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
-                    continue
+            for item in observations {
+                for candidate in item.topCandidates(5) {
+                    guard let range = candidate.string.range(of: label),
+                          let observation = try candidate.boundingBox(for: range) else { continue }
+                    let box = observation.boundingBox
+                    // A longer sibling label ("Paste image") must not satisfy the
+                    // shorter one ("Paste"). Vision returns truncated or spaceless
+                    // alternatives ("Paste imag", "Paste mage"), so text cannot tell
+                    // them apart: the label has to fill its whole observation.
+                    if excludingSuffix != nil, box.width < 0.75 * item.boundingBox.width { continue }
+                    print("OCR tap \(label) frame=\(app.frame) box=\(box) in=\(candidate.string)")
+                    if tap {
+                        app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                    }
+                    return
                 }
-                let box = observation.boundingBox
-                print("OCR tap \(label) frame=\(app.frame) box=\(box)")
-                if tap {
-                    app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
-                }
-                return
             }
+            let candidates = observations.flatMap { $0.topCandidates(5) }
             print("OCR attempt \(attempt): \(candidates.map { $0.string })")
             sleep(1)
         }

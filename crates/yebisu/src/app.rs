@@ -21,6 +21,7 @@ pub(crate) struct Smoke {
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
     pub(crate) actions: crate::actions::Actions,
+    pub(crate) retirement: crate::input_retirement::Retirement,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -88,6 +89,7 @@ impl Smoke {
             terminal: Default::default(),
             board: Default::default(),
             actions: Default::default(),
+            retirement: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -102,6 +104,8 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "ios")]
+        self.bind_text_retirement(window, cx);
         let screen = self.render_screen(window, cx);
         #[cfg(target_os = "ios")]
         self.publish_native_edits(window);
@@ -330,6 +334,10 @@ pub(crate) fn run() {
                     this.setup_input.set_text("qa@private-core".into());
                     this.connect_core(cx);
                 });
+            }
+            #[cfg(all(target_abi = "sim", feature = "retirement-probe"))]
+            if std::env::var_os("YEBISU_RETIREMENT_QA").is_some() {
+                crate::retirement_qa::start(&entity, window, cx);
             }
             let focus = entity.read(cx).focus.clone();
             focus.focus(window, cx);

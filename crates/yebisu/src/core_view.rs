@@ -30,6 +30,13 @@ impl Smoke {
         cx: &mut Context<Self>,
         connect: impl FnOnce(&str) -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
     ) {
+        self.input_transition(|this| this.connect_core_using_inner(cx, connect))
+    }
+    fn connect_core_using_inner(
+        &mut self,
+        cx: &mut Context<Self>,
+        connect: impl FnOnce(&str) -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
+    ) {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
@@ -73,6 +80,22 @@ impl Smoke {
         }
         cx.notify();
     }
+    /// Shared by the Detach control and its real-adapter regression.
+    pub(crate) fn detach_core(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.detach_core_inner(window, cx))
+    }
+    fn detach_core_inner(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.handoff.cancel();
+        self.terminal.core.take();
+        self.terminal.link.reset();
+        self.terminal.input.detach();
+        self.terminal.live = crate::live::Live::default();
+        self.terminal.live.status = "Detached · tap Reconnect to reattach".into();
+        self.terminal.needs_focus = false;
+        self.sync_handoff();
+        window.blur(cx);
+        cx.notify();
+    }
     pub(crate) fn paste_core(
         &mut self,
         destination: crate::terminal_input::Destination,
@@ -102,6 +125,9 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn core_command(&mut self, command: Command) {
+        self.input_transition(|this| this.core_command_inner(command))
+    }
+    fn core_command_inner(&mut self, command: Command) {
         self.terminal.input.detach();
         self.handoff.cancel();
         if let Some(core) = &self.terminal.core
@@ -109,14 +135,6 @@ impl Smoke {
         {
             self.terminal.live.status = e.to_string();
         }
-    }
-    pub(crate) fn detach_core(&mut self) {
-        self.handoff.cancel();
-        self.terminal.core.take();
-        self.terminal.link.reset();
-        self.terminal.input.detach();
-        self.terminal.live = crate::live::Live::default();
-        self.terminal.live.status = "Detached · tap Reconnect to reattach".into();
     }
     pub(crate) fn render_core_controls(&mut self, cx: &mut Context<Self>) -> AnyElement {
         div()
@@ -163,9 +181,7 @@ impl Smoke {
                     .id("core-detach")
                     .child("Detach")
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.detach_core();
-                        window.blur(cx);
-                        cx.notify();
+                        this.detach_core(window, cx);
                     })),
             )
             .into_any_element()

@@ -624,3 +624,21 @@ fn uikit_unmark_commits_remaining_composition_once_after_partial_edit() {
     assert!(input.composition.marked.is_none());
     assert!(input.composition.text.is_empty());
 }
+
+#[test]
+fn retirement_revision_survives_detach_and_rejects_stale_or_exhausted_receipt() {
+    let mut input = marked();
+    input.discard();
+    let first = input.discard_revision();
+    input.detach();
+    input.detach();
+    assert_eq!(input.discard_revision(), first);
+    input.reject_mark("new native mark");
+    assert!(!input.acknowledge_retirement(first));
+    assert!(input.requires_gesture());
+    assert!(input.acknowledge_retirement(input.discard_revision()));
+    input.discard_revision = u64::MAX;
+    input.reject_mark("exhausted");
+    assert!(!input.acknowledge_retirement(u64::MAX));
+    assert!(input.requires_gesture());
+}

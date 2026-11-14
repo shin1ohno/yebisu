@@ -49,4 +49,16 @@
 - Linux Simulator-runner environment enumeration drops hyphenated Cargo binary names from `compgen -e`. Reason: found by existing scripts/ios/test_sim_runner.py during SH1-153; changing the shared runner is outside that task. First step: reproduce `env 'CARGO_BIN_EXE_test-name=value' bash -c 'printenv CARGO_BIN_EXE_test-name; compgen -e'` on Linux and macOS, then enumerate the OS environment without shell identifiers. Close condition: existing runner regression passes on both hosts with literal multiline values; delete in the resolving commit.
 - SH1-155 physical lifecycle and staged-image acceptance awaits the owner. Reason: locked login keychain prevents worker signing, and real suspension/Stage Manager need M5. First step: unlock locally and follow docs/device-check.md SH1-155, recording host file creation/deletion timestamps. Close condition: device/iPadOS, both protocols and Return policies, inactive-only continuity and background recovery have receiving-system evidence in PR QA; delete in the resolving commit.
 
+- SH1-156 full composition recovery and exact-head acceptance remain open. Reason:
+  SDK 1ec8df9's new retirement API supports only Edit/dispatcher contexts and
+  refuses hardware-history Windows; queued OS retarget/no-loss remains unproven.
+  This consumer now checks prepare and terminal completion separately, keeping
+  the discard fence through prepare and false responder acquisition.
+  First step: run the exact-head Mac gates, all 19 host mutations, the original
+  ignored new-composition case and the native receiving probe under an exclusive
+  lease; inspect unsupported hardware recovery with the SDK owner without using
+  a timer, legacy fallback, replay or text filtering. Complete R01-R18 at their
+  declared native/OS tiers in docs/input-retirement-integration.md.
+  Close condition: original Z1-Z7 have receiving-system evidence, with physical
+  IME steps recorded separately; delete this item in the resolving commit.
 - SH1-154 physical Herdr 2 image-paste acceptance awaits the owner. Reason: Simulator and mock peers do not prove input-device, suspension, mobile-network, shell/agent path parsing or storage retention behavior. First step: follow the SH1-154 checklist in docs/device-check.md on the physical iPad and disposable hosts, recording returned paths, bytes, timings and lifecycle observations. Close condition: the consumer PR records device/iPadOS and all available SH1-154 device checks with evidence, identifying any unavailable machine/t7 environment; delete in the resolving commit.

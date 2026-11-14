@@ -50,6 +50,9 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn start_paste(&mut self, image_only: bool, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_paste_inner(image_only, cx))
+    }
+    fn start_paste_inner(&mut self, image_only: bool, cx: &mut Context<Self>) {
         self.refresh_terminal_input();
         self.sync_handoff();
         let Some(stamp) = self.handoff.stamp.clone() else {
@@ -77,7 +80,6 @@ impl Smoke {
         self.handoff.selection = None;
         self.handoff.select_mode = false;
         self.terminal.input.discard();
-        self.terminal.input.fresh_gesture();
         self.flush_terminal();
         if self.terminal.core_mode {
             self.paste_core(stamp.destination, image_only, cx);
@@ -188,15 +190,26 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn toggle_selection(&mut self) {
+        self.input_transition(|this| this.toggle_selection_inner())
+    }
+    fn toggle_selection_inner(&mut self) {
+        self.handoff.passive_highlight = false;
         self.handoff.select_mode ^= true;
         self.handoff.cancel();
         self.terminal.input.detach();
         if !self.handoff.select_mode {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
         }
     }
     pub(crate) fn selection_down(
+        &mut self,
+        event: &gpui::MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input_transition(|this| this.selection_down_inner(event, window, cx))
+    }
+    fn selection_down_inner(
         &mut self,
         event: &gpui::MouseDownEvent,
         window: &mut Window,
@@ -207,6 +220,7 @@ impl Smoke {
             return;
         }
         self.terminal_focus.focus(window, cx);
+        self.handoff.passive_highlight = false;
         if self.handoff.stamp.is_some()
             && (self.handoff.select_mode || self.handoff.drag_select || event.click_count >= 2)
         {
@@ -230,7 +244,6 @@ impl Smoke {
             }
         } else {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
             window.request_virtual_keyboard();
         }
         cx.notify();
@@ -305,6 +318,14 @@ impl Smoke {
                             "Select"
                         },
                     ),
+                    (
+                        "typing-highlight",
+                        if self.handoff.keep_highlight_on_key {
+                            "Typing: Keep highlight"
+                        } else {
+                            "Typing: Clear highlight"
+                        },
+                    ),
                     ("copy", "Copy"),
                     ("paste", "Paste"),
                     ("paste-image", "Paste image"),
@@ -336,6 +357,9 @@ impl Smoke {
                             match id {
                                 "select" => {
                                     this.toggle_selection();
+                                }
+                                "typing-highlight" => {
+                                    this.handoff.keep_highlight_on_key ^= true;
                                 }
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),

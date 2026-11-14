@@ -110,3 +110,20 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(test)]
+mod discard_recovery_tests;
+
+#[cfg(test)]
+mod discard_connection_tests;
+
+#[cfg(test)]
+mod direct_text_recovery_tests;
+
+#[cfg(any(target_os = "ios", test))]
+mod input_retirement;
+#[cfg(target_os = "ios")]
+mod native_retirement;
+
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "retirement-probe"))]
+mod retirement_qa;
