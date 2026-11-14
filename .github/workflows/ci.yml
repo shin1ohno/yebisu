@@ -14,6 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
       - name: Install simulator tools
@@ -22,6 +23,14 @@ jobs:
         run: just guarded cargo fetch --locked
       - name: Build, launch and verify simulator
         run: just guarded python3 scripts/ios/ci-smoke.py --p9
+      - name: Verify installed keyless native menus
+        run: just guarded python3 scripts/ios/p12-ci.py
+      - name: Upload native menu evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p12-native-menu-evidence
+          path: target/p12-evidence/
       - name: Upload simulator smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -39,6 +48,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
       - name: Install just
@@ -51,6 +61,14 @@ jobs:
         run: just lint-ios
       - name: Test
         run: just test
+      - name: Native menu source mutations
+        run: python3 scripts/ios/p12-mutations.py
+      - name: Upload mutation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p12-mutation-evidence
+          path: target/p12-mutations/
       - name: Commit subjects
         if: github.event_name == 'pull_request'
-        run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
+        run: just check-commits

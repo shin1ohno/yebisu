@@ -86,7 +86,8 @@ fn serve(
     receipts: std::sync::mpsc::Sender<ClientMessage>,
     board: bool,
     fault: &str,
-    gate: Option<std::sync::mpsc::Receiver<()>>,
+    mut gate: Option<std::sync::mpsc::Receiver<()>>,
+    transport: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
@@ -134,6 +135,7 @@ fn serve(
         server.set_read_timeout(Some(Duration::from_millis(500)))?;
     }
 
+    let mut sequence = 0u64;
     loop {
         // Consume geometry updates from the real client; no external socket or host.
         let message: ClientMessage = match read_message(&mut server, MAX_CLIPBOARD_IMAGE_FRAME_SIZE)
@@ -170,11 +172,12 @@ fn serve(
             }
             Err(e) => return Err(e.into()),
         };
+        sequence += 1;
+        // Ingress is evidence even if parsing, the gate or a response fails.
+        record(&message, transport, sequence)?;
         let _ = receipts.send(message.clone());
-        // Regression fixture: after the initial surface, geometry requests must
-        // not produce updates that could hide a missing UI invalidation.
+        // Quiet fixtures must not mask missing UI invalidation with geometry responses.
         if fault == "quiet" {
-            record(&message)?;
             continue;
         }
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
@@ -183,7 +186,34 @@ fn serve(
             if fault != "response-first"
                 && let Some(gate) = &gate
             {
-                let _ = gate.recv_timeout(Duration::from_secs(5));
+                let timeout =
+                    if cfg!(target_abi = "sim") && std::env::var_os("YEBISU_P12_QA").is_some() {
+                        120
+                    } else {
+                        5
+                    };
+                let released = gate.recv_timeout(Duration::from_secs(timeout));
+                if p12_observing() {
+                    let reason = match released {
+                        Ok(()) => "released",
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => "timeout",
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            "sender_disconnected"
+                        }
+                    };
+                    record_peer(
+                        serde_json::json!({"kind":"p12-peer-gate", "transport":transport,
+                        "sequence":sequence,"reason":reason}),
+                    )?;
+                    if reason != "released" {
+                        return Err(format!("P12 one-shot gate: {reason}").into());
+                    }
+                }
+            }
+            if p12_observing() {
+                // Release belongs to the first request only. A second request
+                // remains observable (and fails the oracle); no dead gate wait.
+                gate = None;
             }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
                 write_message(
@@ -209,7 +239,6 @@ fn serve(
                     },
                     MAX_FRAME_SIZE,
                 )?;
-                record(&message)?;
                 continue;
             }
             write_message(
@@ -283,7 +312,6 @@ fn serve(
                 MAX_FRAME_SIZE,
             )?;
         }
-        record(&message)?;
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
             let mut frame = focused_surface(&board_snapshot, &mut serial);
@@ -319,6 +347,11 @@ fn serve(
 pub(crate) fn connect() -> crate::Result<Client> {
     connect_burst(1)
 }
+#[cfg(test)]
+pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "quiet")
+}
+
 pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
     connect_recorded(frames).map(|(client, _)| client)
 }
@@ -326,10 +359,6 @@ pub(crate) fn connect_recorded(
     frames: u64,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
-}
-#[cfg(test)]
-pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
-    connect_mode(1, false, "quiet")
 }
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)
@@ -352,7 +381,25 @@ fn connect_gated(
     std::thread::Builder::new()
         .name("yebisu-private-peer".into())
         .spawn(move || {
-            let _ = serve(server, frames, sender, board, fault, gate);
+            static NEXT_TRANSPORT: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(1);
+            let transport = NEXT_TRANSPORT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if p12_observing()
+                && let Err(error) =
+                    record_peer(serde_json::json!({"kind":"p12-peer-start", "transport":transport}))
+            {
+                eprintln!("P12 peer observation failed: {error}");
+                return;
+            }
+            let result = serve(server, frames, sender, board, fault, gate, transport);
+            if p12_observing()
+                && let Err(error) = record_peer(
+                    serde_json::json!({"kind":"p12-peer-exit", "transport":transport,
+                    "reason":result.as_ref().err().map(ToString::to_string)}),
+                )
+            {
+                eprintln!("P12 peer exit observation failed: {error}");
+            }
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,
@@ -417,20 +464,64 @@ pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
     connect_mode(1, false, fault).map(|(client, _)| client)
 }
 
-fn record(message: &ClientMessage) -> Result<(), Box<dyn std::error::Error>> {
+fn p12_observing() -> bool {
+    cfg!(all(target_os = "ios", target_abi = "sim")) && std::env::var_os("YEBISU_P12_QA").is_some()
+}
+fn record(
+    message: &ClientMessage,
+    transport: u64,
+    sequence: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if p12_observing() {
+        // No raw keys, pasted text, RPC params or secrets in the P12 trace.
+        let safe = match message {
+            ClientMessage::ClientShellEndpointRequest { request, .. } => {
+                let value: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+                let method = match value["method"].as_str() {
+                    Some("pane.split") => "pane.split",
+                    _ => "other",
+                };
+                serde_json::json!({"request_method":method})
+            }
+            ClientMessage::ClientShellPaneInput { events, .. } => {
+                let events = events
+                    .iter()
+                    .map(|event| match event {
+                        ClientPaneInputEvent::Paste(text) if text == "p12-fence" => "fifo_fence",
+                        _ => "unexpected_input",
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::json!({"input":events})
+            }
+            ClientMessage::ClientShellResize { .. } => serde_json::json!({"geometry":true}),
+            _ => serde_json::json!({"other_message":true}),
+        };
+        return record_peer(
+            serde_json::json!({"kind":"p12-peer-ingress", "transport":transport,
+            "sequence":sequence,"message":safe}),
+        );
+    }
+    record_peer(serde_json::to_value(message)?)
+}
+fn record_peer(mut value: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    if p12_observing() {
+        value["time"] = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64()
+            .into();
+    }
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
         use std::io::Write;
-        if let Some(home) = std::env::var_os("HOME")
-            && let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))
-        {
-            let _ = writeln!(file, "{}", serde_json::to_string(&message)?);
-        }
+        let home = std::env::var_os("HOME").ok_or("QA HOME missing")?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))?;
+        writeln!(file, "{value}")?;
+        file.flush()?;
     }
-    let _ = message;
+    let _ = value;
     Ok(())
 }
 
@@ -496,4 +587,10 @@ fn handoff_graphics() -> SurfaceGraphicsScene {
         };
     }
     SurfaceGraphicsScene::default()
+}
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) fn connect_p12() -> crate::Result<(Client, std::sync::mpsc::SyncSender<()>)> {
+    let (release, gate) = std::sync::mpsc::sync_channel(1);
+    connect_gated(1, false, "", Some(gate)).map(|(client, _)| (client, release))
 }
