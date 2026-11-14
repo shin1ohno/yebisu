@@ -62,6 +62,17 @@ impl Smoke {
                 cx.notify();
             })).into_any_element())
     }
+    /// The edit-menu QA controls compile under `test-support` too, so they need the
+    /// same receiving-side marker that `native_edit_qa` provides without it.
+    pub(crate) fn native_marker(&self, text: String) {
+        if let Some(handle) = &self.terminal.link.handle {
+            if let Err(e) =
+                handle.send_input("boot-v1", "w1:p1", [ClientPaneInputEvent::Paste(text)])
+            {
+                tracing::error!(%e, "native QA marker failed");
+            }
+        }
+    }
     fn observed_native_marker(&self, edge: &str, i: u32) -> bool {
         self.terminal.link.handle.as_ref().is_some_and(|h| {
             h.send_input(
