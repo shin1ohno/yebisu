@@ -79,17 +79,11 @@ impl Smoke {
         image_only: bool,
         cx: &mut Context<Self>,
     ) {
-        if image_only {
-            self.terminal.live.status =
-                "Herdr 2 accepts text paste; image paste requires Herdr 1".into();
-            cx.notify();
-            return;
-        }
         #[cfg(test)]
         {
             self.handoff.clipboard_reads += 1;
         }
-        match crate::handoff_clipboard::read(false, cx) {
+        match crate::handoff_clipboard::read(image_only, cx) {
             Ok(crate::handoff::Payload::Text(text)) if text.len() <= crate::handoff::TEXT_LIMIT => {
                 // Acquisition is bounded on the UI thread; mode-aware encoding
                 // and wire publication run in the same FIFO worker as keys.
@@ -98,15 +92,16 @@ impl Smoke {
                     event: sheprd_backend::ClientPaneInputEvent::Paste(text),
                 });
             }
+            Ok(payload @ crate::handoff::Payload::Image(_)) => self.start_core_image(payload, cx),
             Ok(_) => {
                 self.terminal.live.status =
                     "Herdr 2 paste needs text within the clipboard limit".into()
             }
-            Err(error) => self.terminal.live.status = error.to_string(),
+            Err(error) => self.terminal.live.status = crate::core_paste_view::paste_error(error),
         }
         cx.notify();
     }
-    fn core_command(&mut self, command: Command) {
+    pub(crate) fn core_command(&mut self, command: Command) {
         self.terminal.input.detach();
         self.handoff.cancel();
         if let Some(core) = &self.terminal.core
@@ -114,6 +109,14 @@ impl Smoke {
         {
             self.terminal.live.status = e.to_string();
         }
+    }
+    pub(crate) fn detach_core(&mut self) {
+        self.handoff.cancel();
+        self.terminal.core.take();
+        self.terminal.link.reset();
+        self.terminal.input.detach();
+        self.terminal.live = crate::live::Live::default();
+        self.terminal.live.status = "Detached · tap Reconnect to reattach".into();
     }
     pub(crate) fn render_core_controls(&mut self, cx: &mut Context<Self>) -> AnyElement {
         div()
@@ -160,11 +163,7 @@ impl Smoke {
                     .id("core-detach")
                     .child("Detach")
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.terminal.core.take();
-                        this.terminal.link.reset();
-                        this.terminal.input.detach();
-                        this.terminal.live = crate::live::Live::default();
-                        this.terminal.live.status = "Detached · tap Reconnect to reattach".into();
+                        this.detach_core();
                         window.blur(cx);
                         cx.notify();
                     })),

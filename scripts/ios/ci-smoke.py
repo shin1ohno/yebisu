@@ -26,7 +26,7 @@ def select_template(devices):
     return device_type, runtime
 
 
-def main():
+def main(p9=False):
     listing = subprocess.check_output(['xcrun', 'simctl', 'list', '--json', 'devices', 'available'], text=True)
     device_type, runtime = select_template(json.loads(listing)['devices'])
     device = subprocess.check_output(
@@ -40,6 +40,11 @@ def main():
             [sys.executable, str(Path(__file__).with_name('smoke-check.py'))],
             env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True,
         )
+        if p9:
+            subprocess.run(
+                [sys.executable, str(Path(__file__).with_name('p9-check.py'))],
+                env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True,
+            )
     finally:
         # Delete only our disposable device, including after a failed smoke check.
         # shutdown may fail if the build failed before booting; delete must succeed.
@@ -49,4 +54,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(p9="--p9" in sys.argv)
