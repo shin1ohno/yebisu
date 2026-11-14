@@ -331,8 +331,10 @@ fn old_completion_cannot_release_the_next_pastes_keys(cx: &mut TestAppContext) {
         probe.lock().replies.extend([None, None]);
         connect(&view, cx, probe.clone(), Control::default(), "old");
         if timeout {
+            // The timer starts at send and discards a put that arrives after it
+            // expires, so leave room for a loaded host to deliver the put first.
             view.update(cx, |this, _| {
-                this.handoff.core_timeout = Some(Duration::from_millis(200))
+                this.handoff.core_timeout = Some(Duration::from_secs(6))
             });
         }
         clipboard(cx, false);
