@@ -85,6 +85,7 @@ impl Smoke {
         self.input_transition(|this| this.detach_core_inner(window, cx))
     }
     fn detach_core_inner(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.handoff.cancel();
         self.terminal.core.take();
         self.terminal.link.reset();
         self.terminal.input.detach();
@@ -101,17 +102,11 @@ impl Smoke {
         image_only: bool,
         cx: &mut Context<Self>,
     ) {
-        if image_only {
-            self.terminal.live.status =
-                "Herdr 2 accepts text paste; image paste requires Herdr 1".into();
-            cx.notify();
-            return;
-        }
         #[cfg(test)]
         {
             self.handoff.clipboard_reads += 1;
         }
-        match crate::handoff_clipboard::read(false, cx) {
+        match crate::handoff_clipboard::read(image_only, cx) {
             Ok(crate::handoff::Payload::Text(text)) if text.len() <= crate::handoff::TEXT_LIMIT => {
                 // Acquisition is bounded on the UI thread; mode-aware encoding
                 // and wire publication run in the same FIFO worker as keys.
@@ -120,15 +115,16 @@ impl Smoke {
                     event: sheprd_backend::ClientPaneInputEvent::Paste(text),
                 });
             }
+            Ok(payload @ crate::handoff::Payload::Image(_)) => self.start_core_image(payload, cx),
             Ok(_) => {
                 self.terminal.live.status =
                     "Herdr 2 paste needs text within the clipboard limit".into()
             }
-            Err(error) => self.terminal.live.status = error.to_string(),
+            Err(error) => self.terminal.live.status = crate::core_paste_view::paste_error(error),
         }
         cx.notify();
     }
-    fn core_command(&mut self, command: Command) {
+    pub(crate) fn core_command(&mut self, command: Command) {
         self.input_transition(|this| this.core_command_inner(command))
     }
     fn core_command_inner(&mut self, command: Command) {

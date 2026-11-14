@@ -125,6 +125,19 @@ class CISmokeTests(unittest.TestCase):
         self.assertEqual(run.call_args_list[2].args[0], ['xcrun', 'simctl', 'delete', 'disposable-udid'])
         self.assertTrue(run.call_args_list[2].kwargs['check'])
 
+    def test_p9_uses_same_disposable_simulator_and_cleans_up_on_failure(self):
+        with patch.object(ci_smoke.subprocess, 'check_output', side_effect=[
+            json.dumps({'devices': self.devices()}), 'disposable-udid\n',
+        ]), patch.object(ci_smoke.subprocess, 'run', side_effect=[
+            subprocess.CompletedProcess([], 0), subprocess.CalledProcessError(1, 'p9-check.py'),
+            subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 0),
+        ]) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                ci_smoke.main(p9=True)
+        self.assertEqual(Path(run.call_args_list[1].args[0][1]).name, 'p9-check.py')
+        self.assertEqual(run.call_args_list[1].kwargs['env']['HERDR_IOS_SIMULATOR'], 'disposable-udid')
+        self.assertEqual(run.call_args_list[-1].args[0], ['xcrun', 'simctl', 'delete', 'disposable-udid'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -12,6 +12,7 @@ retirement-probe = ["herdr-uikit/test-support"]
 workspace = true
 
 [dependencies]
+base64.workspace = true
 thiserror.workspace = true
 herdr-ssh.workspace = true
 sheprd-client.workspace = true

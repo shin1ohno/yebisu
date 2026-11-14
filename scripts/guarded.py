@@ -14,7 +14,7 @@ ROOT.mkdir(exist_ok=True)
 
 
 def probe():
-    disk = os.statvfs('/System/Volumes/Data')
+    disk = os.statvfs(ROOT)
     free = disk.f_bavail * disk.f_frsize
     with (ROOT / 'disk.log').open('a') as log:
         log.write(f'disk {time.strftime("%Y-%m-%dT%H:%M:%S%z")} free_bytes={free} free_GiB={free / 2**30:.3f}\n')

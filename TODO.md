@@ -61,3 +61,4 @@
   declared native/OS tiers in docs/input-retirement-integration.md.
   Close condition: original Z1-Z7 have receiving-system evidence, with physical
   IME steps recorded separately; delete this item in the resolving commit.
+- SH1-154 physical Herdr 2 image-paste acceptance awaits the owner. Reason: Simulator and mock peers do not prove input-device, suspension, mobile-network, shell/agent path parsing or storage retention behavior. First step: follow the SH1-154 checklist in docs/device-check.md on the physical iPad and disposable hosts, recording returned paths, bytes, timings and lifecycle observations. Close condition: the consumer PR records device/iPadOS and all available SH1-154 device checks with evidence, identifying any unavailable machine/t7 environment; delete in the resolving commit.

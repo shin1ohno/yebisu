@@ -34,3 +34,53 @@ class P9EvidenceTests(unittest.TestCase):
         wire[0]["bytes"] = list(b"P9-nativeP9-pane1")
         with self.assertRaisesRegex(ValueError, "IME commit"):
             p9.validate(paints, wire)
+
+class ImageEvidenceTests(unittest.TestCase):
+    def fixture(self):
+        paints, wire = P9EvidenceTests().fixture()
+        for index in range(3):
+            wire.append({"method": "terminal.put", "terminal": "t7", "name": "paste.png", "decoded": 100})
+            wire.append({"channel": 1, "terminal": "t7", "bytes": list(f"/state\\ with\\ space/paste-{index}.png".encode())})
+            if index == 1:
+                wire.append({"channel": 1, "terminal": "t7", "bytes": list(b"P8-shadow")})
+        return paints, wire
+
+    def test_mixed_host_shaped_records_pass_both_observers(self):
+        paints, wire = self.fixture()
+        p9.validate(paints, wire)
+        p9.validate_images(wire)
+
+    def test_missing_duplicate_wrong_terminal_and_schema_fail(self):
+        for mode in range(5):
+            _, wire = self.fixture()
+            if mode == 0:
+                del wire[3]
+            elif mode == 1:
+                wire.insert(4, wire[3].copy())
+            elif mode == 2:
+                wire[3]["terminal"] = "wrong-terminal"
+            elif mode == 3:
+                wire[2]["decoded"] = "100"
+            else:
+                wire[3] = {"terminal": "t7"}
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                p9.validate_images(wire)
+
+
+class FailureEvidenceTests(unittest.TestCase):
+    def test_raw_receipts_survive_failed_native_attachment_export(self):
+        import subprocess
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = root / "evidence"
+            evidence.mkdir()
+            paints = root / "app.jsonl"
+            wire = root / "core.jsonl"
+            paints.write_text('{"kind":"p8-image-source","bytes":128}\n')
+            wire.write_text('{"method":"terminal.put","terminal":"t3","decoded":100}\n')
+            with patch.object(p9, "run", side_effect=subprocess.CalledProcessError(65, ["xcrun"])):
+                p9.collect_evidence(evidence, root / "failed.xcresult", paints, wire)
+            self.assertEqual((evidence / "paints.jsonl").read_bytes(), paints.read_bytes())
+            self.assertEqual((evidence / "wire.jsonl").read_bytes(), wire.read_bytes())
