@@ -47,7 +47,7 @@ jobs:
       - name: Fetch
         run: just guarded cargo fetch --locked
       - name: Build, launch and verify simulator
-        run: just guarded python3 scripts/ios/ci-smoke.py
+        run: just guarded python3 scripts/ios/ci-smoke.py --p9
       - name: Upload simulator smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,6 +55,7 @@ jobs:
           name: simulator-smoke-evidence
           path: |
             target/ios-smoke/*/
+            target/ios-p9/*/
             !target/ios-smoke/build/
   check:
     runs-on: macos-26

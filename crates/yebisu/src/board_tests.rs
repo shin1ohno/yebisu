@@ -48,7 +48,11 @@ fn hidden_hosts_drain_and_old_host_update_cannot_replace_selection(cx: &mut gpui
             .link
             .install(generation, crate::mock_peer::connect_burst(300));
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // A debug build on a loaded host drains slowly. The reader has stopped only
+    // when neither burst advances for the whole window.
+    let window = Duration::from_secs(10);
+    let mut deadline = Instant::now() + window;
+    let mut progress = (None, None);
     loop {
         let ready = view.update(cx, |this, cx| {
             this.poll_terminal(cx);
@@ -66,9 +70,27 @@ fn hidden_hosts_drain_and_old_host_update_cannot_replace_selection(cx: &mut gpui
         if ready {
             break;
         }
+        let seen = view.update(cx, |this, _| {
+            (
+                this.board.hidden["A"]
+                    .live
+                    .surface
+                    .as_ref()
+                    .map(|s| s.surface_revision),
+                this.terminal
+                    .live
+                    .surface
+                    .as_ref()
+                    .map(|s| s.surface_revision),
+            )
+        });
+        if seen != progress {
+            progress = seen;
+            deadline = Instant::now() + window;
+        }
         assert!(
             Instant::now() < deadline,
-            "hidden event receiver stopped draining"
+            "hidden event receiver stopped draining at {progress:?}"
         );
         std::thread::sleep(Duration::from_millis(5));
     }
