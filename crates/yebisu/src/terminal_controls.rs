@@ -39,7 +39,14 @@ impl Smoke {
                 copy,
                 // Preserve D3: Cut copies terminal cells without deleting them.
                 cut: copy,
-                paste: focused && self.terminal.input.ready && self.handoff.workers == 0,
+                paste: focused
+                    && self.terminal.input.ready
+                    && self.handoff.workers == 0
+                    && self
+                        .handoff
+                        .core_ticket
+                        .as_ref()
+                        .is_none_or(|ticket| ticket.is_finished()),
                 // D3 has no terminal Select All implementation.
                 select_all: false,
             }

@@ -204,7 +204,11 @@ fn receiver_congestion_drains_while_ui_is_busy() {
     link.install(g, mock_peer::connect_burst(600));
     // No take_update until the reader has consumed more than the bounded event
     // queue capacity (8 at the pinned client revision). Poll only the receiving mailbox, as an observer.
-    let deadline = Instant::now() + Duration::from_secs(15);
+    // A debug build on a loaded host drains slowly: the reader has stopped only
+    // when the revision does not advance for the whole window.
+    let window = Duration::from_secs(15);
+    let mut deadline = Instant::now() + window;
+    let mut last = None;
     loop {
         let revision = link
             .inbox
@@ -215,6 +219,10 @@ fn receiver_congestion_drains_while_ui_is_busy() {
             .map(|s| s.surface_revision);
         if revision == Some(600) {
             break;
+        }
+        if revision != last {
+            last = revision;
+            deadline = Instant::now() + window;
         }
         assert!(
             Instant::now() < deadline,

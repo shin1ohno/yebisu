@@ -25,6 +25,8 @@ pub(super) fn run(
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
     let (stop, input_epoch) = controls;
+    let _disconnect = super::paste::Disconnect(backend.clone());
+    let mut uploads = super::paste::Uploads::default();
     let storage = store::LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -108,6 +110,31 @@ pub(super) fn run(
                     ack.send(key).map_err(|_| crate::Error::CoreState)?;
                     return Ok(());
                 }
+                Command::PutImage {
+                    destination,
+                    ticket,
+                    bytes,
+                    reply,
+                } => {
+                    let current =
+                        screen::publish(&screens, &saved, size, generation, revision, epoch);
+                    if queued_epoch == input_epoch.load(Ordering::Acquire)
+                        && !screens[saved.active].ended
+                        && crate::terminal_input::destination(&current, generation).as_ref()
+                            == Some(&destination)
+                    {
+                        uploads.start(
+                            &backend,
+                            destination,
+                            saved.ids[saved.active].as_str().to_owned(),
+                            bytes,
+                            ticket,
+                            reply,
+                        );
+                    } else {
+                        super::paste::reject(ticket, reply, "Paste cancelled: target changed");
+                    }
+                }
                 Command::Resize(next) => {
                     size = next;
                     changed = true;
@@ -177,6 +204,18 @@ pub(super) fn run(
                 changed = true;
             }
         }
+        let current = screen::publish(&screens, &saved, size, generation, revision, epoch);
+        let destination = if screens[saved.active].ended {
+            None
+        } else {
+            crate::terminal_input::destination(&current, generation)
+        };
+        uploads.drain(
+            destination.as_ref(),
+            saved.ids[saved.active].as_str(),
+            &mut terminals[saved.active],
+            stop.load(Ordering::Acquire),
+        );
         if screens.iter().all(|screen| screen.ended) {
             std::thread::sleep(Duration::from_millis(16));
         }

@@ -12,6 +12,7 @@ use std::{collections::VecDeque, sync::Arc};
 #[path = "handoff_cells.rs"]
 mod cells;
 
+pub(crate) const CORE_IMAGE_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) const TEXT_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) const IMAGE_LIMIT: usize = 128 * 1024 * 1024;
 pub(crate) const PIXEL_LIMIT: u64 = 64 * 1024 * 1024;
@@ -24,6 +25,8 @@ pub(crate) struct Stamp {
 }
 #[derive(Default)]
 pub(crate) struct Handoff {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub qa_image_ready: bool,
     #[cfg(test)]
     pub clipboard_reads: usize,
     #[cfg(test)]
@@ -41,6 +44,11 @@ pub(crate) struct Handoff {
     pub preparing: bool,
     // Count workers even after cancellation, so repeated switching stays bounded.
     pub workers: usize,
+    #[cfg(test)]
+    pub core_timeout: Option<std::time::Duration>,
+    #[cfg(test)]
+    pub core_test: Option<Arc<crate::handoff_ticket::TestHooks>>,
+    pub core_ticket: Option<crate::handoff_ticket::PasteTicket>,
     pub cancellation: Option<ClipboardImageCancellation>,
     pub held: VecDeque<GeneratedInput>,
     pub refused_tail: bool,
@@ -54,6 +62,9 @@ impl Handoff {
         }
     }
     pub fn cancel(&mut self) {
+        if let Some(ticket) = self.core_ticket.take() {
+            ticket.cancel();
+        }
         if let Some(c) = self.cancellation.take() {
             c.cancel();
         }
@@ -157,7 +168,7 @@ pub(crate) enum Prepared {
     Text(String),
     Image(Vec<u8>),
 }
-pub(crate) fn prepare(payload: Payload) -> crate::Result<Prepared> {
+pub(crate) fn prepare(payload: Payload, limit: usize) -> crate::Result<Prepared> {
     let fail = |s: &str| crate::Error::Ssh(format!("Paste refused: {s}"));
     match payload {
         Payload::Text(text) if text.len() <= TEXT_LIMIT => Ok(Prepared::Text(text)),
@@ -186,7 +197,7 @@ pub(crate) fn prepare(payload: Payload) -> crate::Result<Prepared> {
                     .write_to(&mut out, image::ImageFormat::Png)
                     .map_err(|_| fail("image encode"))?;
                 let bytes = out.into_inner();
-                if bytes.len() <= sheprd_client::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD {
+                if bytes.len() <= limit {
                     return Ok(Prepared::Image(bytes));
                 }
                 let w = (image.width() / 2).max(1);

@@ -542,7 +542,7 @@ UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
    repeats and release; confirm one delivery. Paste plain text using Command-V
    and the native Paste action; Command: Ctrl with Terminal priority must deliver
    Control-V instead of reading the clipboard. Herdr 2 supports text paste;
-   image paste remains a Herdr 1 operation. Repeat with a program requesting
+   image paste uses terminal.put in Herdr 2 (2 MiB PNG after downscale). Repeat with a program requesting
    kitty key reports and after unplug/replug. Candidate options are visual only.
 5. Tap **Split (2 panes)**. Both remote terminals must remain visible. Tap
    **Pane 1** and **Pane 2**, type distinct markers, and confirm routing only to
@@ -719,7 +719,7 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 3. Open the app switcher or move Stage Manager focus to another visible window, wait at least 5 seconds, return and send the pasted path. Confirm the host still has that exact file, record its original creation time and the return/send times. Confirm input and painting continue without a reconnect. Distinguish inactive-only from true Background in the lifecycle log: a full-screen app switch can background yebisu and is not covered by this retention guarantee. Repeat with Control Center and a system sheet.
 4. Enter the Home screen (true Background). Confirm the connection closes and record the staged file's deletion observation time (including the monitor's 0.2-second resolution), as in the pro-dev monitor on 2026-11-11. Return and confirm Automatic reconnects and fresh input works; do not expect the old staged file to survive Background.
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
-6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
+6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (include Herdr 2 image paste through terminal.put). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
 
 ## P11 settings owner acceptance
@@ -739,3 +739,37 @@ key, and install that exact new blob on an authorized disposable host. Confirm a
 fresh connection, back up and remove only the recorded old blob, confirm another
 fresh connection, and verify other app/device keys still work. No worker may
 perform these trust/keychain mutations. Record device/iPadOS, head and receipts.
+
+## SH1-154 — Herdr 2 image paste (device QA pending)
+
+These checks require a physical iPad; Simulator callbacks do not prove touch,
+trackpad, hardware keyboard, native-menu, suspension, or network behavior.
+
+- [ ] Paste PNG/JPEG/screenshots copied from Photos and Files with touch Paste,
+  Paste image, trackpad, image-only Command-V, Command-Shift-V, and native Paste.
+  Observe one path per gesture. Command-as-Control with Terminal priority must
+  send Control-V without reading the clipboard or uploading an image.
+- [ ] Inspect the returned path on the receiving host: stat state/files/terminal
+  directories and file ownership/modes; file/identify (or sips) confirms PNG,
+  dimensions and the receipt's byte count. In a fresh empty terminal, two images
+  produce paste.png and paste-2.png without replacing the first. Have Claude Code
+  read the actual returned path.
+- [ ] Paste a 2732x2048 PNG and verify at most 2 MiB after downscale. Measure
+  gesture-to-path latency and drawing stalls separately on LAN and LTE.
+- [ ] Cancel during preparation/upload by changing terminal, split or host,
+  beginning selection, or toggling Select. Confirm no stale path. Exact enqueue
+  and partial-write boundaries are deterministic host tests, not manual claims.
+- [ ] On a disposable host with spaces in XDG_STATE_HOME, pass the escaped path
+  directly to zsh ls -l and Claude Code and verify both read the file.
+- [ ] Inactive (Stage Manager/App Switcher) permits completion. Background closes
+  the connection; Active creates no late input. Files remain after Background.
+- [ ] On a disposable host, verify hc rm deletes the terminal's files. Separately
+  start core with HC_RETAIN_MS=60000; record terminal parent and remove any live
+  parent dependency, then exit the terminal. Record that both record and files
+  remain before 60 seconds. After 60 seconds invoke hc ls to trigger pruning;
+  verify hc ls --all lacks the record and its files directory is absent.
+- [ ] Where available, paste to a machine/t7 terminal and verify storage on that
+  machine. Record unavailable environments as unverified.
+
+The app does not chmod or delete uploads. It uses the existing core connection,
+keeps text priority, and preserves Herdr 1's 16 MiB image limit.
