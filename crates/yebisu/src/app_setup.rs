@@ -3,15 +3,12 @@ use crate::{
     app::Smoke,
     setup::{Job, Reply},
 };
-use gpui::{AnyElement, ClipboardItem, Context, canvas, div, prelude::*, rgb};
+use gpui::{AnyElement, Context, canvas, div, prelude::*, rgb};
 
 impl Smoke {
     pub(crate) fn start_job(&mut self, job: Job, cx: &mut Context<Self>) {
         if self.setup.busy {
             return;
-        }
-        if matches!(&job, Job::Key) {
-            self.setup.key_line = None;
         }
         self.setup.busy = true;
         self.setup.pending = None;
@@ -44,14 +41,18 @@ impl Smoke {
         self.observation.record(serde_json::json!({
             "kind": "setup", "busy": self.setup.busy, "status": self.setup.status,
             "target": self.setup_input.text, "fingerprints": self.setup.fingerprints,
-            "key_line": self.setup.key_line, "hosts": self.setup.hosts,
+            "key_ready": self.settings.as_ref().is_some_and(|h|h.keys.line().is_some()), "hosts": self.setup.hosts,
         }));
         let input_entity = cx.entity();
         let busy = self.setup.busy;
-        let key_ready = self.setup.key_line.is_some();
+        let key_ready = self
+            .settings
+            .as_ref()
+            .is_some_and(|h| h.keys.line().is_some());
         let pending = self.setup.pending.is_some();
         div()
             .id("keys-hosts")
+            .children(self.key_qa_label())
             .size_full()
             .bg(rgb(0x2e3440))
             .text_color(rgb(0xeceff4))
@@ -63,6 +64,7 @@ impl Smoke {
             .p_8()
             .track_focus(&self.focus)
             .child(div().text_3xl().child("yebisu · Saved hosts · P9"))
+            .child(self.settings_button(cx))
             .child(
                 button("core-connect", "Open Herdr 2", busy).on_click(cx.listener(
                     |this, _, _, cx| {
@@ -97,29 +99,27 @@ impl Smoke {
                     },
                 )),
             )
-            .child(div().child("1. Create this installation's SSH key"))
+            .child(div().child("1. Read or initialize this installation's SSH key"))
             .child(
-                button("key-create", "Create / show public key", busy).on_click(cx.listener(
+                button("key-create", "Read or initialize device key", busy).on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.start_job(Job::Key, cx);
+                        this.read_device_key(cx);
                     },
                 )),
             )
             .child(
                 div().text_sm().w_full().overflow_hidden().child(
-                    self.setup
-                        .key_line
-                        .clone()
+                    self.settings
+                        .as_ref()
+                        .and_then(|h| h.keys.line())
+                        .map(str::to_owned)
                         .unwrap_or_else(|| "No public key loaded.".into()),
                 ),
             )
             .child(
                 button("key-copy", "Copy authorized_keys line", busy || !key_ready).on_click(
                     cx.listener(|this, _, _, cx| {
-                        if !this.setup.busy
-                            && let Some(line) = &this.setup.key_line
-                        {
-                            cx.write_to_clipboard(ClipboardItem::new_string(line.clone()));
+                        if !this.setup.busy && this.copy_device_key(cx) {
                             this.setup.status = "Copied restricted public key.".into();
                             cx.notify();
                         }
@@ -237,6 +237,7 @@ impl Smoke {
 fn button(id: &'static str, label: &'static str, disabled: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .debug_selector(move || id.to_owned())
         .px_4()
         .py_2()
         .rounded_lg()

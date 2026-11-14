@@ -255,6 +255,30 @@ class BundleTests(unittest.TestCase):
         for call in self.calls():
             self.assertNotIn("com.apple.developer.user-fonts", call.get("entitlements", {}))
 
+    def test_collector_rejects_escaped_artifact_before_removing_app(self):
+        owned = self.root / "owned"
+        owned.mkdir()
+        self.env["HERDR_IOS_ARTIFACT_ROOT"] = str(owned)
+        app = self.executable.parent / "yebisu.app"
+        app.mkdir()
+        sentinel = app / "preserve"
+        sentinel.write_text("old artifact")
+        result = self.run_bundle("--package", "yebisu", "--bin", "yebisu")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("escaped the requested isolated root", result.stderr)
+        self.assertEqual(sentinel.read_text(), "old artifact")
+
+    def test_simulator_bundle_scratch_honors_owned_tmpdir(self):
+        scratch = self.root / "owned scratch"
+        scratch.mkdir()
+        self.env["TMPDIR"] = str(scratch)
+        self.env["HERDR_IOS_ARTIFACT_ROOT"] = str(self.executable.parent)
+        result = self.run_bundle("--package", "yebisu", "--bin", "yebisu")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        call = next(c for c in self.calls("cargo") if "entitlements_path" in c)
+        self.assertTrue(Path(call["entitlements_path"]).is_relative_to(scratch))
+        self.assertFalse(Path(call["entitlements_path"]).exists())
+
     def test_simulator_links_private_keychain_entitlements_only_into_the_executable(self):
         result = self.run_bundle(
             "--package", "yebisu", "--bin", "yebisu",

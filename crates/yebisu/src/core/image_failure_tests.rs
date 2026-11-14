@@ -1,6 +1,9 @@
 use super::*;
 use crate::core::{Command, Session};
-use std::sync::{atomic::AtomicBool, mpsc};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64},
+    mpsc,
+};
 
 #[gpui::test]
 fn acquisition_failure_never_reserves_or_calls_put(cx: &mut TestAppContext) {
@@ -36,12 +39,16 @@ fn queue_full_and_dropped_reply_release_ui_slot(cx: &mut TestAppContext) {
         let (queue, receive) = mpsc::sync_channel(1);
         if full {
             queue
-                .send(Command::Orientation)
+                .send(crate::core::Queued {
+                    command: Command::Orientation,
+                    input_epoch: 0,
+                })
                 .unwrap_or_else(|e| panic!("queue:{e}"));
         }
         let old = view.update(cx, |this, _| {
             this.terminal.core.replace(Session {
                 queue,
+                input_epoch: Arc::new(AtomicU64::new(0)),
                 stop: Arc::new(AtomicBool::new(false)),
                 finished: Arc::new(AtomicBool::new(false)),
             })

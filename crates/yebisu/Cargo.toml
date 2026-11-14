@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-support = ["herdr-uikit/test-support", "dep:dispatch2", "dep:libc"]
+
 [lints]
 workspace = true
 
@@ -28,6 +32,10 @@ herdr-uikit.workspace = true
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }
 objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIPasteboard", "std"] }
+
+[target.'cfg(all(target_os = "ios", target_abi = "sim"))'.dependencies]
+dispatch2 = { version = "0.3.1", default-features = false, features = ["objc2", "std"], optional = true }
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 sheprd-client = { workspace = true, features = ["test-support"] }
