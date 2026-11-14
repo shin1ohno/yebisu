@@ -221,7 +221,14 @@ impl Smoke {
                     self.terminal.input.detach();
                     core.send(crate::core::Command::Split)
                 } else {
-                    self.run_action(sheprd_commands::Command::FocusRight)
+                    // The mock peer publishes a newly focused pane at its
+                    // default 80x24, not at the client size a real Herdr 1
+                    // keeps. Resend the size after the focus request so input
+                    // becomes ready even when the viewport never changes
+                    // (run 43616762580, E3i without a software keyboard).
+                    let result = self.run_action(sheprd_commands::Command::FocusRight);
+                    self.terminal.size = None;
+                    result
                 };
                 self.observation.record(serde_json::json!({"kind":"sh1-152-destination-change", "accepted":result.is_ok()}));
             }
