@@ -89,7 +89,9 @@ fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut 
         connect(&view, cx, probe.clone(), control.clone(), "timeout");
         view.update(cx, |this, _| {
             this.handoff.core_test = Some(hooks.clone());
-            this.handoff.core_timeout = Some(Duration::from_millis(400));
+            // The timer starts when the command is sent, while this test still
+            // steps the worker through its hooks; leave room for a loaded host.
+            this.handoff.core_timeout = Some(Duration::from_secs(3));
         });
         clipboard(cx, false);
         start(&view, cx, true);
