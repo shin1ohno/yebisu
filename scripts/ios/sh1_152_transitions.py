@@ -36,15 +36,16 @@ def validate(records, messages, wire, log):
             verdict = base.check_switch(one(window, "sh1-152-switch"))
         if case.startswith("E3f"):
             external = one(window, "sh1-152-external")["result"]
-            expected = "GPUITextInputView" if case.endswith("text") else "HerdrUIKitGPUIView"
-            if external["before"] != expected or external["during"] != "UITextField" or not external["acquired"] or result["responder"] != expected:
+            expected = "text" if case.endswith("text") else "drawing"
+            kind = base.view_kind
+            if kind(external["before"]) != expected or external["during"] != "UITextField" or not external["acquired"] or kind(result["responder"]) != expected:
                 raise ValueError(f"external responder path did not happen: {case}: {external}, {result}")
             if result["status"] != "Revoked(ResignedOutside)":
                 raise ValueError(f"external resign did not irreversibly revoke: {case}")
         if success:
-            before = "GPUITextInputView" if case.endswith("text") else "HerdrUIKitGPUIView"
-            after = "HerdrUIKitGPUIView" if case.endswith("text") else "GPUITextInputView"
-            if initial["responder"] != before or result["responder"] != after or result["status"] != "Current":
+            before = "text" if case.endswith("text") else "drawing"
+            after = "drawing" if case.endswith("text") else "text"
+            if base.view_kind(initial["responder"]) != before or base.view_kind(result["responder"]) != after or result["status"] != "Current":
                 raise ValueError(f"successful internal switch revoked or did not occur: {case}")
         replay = one(window, "sh1-152-replay", 0)
         if replay["count"] != (0 if case == "E3i" else 2):

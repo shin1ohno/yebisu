@@ -8,10 +8,9 @@ final class EditMenuQA: XCTestCase {
             try tap("152 Begin", app)
             sleep(2)
             if name.hasPrefix("E2") { try tap("152 Select", app); sleep(1) }
-            try menu(app, name)
+            try menu(app, name, selected: name.hasPrefix("E2"))
             let action = name.hasPrefix("E2") ? "Copy" : "Paste"
             XCTAssertTrue(app.menuItems[action].isEnabled)
-            if action == "Paste" { XCTAssertFalse(app.menuItems["Copy"].isEnabled) }
             app.menuItems[action].tap()
             sleep(2)
             try tap("152 End", app)
@@ -26,8 +25,9 @@ final class EditMenuQA: XCTestCase {
             let app = launch(name)
             try tap("152 Begin", app)
             sleep(2)
-            if name == "E3c" || name.hasPrefix("E3f") { try tap("152 Select", app); sleep(1) }
-            try menu(app, name)
+            let selected = name == "E3c" || name.hasPrefix("E3f")
+            if selected { try tap("152 Select", app); sleep(1) }
+            try menu(app, name, selected: selected)
             if name == "E3d" {
                 XCUIDevice.shared.press(.home)
                 sleep(2)
@@ -60,7 +60,7 @@ final class EditMenuQA: XCTestCase {
                 try tap("152 Fresh", app)
                 sleep(2)
                 // Ask the real delegate for an unrelated configuration, then replay its ordinary commands.
-                try menu(app, name)
+                try menu(app, name, selected: false)
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
                 try tap("152 Ordinary", app)
                 sleep(2)
@@ -68,7 +68,7 @@ final class EditMenuQA: XCTestCase {
             }
             try tap("152 Fresh", app)
             sleep(2)
-            try menu(app, name)
+            try menu(app, name, selected: false)
             app.menuItems["Paste"].tap()
             sleep(2)
             try tap("152 End", app)
@@ -82,7 +82,7 @@ final class EditMenuQA: XCTestCase {
             let app = launch(name)
             try tap("152 Begin", app)
             sleep(2)
-            try menu(app, name)
+            try menu(app, name, selected: false)
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
             if name == "E7" {
                 let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
@@ -103,6 +103,42 @@ final class EditMenuQA: XCTestCase {
         }
     }
 
+    // E5: two real UIKit scenes. Scene A shows "AAA-152" on w1:p1; scene B
+    // (opened by "152 Second", controls "152 Two ...") shows "BBB-152" on w1:p3.
+    func testSH1152TwoScenes() throws {
+        for name in ["E5a", "E5b", "E5c", "E5d"] {
+            let app = launch(name)
+            let selectFirst = name == "E5b" || name == "E5c"
+            try tap("152 Begin", app)
+            sleep(2)
+            if selectFirst { try tap("152 Select", app); sleep(1) }
+            try menu(app, name, selected: selectFirst, target: "AAA-152")
+            if name == "E5a" { app.menuItems["Paste"].tap() }
+            else if name == "E5b" { app.menuItems["Copy"].tap() }
+            else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap() }
+            sleep(2)
+            try tap("152 End", app)
+            sleep(1)
+            save("\(name)-first")
+            try tap("152 Second", app)
+            sleep(6)
+            save("\(name)-second-open")
+            if name == "E5d" { try tap("152 Two Close", app); sleep(3) }
+            try tap("152 Two Begin", app)
+            sleep(2)
+            if name == "E5b" { try tap("152 Two Select", app); sleep(1) }
+            try menu(app, name, selected: name == "E5b", target: "BBB-152")
+            app.menuItems[name == "E5b" ? "Copy" : "Paste"].tap()
+            sleep(2)
+            try tap("152 Two End", app)
+            sleep(1)
+            save(name)
+            // Leave one scene session, as every other case expects at launch.
+            if name != "E5d" { try tap("152 Two Close", app); sleep(3) }
+            app.terminate()
+        }
+    }
+
     private func launch(_ name: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -115,13 +151,16 @@ final class EditMenuQA: XCTestCase {
         return app
     }
 
-    private func menu(_ app: XCUIApplication, _ name: String) throws {
-        let point = try coordinate(name.contains("core") ? "yebisu P9" : "private wire peer", app)
+    // Owner rule (iOS convention): only usable items are shown. Without a
+    // selection the menu is Paste alone; with a selection it is Copy and Paste.
+    private func menu(_ app: XCUIApplication, _ name: String, selected: Bool, target: String? = nil) throws {
+        let point = try coordinate(target ?? (name.contains("core") ? "yebisu P9" : "private wire peer"), app)
         point.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
-        XCTAssertEqual(Set(app.menuItems.allElementsBoundByIndex.map { $0.label }), Set(["Copy", "Paste"]))
-        XCTAssertEqual(app.menuItems.count, 2)
-        print("SH1-152 VISIBLE \(name) \(app.menuItems.allElementsBoundByIndex.map { $0.label })")
+        let labels = app.menuItems.allElementsBoundByIndex.map { $0.label }
+        print("SH1-152 VISIBLE \(name) selected=\(selected) labels=\(labels.joined(separator: ","))")
+        XCTAssertEqual(labels.sorted(), selected ? ["Copy", "Paste"] : ["Paste"])
+        if !selected { XCTAssertFalse(app.menuItems["Copy"].exists, "Copy shown without a selection: \(name)") }
         save("menu-\(name)")
         sleep(1)
     }

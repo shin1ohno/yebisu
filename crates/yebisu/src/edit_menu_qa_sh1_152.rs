@@ -8,6 +8,8 @@ pub(crate) struct MenuQa {
     pub capture: Option<Rc<native::Capture>>,
     pub token: Option<herdr_uikit::NativeEditMenuToken>,
     pub stage: usize,
+    /// The E5 scene opened by "Second"; its controls carry a distinct label.
+    pub second: bool,
 }
 
 pub(crate) fn case() -> String {
@@ -17,32 +19,47 @@ pub(crate) fn case() -> String {
 impl Smoke {
     pub(crate) fn sh1_152_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_SH1_152_CASE")?;
+        let commands: &[&'static str] = if self.menu_qa.second {
+            &["Begin", "Select", "End", "Close"]
+        } else if case().starts_with("E5") {
+            &["Begin", "Select", "End", "Second"]
+        } else {
+            &[
+                "Begin", "Select", "Mutate", "Replay", "Fresh", "End", "Ordinary", "Restore",
+            ]
+        };
+        // OCR finds a label by substring, so the second scene's labels never
+        // contain the first scene's ("152 Begin" is not in "152 Two Begin").
+        let prefix = if self.menu_qa.second {
+            "152 Two"
+        } else {
+            "152"
+        };
         Some(
             div()
                 .flex()
                 .flex_wrap()
                 .gap_2()
-                .children(
-                    [
-                        "Begin", "Select", "Mutate", "Replay", "Fresh", "End", "Ordinary",
-                        "Restore",
-                    ]
-                    .map(|command| {
-                        div()
-                            .id(format!("sh1-152-{command}"))
-                            .p_2()
-                            .bg(rgb(0x3b4252))
-                            .child(format!("152 {command}"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.sh1_152_command(command, window, cx)
-                            }))
-                    }),
-                )
+                .children(commands.iter().map(|&command| {
+                    div()
+                        .id(format!("sh1-152-{command}"))
+                        .p_2()
+                        .bg(rgb(0x3b4252))
+                        .child(format!("{prefix} {command}"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.sh1_152_command(command, window, cx)
+                        }))
+                }))
                 .into_any_element(),
         )
     }
 
-    pub(crate) fn sh1_152_capture(&mut self, token: MenuToken, cx: &mut Context<Self>) {
+    pub(crate) fn sh1_152_capture(
+        &mut self,
+        token: MenuToken,
+        handle: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
         if case().is_empty() || self.menu_qa.capture.is_some() {
             return;
         }
@@ -55,13 +72,19 @@ impl Smoke {
             MenuToken::Recorded(_) => return,
         };
         self.menu_qa.token = Some(token);
+        let stage = self.menu_qa.stage;
         cx.spawn(async move |weak, cx| {
             cx.background_executor().timer(Duration::from_millis(150)).await;
             // This future runs on the main thread without a GPUI update borrow.
             let capture = native::capture(token).map(Rc::new);
+            let replay = capture.as_ref().and_then(|capture| crate::edit_menu_qa_scenes::captured(capture.clone(), stage));
             let _ = weak.update(cx, |this, _| {
-                this.observation.record(serde_json::json!({"kind":"sh1-152-capture", "case":case(), "stage":this.menu_qa.stage, "count":capture.as_ref().map(|c| c.commands.len()), "responder":capture.as_ref().and_then(|c| native::responder(&c.window)), "token":token.value(), "generation":this.terminal.link.generation, "destination":this.handoff.stamp.as_ref().map(|s| format!("{:?}",s.destination.target))}));
+                this.observation.record(serde_json::json!({"kind":"sh1-152-capture", "case":case(), "stage":this.menu_qa.stage, "count":capture.as_ref().map(|c| c.commands.len()), "responder":capture.as_ref().and_then(|c| native::responder(&c.window)), "scene":capture.as_ref().and_then(|c| native::scene_id(&c.window)), "token":token.value(), "generation":this.terminal.link.generation, "destination":this.handoff.stamp.as_ref().map(|s| format!("{:?}",s.destination.target))}));
+                if let Some(replay) = replay {
+                    this.observation.record(serde_json::json!({"kind":"sh1-152-cross-scene-replay", "sent":replay}));
+                }
                 this.menu_qa.capture = capture;
+                this.observation.record(serde_json::json!({"kind":"sh1-152-capture-status", "stage":stage, "status":format!("{:?}",herdr_uikit::native_edit_menu_status(handle,token))}));
             });
         }).detach();
     }
@@ -84,6 +107,14 @@ impl Smoke {
 
     fn sh1_152_command(&mut self, command: &str, window: &mut Window, cx: &mut Context<Self>) {
         match command {
+            "Second" => {
+                crate::edit_menu_qa_scenes::open_second(window, self.menu_qa.stage + 1, cx);
+            }
+            "Close" => {
+                let closed = crate::edit_menu_qa_scenes::close_first(cx);
+                self.observation
+                    .record(serde_json::json!({"kind":"sh1-152-close-other", "closed":closed}));
+            }
             "Begin" | "Fresh" => {
                 if command == "Fresh" {
                     self.menu_qa.stage += 1;
@@ -117,7 +148,16 @@ impl Smoke {
                     self.handoff.selection = Some(Selection {
                         frame: Arc::new(surface.frame.clone()),
                         anchor: (if self.terminal.core_mode { 0 } else { 1 }, 2),
-                        end: (if self.terminal.core_mode { 5 } else { 6 }, 2),
+                        end: (
+                            if case().starts_with("E5") {
+                                7
+                            } else if self.terminal.core_mode {
+                                5
+                            } else {
+                                6
+                            },
+                            2,
+                        ),
                         dragging: false,
                     });
                 }

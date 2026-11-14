@@ -34,6 +34,36 @@ def segments(messages):
     return result
 
 
+VISIBLE = re.compile(r"^SH1-152 VISIBLE (\S+) selected=(true|false) labels=(.*)$", re.M)
+SELECTED_AT_MENU = {"E2-text", "E2-key", "E2-core", "E3c", "E3f-text", "E3f-key", "E5b", "E5c"}
+
+
+def visible_menus(log, cases):
+    """Owner rule: only usable items are shown (Paste alone, or Copy and Paste with a selection)."""
+    seen = {}
+    for case, selected, labels in VISIBLE.findall(log):
+        selected = selected == "true"
+        expected = ["Copy", "Paste"] if selected else ["Paste"]
+        if sorted(labels.split(",")) != expected:
+            raise ValueError(f"visible menu violates usable-items rule: {case} selected={selected} {labels}")
+        seen.setdefault(case, []).append(selected)
+    for case in cases:
+        if case not in seen:
+            raise ValueError(f"visible menu not recorded: {case}")
+        if seen[case][0] != (case in SELECTED_AT_MENU):
+            raise ValueError(f"first menu selection state differs from the case: {case}")
+    return "SH1-152 visible menus PASS: " + ", ".join(f"{c}={len(v)}" for c, v in sorted(seen.items()))
+
+
+def view_kind(name):
+    """UIKit reports the Rust-declared class with its module path and version."""
+    if name and "GPUITextInputView" in name:
+        return "text"
+    if name and "HerdrUIKitGPUIView" in name:
+        return "drawing"
+    return name
+
+
 def check_switch(record):
     if record["dropped"]:
         raise ValueError("switch observations dropped")

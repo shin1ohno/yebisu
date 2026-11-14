@@ -15,6 +15,9 @@ spec.loader.exec_module(oracle)
 transition_spec = importlib.util.spec_from_file_location("sh1_152_transitions", Path(__file__).with_name("sh1_152_transitions.py"))
 transitions = importlib.util.module_from_spec(transition_spec)
 transition_spec.loader.exec_module(transitions)
+scene_spec = importlib.util.spec_from_file_location("sh1_152_scenes", Path(__file__).with_name("sh1_152_scenes.py"))
+scenes = importlib.util.module_from_spec(scene_spec)
+scene_spec.loader.exec_module(scenes)
 
 
 def run(*args, **kwargs):
@@ -37,25 +40,41 @@ def main():
         path.unlink(missing_ok=True)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    methods = ["testSH1152Basic", "testSH1152Transitions", "testSH1152DismissAndSystemEdit", "testSH1152TwoScenes"]
     try:
-        result = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
-                     "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
-                     "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA")
+        # A failing XCTest exits non-zero; every receiving-system oracle still runs below.
+        print("SH1-152 COMMAND xcodebuild test", flush=True)
+        result = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
+                                 "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
+                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, text=True, capture_output=True)
+        print(result.stdout, flush=True)
+        print(result.stderr, flush=True)
         (directory / "xctest.log").write_text(result.stdout + result.stderr)
-        for method in ["testSH1152Basic", "testSH1152Transitions", "testSH1152DismissAndSystemEdit"]:
-            if f"{method}]' passed" not in result.stdout:
-                raise ValueError(f"native menu XCTest did not execute and pass: {method}")
     finally:
         for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
             if path.exists():
                 shutil.copyfile(path, directory / path.name)
-    read = lambda path: [json.loads(line) for line in path.read_text().splitlines()]
+    read = lambda path: [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
-    verdict = oracle.validate_basic(records, read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl"))
-    transition_verdicts = transitions.validate(records, read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl"), result.stdout)
-    (directory / "verdict.json").write_text(json.dumps({"basic": verdict, "transitions": transition_verdicts, "full_acceptance": False}))
-    print(verdict, directory, flush=True)
-
+    peer, core = read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl")
+    verdicts, failures = {"xctest": {m: f"{m}]' passed" in result.stdout for m in methods}}, []
+    failures += [f"XCTest did not execute and pass: {m}" for m, ok in verdicts["xctest"].items() if not ok]
+    checks = {
+        "basic": lambda: oracle.validate_basic(records, peer, core),
+        "menus": lambda: oracle.visible_menus(result.stdout, [*oracle.BASIC_CASES, *transitions.CASES, "E4-text", "E4-key", "E7", *scenes.CASES]),
+        "transitions": lambda: transitions.validate(records, peer, core, result.stdout),
+        "scenes": lambda: scenes.validate(records, peer),
+    }
+    for name, check in checks.items():
+        try:
+            verdicts[name] = check()
+        except (ValueError, KeyError, TypeError, IndexError) as error:
+            verdicts[name] = f"FAIL: {type(error).__name__}: {error}"
+            failures.append(f"{name}: {error}")
+    (directory / "verdict.json").write_text(json.dumps(verdicts, ensure_ascii=False, indent=1))
+    print("SH1-152 VERDICT", json.dumps(verdicts, ensure_ascii=False), directory, flush=True)
+    if failures:
+        raise SystemExit("SH1-152 FAIL\n" + "\n".join(failures))
 
 if __name__ == "__main__":
     main()

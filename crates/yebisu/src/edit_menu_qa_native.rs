@@ -40,6 +40,15 @@ pub(crate) fn responder(window: &AnyObject) -> Option<String> {
         .map(|view| view.class().name().to_string_lossy().into_owned())
 }
 
+pub(crate) fn scene_id(window: &AnyObject) -> Option<String> {
+    unsafe {
+        let scene: Option<Retained<AnyObject>> = msg_send![window, windowScene];
+        let session: Retained<AnyObject> = msg_send![&*scene?, session];
+        let id: Retained<NSString> = msg_send![&*session, persistentIdentifier];
+        Some(id.to_string())
+    }
+}
+
 pub(crate) fn capture(token: herdr_uikit::NativeEditMenuToken) -> Option<Capture> {
     let mtm = MainThreadMarker::new()?;
     unsafe {

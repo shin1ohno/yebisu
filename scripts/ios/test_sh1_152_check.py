@@ -81,6 +81,29 @@ class MenuOracleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 oracle.segments(invalid)
 
+    def test_visible_menu_shows_only_usable_items(self):
+        cases = ["E1-text", "E2-text", "E3c"]
+        log = "\n".join([
+            "SH1-152 VISIBLE E1-text selected=false labels=Paste",
+            "SH1-152 VISIBLE E2-text selected=true labels=Copy,Paste",
+            "SH1-152 VISIBLE E3c selected=true labels=Paste,Copy",
+            "SH1-152 VISIBLE E3c selected=false labels=Paste",
+        ])
+        self.assertIn("PASS", oracle.visible_menus(log, cases))
+        for bad, expected in [
+            (log.replace("E1-text selected=false labels=Paste", "E1-text selected=false labels=Copy,Paste"), "usable-items"),
+            (log.replace("E2-text selected=true labels=Copy,Paste", "E2-text selected=true labels=Paste"), "usable-items"),
+            (log.replace("E2-text selected=true", "E2-text selected=false").replace("labels=Copy,Paste\nSH1-152 VISIBLE E3c selected=true", "labels=Paste\nSH1-152 VISIBLE E3c selected=true"), "first menu selection"),
+            ("\n".join(log.splitlines()[1:]), "not recorded"),
+        ]:
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
+                oracle.visible_menus(bad, cases)
+
+    def test_view_kind_accepts_actual_uikit_class_names(self):
+        self.assertEqual(oracle.view_kind("herdr_uikit::window::text_input::view_class::GPUITextInputView0.1.0"), "text")
+        self.assertEqual(oracle.view_kind("HerdrUIKitGPUIView"), "drawing")
+        self.assertEqual(oracle.view_kind("UITextField"), "UITextField")
+
 
 if __name__ == "__main__":
     unittest.main()

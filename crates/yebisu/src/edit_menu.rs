@@ -200,7 +200,7 @@ impl Smoke {
             selection: self.handoff.selection.as_ref().map(SelectionKey::from),
         });
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        self.sh1_152_capture(token, cx);
+        self.sh1_152_capture(token, window.window_handle(), cx);
         Some(token)
     }
 

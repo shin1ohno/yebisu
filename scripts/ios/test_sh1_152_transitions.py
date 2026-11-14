@@ -25,8 +25,9 @@ def fixture():
 
     for case in oracle.CASES:
         success = case.startswith("E3g")
-        before = "GPUITextInputView" if case.endswith("text") else "HerdrUIKitGPUIView"
-        after = ("HerdrUIKitGPUIView" if case.endswith("text") else "GPUITextInputView") if success else before
+        text_view = "herdr_uikit::window::text_input::view_class::GPUITextInputView0.1.0"
+        before = text_view if case.endswith("text") else "HerdrUIKitGPUIView"
+        after = ("HerdrUIKitGPUIView" if case.endswith("text") else text_view) if success else before
         record(case, "sh1-152-capture", 1, stage=0, count=2, token=1, responder=before, generation=1, destination="A")
         status = "Current" if success else ("Revoked(ResignedOutside)" if case.startswith("E3f") else "Revoked(Dismissed)")
         record(case, "sh1-152-result", 4, stage=0, clipboard=f"sh1-152-clip-{case}-0", status=status, responder=after, generation=2, destination="B")
@@ -80,7 +81,8 @@ class TransitionsTests(unittest.TestCase):
             ("reused", "reused revoked"), ("core-key", "semantic Paste"),
             ("core-destination", "semantic destination"), ("stale-exec", "stale native"),
             ("reconnect", "reconnect did not change"), ("destination", "destination did not change"),
-            ("extra-key", "differs from one x"),
+            ("extra-key", "differs from one x"), ("external-class", "external responder path"),
+            ("switch-class", "successful internal switch"),
         ]:
             records, messages, wire, log = copy.deepcopy(fixture())
             find = lambda case, kind, stage=None: next(r for r in records if r["case"] == case and r["kind"] == kind and (stage is None or r.get("stage") == stage))
@@ -94,6 +96,8 @@ class TransitionsTests(unittest.TestCase):
             elif mutation == "stale-exec": records.append({"case":"E3a", "kind":"edit-menu-exec", "time":2, "action":"Paste", "result":"executed"})
             elif mutation == "reconnect": find("E3b", "sh1-152-result", 0)["generation"] = 1
             elif mutation == "destination": find("E3a", "sh1-152-result", 0)["destination"] = "A"
+            elif mutation == "external-class": find("E3f-key", "sh1-152-result", 0)["responder"] = "UITextField"
+            elif mutation == "switch-class": find("E3g-text", "sh1-152-result", 0)["responder"] = find("E3g-text", "sh1-152-capture", 0)["responder"]
             else:
                 index = next(i for i, m in enumerate(messages) if m["ClientShellPaneInput"]["events"] == [{"Paste":"sh1-152-end-E4-text-0"}])
                 messages.insert(index, {"ClientShellPaneInput":{"pane_id":"w1:p1", "events":[{"Key":{"code":{"Char":"z"},"modifiers":0,"kind":"Press"}}]}})
