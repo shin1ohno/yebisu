@@ -40,6 +40,11 @@ fn create_second(stage: usize, cx: &mut App) {
                             return false;
                         }
                         let result = this.run_action(sheprd_commands::Command::FocusRight);
+                        // As in the E3 destination change, the mock peer
+                        // publishes w1:p3 at 80x24; resend the client size so
+                        // input becomes ready without a viewport change
+                        // (PR run 43625878438, E5d).
+                        this.terminal.size = None;
                         this.observation.record(serde_json::json!({"kind":"sh1-152-second-ready", "accepted":result.is_ok(), "attempt":attempt}));
                         cx.notify();
                         true
