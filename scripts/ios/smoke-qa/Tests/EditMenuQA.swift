@@ -40,6 +40,17 @@ final class EditMenuQA: XCTestCase {
                 sleep(2)
                 bottom.press(forDuration: 0.1, thenDragTo: top)
                 sleep(2)
+                // The system overlay can stay open in the Simulator, leaving
+                // only its search keyboard on screen (PR run 43630200713).
+                // Leaving through Home adds a Background phase, so the oracle
+                // reports E3e unverified (device item 10), never a false pass.
+                if (try? coordinate("152 Replay", app, required: false)) == nil {
+                    print("SH1-152 E3e overlay stayed open; leaving through Home")
+                    XCUIDevice.shared.press(.home)
+                    sleep(2)
+                    app.activate()
+                    sleep(4)
+                }
             } else {
                 if name == "E3h" {
                     print("SH1-152 HIDE KEYBOARD QUERY\n\(app.debugDescription)")
@@ -169,7 +180,7 @@ final class EditMenuQA: XCTestCase {
         try coordinate(label, app).tap()
     }
 
-    private func coordinate(_ label: String, _ app: XCUIApplication) throws -> XCUICoordinate {
+    private func coordinate(_ label: String, _ app: XCUIApplication, required: Bool = true) throws -> XCUICoordinate {
         for attempt in 0..<4 {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
             let request = VNRecognizeTextRequest()
@@ -200,8 +211,10 @@ final class EditMenuQA: XCTestCase {
             print("SH1-152 OCR attempt \(attempt): \(candidates.map { $0.string })")
             sleep(1)
         }
-        save("missing-\(label)")
-        XCTFail("Missing source-defined label \(label)")
+        if required {
+            save("missing-\(label)")
+            XCTFail("Missing source-defined label \(label)")
+        }
         throw NSError(domain: "EditMenuQA.MissingControl", code: 1)
     }
 
