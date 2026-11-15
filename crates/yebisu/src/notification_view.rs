@@ -217,13 +217,13 @@ impl State {
         };
         self.sequence = sequence;
         let tag = format!("yebisu-{}-{sequence}", self.session);
-        if self.posted.len() >= 64 {
-            if let Some(old) = self.posted.pop_front() {
-                #[cfg(target_os = "ios")]
-                herdr_uikit::remove_notifications(&[old.tag]);
-                #[cfg(not(target_os = "ios"))]
-                let _ = old;
-            }
+        if self.posted.len() >= 64
+            && let Some(old) = self.posted.pop_front()
+        {
+            #[cfg(target_os = "ios")]
+            herdr_uikit::remove_notifications(&[old.tag]);
+            #[cfg(not(target_os = "ios"))]
+            let _ = old;
         }
         self.posted.push_back(Posted {
             tag: tag.clone(),
