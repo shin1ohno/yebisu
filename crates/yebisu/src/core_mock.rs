@@ -251,10 +251,16 @@ impl Host {
                     let reply = json!({"jsonrpc":"2.0","id":request["id"],"result":result});
                     server.write_all(&encode(0, Kind::Data, reply.to_string().as_bytes())?)?;
                     if let Some(channel) = channel {
+                        let sh1_152 = cfg!(target_abi = "sim")
+                            && std::env::var_os("YEBISU_SH1_152_CASE").is_some();
                         let modes = format!(
                             "{}{}",
                             if report_all { "\x1b[>11u" } else { "" },
-                            if probe.bracketed { "\x1b[?2004h" } else { "" }
+                            if probe.bracketed || sh1_152 {
+                                "\x1b[?2004h"
+                            } else {
+                                ""
+                            }
                         );
                         let output = format!(
                             "{modes}\x1b[2J\x1b[H\x1b[38;2;136;192;208myebisu P9 Herdr 2\r\nprivate core wire peer · {} · pane {channel}\r\n日本語 IME · Split · Detach / Reattach\x1b[0m\r\n$ ",
