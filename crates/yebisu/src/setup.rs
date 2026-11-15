@@ -56,11 +56,6 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
     match job {
         Job::Load => {
             let store = store()?;
-            #[cfg(target_abi = "sim")]
-            if std::env::var_os("YEBISU_P5_QA").is_some() {
-                store.save("qa@private-one")?;
-                store.save("qa@private-two")?;
-            }
             let target = store.load()?;
             let fingerprints = if target.is_empty() {
                 String::new()

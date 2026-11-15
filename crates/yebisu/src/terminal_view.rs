@@ -26,8 +26,6 @@ pub(crate) struct TerminalView {
     pub show_options: bool,
     pub needs_focus: bool,
     pub reconnect_pending: bool,
-    #[cfg(all(target_os = "ios", target_abi = "sim"))]
-    pub late_reader_release: Option<std::sync::mpsc::Sender<()>>,
     pub navigating: Option<crate::board::Navigation>,
 }
 impl TerminalView {
@@ -123,11 +121,7 @@ impl Smoke {
         let work = cx.background_executor().spawn(async move {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
-                return if std::env::var_os("YEBISU_BOARD_QA").is_some() {
-                    crate::mock_peer::connect_board()
-                } else {
-                    crate::mock_peer::connect()
-                };
+                return crate::mock_peer::connect();
             }
             // Same P2 trust gate. The SSH bridge independently verifies pins again.
             let scan = sheprd_client::ssh::scan_host_key(&target)
