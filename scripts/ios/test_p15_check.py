@@ -138,10 +138,12 @@ class InstalledUIWireOracle(unittest.TestCase):
         p15.validate_ui_wire(records, messages, ui)
 
     def test_f3_input_dropped_record_fails_with_its_reason(self):
+        # The drop is inside the first typing window: after the first input paint, before
+        # the first modal opens.
         for reason in ["no-destination", "not-connected", "incoherent", "fenced"]:
             records, messages, ui = self.fixture()
             records.insert(0, dict(kind="terminal", time=0, input_pane="w1:p1", host="qa-alpha", settings_modal=False))
-            records.append(dict(kind="input-dropped", reason=reason))
+            records.insert(1, dict(kind="input-dropped", reason=reason))
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, "input dropped by the app.*" + reason):
                 p15.validate_ui_wire(records, messages, ui)
 
@@ -157,6 +159,101 @@ class InstalledUIWireOracle(unittest.TestCase):
         ui = [r for r in ui if r.get("kind") != "ocr-match"]
         with self.assertRaisesRegex(ValueError, "exactly one OCR line"):
             p15.validate_ui_wire(records, messages, ui)
+
+
+def paint(modal, host="qa-alpha", pane="w1:p1"):
+    return dict(kind="terminal", input_pane=pane, host=host, settings_modal=modal)
+
+
+def drop(reason="not-connected"):
+    return dict(kind="input-dropped", reason=reason)
+
+
+def lifecycle(phase):
+    return dict(kind="settings-lifecycle", phase=phase)
+
+
+def good_wire():
+    return [{"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [
+        {"TextCommit": "P15-start"}, {"TextCommit": "P15-end"}]}}]
+
+
+def first_launch():
+    """First start: connecting drops, P15-start typed, modal 1, P15-end typed, host switch, modal 2."""
+    return [dict(kind="launch"), drop(), drop(), paint(False),                   # 0-3: window 1 opens at 3
+            paint(True), paint(False), paint(False),                             # 4: modal 1, 5-6: window 2
+            paint(False, host="qa-beta"), paint(True, host="qa-beta"),           # 7: host switch (window 2 ends), 8: modal 2
+            paint(False, host="qa-beta"), lifecycle("Background"), lifecycle("Active")]
+
+
+def relaunch():
+    return [dict(kind="launch"), drop(), drop(), paint(False), paint(True)]
+
+
+class LaunchTimeDrops(unittest.TestCase):
+    """S1: the app drops by itself while it connects; only drops in a typing window are lost controls."""
+
+    def test_correct_run_with_a_connecting_drop_after_the_first_launch_is_accepted(self):
+        p15.validate_fifo(first_launch(), good_wire())
+
+    def test_correct_run_with_a_relaunch_drop_is_accepted(self):
+        p15.validate_fifo(first_launch() + relaunch(), good_wire())
+
+    def test_relaunch_drop_after_its_own_first_paint_is_not_typing_either(self):
+        records = first_launch() + [dict(kind="launch"), paint(False), drop(), paint(True)]
+        p15.validate_fifo(records, good_wire())
+
+    def test_correct_run_with_a_background_return_drop_is_accepted(self):
+        records = first_launch()
+        records.insert(len(records), drop())  # reconnect after Active, nothing is typed
+        p15.validate_fifo(records, good_wire())
+        p15.validate_fifo(records + relaunch() + [drop()], good_wire())
+
+    def test_drop_after_the_host_switch_is_not_typing(self):
+        records = first_launch()
+        records.insert(8, drop("no-destination"))  # between the host switch (7) and modal 2
+        p15.validate_fifo(records, good_wire())
+
+    def test_reviewer_replay_case_is_accepted(self):
+        # replay-output.txt: "good wire, same drop after relaunch": REJECTED by 353790a.
+        def mark(modal):
+            return {"kind": "terminal", "input_pane": "w1:p1", "settings_modal": modal}
+        first = [{"kind": "launch"}, drop(), mark(False), mark(True), mark(False), mark(True), mark(False)]
+        again = [{"kind": "launch"}, drop(), mark(False)]
+        p15.validate_fifo(first, good_wire())
+        p15.validate_fifo(first + again, good_wire())
+
+    def test_drop_in_the_first_typing_window_is_still_rejected(self):
+        records = first_launch()
+        records.insert(4, drop("fenced"))  # after the first input paint, before modal 1
+        with self.assertRaisesRegex(ValueError, "input dropped by the app \\(fenced\\)"):
+            p15.validate_fifo(records, good_wire())
+
+    def test_drop_in_the_second_typing_window_is_still_rejected(self):
+        records = first_launch()
+        records.insert(6, drop("incoherent"))  # after modal 1 closed, before the host switch
+        with self.assertRaisesRegex(ValueError, "input dropped by the app \\(incoherent\\)"):
+            p15.validate_fifo(records, good_wire())
+
+    def test_typing_drop_is_rejected_even_when_a_relaunch_drop_is_also_present(self):
+        records = first_launch() + relaunch()
+        records.insert(4, drop("no-destination"))
+        with self.assertRaisesRegex(ValueError, "input dropped by the app \\(no-destination\\)"):
+            p15.validate_fifo(records, good_wire())
+
+    def test_lost_control_is_still_rejected_without_any_drop_record(self):
+        wire = [{"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"TextCommit": "P15-start"}]}}]
+        with self.assertRaisesRegex(ValueError, "positive control not delivered.*P15-end"):
+            p15.validate_fifo(first_launch() + relaunch(), wire)
+
+    def test_watcher_gate_does_not_stop_a_relaunch_that_drops_while_connecting(self):
+        # fifo_gate is what watch_fifo polls: a prefix of the run ending in the relaunch.
+        for cut in range(len(first_launch()), len(first_launch() + relaunch()) + 1):
+            p15.fifo_gate((first_launch() + relaunch())[:cut], good_wire())
+
+    def test_typing_windows_follow_the_ui_sequence(self):
+        self.assertEqual(p15.typing_windows(first_launch()), [(3, 4), (5, 7)])
+        self.assertEqual(p15.typing_windows([dict(kind="launch"), drop()]), [])
 
 
 class FifoStages(unittest.TestCase):

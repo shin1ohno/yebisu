@@ -104,6 +104,73 @@ def modal_openings(records):
     return openings
 
 
+def launch_segments(records):
+    """(start, end, cutoff) per app launch.
+
+    The cutoff is the first paint with an input destination in that launch. The app
+    records `input-dropped not-connected` by itself while it connects after every launch
+    (first start and relaunch), so a drop before its launch's cutoff is not typing.
+    """
+    starts = [i for i, r in enumerate(records) if r.get("kind") == "launch"]
+    if not starts or starts[0] != 0:
+        starts.insert(0, 0)
+    segments = []
+    for start, end in zip(starts, starts[1:] + [len(records)]):
+        cutoff = next((i for i in range(start, end)
+                       if records[i].get("kind") == "terminal" and records[i].get("input_pane")), end)
+        segments.append((start, end, cutoff))
+    return segments
+
+
+def typing_windows(records):
+    """Index ranges [start, end) in which the UI can be typing a positive control.
+
+    The UI types P15-start after the first input paint and before the first modal opens,
+    and P15-end after that modal closed and before the second modal opens (or the host
+    switch that precedes it). Nothing is typed after the last control: a background
+    return, a relaunch and a later host switch reconnect without typing, and the app
+    drops nothing while the settings modal is open.
+    """
+    first = next((i for i, r in enumerate(records)
+                  if r.get("kind") == "terminal" and r.get("input_pane")), None)
+    if first is None:
+        return []
+    windows, current, openings, was_open = [], None, 0, False
+    for i, record in enumerate(records):
+        if record.get("kind") != "terminal":
+            continue
+        host, now = record.get("host"), record.get("settings_modal") is True
+        if current is not None and current[1] is not None and host not in (None, current[1]):
+            windows.append((current[0], i))
+            current = None
+        if now and not was_open:
+            openings += 1
+            if current is not None:
+                windows.append((current[0], i))
+                current = None
+        if i == first and openings == 0:
+            current = (i, host)
+        elif was_open and not now and openings < len(CONTROLS):
+            current = (i, host)
+        was_open = now
+    if current is not None:
+        windows.append((current[0], len(records)))
+    return windows
+
+
+def typing_drops(records):
+    """Reasons of the `input-dropped` records that can have lost a typed control."""
+    segments, windows = launch_segments(records), typing_windows(records)
+    reasons = []
+    for i, record in enumerate(records):
+        if record.get("kind") != "input-dropped":
+            continue
+        launch_time = any(start <= i < cutoff for start, _, cutoff in segments)
+        if not launch_time and any(start <= i < end for start, end in windows):
+            reasons.append(record.get("reason"))
+    return reasons
+
+
 def fifo_gate(records, messages):
     """Positive controls must reach the peer before the next phase starts.
 
@@ -111,11 +178,7 @@ def fifo_gate(records, messages):
     "nothing else arrived" observation could have seen a leak. Missing, dropped and
     leaked input fail with different messages.
     """
-    # Launch-time drops (the connection is not up yet) are not typing: only drops after
-    # the first paint that had an input destination can be a lost control.
-    first = next((i for i, r in enumerate(records)
-                  if r.get("kind") == "terminal" and r.get("input_pane")), len(records))
-    dropped = [r.get("reason") for r in records[first:] if r.get("kind") == "input-dropped"]
+    dropped = typing_drops(records)
     if dropped:
         raise ValueError("input dropped by the app (" + ",".join(sorted({str(r) for r in dropped})) +
                          "): positive control not delivered")
