@@ -93,6 +93,8 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
     // actual key and EntityInputHandler callbacks, then the core wire encoder.
     for bits in 0..32 {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
         let report = bits & 16 != 0;
         let (backend, receipts) =
             crate::core_mock::recorded(report).unwrap_or_else(|e| panic!("mock: {e}"));
