@@ -366,7 +366,6 @@ pub(crate) fn connect_recorded(
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
 }
-#[cfg(test)]
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)
 }
