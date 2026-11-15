@@ -1,7 +1,9 @@
 //! App adapter: consumes each connected effect once, never reconnects from a tap.
 use crate::{
     app::Smoke,
-    notifications::{self, Context as TargetContext, Event, Failure, Policy, Route},
+    notifications::{
+        self, Context as TargetContext, Event, Failure, Policy, Route, Validity, Verdict,
+    },
 };
 use chrono::Timelike;
 use gpui::{AnyElement, Context, SystemNotification, div, prelude::*, rgb};
@@ -166,6 +168,10 @@ impl State {
         let validation = target.clone();
         let policy = self.policy.clone();
         let received = event.received;
+        // Shared by the sound worker and the SDK display predicate. Contention on
+        // the inbox is not evidence the target changed: it is undecided and keeps
+        // the last decided answer; only a decided mismatch revokes.
+        let validity = std::sync::Arc::new(Validity::default());
         let current: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || {
                 let local = chrono::Local::now();
@@ -174,14 +180,11 @@ impl State {
                         .suppression((local.hour() * 60 + local.minute()) as u16)
                         .is_none()
                     && received.elapsed() < notifications::MAX_AGE
-                    && inbox
-                        .try_lock()
-                        .map(|live| {
-                            validation
-                                .validate(&live, &validation.host, validation.generation)
-                                .is_ok()
-                        })
-                        .unwrap_or(false)
+                    && validity.observe(validation.verdict(
+                        &inbox,
+                        &validation.host,
+                        validation.generation,
+                    ))
             });
         if self.active
             && self.policy.sound
@@ -345,22 +348,18 @@ impl Smoke {
                 } else {
                     self.board.hidden.get(&target.host)
                 };
+                // Lock contention or a transient projection is undecided, never
+                // grounds to cancel a valid notification; it is re-checked next tick.
                 terminal.is_none_or(|terminal| {
                     terminal.reconnect.suspended
-                        || terminal
-                            .link
-                            .inbox
-                            .try_lock()
-                            .map(|live| {
-                                target
-                                    .validate(
-                                        &live,
-                                        &terminal.reconnect.target,
-                                        terminal.link.generation,
-                                    )
-                                    .is_err()
-                            })
-                            .unwrap_or(true)
+                        || matches!(
+                            target.verdict(
+                                &terminal.link.inbox,
+                                &terminal.reconnect.target,
+                                terminal.link.generation,
+                            ),
+                            Verdict::Invalid(_)
+                        )
                 })
             });
         if invalidated {
@@ -388,29 +387,38 @@ impl Smoke {
             }
             self.notifications.waiting.push_back(pair);
         }
-        while self
+        while let Some((event, target)) = self
             .notifications
             .waiting
             .front()
-            .is_some_and(|(event, _)| event.received.elapsed() >= Duration::from_secs(1))
+            .filter(|(event, _)| event.received.elapsed() >= Duration::from_secs(1))
+            .cloned()
         {
-            let Some((event, target)) = self.notifications.waiting.pop_front() else {
-                break;
-            };
-            changed = true;
             let terminal = if target.host == self.terminal.reconnect.target {
                 Some(&self.terminal)
             } else {
                 self.board.hidden.get(&target.host)
             };
-            let valid = terminal.ok_or(Failure::Disconnected).and_then(|t| {
-                if t.reconnect.suspended {
-                    return Err(Failure::Disconnected);
+            let valid = match terminal {
+                None => Err(Failure::Disconnected),
+                Some(t) if t.reconnect.suspended => Err(Failure::Disconnected),
+                Some(t) => {
+                    match target.verdict(&t.link.inbox, &t.reconnect.target, t.link.generation) {
+                        Verdict::Valid => {
+                            Ok((t.link.notification_active.clone(), t.link.inbox.clone()))
+                        }
+                        Verdict::Invalid(error) => Err(error),
+                        // Reader busy or projection in flux: keep the event for the
+                        // next tick, and let it age out instead of dropping it now.
+                        Verdict::Undecided if event.received.elapsed() < notifications::MAX_AGE => {
+                            break;
+                        }
+                        Verdict::Undecided => Err(Failure::Stale),
+                    }
                 }
-                let live = t.link.inbox.try_lock().map_err(|_| Failure::Busy)?;
-                target.validate(&live, &t.reconnect.target, t.link.generation)?;
-                Ok((t.link.notification_active.clone(), t.link.inbox.clone()))
-            });
+            };
+            self.notifications.waiting.pop_front();
+            changed = true;
             match valid {
                 Ok((active, inbox)) => self.notifications.submit(event, target, active, inbox),
                 Err(error) => self.notifications.fail(error),
@@ -443,12 +451,8 @@ impl Smoke {
         if std::env::var_os("YEBISU_P14_QA").is_some() {
             self.notifications.qa_last_tag = Some(tag.to_owned());
         }
-        let posted = self
-            .notifications
-            .posted
-            .iter()
-            .position(|p| p.tag == tag)
-            .and_then(|i| self.notifications.posted.remove(i));
+        let index = self.notifications.posted.iter().position(|p| p.tag == tag);
+        let posted = index.and_then(|i| self.notifications.posted.remove(i));
         self.notifications.toast = None;
         if self.settings_modal {
             self.notifications.fail(Failure::Busy);
@@ -462,11 +466,11 @@ impl Smoke {
             if let Some(error) = self.notifications.policy.suppression(minute) {
                 return Err(error);
             }
-            let posted = posted.ok_or(Failure::Stale)?;
-            if now.saturating_duration_since(posted.received) > Duration::from_secs(300) {
+            let recorded = posted.as_ref().ok_or(Failure::Stale)?;
+            if now.saturating_duration_since(recorded.received) > Duration::from_secs(300) {
                 return Err(Failure::Stale);
             }
-            let target = posted.target;
+            let target = recorded.target.clone();
             let terminal = if target.host == self.terminal.reconnect.target {
                 Some(&self.terminal)
             } else {
@@ -511,8 +515,16 @@ impl Smoke {
             Ok(())
         })();
         if let Err(error) = result {
+            // A transient refusal (reader busy, navigation pending) must not spend
+            // the single-use tag; every other refusal does. A refused tap never
+            // closes the terminal the user is working in.
+            if error == Failure::Busy
+                && let (Some(i), Some(posted)) = (index, posted)
+            {
+                let at = i.min(self.notifications.posted.len());
+                self.notifications.posted.insert(at, posted);
+            }
             self.notifications.fail(error);
-            self.terminal.open = false;
         }
         cx.notify();
     }

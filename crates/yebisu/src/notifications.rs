@@ -6,6 +6,10 @@ use sheprd_client::protocol::{
 };
 use std::{
     collections::VecDeque,
+    sync::{
+        Mutex, TryLockError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 mod preferences;
@@ -120,7 +124,11 @@ impl Event {
         event: SemanticNotification,
         now: Instant,
     ) -> Result<Self, Failure> {
-        let snapshot = current(live)?;
+        // Only connectedness and the snapshot's boot and panes are needed to
+        // accept an event. A snapshot waiting for its surface is a transient
+        // projection state, not a reason to drop a notification the server will
+        // not resend (herdr-gpui 398c132a state.rs:755-777 checks connection only).
+        let snapshot = connected_snapshot(live)?;
         if snapshot.boot_id.is_empty() || snapshot.boot_id.len() > 128 {
             return Err(Failure::InvalidTarget);
         }
@@ -140,7 +148,9 @@ impl Event {
             sound: event.sound,
             received: now,
         };
-        result.context(String::new(), 0).validate(live, "", 0)?;
+        result
+            .context(String::new(), 0)
+            .validate_snapshot(snapshot, "", 0)?;
         Ok(result)
     }
     pub fn context(&self, host: String, generation: u64) -> Context {
@@ -170,6 +180,14 @@ impl Event {
             && self.sound == other.sound
     }
 }
+fn connected_snapshot(
+    live: &Live,
+) -> Result<&sheprd_client::protocol::ClientShellSnapshot, Failure> {
+    if !live.connected || live.version_mismatch.get().is_some() {
+        return Err(Failure::Disconnected);
+    }
+    live.snapshot.as_deref().ok_or(Failure::Incoherent)
+}
 fn current(live: &Live) -> Result<&sheprd_client::protocol::ClientShellSnapshot, Failure> {
     if !live.connected || live.version_mismatch.get().is_some() {
         return Err(Failure::Disconnected);
@@ -186,7 +204,26 @@ fn current(live: &Live) -> Result<&sheprd_client::protocol::ClientShellSnapshot,
 }
 impl Context {
     pub fn validate(&self, live: &Live, host: &str, generation: u64) -> Result<(), Failure> {
-        let snapshot = current(live)?;
+        self.validate_snapshot(current(live)?, host, generation)
+    }
+    /// Re-check this target without blocking the reader thread.
+    ///
+    /// A held inbox lock or a projection between a snapshot and its surface is
+    /// `Undecided`: the caller keeps the target and asks again on a later tick.
+    /// Only a decided mismatch is `Invalid`.
+    pub fn verdict(&self, inbox: &Mutex<Live>, host: &str, generation: u64) -> Verdict {
+        match inbox.try_lock() {
+            Ok(live) => Verdict::of(self.validate(&live, host, generation)),
+            Err(TryLockError::WouldBlock) => Verdict::Undecided,
+            Err(TryLockError::Poisoned(_)) => Verdict::Invalid(Failure::Native),
+        }
+    }
+    fn validate_snapshot(
+        &self,
+        snapshot: &sheprd_client::protocol::ClientShellSnapshot,
+        host: &str,
+        generation: u64,
+    ) -> Result<(), Failure> {
         if self.host != host || self.generation != generation || self.boot != snapshot.boot_id {
             return Err(Failure::Stale);
         }
@@ -202,6 +239,36 @@ impl Context {
             return Err(Failure::InvalidTarget);
         }
         Ok(())
+    }
+}
+/// Outcome of re-checking a recorded target against its live reader.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    Valid,
+    Invalid(Failure),
+    /// The reader holds the inbox lock or the projection is incoherent right now.
+    Undecided,
+}
+impl Verdict {
+    pub fn of(result: Result<(), Failure>) -> Self {
+        match result {
+            Ok(()) => Self::Valid,
+            Err(Failure::Incoherent) => Self::Undecided,
+            Err(error) => Self::Invalid(error),
+        }
+    }
+}
+/// Revocation memory for predicates that must answer immediately (the sound
+/// worker and the SDK display predicate). Submission validated the target, so it
+/// starts valid; contention never revokes it, and only a decided `Invalid` does.
+#[derive(Default)]
+pub(crate) struct Validity(AtomicBool);
+impl Validity {
+    pub fn observe(&self, verdict: Verdict) -> bool {
+        if matches!(verdict, Verdict::Invalid(_)) {
+            self.0.store(true, Ordering::Release);
+        }
+        !self.0.load(Ordering::Acquire)
     }
 }
 #[derive(Clone, Default)]

@@ -4,7 +4,7 @@ use sheprd_client::{
     ClientEvent,
     protocol::{ClientShellSnapshot, ServerMessage},
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, mpsc};
 fn ready() -> Live {
     let snapshot: ClientShellSnapshot =
         serde_json::from_str(mock_peer::SNAPSHOT).unwrap_or_else(|e| panic!("fixture: {e}"));
@@ -178,4 +178,67 @@ fn editing_sound_before_load_preserves_other_notification_preferences() {
     assert_eq!(draft.volume, loaded.volume);
     assert_eq!(draft.muted, loaded.muted);
     assert_eq!(draft.quiet, loaded.quiet);
+}
+
+#[test]
+fn reader_lock_contention_is_undecided_and_only_a_decided_mismatch_revokes() {
+    let live = ready();
+    let event = Event::capture(&live, valid_event(&live), Instant::now())
+        .unwrap_or_else(|e| panic!("capture: {e:?}"));
+    let context = event.context("fixture".into(), 8);
+    let inbox = Arc::new(Mutex::new(live));
+    let validity = Validity::default();
+    let (locked, wait_locked) = mpsc::channel();
+    let (release, wait_release) = mpsc::channel::<()>();
+    let held = inbox.clone();
+    let reader = std::thread::spawn(move || {
+        let _guard = held.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = locked.send(());
+        let _ = wait_release.recv();
+    });
+    wait_locked
+        .recv()
+        .unwrap_or_else(|e| panic!("reader thread did not take the lock: {e}"));
+    for _ in 0..1000 {
+        let verdict = context.verdict(&inbox, "fixture", 8);
+        assert_eq!(verdict, Verdict::Undecided);
+        assert!(validity.observe(verdict), "contention must not revoke");
+    }
+    let _ = release.send(());
+    reader
+        .join()
+        .unwrap_or_else(|_| panic!("reader thread panicked"));
+    assert_eq!(context.verdict(&inbox, "fixture", 8), Verdict::Valid);
+    assert_eq!(
+        context.verdict(&inbox, "fixture", 9),
+        Verdict::Invalid(Failure::Stale)
+    );
+    assert!(validity.observe(Verdict::Valid));
+    assert!(!validity.observe(Verdict::Invalid(Failure::Stale)));
+    assert!(
+        !validity.observe(Verdict::Undecided),
+        "revocation is sticky"
+    );
+}
+
+#[test]
+fn a_snapshot_waiting_for_its_surface_neither_drops_nor_cancels_a_notification() {
+    let mut live = ready();
+    live.pending_snapshot = live.snapshot.clone();
+    let event = Event::capture(&live, valid_event(&live), Instant::now())
+        .unwrap_or_else(|e| panic!("capture during projection change: {e:?}"));
+    let context = event.context("fixture".into(), 8);
+    assert_eq!(
+        context.validate(&live, "fixture", 8),
+        Err(Failure::Incoherent)
+    );
+    assert_eq!(
+        Verdict::of(context.validate(&live, "fixture", 8)),
+        Verdict::Undecided
+    );
+    live.connected = false;
+    assert!(matches!(
+        Event::capture(&live, valid_event(&live), Instant::now()),
+        Err(Failure::Disconnected)
+    ));
 }
