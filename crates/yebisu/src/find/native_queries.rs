@@ -1,6 +1,8 @@
 //! Opt-in receiving query probe on captured real native clients. No OS oracle.
 use crate::app::Smoke;
-use gpui::{AnyElement, AsyncWindowContext, Context, WeakEntity, Window, div, prelude::*};
+use gpui::{
+    AnyElement, AsyncWindowContext, ClipboardItem, Context, WeakEntity, Window, div, prelude::*,
+};
 use herdr_uikit::retirement_probe::{
     NativeClient, NativeCutProbeResult, NativeQuery, NativeQueryError, capture, key,
     next_native_turn,
@@ -16,6 +18,7 @@ thread_local! {
     static CAPTURED: RefCell<Option<NativeClient>> = const { RefCell::new(None) };
 }
 static STEP: AtomicUsize = AtomicUsize::new(0);
+const SENTINEL: &str = "p13-query-sentinel";
 
 fn number(result: Result<NativeQuery<Option<usize>>, NativeQueryError>) -> Value {
     match result {
@@ -108,6 +111,9 @@ impl Smoke {
             .on_click(cx.listener(|this, _, window, cx| {
                 let step = STEP.fetch_add(1, Ordering::Relaxed);
                 if step == 0 {
+                    // Records read the pasteboard; content from another install
+                    // makes iOS ask for paste permission and blocks the probe.
+                    cx.write_to_clipboard(ClipboardItem::new_string(SENTINEL.into()));
                     this.open_find(window, cx);
                 }
                 this.schedule_p13_query(step, window, cx);

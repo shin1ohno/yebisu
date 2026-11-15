@@ -144,6 +144,8 @@ def validate(records, messages):
     sample(query_rows[0].get('one'), old, 4, 'p13-native-position')
     if query_rows[0].get('overflow') != {'error': 'IntegerOutOfRange'}:
         raise ValueError('p13-query-numeric-error')
+    if query_rows[0].get('clipboard') != 'p13-query-sentinel':
+        raise ValueError('p13-query-clipboard-sentinel')
     if query_rows[2].get('clipboard') != '😀':
         raise ValueError('p13-native-cut-clipboard')
     if any(r.get('kind') == 'p13-query-cut-scheduled' for r in records):
