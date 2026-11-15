@@ -26,12 +26,9 @@ def fixture():
         clock += 2
 
     messages = [dict(kind="p12-peer-start", transport=1, time=0)]
+    remotes = dict(p12.HOLDS)
+    sequence = 0
     for case in p12.CASES:
-        if case == "host":
-            setup("release")
-            records.append(dict(kind="p12-release", released=True, time=clock-1.5))
-            messages.append(dict(kind="p12-peer-gate", transport=1, sequence=1, reason="released", time=clock-1.5))
-            state["pending"] = False
         setup(case)
         prepared = copy.deepcopy(state)
         name = {"sidebar":"toggle_sidebar", "palette":"command_palette"}.get(case, "split_right")
@@ -50,10 +47,11 @@ def fixture():
                      origin="native_action",
                      state=copy.deepcopy(state), before=before, mutated=negative)
         records.append(entry)
-        if case == "remote":
+        if case in remotes:
             state["pending"] = True
+            sequence += 1
             records.append(dict(kind="action", method="pane.split", time=clock+.2))
-            messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=1,
+            messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=sequence,
                                  message=dict(request_method="pane.split"), time=clock+.3))
         elif case in ("sidebar", "palette"):
             state[case] = not state[case]
@@ -62,6 +60,11 @@ def fixture():
         ui.append(dict(kind="os-menu-pick", case=case, started=clock, ended=clock+1,
                        owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True))
         clock += 2
+        if case in remotes.values():
+            setup("release")
+            records.append(dict(kind="p12-release", released=True, time=clock-1.5))
+            messages.append(dict(kind="p12-peer-gate", transport=1, sequence=sequence, reason="released", time=clock-1.5))
+            state["pending"] = False
         if case == "focus":
             setup("current")
             records.append(dict(kind="p12-current", case=case, time=clock-1.5, state=copy.deepcopy(state)))
@@ -74,7 +77,7 @@ def fixture():
             setup("reset")
     setup("finish")
     records.append(dict(kind="p12-finish", enqueued=True, time=clock-1.5))
-    messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=2,
+    messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=sequence+1,
                          message=dict(input=["fifo_fence"]), time=clock-1.5))
     shots = {"p12-finished", "p12-menu-focus-current", *[f"p12-{stage}-{case}" for stage in ("menu", "before", "after") for case in p12.CASES]}
     return records, messages, ui, shots
@@ -82,6 +85,13 @@ def fixture():
 
 def select(rows, kind, case=None):
     return next(r for r in rows if r.get("kind") == kind and (case is None or r.get("case") == case))
+
+
+def insert_ingress(messages, time, message):
+    """Insert wire before the final fence, keeping ingress sequences contiguous."""
+    fence = messages[-1]
+    messages.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=fence["sequence"], time=time, message=message))
+    fence["sequence"] += 1
 
 
 class P12OracleTests(unittest.TestCase):
@@ -101,8 +111,7 @@ class P12OracleTests(unittest.TestCase):
 
     def test_duplicate_ingress_request(self):
         def edit(r,m,u,s):
-            m.insert(-1, dict(m[1], sequence=2))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, m[1]["time"], dict(m[1]["message"]))
         self.rejected(edit, "RPC not exactly once")
 
     def test_key_or_text_leakage(self):
@@ -185,17 +194,13 @@ class P12OracleTests(unittest.TestCase):
     def test_setup_geometry_is_wire_too(self):
         def edit(r,m,u,s):
             host = next(c for c in u if c.get("step") == "host")
-            m.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=2,
-                             time=host["started"]+.5, message=dict(geometry=True)))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, host["started"]+.5, dict(geometry=True))
         self.rejected(edit, "setup emitted wire")
 
     def release_wire(self, message):
         def edit(r,m,u,s):
             release = next(c for c in u if c.get("step") == "release")
-            m.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=2,
-                              time=release["started"]+.5, message=message))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, release["started"]+.5, message)
         return edit
 
     def test_release_relayout_geometry_is_allowed(self):
@@ -219,6 +224,26 @@ class P12OracleTests(unittest.TestCase):
 
     def test_one_shot_gate_not_replayed(self):
         self.rejected(lambda r,m,u,s: m.append(copy.deepcopy(select(m,"p12-peer-gate"))), "one-shot gate")
+
+    def test_each_hold_is_released_by_its_own_control(self):
+        r, m, u, s = fixture()
+        steps = [c["step"] for c in u if c.get("kind") == "fixture-control"]
+        self.assertEqual(steps[:6], ["remote", "sidebar", "release", "rearm", "palette", "release"])
+        self.assertEqual([g["sequence"] for g in m if g.get("kind") == "p12-peer-gate"], [1, 2])
+        p12.validate(r, m, u, s)
+
+    def test_hold_reaching_command_timeout(self):
+        # Hosted runs that held one split across Sidebar and Palette reached 60 s
+        # and the client failed the link; the oracle names that, not a later symptom.
+        def edit(r,m,u,s):
+            request = next(x for x in m if "request_method" in x.get("message", {}))
+            select(m,"p12-peer-gate")["time"] = request["time"] + p12.COMMAND_TIMEOUT
+        self.rejected(edit, "60 s COMMAND_TIMEOUT")
+
+    def test_local_case_outside_its_own_hold(self):
+        def edit(r,m,u,s):
+            select(m,"p12-peer-gate")["time"] = select(u,"os-menu-pick","sidebar")["started"] - .05
+        self.rejected(edit, "local case outside its own hold")
 
     def test_reconnect_cannot_rescue_fence(self):
         self.rejected(lambda r,m,u,s: m[-1].update(transport=2), "mixed peer transports")

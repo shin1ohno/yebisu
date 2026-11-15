@@ -9,7 +9,7 @@ final class P12QA: XCTestCase {
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     /// Tap points of the fixture controls, found by OCR before any RPC is held.
     private var fixturePoints: [String: CGVector] = [:]
-    private static let fixtureControls = ["Remote", "Sidebar", "Palette", "Release", "Host", "Pane",
+    private static let fixtureControls = ["Remote", "Rearm", "Sidebar", "Palette", "Release", "Host", "Pane",
                                           "Boot", "Focus", "Current", "Capability", "Reset", "Finish"]
                                           .map { "P12 " + $0 }
 
@@ -30,17 +30,20 @@ final class P12QA: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(3)
-        // The Remote pick holds pane.split at the peer until "P12 Release", and
-        // the pinned sheprd-client fails the link once a request is 60 s old
-        // (limits.rs COMMAND_TIMEOUT). An OCR search took 3-31 s on hosted
-        // runners, so none may run inside that window: find every control first.
+        // A remote pick holds pane.split at the peer until "P12 Release", and the
+        // pinned sheprd-client fails the link once a request is 60 s old
+        // (limits.rs COMMAND_TIMEOUT). One native menu session took up to 44 s on
+        // hosted runners, so each hold covers exactly one local case, and no OCR
+        // search (3-31 s) runs inside a hold: every control is located first.
         try locateFixtures()
-        for (label, name) in [("Remote", "Split Right"), ("Sidebar", "Toggle Sidebar"), ("Palette", "Command Palette")] {
-            try fixture("P12 " + label)
-            try choose(name, caseName: label.lowercased(), negative: false)
+        for (remote, local, name) in [("Remote", "Sidebar", "Toggle Sidebar"), ("Rearm", "Palette", "Command Palette")] {
+            try fixture("P12 " + remote)
+            try choose("Split Right", caseName: remote.lowercased(), negative: false)
+            try fixture("P12 " + local)
+            try choose(name, caseName: local.lowercased(), negative: false)
+            try fixture("P12 Release")
+            try fixture("P12 Idle", tap: false)
         }
-        try fixture("P12 Release")
-        try fixture("P12 Idle", tap: false)
         for label in ["Host", "Pane", "Boot", "Focus", "Capability"] {
             try fixture("P12 " + label)
             try choose("Split Right", caseName: label.lowercased(), negative: true)

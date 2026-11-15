@@ -96,6 +96,7 @@ fn serve(
     transport: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
+    let mut held = 0;
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
     let mut welcome: serde_json::Value = serde_json::from_str(WELCOME)?;
     welcome["server_version"] = sheprd_client::MIN_HERDR_VERSION.into();
@@ -217,9 +218,13 @@ fn serve(
                 }
             }
             if p12_observing() {
-                // Release belongs to the first request only. A second request
-                // remains observable (and fails the oracle); no dead gate wait.
-                gate = None;
+                // Each hold covers one local case, because the client fails the
+                // link once a request is 60 s old: Remote then Rearm. A third
+                // request remains observable (and fails the oracle); no dead gate wait.
+                held += 1;
+                if held == P12_HELD_REQUESTS {
+                    gate = None;
+                }
             }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
                 write_message(
@@ -486,6 +491,8 @@ pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
     connect_mode(1, false, fault).map(|(client, _)| client)
 }
 
+/// Remote (held for Sidebar) and Rearm (held for Palette).
+const P12_HELD_REQUESTS: u32 = 2;
 fn p12_observing() -> bool {
     cfg!(all(target_os = "ios", target_abi = "sim")) && std::env::var_os("YEBISU_P12_QA").is_some()
 }
