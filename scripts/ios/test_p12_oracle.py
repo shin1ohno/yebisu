@@ -190,6 +190,24 @@ class P12OracleTests(unittest.TestCase):
             m[-1]["sequence"] = 3
         self.rejected(edit, "setup emitted wire")
 
+    def release_wire(self, message):
+        def edit(r,m,u,s):
+            release = next(c for c in u if c.get("step") == "release")
+            m.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=2,
+                              time=release["started"]+.5, message=message))
+            m[-1]["sequence"] = 3
+        return edit
+
+    def test_release_relayout_geometry_is_allowed(self):
+        # Recorded on hosted CI: the released split makes the app report the new pane's geometry.
+        data = fixture()
+        self.release_wire(dict(geometry=True))(*data)
+        p12.validate(*data)
+
+    def test_release_rejects_any_other_wire(self):
+        self.rejected(self.release_wire(dict(input=["x"])), "release emitted non-geometry wire")
+        self.rejected(self.release_wire(dict(request_method="pane.split")), "release emitted non-geometry wire")
+
     def test_setup_state_delta(self):
         self.rejected(lambda r,m,u,s: select(r,"p12-setup-end").update(after=[True,False]), "setup changed action state")
 

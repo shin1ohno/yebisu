@@ -52,15 +52,21 @@ final class P12QA: XCTestCase {
     private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
-        sleep(1)
-        hierarchy("p12-revealed-" + caseName)
-        screenshot("p12-revealed-" + caseName)
         // Pinned herdr-uikit b2fa781 menu::placement maps GPUI position 0
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
         let owner = springboard
         let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
-        XCTAssertTrue(applicationMenu.waitForExistence(timeout: 3), "Installed OS application menu must exist")
+        // Wait on the observable condition (the OS menu-bar control exists and is
+        // hittable), not on a fixed sleep. Evidence is captured after the wait so a
+        // reveal that never happens still leaves a hierarchy and screenshot.
+        let revealed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND hittable == true"), object: applicationMenu)
+        let reveal = XCTWaiter().wait(for: [revealed], timeout: 10)
+        hierarchy("p12-revealed-" + caseName)
+        screenshot("p12-revealed-" + caseName)
+        XCTAssertEqual(reveal, .completed, "Installed OS application menu must be revealed and reachable")
+        XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
         applicationMenu.tap()

@@ -15,6 +15,10 @@ pub(crate) struct MenuQa {
     case: &'static str,
     saved: Option<(String, Option<String>, Vec<String>, String)>,
     mutated: bool,
+    /// Focused pane when the current case was prepared. A successful split
+    /// legitimately moves focus to the new pane, so "original" is relative to
+    /// the prepare, not the fixture's first pane.
+    pane_baseline: Option<String>,
 }
 impl Smoke {
     pub(crate) fn p12_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -139,6 +143,8 @@ impl Smoke {
             self.p12_restore(window, cx);
             self.p12_qa.case = case;
             self.p12_qa.mutated = false;
+            self.p12_qa.pane_baseline =
+                crate::board::snapshot(&self.terminal.live).and_then(|s| s.focused_pane_id.clone());
             self.install_native_menus(window, cx);
             let negative = matches!(case, "host" | "pane" | "boot" | "focus" | "capability");
             if negative {
@@ -218,7 +224,10 @@ impl Smoke {
             "generation":self.terminal.link.generation,
             // Fixture host/pane identity is expressed as equality, not arbitrary user data.
             "original_host":self.terminal.reconnect.target != "p12-other-host",
-            "original_pane":snapshot.and_then(|s|s.focused_pane_id.as_deref()) == Some("w1:p1"),
+            // Before the first prepare the fixture's initial pane is w1:p1; afterwards
+            // the pane focused at prepare time (the released split moves focus).
+            "original_pane":snapshot.and_then(|s|s.focused_pane_id.as_deref())
+                == Some(self.p12_qa.pane_baseline.as_deref().unwrap_or("w1:p1")),
             "split_capability":self.terminal.live.methods.iter().any(|m|m == "pane.split"),
             "sidebar":self.actions.board_hidden,"palette":self.actions.palette,
         })
