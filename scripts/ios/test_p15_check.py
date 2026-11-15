@@ -131,9 +131,16 @@ class InstalledUIWireOracle(unittest.TestCase):
             p15.validate_ui_wire(records, messages, ui)
 
     # F3: the app itself recorded that it dropped the input
+    def test_launch_time_drop_before_the_first_destination_is_not_a_lost_control(self):
+        records, messages, ui = self.fixture()
+        records.insert(0, dict(kind="input-dropped", reason="not-connected"))
+        records.insert(1, dict(kind="terminal", time=0, input_pane="w1:p1", host="qa-alpha", settings_modal=False))
+        p15.validate_ui_wire(records, messages, ui)
+
     def test_f3_input_dropped_record_fails_with_its_reason(self):
         for reason in ["no-destination", "not-connected", "incoherent", "fenced"]:
             records, messages, ui = self.fixture()
+            records.insert(0, dict(kind="terminal", time=0, input_pane="w1:p1", host="qa-alpha", settings_modal=False))
             records.append(dict(kind="input-dropped", reason=reason))
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, "input dropped by the app.*" + reason):
                 p15.validate_ui_wire(records, messages, ui)

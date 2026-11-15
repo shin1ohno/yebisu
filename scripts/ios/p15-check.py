@@ -109,7 +109,11 @@ def fifo_gate(records, messages):
     "nothing else arrived" observation could have seen a leak. Missing, dropped and
     leaked input fail with different messages.
     """
-    dropped = [r.get("reason") for r in records if r.get("kind") == "input-dropped"]
+    # Launch-time drops (the connection is not up yet) are not typing: only drops after
+    # the first paint that had an input destination can be a lost control.
+    first = next((i for i, r in enumerate(records)
+                  if r.get("kind") == "terminal" and r.get("input_pane")), len(records))
+    dropped = [r.get("reason") for r in records[first:] if r.get("kind") == "input-dropped"]
     if dropped:
         raise ValueError("input dropped by the app (" + ",".join(sorted({str(r) for r in dropped})) +
                          "): positive control not delivered")
@@ -172,8 +176,8 @@ def run_watched(arguments, cwd, env, watch):
         watch(process)
     finally:
         reader.join(timeout=30)
+        print("".join(output), flush=True)
     text = "".join(output)
-    print(text, flush=True)
     if process.returncode != 0:
         raise subprocess.CalledProcessError(process.returncode, arguments, output=text)
     return subprocess.CompletedProcess(arguments, 0, stdout=text, stderr="")
