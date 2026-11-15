@@ -1,0 +1,403 @@
+//! Host-shaped production route/owner tests; never instantiate the live key provider.
+use crate::{
+    app::Smoke,
+    settings::{
+        SettingsHost,
+        key_ops::{Failure, Owner, Provider, State},
+    },
+};
+use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
+const RAW: &str = "restrict ssh-ed25519 RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM herdr-ipad-injected";
+struct Injected {
+    replaces: AtomicUsize,
+    reads: AtomicUsize,
+    reject: AtomicBool,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+impl Provider for Injected {
+    fn injected(&self) -> bool {
+        true
+    }
+    fn supported(&self) -> bool {
+        true
+    }
+    fn read_or_initialize(&self) -> Result<String, Failure> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if self.reject.load(Ordering::SeqCst) {
+            Ok("FAKE_PRIVATE_SENTINEL".into())
+        } else {
+            Ok(RAW.into())
+        }
+    }
+    fn replace(&self) -> Result<String, Failure> {
+        self.replaces.fetch_add(1, Ordering::SeqCst);
+        if let Some(wait) = self
+            .release
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            wait.recv_timeout(Duration::from_secs(5))
+                .map_err(|_| Failure::Worker)?;
+        }
+        Ok(RAW.into())
+    }
+}
+fn directory(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/p11-{name}-{}", std::process::id()))
+}
+
+#[gpui::test]
+fn p11_production_font_button_persists_real_consumer(cx: &mut TestAppContext) {
+    let root = directory("font-button");
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    view.update(cx, |this, _| {
+        this.settings = Some(SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}")));
+        this.settings_fonts = vec!["SauceCodePro Nerd Font Mono".into()];
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(SettingsHost::ready)
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cx.run_until_parked();
+    let open = cx
+        .debug_bounds("open-settings")
+        .unwrap_or_else(|| panic!("production entry"));
+    cx.simulate_click(open.center(), Default::default());
+    cx.run_until_parked();
+    let panel = cx
+        .debug_bounds("settings-panel")
+        .unwrap_or_else(|| panic!("production sheet"));
+    assert_eq!(panel.size, size(px(1000.), px(760.)));
+    let plus = cx
+        .debug_bounds("font-plus")
+        .unwrap_or_else(|| panic!("font control"));
+    cx.simulate_click(plus.center(), Default::default());
+    view.update(cx, |this, cx| {
+        assert_eq!(this.terminal.font.size, Some(15.));
+        this.settings_lifecycle(gpui::AppLifecyclePhase::Background);
+        this.poll_settings(cx);
+    });
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(SettingsHost::ready)
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let json: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("yebisu-settings.json")).unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(json["terminal_font_size"], 15.);
+    let close = cx
+        .debug_bounds("settings-close")
+        .unwrap_or_else(|| panic!("close"));
+    cx.simulate_click(close.center(), Default::default());
+    assert!(!view.read_with(cx, |this, _| this.settings_modal));
+    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[gpui::test]
+fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipts(
+    cx: &mut TestAppContext,
+) {
+    let root = directory("keys-buttons");
+    let (release, wait) = std::sync::mpsc::sync_channel(1);
+    let fake = Arc::new(Injected {
+        replaces: AtomicUsize::new(0),
+        reads: AtomicUsize::new(0),
+        reject: AtomicBool::new(false),
+        release: Mutex::new(Some(wait)),
+    });
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    let (logs, records) = std::sync::mpsc::sync_channel(256);
+    view.update(cx, |this, _| {
+        let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        host.keys = Owner::new(fake.clone());
+        this.settings = Some(host);
+        this.select_host("injected-first-host");
+        this.settings_fonts = vec!["SauceCodePro Nerd Font Mono".into()];
+        this.observation = crate::observation::Observation::injected(logs);
+        this.observation
+            .record(serde_json::json!({"kind":"p11-positive-control"}));
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.begin_settings_modal(window, cx);
+            this.settings_page = crate::settings_pages::Page::DeviceKey;
+        })
+    });
+    cx.run_until_parked();
+    let read = cx
+        .debug_bounds("settings-key-read")
+        .unwrap_or_else(|| panic!("read"));
+    cx.simulate_click(read.center(), Default::default());
+    let until = Instant::now() + Duration::from_secs(5);
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cx.run_until_parked();
+    let replace = cx
+        .debug_bounds("settings-key-replace")
+        .unwrap_or_else(|| panic!("replace"));
+    cx.simulate_click(replace.center(), Default::default());
+    cx.run_until_parked();
+    let old_ticket = view.read_with(cx, |this, _| {
+        this.key_ticket.unwrap_or_else(|| panic!("ticket"))
+    });
+    let cancel = cx
+        .debug_bounds("settings-key-cancel")
+        .unwrap_or_else(|| panic!("cancel"));
+    cx.simulate_click(cancel.center(), Default::default());
+    view.update(cx, |this, _| this.confirm_device_key(old_ticket, true));
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
+    cx.simulate_click(replace.center(), Default::default());
+    cx.run_until_parked();
+    view.update(cx, |this, _| this.confirm_device_key(old_ticket, true));
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
+    let confirm = cx
+        .debug_bounds("settings-key-confirm")
+        .unwrap_or_else(|| panic!("confirm"));
+    cx.simulate_click(confirm.center(), Default::default());
+    cx.simulate_click(confirm.center(), Default::default());
+    view.update(cx, |this, _| {
+        assert!(this.settings.as_ref().and_then(|h| h.keys.line()).is_none());
+        this.select_host("injected-other-host");
+        assert!(this.settings.as_ref().and_then(|h| h.keys.line()).is_none());
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            assert!(this.settings.as_ref().is_some_and(|h| h.keys.busy()));
+            this.end_settings_modal(window, cx);
+            this.begin_settings_modal(window, cx);
+            assert!(this.settings.as_ref().is_some_and(|h| h.keys.busy()));
+            this.read_device_key(cx);
+        })
+    });
+    // Both actual Add Host controls must consult the same unresolved owner.
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("clipboard-positive".into()));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.end_settings_modal(window, cx);
+            this.terminal.open = false;
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    for id in ["key-create", "key-copy"] {
+        let bounds = cx
+            .debug_bounds(id)
+            .unwrap_or_else(|| panic!("Add Host control {id}"));
+        cx.simulate_click(bounds.center(), Default::default());
+    }
+    assert_eq!(fake.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("clipboard-positive")
+    );
+    cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 1);
+    view.update(cx, |this, _| {
+        assert_eq!(
+            this.settings.as_ref().map(|h| h.keys.state),
+            Some(State::Unknown)
+        );
+    });
+    cx.run_until_parked();
+    fake.reject.store(true, Ordering::SeqCst);
+    view.update(cx, |this, cx| this.read_device_key(cx));
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cx.run_until_parked();
+    let output = records
+        .try_iter()
+        .map(|r| r.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(output.contains("p11-positive-control"));
+    assert!(!output.contains("RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM"));
+    assert!(!output.contains("FAKE_PRIVATE_SENTINEL"));
+    assert!(!output.contains("key_line"));
+    let leaked = format!("{output}FAKE_PRIVATE_SENTINEL");
+    assert!(
+        leaked.contains("FAKE_PRIVATE_SENTINEL"),
+        "negative detector control"
+    );
+}
+
+fn until_ready(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(SettingsHost::ready)
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+fn press(cx: &mut VisualTestContext, id: &'static str) {
+    let bounds = cx
+        .debug_bounds(id)
+        .unwrap_or_else(|| panic!("missing control {id}"));
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut TestAppContext) {
+    use crate::settings_pages::keyboard::{set_terminal_priority, terminal_priority};
+    let root = directory("sheet-controls");
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    view.update(cx, |this, _| {
+        this.settings = Some(SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}")));
+    });
+    until_ready(&view, cx);
+    press(cx, "open-settings");
+    // Larger then Smaller returns to the default size, so Smaller really lowers it.
+    press(cx, "font-plus");
+    assert_eq!(
+        view.read_with(cx, |this, _| this.terminal.font.size),
+        Some(15.)
+    );
+    press(cx, "font-minus");
+    assert_eq!(
+        view.read_with(cx, |this, _| this.terminal.font.size),
+        Some(14.)
+    );
+    press(cx, "settings-page-keyboard");
+    for id in [
+        "settings-priority",
+        "settings-board",
+        "settings-drag",
+        "settings-copy",
+    ] {
+        let before = view.read_with(cx, |this, _| this.settings_values());
+        let mut expected = before.clone();
+        match id {
+            "settings-priority" => {
+                let flipped = !terminal_priority(&expected);
+                set_terminal_priority(&mut expected, flipped);
+            }
+            "settings-board" => expected.board_hidden = !expected.board_hidden,
+            "settings-drag" => expected.drag_select = !expected.drag_select,
+            _ => expected.copy_on_select = !expected.copy_on_select,
+        }
+        press(cx, id);
+        let after = view.read_with(cx, |this, _| this.settings_values());
+        assert_eq!(after, expected, "{id} must flip only its own value");
+        assert_ne!(after, before, "{id} must change a value");
+    }
+    // A failed write stays unsaved until Retry save is pressed.
+    until_ready(&view, cx);
+    let pending = root.join("yebisu-settings.pending");
+    std::fs::create_dir(&pending).unwrap_or_else(|e| panic!("{e}"));
+    press(cx, "settings-copy");
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.error.is_some())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    std::fs::remove_dir(&pending).unwrap_or_else(|e| panic!("{e}"));
+    view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        assert!(!this.settings.as_ref().is_some_and(SettingsHost::ready));
+    });
+    press(cx, "settings-retry");
+    until_ready(&view, cx);
+    assert!(view.read_with(cx, |this, _| {
+        this.settings.as_ref().is_some_and(|h| h.error.is_none())
+    }));
+    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[gpui::test]
+fn p11_escape_cancels_a_pending_key_ticket_then_closes_the_sheet(cx: &mut TestAppContext) {
+    let root = directory("escape");
+    let fake = Arc::new(Injected {
+        replaces: AtomicUsize::new(0),
+        reads: AtomicUsize::new(0),
+        reject: AtomicBool::new(false),
+        release: Mutex::new(None),
+    });
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    // The key preflight must be admitted by a live observation sink, as in production QA.
+    let (logs, _records) = std::sync::mpsc::sync_channel(256);
+    view.update(cx, |this, _| {
+        let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        host.keys = Owner::new(fake.clone());
+        this.settings = Some(host);
+        this.observation = crate::observation::Observation::injected(logs);
+    });
+    until_ready(&view, cx);
+    cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
+    view.update(cx, |this, cx| this.read_device_key(cx));
+    let until = Instant::now() + Duration::from_secs(5);
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    view.update(cx, |this, _| {
+        this.key_ticket = this
+            .settings
+            .as_mut()
+            .and_then(|host| host.keys.confirmation());
+        assert!(this.key_ticket.is_some(), "confirmation must be pending");
+    });
+    // The key event travels the focused sheet's real handler, not a direct method call.
+    cx.run_until_parked();
+    cx.simulate_keystrokes("escape");
+    view.read_with(cx, |this, _| {
+        assert!(this.settings_modal, "first Escape only cancels the ticket");
+        assert!(this.key_ticket.is_none());
+        let state = this.settings.as_ref().map(|host| host.keys.state);
+        assert_eq!(state, Some(State::Ready));
+    });
+    cx.simulate_keystrokes("escape");
+    assert!(!view.read_with(cx, |this, _| this.settings_modal));
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
+    // No edit was made, so the settings directory may never have been created.
+    let _ = std::fs::remove_dir_all(root);
+}
