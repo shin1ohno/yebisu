@@ -48,8 +48,8 @@ class SmokeOracleTests(unittest.TestCase):
                     oracle.validate(negative, verbose=False)
 
     def test_command_line_exit_status_matches_the_verdict(self):
-        # The CLI contract the removed smoke-negatives.py exercised: callers see
-        # exit 0 for a positive capture and exit 1 with the reason otherwise.
+        # The command-line contract: callers see exit 0 for a positive capture
+        # and exit 1 with the reason otherwise.
         script = Path(__file__).with_name('smoke_oracle.py')
         def run(directory):
             return subprocess.run([sys.executable, '-I', str(script), str(directory)],
