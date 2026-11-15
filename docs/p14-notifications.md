@@ -1,14 +1,14 @@
 # P14 connected notifications — frozen P11 contract integration
 
 The SDK side (herdr-uikit PR #10, P14 response lifetimes) is merged. This
-consumer pins herdr-uikit `7f70d2d6f03cddf0cd72a1c2a56bca000da86b1c`, the first SDK
-main commit that contains both PR #10 and the SH1-152 native edit work, in
-Cargo.toml and Cargo.lock. No SDK8/9 integration. The consumer is merged only
-after independent review and owner approval.
+consumer pins herdr-uikit `1e9f6094c394ec79fb88b966e7a02a9aa5bb753b` (main's pin,
+which contains PR #10 and e571546) in Cargo.toml and Cargo.lock; earlier
+heads of this PR pinned e571546 and then 7f70d2d. No SDK8/9 integration. The
+consumer is merged only after independent review and owner approval.
 
-The source integrates the controller-frozen P11 contract at
-f54b1ecc02abd458b428bb2366fe004b5917d2a1 into this owned branch, preserving both
-parents' history. Controls mount in the production Notifications page and use
+The source integrated the controller-frozen P11 contract at
+f54b1ecc02abd458b428bb2366fe004b5917d2a1 into this owned branch; main's final P11
+(PR #49) has since been merged over it and this document's P14 parts sit on top. Controls mount in the production Notifications page and use
 the sheet's existing button style/focus/save owner. The existing 33ms timer
 polls notifications. Other writers' repositories and branches are untouched.
 Combined native verification is pending; P11's prior gates do not prove this head.
@@ -67,7 +67,8 @@ Native results exist from the Mac mini under the exclusive lease (task 8910aef8d
   intended assertions and were restored byte for byte; the six consumer response tests passed.
 - Head 9f97578 (attempt 5): the same gates passed again (291 Rust tests); Python `scripts/ios`
   tests that import `tomllib` could not run on the mini (Python 3.9) and run in hosted CI.
-- The real-app gate `scripts/ios/p14-check.py` (XCTest `testP14ConnectedNotifications`) passed at
+- Head 3651478 / SDK 1e9f6094 (attempt 8, after merging main with the final P11 and the herdr-gpui pins): `check`, SDK Simulator tests (13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer tests), the real-app `p14-check.py` on a disposable Simulator with the keyboard up (toast above it, status expiry), `lint-ios`, `cargo test --workspace` (319) and `scripts/tests` passed; only the `tomllib` TestFlight Python tests failed on the mini's Python 3.9.
+- The real-app gate `scripts/ios/p14-check.py` (XCTest `testP14ConnectedNotifications`) passed earlier at
   6d924fc (software keyboard hidden by the harness, no toast-position measurement) and at f164c79
   (keyboard up; toast above it). The runs between them failed on the oracle for harness timing; the
   full history is in docs/p14-native-qa.md. Hosted CI is green on c10e1df and f164c79.

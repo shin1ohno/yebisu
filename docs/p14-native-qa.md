@@ -2,16 +2,20 @@
 
 Status (what actually ran, all on the Mac mini under the exclusive lease):
 
-- SDK Simulator runner `p14-sdk-check.py`: passed at PR #45 head 03391ad and again at 9f97578
-  (SDK 7f70d2d): 13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer tests.
+- SDK Simulator runner `p14-sdk-check.py`: passed at PR #45 head 03391ad, again at 9f97578
+  (SDK 7f70d2d) and at 3651478 (SDK 1e9f6094, after merging main): 13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer tests.
 - Real-app runner `p14-check.py` (XCTest `testP14ConnectedNotifications` plus the receiving
   oracle): 9f97578 failed ("P14 next" hidden behind the software keyboard); 6d924fc passed with
   the keyboard hidden by the harness and no toast-position measurement; c10e1df passed the XCTest
   but not the oracle (the shared Simulator's keyboard was not up and the toast expired before
   the tap); 6a894d8 failed on the shared Simulator (keyboard not up) and, on a disposable
   Simulator, passed the XCTest but not the oracle (toast expired); 19bfd8c the same;
-  **f164c79 passed both**, with the software keyboard up (keyboard top 1028 pt, toast text bottom
-  892 pt, screenshot `p14-toast`), authorization query NotDetermined (read-only).
+  **f164c79 passed both**, with the software keyboard up (keyboard top 1028 pt, toast text
+  bottom 892 pt, screenshot `p14-toast`), authorization query NotDetermined (read-only);
+  c63ef6a (adds the status-expiry check) passed the XCTest but the oracle missed step 5, because the
+  right-aligned overlay changed width with the status line and moved the QA control (fixed in
+  123a2df by a fixed QA-build width); **123a2df and 3651478 (after merging main, SDK 1e9f6094)
+  passed both**, including the check that the status line is visible and then gone.
 - Still UNRUN, and not claimed: actual OS banner, sound, notification tap, Inactive/Background/
   suspend delivery, permission grant, physical volume/mute, and any run after later edits to the
   toast or status layout. Model, SDK-fixture and Simulator receipts are not OS delivery proof.
