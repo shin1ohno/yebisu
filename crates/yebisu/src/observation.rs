@@ -8,14 +8,17 @@ use std::{
 
 pub(crate) struct Observation {
     sender: Option<SyncSender<Value>>,
+    id: usize,
     #[cfg(test)]
     diagnostics: Option<SyncSender<String>>,
 }
+static NEXT_OBSERVATION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl Observation {
-    fn with_sender(sender: Option<SyncSender<Value>>) -> Self {
+    fn with_sender(sender: Option<SyncSender<Value>>, id: usize) -> Self {
         Self {
             sender,
+            id,
             #[cfg(test)]
             diagnostics: None,
         }
@@ -27,7 +30,7 @@ impl Observation {
 
     #[cfg(test)]
     pub(crate) fn injected(sender: SyncSender<Value>) -> Self {
-        Self::with_sender(Some(sender))
+        Self::with_sender(Some(sender), 0)
     }
 
     pub(crate) fn new() -> Self {
@@ -38,8 +41,14 @@ impl Observation {
         let p9 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_CORE_QA").is_some();
         let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
         if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
-            return Self::with_sender(None);
+            return Self::with_sender(None, 0);
         }
+        let id = NEXT_OBSERVATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let menu_case = if cfg!(target_abi = "sim") {
+            std::env::var("YEBISU_SH1_152_CASE").ok()
+        } else {
+            None
+        };
         let (sender, receiver) = sync_channel::<Value>(256);
         std::thread::spawn(move || {
             let Some(home) = std::env::var_os("HOME") else {
@@ -48,12 +57,15 @@ impl Observation {
             let directory = std::path::PathBuf::from(home).join("Documents");
             let result = (|| -> std::io::Result<()> {
                 std::fs::create_dir_all(&directory)?;
+                let filename = menu_case.map(|case| format!("sh1-152-{case}-{id}.jsonl"));
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .write(true)
-                    .append(p2 || p10 || selection || p9 || p11)
-                    .truncate(!(p2 || p10 || selection || p9 || p11))
-                    .open(directory.join(if selection {
+                    .append(p2 || p10 || selection || (p9 && filename.is_none()) || p11)
+                    .truncate(!(p2 || p10 || selection || (p9 && filename.is_none()) || p11))
+                    .open(directory.join(if let Some(filename) = filename.as_deref() {
+                        filename
+                    } else if selection {
                         "selection-settings.jsonl"
                     } else if p10 {
                         "p10-settings.jsonl"
@@ -72,7 +84,7 @@ impl Observation {
                 eprintln!("smoke observation writer: {error}");
             }
         });
-        let observation = Self::with_sender(Some(sender));
+        let observation = Self::with_sender(Some(sender), id);
         observation
             .record(serde_json::json!({"kind": "launch", "phase": if p2 { "P2" } else { "P0" }}));
         observation
@@ -85,6 +97,10 @@ impl Observation {
         let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
             return;
         };
+        if let Ok(case) = std::env::var("YEBISU_SH1_152_CASE") {
+            value["case"] = case.into();
+            value["window"] = self.id.into();
+        }
         value["time"] = now.as_secs_f64().into();
         if let Err(error) = sender.try_send(value) {
             let reason = match error {
