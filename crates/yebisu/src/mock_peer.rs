@@ -370,6 +370,7 @@ pub(crate) fn connect_recorded(
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
 }
+#[cfg(test)]
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)
 }
@@ -526,7 +527,12 @@ fn record(
             "sequence":sequence,"message":safe}),
         );
     }
-    record_peer(serde_json::to_value(message)?)
+    record_peer(serde_json::to_value(message)?)?;
+    #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+    if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
+        observer_received(message);
+    }
+    Ok(())
 }
 fn record_peer(mut value: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     if p12_observing() {
@@ -618,4 +624,36 @@ fn handoff_graphics() -> SurfaceGraphicsScene {
 pub(crate) fn connect_p12() -> crate::Result<(Client, std::sync::mpsc::SyncSender<()>)> {
     let (release, gate) = std::sync::mpsc::sync_channel(1);
     connect_gated(1, false, "", Some(gate)).map(|(client, _)| (client, release))
+}
+
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+static OBSERVER_ACK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+fn observer_received(message: &ClientMessage) {
+    if let ClientMessage::ClientShellPaneInput {
+        pane_id, events, ..
+    } = message
+    {
+        if pane_id != "w1:p1" {
+            return;
+        }
+        for event in events {
+            if let ClientPaneInputEvent::Paste(text) = event
+                && let Some(n) = text
+                    .strip_prefix("p11-observer-end-")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .or_else(|| {
+                        text.strip_prefix("native-end-")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .and_then(|n| n.checked_add(1))
+                    })
+            {
+                OBSERVER_ACK.store(n, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+}
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+pub(crate) fn observer_ack(phase: u32) -> bool {
+    OBSERVER_ACK.load(std::sync::atomic::Ordering::Acquire) == phase
 }

@@ -25,12 +25,8 @@ independent review is separate.
 
 ## P4 keyboard and IME
 
-`just ios-p4` types into a private in-process peer, exercises the actual IME
-callbacks, checks exact semantic input receipts, and saves Simulator screenshots.
-It never connects to an owner's running Herdr session. `docs/device-check.md`
-contains the physical M1 sequence; `docs/variants.md` lists the runtime Option,
-Command, Esc and candidate-anchor choices in the **Input options** toolbar.
-
-`python3 scripts/p4-mutation-check.py --just /absolute/path/to/just` verifies that
-nine intentional regressions fail behavioral assertions, then restores every
-source file. Run it only with no concurrent edits or builds.
+Host tests in `crates/yebisu/src/terminal_input_tests.rs` cover composition,
+UTF-16 clauses, single delivery, Esc cancellation and target isolation; `just
+test` runs them. `docs/device-check.md` contains the physical M1 sequence;
+`docs/variants.md` lists the runtime Option, Command, Esc and candidate-anchor
+choices in the **Input options** toolbar.

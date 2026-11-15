@@ -21,6 +21,10 @@ pub(crate) trait Provider: Send + Sync {
     fn identity(&self) -> &'static str {
         IDENTITY
     }
+    // Capability provenance comes from the selected object, never environment flags.
+    fn injected(&self) -> bool {
+        false
+    }
     fn supported(&self) -> bool;
     fn read_or_initialize(&self) -> Result<String, Failure>;
     fn replace(&self) -> Result<String, Failure>;
@@ -58,12 +62,23 @@ impl Provider for Platform {
         }
     }
 }
-// Match the pinned SDK's fixed, credential-free Display categories. Never log errors.
+// Classify by the SDK's typed device-key variants, never by display text. A renamed or
+// removed `Locked` or `Missing` variant is then a compile error in the iOS build
+// (`just lint-ios`) instead of a silent fall-through to `Provider`. The chain is
+// `Error::Ssh(InProcess(DeviceKey(Credentials::DeviceKey(device_key::Error))))`; the
+// device-key module exists only for iOS, so no host test can reach it.
 #[cfg(all(target_os = "ios", not(test)))]
 fn classify(error: sheprd_client::Error) -> Failure {
-    match error.to_string().as_str() {
-        "The iPad is locked. Unlock it and try again." => Failure::Locked,
-        "The device key was not in the Keychain after it was created. Try again." => {
+    use sheprd_client::{
+        Error as Client,
+        ssh::{Error as Ssh, in_process::Error as InProcess},
+    };
+    use sheprd_credentials::{Error as Credentials, device_key::Error as Key};
+    match error {
+        Client::Ssh(Ssh::InProcess(InProcess::DeviceKey(Credentials::DeviceKey(Key::Locked)))) => {
+            Failure::Locked
+        }
+        Client::Ssh(Ssh::InProcess(InProcess::DeviceKey(Credentials::DeviceKey(Key::Missing)))) => {
             Failure::Missing
         }
         _ => Failure::Provider,
@@ -74,6 +89,9 @@ fn classify(error: sheprd_client::Error) -> Failure {
 struct Injected;
 #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
 impl Provider for Injected {
+    fn injected(&self) -> bool {
+        true
+    }
     fn supported(&self) -> bool {
         true
     }

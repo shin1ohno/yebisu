@@ -95,8 +95,10 @@ mod handoff_resume_tests;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa;
-#[cfg(all(target_os = "ios", target_abi = "sim"))]
+#[cfg(all(target_os = "ios", target_abi = "sim", not(feature = "test-support")))]
 mod native_edit_qa;
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+mod native_observer_qa;
 
 #[cfg(any(target_os = "ios", test))]
 mod core;
@@ -134,6 +136,8 @@ mod edit_menu_tests;
 mod front_layer;
 #[cfg(any(target_os = "ios", test))]
 mod native_menus;
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+mod p11_observer;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_native;

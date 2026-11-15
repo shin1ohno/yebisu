@@ -8,4 +8,4 @@ Host-scoped asynchronous connection installation and a separate selection epoch 
 
 Rendering performs only memory reads, element construction and bounded observation enqueueing. Connection, key/trust file access and process startup remain on workers. Existing endpoint handles enqueue resize/API messages for their worker.
 
-Validation: host tests cover latest metadata, unknown status, hidden-host burst draining, old-host selection races, same-generation paint callbacks, stale targets, both API methods and off-screen periodic snapshots. `scripts/ios/p6-check.py` checks both hosts and endpoint receipts from private peers; its oracle has missing-host/stalled-hidden/wrong-state/missing-harness negative controls. Physical acceptance remains in `docs/device-check.md`.
+Validation: host tests cover latest metadata, unknown status, hidden-host burst draining, old-host selection races, same-generation paint callbacks, stale targets, both API methods and off-screen periodic snapshots. Physical acceptance remains in `docs/device-check.md`.

@@ -2471,7 +2471,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=7f70d2d6f03cddf0cd72a1c2a56bca000da86b1c#7f70d2d6f03cddf0cd72a1c2a56bca000da86b1c"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=1e9f6094c394ec79fb88b966e7a02a9aa5bb753b#1e9f6094c394ec79fb88b966e7a02a9aa5bb753b"
 dependencies = [
  "anyhow",
  "block2",
@@ -7277,10 +7277,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
+ "dispatch2",
  "gpui-pre",
  "herdr-ssh",
  "herdr-uikit",
  "image",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-ui-kit",
@@ -7290,6 +7292,7 @@ dependencies = [
  "sheprd-client",
  "sheprd-commands",
  "sheprd-core-client",
+ "sheprd-credentials",
  "sheprd-i18n",
  "thiserror 2.0.21",
  "tracing",

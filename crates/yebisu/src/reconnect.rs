@@ -113,17 +113,6 @@ impl Smoke {
                 for host in hosts {
                     self.start_host_connection(host, cx);
                 }
-                #[cfg(all(target_os = "ios", target_abi = "sim"))]
-                if returned && let Some(release) = self.terminal.late_reader_release.take() {
-                    // The R5 peer's old reader emits only AFTER Automatic tried
-                    // to reconnect. This cannot be compiled into a device build.
-                    self.observation.record(serde_json::json!({
-                        "kind":"r5-reader-release", "pending":self.terminal.reconnect_pending,
-                        "automatic":self.terminal.reconnect.automatic,
-                        "generation":self.terminal.link.generation
-                    }));
-                    let _ = release.send(());
-                }
             }
             // Losing scene focus is not backgrounding: retain both transports,
             // their input destinations and any staged clipboard ownership.

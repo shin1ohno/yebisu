@@ -36,5 +36,6 @@ KeyView via SettingsHost::keys, and both legal documents. SettingsHost alone own
 all public-key operations; Setup Job::Key and Reply::Key were removed to prevent
 bypass reads. KeyView receives only the single formatter output from key_ops.
 Font size/family now persist in settings/font.rs and apply to painter plus native
-composition geometry; the family list comes from the platform text system off
-UI thread. Native validation is still required; mounted source is not acceptance.
+composition geometry. The family picker is hidden (`FAMILY_PICKER` in
+`settings_sheet/view.rs`) until a supported installed-font picker is proven; the
+enumeration still runs off the UI thread but is not rendered. Native validation is still required; mounted source is not acceptance.
