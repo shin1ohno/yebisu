@@ -11,6 +11,7 @@ import json
 import os
 import platform
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -224,6 +225,13 @@ def git(*args):
     return subprocess.check_output(["git", "-C", str(ROOT)] + list(args), text=True)
 
 
+def macho_uuid(directory, name, path):
+    """The linker's LC_UUID for the single arm64 slice, from xcrun dwarfdump."""
+    out = run(["xcrun", "dwarfdump", "--uuid", str(path)], directory, name + "-uuid")
+    found = re.findall(r"UUID: ([0-9A-F-]{36}) \(arm64\)", out)
+    return found[0] if len(found) == 1 else None
+
+
 def provenance(directory, head, bundle, installed, device, mutant):
     """F2: this run's own source, compiler artifact, bundle and installed app.
 
@@ -266,8 +274,16 @@ def provenance(directory, head, bundle, installed, device, mutant):
         "installed": {"path": installed, "executable_sha256": digest(Path(installed) / "yebisu"), "info_plist_sha256": digest(Path(installed) / "Info.plist")},
         "simulator": {"udid": device, "runtime": runtime},
     }
-    shas = {record["compiler"]["executable_sha256"], record["bundle"]["executable_sha256"], record["installed"]["executable_sha256"]}
-    if len(shas) != 1 or record["bundle"]["info_plist_sha256"] != record["installed"]["info_plist_sha256"] or len(runtime) != 1:
+    # bundle.sh ad-hoc signs the bundled copy, so compiled and bundled bytes
+    # differ; the linker's Mach-O UUID survives signing and must match all
+    # three, and the installed bundle must be byte-identical to the built one.
+    for name, path in [("compiler", artifact["executable"]), ("bundle", Path(bundle) / "yebisu"), ("installed", Path(installed) / "yebisu")]:
+        record[name]["macho_uuid"] = macho_uuid(directory, name, path)
+    uuids = {record[name]["macho_uuid"] for name in ("compiler", "bundle", "installed")}
+    if len(uuids) != 1 or None in uuids:
+        raise RuntimeError("p13-provenance-uuid-differs: " + repr(sorted(map(str, uuids))))
+    if (record["bundle"]["executable_sha256"] != record["installed"]["executable_sha256"]
+            or record["bundle"]["info_plist_sha256"] != record["installed"]["info_plist_sha256"] or len(runtime) != 1):
         raise RuntimeError("p13-provenance-installed-differs")
     (directory / "provenance.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
     return record

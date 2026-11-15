@@ -76,7 +76,9 @@ certify a negative. This does not replace the original D1-D6 host mutants.
 Every collector run writes `provenance.json` from its own outputs: head, tree,
 changed-file hashes, lock/toolchain hashes, `rustc -vV`/`cargo -V`/Xcode, the
 yebisu compiler artifact (own manifest, features, fresh flag), and the built,
-bundled and installed executable hashes, which must be identical. A mutant run
+bundled and installed executables. bundle.sh ad-hoc signs the bundled copy, so
+their Mach-O UUIDs must match and the installed bundle's executable and
+Info.plist must be byte-identical to the built bundle. A mutant run
 must be a rebuilt (`fresh=false`) binary differing from the baseline, and each
 restored run must have the baseline tree with no changed file. Keep evidence
 directories outside the checkout. Python here is 3.9-compatible (no tomllib).
