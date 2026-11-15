@@ -37,6 +37,32 @@ jobs:
             target/ios-p8-native/
             target/ios-selection-settings/
             target/disk.log
+  p14-native:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install pinned Rust
+        run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install just
+        run: brew install just
+      - name: Fetch
+        run: just guarded cargo fetch --locked
+      - name: P14 SDK native tests, mutants and consumer response tests
+        run: just guarded python3 scripts/ios/p14-ci.py
+      - name: Upload P14 native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p14-native-evidence
+          path: |
+            target/ios-p14-sdk/*/
+            !target/ios-p14-sdk/*/owned-sdk-target
+            !target/ios-p14-sdk/*/owned-consumer-target
+            target/disk.log
   simulator-smoke:
     runs-on: macos-26
     timeout-minutes: 40
