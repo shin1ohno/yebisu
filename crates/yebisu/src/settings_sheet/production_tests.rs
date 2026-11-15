@@ -386,14 +386,16 @@ fn p11_escape_cancels_a_pending_key_ticket_then_closes_the_sheet(cx: &mut TestAp
             .and_then(|host| host.keys.confirmation());
         assert!(this.key_ticket.is_some(), "confirmation must be pending");
     });
-    cx.update(|window, cx| view.update(cx, |this, cx| this.settings_escape(window, cx)));
+    // The key event travels the focused sheet's real handler, not a direct method call.
+    cx.run_until_parked();
+    cx.simulate_keystrokes("escape");
     view.read_with(cx, |this, _| {
         assert!(this.settings_modal, "first Escape only cancels the ticket");
         assert!(this.key_ticket.is_none());
         let state = this.settings.as_ref().map(|host| host.keys.state);
         assert_eq!(state, Some(State::Ready));
     });
-    cx.update(|window, cx| view.update(cx, |this, cx| this.settings_escape(window, cx)));
+    cx.simulate_keystrokes("escape");
     assert!(!view.read_with(cx, |this, _| this.settings_modal));
     assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
     // No edit was made, so the settings directory may never have been created.
