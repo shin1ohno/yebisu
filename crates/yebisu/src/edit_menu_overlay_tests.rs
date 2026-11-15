@@ -126,3 +126,32 @@ fn h5_secondary_click_and_primary_drag_keep_separate_meanings(cx: &mut TestAppCo
             .is_some_and(|s| s.anchor != s.end)
     }));
 }
+
+#[gpui::test]
+fn h4_secondary_click_over_front_layer_never_presents(cx: &mut TestAppContext) {
+    let (view, cx, calls) = fixture(cx);
+    let at = position(&view, cx);
+    let taps = Rc::new(RefCell::new(0));
+    cx.update(|window, cx| {
+        window.replace_root(cx, |_, _| Overlay {
+            view: view.clone(),
+            at,
+            occlude: false,
+            taps: taps.clone(),
+        });
+    });
+    cx.run_until_parked();
+    let center = at + point(px(30.), px(20.));
+    for _ in 0..2 {
+        cx.simulate_mouse_down(center, MouseButton::Right, Modifiers::default());
+        cx.simulate_mouse_up(center, MouseButton::Right, Modifiers::default());
+        assert!(calls.borrow().presented.is_empty());
+        assert!(view.read_with(cx, |this, _| this.handoff.selection.is_none()));
+        view.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+    }
+    let outside = at + point(px(120.), px(20.));
+    assert!(view.read_with(cx, |this, _| this.terminal.geometry.contains(outside)));
+    cx.simulate_mouse_down(outside, MouseButton::Right, Modifiers::default());
+    assert_eq!(calls.borrow().presented.len(), 1);
+}
