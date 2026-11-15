@@ -45,21 +45,20 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_P14_QA"] = "1"
         app.launch()
         sleep(4)
+        // Owner decision: with the software keyboard up, the toast sits just above it.
+        // A tap on the terminal focuses its input, which raises the keyboard.
+        try tapText("Type here", in: app)
+        sleep(2)
+        let keyboard = app.keyboards.element(boundBy: 0)
+        let keyboardTop = keyboard.exists ? keyboard.frame.minY : app.frame.height
+        XCTAssertLessThan(keyboardTop, app.frame.height - 100, "the software keyboard must be up for this measurement")
         try tapText("P14 next", in: app)
         sleep(2)
         let toast = try tapText("Agent needs attention", in: app, tap: false)
         save("p14-toast")
-        // Owner decision: with the software keyboard up, the toast sits just above it.
-        let keyboards = app.keyboards
-        if keyboards.count > 0 {
-            let keyboardTop = keyboards.element(boundBy: 0).frame.minY
-            let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
-            print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
-            XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
-            save("p14-toast-above-keyboard")
-        } else {
-            print("P14 keyboard not shown; toast position relative to it not measured")
-        }
+        let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
+        print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
+        XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
         try tapText("Agent needs attention", in: app)
         sleep(2)
         save("p14-focus")

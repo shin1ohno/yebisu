@@ -175,8 +175,8 @@ diagnostics and documented limits, not behaviour defects.
   keyboard. The overlay's bottom offset is the window's keyboard inset
   (`window.insets().ime.bottom`, set by herdr-uikit from the keyboard frame) and is zero
   when no software keyboard is shown, so layout without a keyboard is unchanged. The
-  real-app XCTest keeps the keyboard up and fails if the recognized toast text lies below
-  the keyboard's top edge (`p14-toast-above-keyboard` screenshot).
+  real-app XCTest raises the keyboard and fails if the recognized toast text lies below
+  the keyboard's top edge (`p14-toast` screenshot, taken with the keyboard raised by a terminal tap).
 - r2 (nit): the closed-terminal test also pins that clipboard effects are dropped.
   r1 (nit, a Busy tap returns the tag but the toast is gone) is a limitation: the tag is
   only kept for the 33 ms scan and the OS notification, not for a new toast.
