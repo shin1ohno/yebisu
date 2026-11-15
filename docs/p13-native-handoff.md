@@ -89,3 +89,19 @@ lease, never by mutating this consumer's dependency cache or archived snapshot.
 All native baseline/negative/restored runs are UNRUN at source adoption.
 Host/pane/boot/generation/mailbox/reconnect native matrices, B1 and B2, P11/P12
 integration and physical owner checks must not be inferred from host models.
+
+## Model sources outside PROVENANCE.tsv
+
+PROVENANCE.tsv registers external copies and models from merged upstream
+refs only. These P13 files were modeled on this repository's own files or on
+unmerged SDK branches, so their sources are recorded here instead:
+
+- `crates/yebisu/src/find/qa.rs` ← shin1ohno/yebisu `crates/yebisu/src/native_edit_qa.rs` at `dc2511fe6959` (main)
+- `scripts/ios/p13-check.py` ← shin1ohno/yebisu `scripts/ios/smoke-qa/Tests/SmokeQA.swift` at `dc2511fe6959` (main)
+- `crates/yebisu/src/find/retirement.rs` ← shin1ohno/yebisu `crates/yebisu/src/input_retirement.rs` at `0f1f34212784` (feat/composition-retirement)
+- `crates/yebisu/src/find/retirement.rs` ← shin1ohno/yebisu `crates/yebisu/src/native_retirement.rs` at `0f1f34212784` (feat/composition-retirement)
+- `crates/yebisu/src/find/native_probe.rs` ← shin1ohno/herdr-uikit `src/window/retirement_probe.rs` at `789fb43b947b` (feat/composition-retirement)
+- `crates/yebisu/src/find/native_queries.rs` ← shin1ohno/herdr-uikit `src/window/text_input/probe/query.rs` at `fe3a0da1d1a9` (fix/yebisu-composition-retirement)
+- `crates/yebisu/src/find/native_queries.rs` ← shin1ohno/herdr-uikit `src/window/text_input/probe/cut_query.rs` at `33e288d762e1` (feat/p13-cut-first-query-probe)
+- `scripts/ios/p13-query-check.py` ← shin1ohno/yebisu `scripts/ios/p13-check.py` at `9df0d73ba377` (feat/p13-terminal-search)
+- `scripts/ios/p13-query-mutate.py` ← shin1ohno/yebisu `scripts/ios/p13-mutate.py` at `9df0d73ba377` (feat/p13-terminal-search)

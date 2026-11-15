@@ -17,6 +17,8 @@ check:
 
 lint-ios:
     python3 scripts/guarded.py bash scripts/ios/lint.sh
+    # P13's opt-in Simulator query probe, so its QA code compiles at the exact head.
+    python3 scripts/guarded.py bash -c 'source scripts/ios/lib.sh && ios_export_deployment_target && cargo clippy --locked --package yebisu --all-targets --target aarch64-apple-ios-sim --features p13-native-probe -- -D warnings'
 
 test:
     python3 scripts/guarded.py cargo test --locked --workspace

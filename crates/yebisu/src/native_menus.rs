@@ -55,6 +55,9 @@ pub(crate) fn catalog_rows(
 ) -> Vec<actions::Action> {
     actions::catalog(terminal)
         .into_iter()
+        // Search opens from its shortcut and the palette; the keyless OS menu
+        // keeps its pre-search command set.
+        .filter(|row| row.info.command != Command::Find)
         .map(|mut row| {
             row.available &=
                 focused && !(actions.terminal_priority && terminal.input.options.command_control);
@@ -184,17 +187,7 @@ impl Smoke {
             .find(|row| row.info.name == action.name)
             .map(|row| row.info.command)
             .ok_or(crate::Error::NativeMenu("unsupported command"))
-            .and_then(|command| {
-                // Search is client-local, as from its shortcut and the palette.
-                if command != Command::Find {
-                    return self.run_catalog_command(command, Some(action), focused);
-                }
-                let (terminal, state) = (&self.terminal, &self.actions);
-                self.native_menus
-                    .command_gate(command, true, terminal, state, focused)?;
-                self.open_find(window, cx);
-                Ok(())
-            });
+            .and_then(|command| self.run_catalog_command(command, Some(action), focused));
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_menu_end(Some(receipt), result.is_ok(), "command_gate");
         self.observation.record(serde_json::json!({
