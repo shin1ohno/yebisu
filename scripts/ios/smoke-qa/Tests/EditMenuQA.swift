@@ -40,17 +40,17 @@ final class EditMenuQA: XCTestCase {
                 // Center from the top-right status corner, which the system
                 // owns, in screen space.
                 frame("E3e before overlay", app)
-                let corner = screenPoint(app, 0.97, 0.002)
-                let lower = screenPoint(app, 0.97, 0.5)
-                corner.press(forDuration: 0.1, thenDragTo: lower)
-                sleep(2)
+                screenPoint(app, 0.97, 0.002).press(forDuration: 0.1, thenDragTo: screenPoint(app, 0.97, 0.5))
+                // Control Center dims the app but leaves its labels readable,
+                // so a visible "152 Replay" does not mean the overlay closed
+                // (PR run 43675932357: the Replay tap only dismissed it). Its
+                // header shows "Carrier", which the app's status bar never does.
+                let opened = waitText("Carrier", present: true, seconds: 8, app, "E3e overlay open")
                 save("E3e-overlay")
-                let covered = (try? coordinate("152 Replay", app, required: false, attempts: 1)) == nil
-                print("SH1-152 E3e overlay drag: Replay covered=\(covered)")
-                if covered {
-                    // Dismiss on the empty left side; Control Center's modules sit on the right.
-                    screenPoint(app, 0.2, 0.7).press(forDuration: 0.1, thenDragTo: screenPoint(app, 0.2, 0.1))
-                    sleep(2)
+                if opened {
+                    // Tap the empty left side; Control Center's modules sit on the right.
+                    screenPoint(app, 0.2, 0.5).tap()
+                    _ = waitText("Carrier", present: false, seconds: 8, app, "E3e overlay closed")
                 }
                 // An app that is no longer full screen means a gesture moved
                 // its window; the receipt names it instead of a missing label.
@@ -193,6 +193,22 @@ final class EditMenuQA: XCTestCase {
         let frame = app.frame
         let full = abs(frame.minX) < 1 && abs(frame.minY) < 1 && abs(frame.width - screen.width) < 1 && abs(frame.height - screen.height) < 1
         print("SH1-152 FRAME \(step) app=\(frame) screen=\(screen) fullscreen=\(full)")
+    }
+
+    // Reads the screen until `label` is (or is no longer) shown, for at most
+    // `seconds`; each read takes about a second, so no fixed sleep is added.
+    // Prints the outcome and elapsed time; the OCR lines record what was seen.
+    private func waitText(_ label: String, present: Bool, seconds: TimeInterval, _ app: XCUIApplication, _ step: String) -> Bool {
+        let start = Date()
+        repeat {
+            let shown = (try? coordinate(label, app, required: false, attempts: 1)) != nil
+            if shown == present {
+                print("SH1-152 WAIT \(step): '\(label)' present=\(present) after \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
+                return true
+            }
+        } while Date().timeIntervalSince(start) < seconds
+        print("SH1-152 WAIT \(step): '\(label)' present=\(present) not reached in \(Int(seconds))s")
+        return false
     }
 
     // Screen size in points: SpringBoard always spans the whole screen.
