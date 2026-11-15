@@ -614,6 +614,11 @@ impl Smoke {
         if !status.is_empty() {
             panel = panel.child(status.to_owned());
         }
+        if !controls.is_empty() {
+            // QA builds only: a fixed width keeps the P14 control from moving when the
+            // status line appears or expires between recognizing it and tapping it.
+            panel = panel.w(px(384.));
+        }
         panel.children(controls).into_any_element()
     }
 }
