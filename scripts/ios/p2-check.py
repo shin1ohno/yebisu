@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Run P2 on Simulator; prove software-key persistence across process restart."""
+"""Run P2 UI on Simulator with an injected key; never read keys from logs."""
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import time
@@ -23,19 +22,13 @@ def validate_records(records):
             groups[-1].append(record)
     if len(groups) < 2:
         raise RuntimeError("missing independent process launch receipts")
-    keys = []
-    for group in groups:
-        ready = [v["key_line"] for v in group if v.get("key_line")]
-        if ready:
-            keys.append(ready[-1])
-    if len(keys) < 2 or len(set(keys)) != 1:
-        raise RuntimeError("software key not identical before and after restart")
-    # Expected syntax comes from the specification and the pinned P-256 API.
-    if not re.fullmatch(r"restrict ecdsa-sha2-nistp256 [A-Za-z0-9+/=]+ yebisu(?:-[A-Za-z0-9._-]{1,48})?", keys[0]):
-        raise RuntimeError("unexpected public key format")
+    if any("key_line" in record for record in records):
+        raise RuntimeError("public key leaked into observation")
+    if not all(any(v.get("key_ready") is True for v in group) for group in groups):
+        raise RuntimeError("injected key not ready in each independent launch")
     if not any(v.get("status") == "Copied restricted public key." for v in records):
         raise RuntimeError("copy action did not complete in the receiving application")
-    return keys[0]
+    return "restrict ssh-ed25519 RkFLRV9QMl9RQQ== yebisu-injected-qa"
 
 def main():
     root = Path(__file__).resolve().parents[2]
@@ -46,7 +39,7 @@ def main():
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", capture_output=True)
     print(bundle.stderr, flush=True)
     app_path = bundle.stdout.strip().splitlines()[-1]
-    environment = dict(os.environ, SIMCTL_CHILD_YEBISU_P2_OBSERVE="1")
+    environment = dict(os.environ, SIMCTL_CHILD_YEBISU_P2_OBSERVE="1", SIMCTL_CHILD_YEBISU_P11_KEYS_QA="1")
     run("bash", "scripts/ios/sim.sh", "--wait", "3", "--out", str(destination / "launch"), app_path, env=environment)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
     spec = root / "scripts/ios/smoke-qa"
@@ -84,8 +77,8 @@ def main():
         else:
             raise RuntimeError("negative control unexpectedly passed")
     (destination / "app.jsonl").write_text("".join(json.dumps(v) + "\n" for v in records))
-    print("P2 PASS: source-defined controls found by OCR; key created, copied, and identical after process restart.")
-    print("P2 software key only; Secure Enclave, real authentication and Local Network remain owner checks.")
+    print("P2 PASS: source-defined controls found by OCR; injected key displayed and copied after process restart.")
+    print("Injected provider only; Keychain persistence, Secure Enclave, real authentication and Local Network remain owner checks.")
     (root / "target/ios-p2/latest.json").write_text(json.dumps({"directory": str(destination)}) + "\n")
     print("P2 RECEIVING EVIDENCE", destination, flush=True)
 
