@@ -5,22 +5,23 @@ use crate::{
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
-    #[cfg(target_os = "ios")]
     pub(crate) fn publish_native_edits(&mut self, window: &Window) {
         let availability = self.native_edit_availability(window);
-        herdr_uikit::set_native_edit_availability(window.window_handle(), availability);
+        self.edit_menu_check(window);
+        self.edit_menu
+            .presenter
+            .publish(window.window_handle(), availability);
     }
 
-    #[cfg(target_os = "ios")]
     pub(crate) fn native_edit_availability(
         &mut self,
         window: &Window,
-    ) -> Option<herdr_uikit::NativeEditAvailability> {
+    ) -> Option<crate::edit_menu::Availability> {
+        self.refresh_terminal_input();
+        self.sync_handoff();
         if !self.terminal.open {
             return None;
         }
-        self.refresh_terminal_input();
-        self.sync_handoff();
         Some({
             let focused = !self.settings_modal
                 && self.terminal_focus.is_focused(window)
@@ -35,7 +36,7 @@ impl Smoke {
                     .as_ref()
                     .and_then(crate::handoff::Selection::text)
                     .is_some();
-            herdr_uikit::NativeEditAvailability {
+            crate::edit_menu::Availability {
                 copy,
                 // Preserve D3: Cut copies terminal cells without deleting them.
                 cut: copy,
@@ -77,10 +78,19 @@ impl Smoke {
             self.hold_for_paste(event);
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let receipt = serde_json::json!({"kind":"terminal-input", "variant":match &event.event {
+            sheprd_client::protocol::ClientPaneInputEvent::Paste(_) => "Paste",
+            sheprd_client::protocol::ClientPaneInputEvent::Key { .. } => "Key",
+            sheprd_client::protocol::ClientPaneInputEvent::TextCommit(_) => "TextCommit",
+            sheprd_client::protocol::ClientPaneInputEvent::Mouse { .. } => "Mouse",
+        }, "terminal":match &event.destination.target { crate::terminal::InputTarget::Pane(id) | crate::terminal::InputTarget::Popup(id) => id }});
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.observation.record(receipt);
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
@@ -122,6 +132,7 @@ impl Smoke {
             },
             "down",
         );
+        // The modal consumes every key before any native edit routing below.
         if self.settings_modal {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_P11_QA").is_some()
@@ -135,17 +146,18 @@ impl Smoke {
             window.prevent_default();
             return;
         }
-        if !self.terminal_focus.is_focused(window) {
-            return;
-        }
         // A held closing key is not a fresh gesture that can resume input.
-        if event.is_held && self.terminal.input.requires_gesture() {
+        if self.terminal_focus.is_focused(window)
+            && event.is_held
+            && self.terminal.input.requires_gesture()
+        {
             cx.stop_propagation();
             window.prevent_default();
             return;
         }
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
+            use crate::edit_menu::{EditAction, MenuToken};
             use herdr_uikit::NativeEditAction;
             #[cfg(target_abi = "sim")]
             if std::env::var_os("YEBISU_NATIVE_QA").is_some() {
@@ -153,26 +165,19 @@ impl Smoke {
                     "kind":"native-consumer", "action":format!("{action:?}"), "modal":self.settings_modal
                 }));
             }
-            let allowed = self
-                .native_edit_availability(window)
-                .is_some_and(|state| match action {
-                    NativeEditAction::Paste => state.paste,
-                    NativeEditAction::Copy => state.copy,
-                    NativeEditAction::Cut => state.cut,
-                    NativeEditAction::SelectAll => state.select_all,
-                });
-            if !allowed {
-                cx.stop_propagation();
-                window.prevent_default();
+            let token = herdr_uikit::native_edit_menu_token().map(MenuToken::Native);
+            if token.is_some() || self.terminal_focus.is_focused(window) {
+                let action = match action {
+                    NativeEditAction::Copy => EditAction::Copy,
+                    NativeEditAction::Cut => EditAction::Cut,
+                    NativeEditAction::Paste => EditAction::Paste,
+                    NativeEditAction::SelectAll => EditAction::SelectAll,
+                };
+                self.native_menu_action(action, token, window, cx);
                 return;
             }
-            match action {
-                NativeEditAction::Paste => self.start_paste(false, cx),
-                NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),
-                NativeEditAction::SelectAll => {}
-            }
-            cx.stop_propagation();
-            window.prevent_default();
+        }
+        if !self.terminal_focus.is_focused(window) {
             return;
         }
         if event.keystroke.modifiers.platform

@@ -3,7 +3,7 @@
 import json
 import re
 
-SDK = '2dcd11a9f20762bb7070c3fdefb72d93ed952781'
+SDK = '1e9f6094c394ec79fb88b966e7a02a9aa5bb753b'
 ACTIONS = ['Copy', 'Paste', 'Cut', 'SelectAll']
 
 def exact(value, keys):

@@ -28,6 +28,10 @@ pub(crate) struct Smoke {
     pub(crate) terminal: crate::terminal_view::TerminalView,
     pub(crate) board: crate::board::Board,
     pub(crate) handoff: crate::handoff::Handoff,
+    pub(crate) edit_menu: crate::edit_menu::EditMenu,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub(crate) menu_qa: crate::edit_menu_qa_sh1_152::MenuQa,
+    pub(crate) front_layers: crate::front_layer::FrontLayers,
     pub(crate) actions: crate::actions::Actions,
     ticks: u64,
     taps: u64,
@@ -108,6 +112,10 @@ impl Smoke {
                 drag_select: true,
                 ..Default::default()
             },
+            edit_menu: Default::default(),
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            menu_qa: Default::default(),
+            front_layers: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -118,8 +126,16 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.front_layers.clear();
+        if self.edit_menu.activation.is_none() {
+            self.edit_menu.activation =
+                Some(cx.observe_window_activation(window, |this, window, _| {
+                    if !window.is_window_active() {
+                        this.dismiss_edit_menu(window);
+                    }
+                }));
+        }
         let screen = self.render_screen(window, cx);
-        #[cfg(target_os = "ios")]
         self.publish_native_edits(window);
         if self.settings_modal {
             let sheet = self.render_settings_sheet(window, cx);
@@ -140,15 +156,21 @@ impl Render for Smoke {
             .child(
                 div()
                     .id("settings-error")
+                    .occlude()
                     .debug_selector(|| "settings-error".into())
                     .absolute()
                     .top_0()
                     .left_0()
                     .right_0()
-                    .p_3()
-                    .bg(rgb(0x3b4252))
-                    .text_color(rgb(0xeceff4))
-                    .child(format!("Settings: {error}")),
+                    .child(crate::front_layer::front_layer(
+                        div()
+                            .p_3()
+                            .bg(rgb(0x3b4252))
+                            .text_color(rgb(0xeceff4))
+                            .child(format!("Settings: {error}"))
+                            .into_any_element(),
+                        self.front_layers.clone(),
+                    )),
             )
             .into_any_element()
     }

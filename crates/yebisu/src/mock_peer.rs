@@ -9,7 +9,13 @@ const WELCOME: &str = include_str!("../fixtures/endpoint-welcome-v1.json");
 pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
     let lines = [
         "yebisu P4 · private wire peer",
-        "日本語 ABC かな カナ 漢字",
+        if cfg!(target_abi = "sim")
+            && std::env::var("YEBISU_SH1_152_CASE").is_ok_and(|c| c.starts_with("E5"))
+        {
+            "AAA-152"
+        } else {
+            "日本語 ABC かな カナ 漢字"
+        },
         "┌──────────────┐",
         "│ box drawing  │",
         "└──────────────┘",
@@ -408,6 +414,21 @@ fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurf
             "1"
         }
         .into();
+    }
+    if cfg!(target_abi = "sim")
+        && std::env::var("YEBISU_SH1_152_CASE").is_ok_and(|c| c.starts_with("E5"))
+        && snapshot.focused_pane_id.as_deref() != Some("w1:p1")
+    {
+        for (offset, ch) in "BBB-152".chars().enumerate() {
+            if let Some(cell) = frame
+                .frame
+                .cells
+                .get_mut(usize::from(frame.frame.width) * 2 + 1 + offset)
+            {
+                cell.symbol = ch.to_string();
+                cell.skip = false;
+            }
+        }
     }
     frame
 }

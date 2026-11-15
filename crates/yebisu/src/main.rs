@@ -119,3 +119,18 @@ mod settings_spike;
 
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 mod p11_observer;
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu;
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu_gestures;
+#[cfg(test)]
+mod edit_menu_tests;
+#[cfg(any(target_os = "ios", test))]
+mod front_layer;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_native;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_scenes;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_sh1_152;

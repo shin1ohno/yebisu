@@ -11,6 +11,12 @@ approve native behavior, consumer integration, or SDK merge. All actual
 target/native gates remain UNRUN. Do not merge SDK or treat this pin as
 proven. Revisions require a new exact-head review, not silent candidate drift.
 
+**Pin update (attempt 10, merge of main 6f68383).** main pins herdr-uikit 3ec67ca3 (SH1-152
+native edit menus); it and the PR11 commit 2dcd11a9 above are diverged siblings. The pin is now
+herdr-uikit main merge 1e9f6094c394ec79fb88b966e7a02a9aa5bb753b (PR11 merge), a verified descendant of
+both (`git merge-base --is-ancestor` for 3ec67ca3 and 2dcd11a9). It is still not SDK/native acceptance;
+native gates run at the consumer head that carries this pin.
+
 Consumer history includes PR25 de65d2adcb7f77b9373c71f105c4621e1924954b
 (parent dc2511fe695935cdce60ba6bb3cfb4288a425778), retaining SH1-153 explicit
 edit availability, worker-slot notification, and regressions. Modal suppresses
