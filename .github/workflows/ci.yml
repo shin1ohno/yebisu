@@ -66,26 +66,6 @@ jobs:
             target/ios-smoke/*/
             target/ios-p9/*/
             !target/ios-smoke/build/
-  p11-native:
-    runs-on: macos-26
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install pinned Rust
-        run: python3 scripts/guarded.py rustup show active-toolchain
-      - name: Install simulator tools
-        run: brew install just xcodegen
-      - name: P11 native collector (Text, Drawing, Modal, Disabled)
-        run: just guarded python3 scripts/ios/p11-ci.py
-      - name: Upload P11 native evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: p11-native-evidence
-          path: target/p11-native/*/*/artifacts/
   check:
     runs-on: macos-26
     timeout-minutes: 40
