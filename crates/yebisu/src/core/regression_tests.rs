@@ -76,6 +76,23 @@ fn hidden_palette_shortcut_keeps_core_text_and_paste_live(cx: &mut TestAppContex
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let wire = start(&view, cx);
     cx.write_to_clipboard(gpui::ClipboardItem::new_string("PASTE".into()));
+    // start_paste refuses while a frame is pending, which on a loaded host can
+    // still be the case right after connect. Wait for input to be ready first.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.poll_terminal(cx);
+            this.refresh_terminal_input();
+            this.terminal.input.ready
+        })
+    }) {
+        assert!(
+            Instant::now() < deadline,
+            "terminal input never became ready"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);

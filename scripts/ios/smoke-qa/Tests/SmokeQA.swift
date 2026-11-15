@@ -116,6 +116,45 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testSH1153EditMenu() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_EDIT_MENU_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(3)
+        for step in 0..<10 {
+            try tapText("Menu prepare", in: app)
+            sleep(1)
+            if step % 5 == 1 || step % 5 == 4 {
+                try tapText("Menu select", in: app)
+                sleep(1)
+            }
+            try tapText("Menu execute", in: app)
+            sleep(1)
+            save("sh1-153-case-\(step)")
+            if step == 1 || step == 6 {
+                print("SH1-153 MENU HIERARCHY case=\(step)\n\(app.debugDescription)")
+                let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
+                if edit.exists && edit.isHittable {
+                    edit.tap()
+                    sleep(1)
+                    save("sh1-153-system-edit-\(step)")
+                    print("SH1-153 OPEN MENU case=\(step)\n\(app.debugDescription)")
+                    // Dismiss without choosing an extra command outside the receipt cases.
+                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                } else {
+                    print("SH1-153 system Edit menu is not exposed to XCTest in case \(step)")
+                }
+            }
+        }
+        try tapText("Menu prepare", in: app)
+        sleep(1)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testP8NativeEditing() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -248,6 +287,9 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
         app.launch()
         sleep(3)
+        // Drag selection consumes the tap that must open native input here.
+        try tapText("Start: Drag", in: app)
+        try tapText("Start: Select / double tap", in: app, tap: false)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-native\n")
         try tapText("QA mark", in: app)
@@ -269,6 +311,29 @@ final class SmokeQA: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-pane1\n")
         save("p9-reattached")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    func testSH154CoreImage() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_CORE_QA"] = "1"
+        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launch()
+        try tapText("QA Image only", in: app, attempts: 15)
+        try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try tapText("Paste image", in: app)
+        try tapText("paste-0.png", in: app, tap: false, attempts: 30)
+        try tapText("Paste", in: app, excludingSuffix: " image")
+        try tapText("paste-1.png", in: app, tap: false, attempts: 30)
+        try tapText("QA Image", in: app, excludingSuffix: " only")
+        try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try tapText("Paste", in: app, excludingSuffix: " image")
+        sleep(1)
+        try tapText("Paste image", in: app)
+        try tapText("paste-2.png", in: app, tap: false, attempts: 30)
+        save("sh154-core-image")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
@@ -503,10 +568,10 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true) throws {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
-        for attempt in 0..<3 {
+        for attempt in 0..<attempts {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -520,6 +585,9 @@ final class SmokeQA: XCTestCase {
             for candidate in candidates {
                 guard let range = candidate.string.range(of: label),
                       let observation = try candidate.boundingBox(for: range) else { continue }
+                if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
+                    continue
+                }
                 let box = observation.boundingBox
                 print("OCR tap \(label) frame=\(app.frame) box=\(box)")
                 if tap {

@@ -57,7 +57,12 @@ impl Smoke {
             return;
         };
         // One preparation at a time: cancelled workers keep their slot until exit.
-        if self.handoff.workers != 0
+        if self
+            .handoff
+            .core_ticket
+            .as_ref()
+            .is_some_and(|ticket| !ticket.is_finished())
+            || self.handoff.workers != 0
             || self
                 .handoff
                 .cancellation
@@ -109,11 +114,22 @@ impl Smoke {
             self.handoff.clipboard_reads += 1;
         }
         let payload = crate::handoff_clipboard::read(image_only, cx);
-        let work = cx
-            .background_executor()
-            .spawn(async move { payload.and_then(crate::handoff::prepare) });
+        let work = cx.background_executor().spawn(async move {
+            payload.and_then(|payload| {
+                crate::handoff::prepare(
+                    payload,
+                    sheprd_client::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD,
+                )
+            })
+        });
+        #[cfg(test)]
+        let completion_gate = self.handoff.completion_gate.take();
         cx.spawn(async move |weak, cx| {
             let prepared = work.await;
+            #[cfg(test)]
+            if let Some(gate) = completion_gate {
+                gate.await;
+            }
             let current = weak
                 .update(cx, |this, _| {
                     this.sync_handoff();
@@ -146,6 +162,8 @@ impl Smoke {
             let _ = weak.update(cx, |this, cx| {
                 this.observation.record(serde_json::json!({"kind":"p8-paste-result","serial":serial,"current":this.handoff.serial==serial,"result":result.as_ref().map(|_|"queued").map_err(|e|e.to_string())}));
                 this.handoff.workers = this.handoff.workers.saturating_sub(1);
+                // Cancelled workers also release the slot used by native edit availability.
+                cx.notify();
                 this.sync_handoff();
                 if this.handoff.serial != serial {
                     return;
@@ -165,7 +183,6 @@ impl Smoke {
                         this.terminal.live.status = e.to_string();
                     }
                 }
-                cx.notify();
             });
         })
         .detach();
@@ -274,7 +291,6 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn handoff_controls(&self, cx: &mut Context<Self>) -> AnyElement {
-        let core_mode = self.terminal.core_mode;
         div()
             .flex()
             .flex_wrap()
@@ -311,7 +327,6 @@ impl Smoke {
                     ),
                 ]
                 .into_iter()
-                .filter(move |(id, _)| !core_mode || *id != "paste-image")
                 .map(|(id, label)| {
                     div()
                         .id(id)
@@ -363,6 +378,9 @@ impl Smoke {
 #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+    pub(crate) fn edit_menu_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
     pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {

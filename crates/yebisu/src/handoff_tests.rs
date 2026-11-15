@@ -101,6 +101,15 @@ fn large_supported_image_is_resized_under_wire_limit() -> crate::Result<()> {
         .write_to(&mut encoded, image::ImageFormat::Png)
         .map_err(|e| crate::Error::Ssh(e.to_string()))?;
     assert!(encoded.get_ref().len() > sheprd_client::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD);
+    let Prepared::Image(core_bytes) =
+        super::prepare(Payload::Image(encoded.get_ref().clone()), CORE_IMAGE_LIMIT)?
+    else {
+        panic!("image expected");
+    };
+    assert!(core_bytes.len() <= CORE_IMAGE_LIMIT);
+    let core_image =
+        image::load_from_memory(&core_bytes).map_err(|e| crate::Error::Ssh(e.to_string()))?;
+    assert!(core_image.width() < 2200 && core_image.height() < 2200);
     let Prepared::Image(bytes) = prepare(Payload::Image(encoded.into_inner()))? else {
         panic!("image expected");
     };
@@ -276,4 +285,11 @@ fn selecting_the_second_cell_of_a_wide_glyph_copies_the_whole_glyph() {
     };
     assert_eq!(selection.text().as_deref(), Some("日"));
     assert_eq!(selection.spans(), vec![(2, 1..3)]);
+}
+
+fn prepare(payload: Payload) -> crate::Result<Prepared> {
+    super::prepare(
+        payload,
+        sheprd_client::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD,
+    )
 }

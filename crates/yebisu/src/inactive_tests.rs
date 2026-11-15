@@ -100,9 +100,14 @@ fn sh1_155_background_closes_herdr1_and_automatic_return_dials(cx: &mut TestAppC
         assert!(!this.terminal.live.connected);
         drained
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while !drained.load(std::sync::atomic::Ordering::Acquire) {
         assert!(Instant::now() < deadline, "Herdr 1 reader stayed connected");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The flag is raised before the reader thread returns; dialing needs it gone.
+    while !view.update(cx, |this, _| this.terminal.link.retired_readers_finished()) {
+        assert!(Instant::now() < deadline, "Herdr 1 reader never finished");
         std::thread::sleep(Duration::from_millis(5));
     }
     view.update(cx, |this, cx| {

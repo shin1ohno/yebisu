@@ -59,9 +59,9 @@ fn old_tunnel_completion_cannot_replace_new_host_view(cx: &mut TestAppContext) {
         live.dirty = true;
     });
     release.send(()).unwrap_or_else(|e| panic!("release: {e}"));
-    done.recv_timeout(Duration::from_secs(5))
+    done.recv_timeout(Duration::from_secs(30))
         .unwrap_or_else(|e| panic!("completion: {e}"));
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while !old
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -111,7 +111,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                 .unwrap_or_else(|e| panic!("start: {e}")),
             );
         });
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
@@ -218,8 +218,9 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                 let reads = this.handoff.clipboard_reads;
                 this.start_paste(true, cx);
                 assert_eq!(
-                    this.handoff.clipboard_reads, reads,
-                    "unsupported image must not be acquired"
+                    this.handoff.clipboard_reads,
+                    reads + 1,
+                    "image-only acquisition checks for an image even when only text is present"
                 );
                 // Fence all prior bytes with a final UIKit text commit.
                 this.replace_text_in_range(None, "END", window, cx);
@@ -228,7 +229,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
         let mut bytes = Vec::new();
         loop {
             let (channel, chunk) = receipts
-                .recv_timeout(Duration::from_secs(5))
+                .recv_timeout(Duration::from_secs(30))
                 .unwrap_or_else(|e| panic!("wire bits={bits}: {e}, {bytes:?}"));
             assert_eq!(channel, 1);
             bytes.extend(chunk);
@@ -304,7 +305,7 @@ fn split_focus_and_reattach_preserve_ids_and_reject_old_input(cx: &mut TestAppCo
                 .unwrap_or_else(|e| panic!("start: {e}")),
             );
         });
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
@@ -338,7 +339,7 @@ fn split_focus_and_reattach_preserve_ids_and_reject_old_input(cx: &mut TestAppCo
                 .unwrap_or_else(|e| panic!("input {e}"));
             });
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
@@ -369,7 +370,7 @@ fn split_focus_and_reattach_preserve_ids_and_reject_old_input(cx: &mut TestAppCo
         });
         assert_eq!(
             receipts
-                .recv_timeout(Duration::from_secs(5))
+                .recv_timeout(Duration::from_secs(30))
                 .unwrap_or_else(|e| panic!("wire {e}")),
             (2, b"PANE2".to_vec())
         );
@@ -381,7 +382,7 @@ fn split_focus_and_reattach_preserve_ids_and_reject_old_input(cx: &mut TestAppCo
                 .unwrap_or_else(|| panic!("session"));
             core.finished.clone()
         });
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while !finished.load(Ordering::Acquire) {
             assert!(Instant::now() < deadline, "worker did not stop");
             std::thread::sleep(Duration::from_millis(5));

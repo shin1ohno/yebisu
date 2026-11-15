@@ -71,9 +71,13 @@ mod mock_commands;
 mod review_r5_tests;
 
 #[cfg(any(target_os = "ios", test))]
+mod core_paste_view;
+#[cfg(any(target_os = "ios", test))]
 mod handoff;
 #[cfg(any(target_os = "ios", test))]
 mod handoff_clipboard;
+#[cfg(any(target_os = "ios", test))]
+mod handoff_ticket;
 #[cfg(any(target_os = "ios", test))]
 mod handoff_view;
 
@@ -89,6 +93,8 @@ mod handoff_review_tests;
 #[cfg(test)]
 mod handoff_resume_tests;
 
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod native_edit_qa;
 

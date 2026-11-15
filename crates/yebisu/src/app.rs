@@ -117,10 +117,13 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rendered = self.render_screen(window, cx);
+        #[cfg(target_os = "ios")]
+        self.publish_native_edits(window);
         let screen = div()
             .relative()
             .size_full()
-            .child(self.render_screen(window, cx))
+            .child(rendered)
             .child(self.render_notification(cx))
             .into_any_element();
         if self.settings_modal {
