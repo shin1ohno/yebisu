@@ -13,17 +13,29 @@ def run(*command, **kwargs):
     return subprocess.run(command, check=True, text=True, **kwargs)
 
 
+def validate_preflight(records):
+    if not any(r.get("kind")=="key-provider-preflight" and r.get("phase")=="startup" and r.get("injected") is True for r in records):
+        raise RuntimeError("runtime injected provider preflight missing before key operation")
+
 def validate_records(records):
     groups = []
     for record in records:
         if record["kind"] == "launch":
             groups.append([])
-        elif groups and record["kind"] == "setup":
+        elif groups:
             groups[-1].append(record)
     if len(groups) < 2:
         raise RuntimeError("missing independent process launch receipts")
     if any("key_line" in record for record in records):
         raise RuntimeError("public key leaked into observation")
+    for group in groups:
+        validate_preflight(group)
+        read_admitted=False
+        for record in group:
+            if record.get("kind")=="key-provider-preflight" and record.get("phase")=="read" and record.get("injected") is True:
+                read_admitted=True
+            if record.get("key_ready") is True and not read_admitted:
+                raise RuntimeError("key readiness preceded provider preflight")
     if not all(any(v.get("key_ready") is True for v in group) for group in groups):
         raise RuntimeError("injected key not ready in each independent launch")
     if not any(v.get("status") == "Copied restricted public key." for v in records):
@@ -42,6 +54,10 @@ def main():
     environment = dict(os.environ, SIMCTL_CHILD_YEBISU_P2_OBSERVE="1", SIMCTL_CHILD_YEBISU_P11_KEYS_QA="1")
     run("bash", "scripts/ios/sim.sh", "--wait", "3", "--out", str(destination / "launch"), app_path, env=environment)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
+    preflight_container=Path(subprocess.check_output(["xcrun","simctl","get_app_container",device,"com.shin1ohno.yebisu","data"],text=True).strip())
+    preflight=[r for line in (preflight_container/"Documents/p2-setup.jsonl").read_text().splitlines() if (r:=json.loads(line)).get("time",0)>=start]
+    validate_preflight(preflight)
+    (destination/"provider-preflight.json").write_text(json.dumps(preflight,indent=2))
     spec = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(spec / "project.yml"), "--project", str(spec))
     run("xcodebuild", "test", "-project", str(spec / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",

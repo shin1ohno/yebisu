@@ -27,8 +27,6 @@ pub(crate) struct TerminalView {
     pub show_options: bool,
     pub needs_focus: bool,
     pub reconnect_pending: bool,
-    #[cfg(all(target_os = "ios", target_abi = "sim"))]
-    pub late_reader_release: Option<std::sync::mpsc::Sender<()>>,
     pub navigating: Option<crate::board::Navigation>,
 }
 impl TerminalView {

@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+    pub(crate) observer: crate::p11_observer::Harness,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) settings_modal: bool,
     pub(crate) settings_focus: FocusHandle,
@@ -94,6 +96,8 @@ impl Smoke {
         })
         .detach();
         Self {
+            #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+            observer: Default::default(),
             settings: None,
             settings_modal: false,
             settings_focus: cx.focus_handle(),
@@ -147,15 +151,6 @@ impl Render for Smoke {
         }
         let screen = self.render_screen(window, cx);
         self.publish_native_edits(window);
-        if self.settings_modal {
-            let sheet = self.render_settings_sheet(window, cx);
-            return div()
-                .relative()
-                .size_full()
-                .child(screen)
-                .child(sheet)
-                .into_any_element();
-        }
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()
             .relative()
@@ -169,6 +164,15 @@ impl Render for Smoke {
             .on_action(cx.listener(Self::native_command_action))
             .child(screen)
             .into_any_element();
+        if self.settings_modal {
+            let sheet = self.render_settings_sheet(window, cx);
+            return div()
+                .relative()
+                .size_full()
+                .child(screen)
+                .child(sheet)
+                .into_any_element();
+        }
         let Some(error) = self.settings_error.as_ref() else {
             return screen;
         };
@@ -330,6 +334,10 @@ fn region(name: &'static str, content: AnyElement, view: Entity<Smoke>) -> impl 
 #[cfg(target_os = "ios")]
 pub(crate) fn run() {
     use gpui::{App, WindowOptions};
+    #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+    if crate::p11_observer::capture::start().is_err() {
+        return; // A requested capture that failed cannot run QA.
+    }
     if let Err(error) = crate::diagnostics::init() {
         eprintln!("yebisu diagnostics initialization failed: {error}");
     }
@@ -362,30 +370,6 @@ pub(crate) fn run() {
                                 this.terminal.link.install(generation, Ok(client));
                             }
                             Err(error) => this.terminal.link.install(generation, Err(error)),
-                        }
-                    } else if std::env::var_os("YEBISU_R5_QA").is_some() {
-                        let (release, wait) = std::sync::mpsc::channel();
-                        let old = this.terminal.link.inbox.clone();
-                        this.terminal.late_reader_release = Some(release);
-                        this.terminal.link.reader = Some(std::thread::spawn(move || {
-                            if wait.recv_timeout(Duration::from_secs(60)).is_ok()
-                                && let Ok(mut live) = old.lock()
-                            {
-                                live.apply(sheprd_client::ClientEvent::VersionMismatch(
-                                    sheprd_client::VersionMismatch::DaemonOutdated {
-                                        server_version: Some("R5-late-reader".into()),
-                                    },
-                                ));
-                            }
-                        }));
-                    } else if std::env::var_os("YEBISU_R3_QA").is_some() {
-                        // Inject only into the reader mailbox, before any UI poll.
-                        if let Ok(mut live) = this.terminal.link.inbox.try_lock() {
-                            live.apply(sheprd_client::ClientEvent::VersionMismatch(
-                                sheprd_client::VersionMismatch::DaemonOutdated {
-                                    server_version: Some("0.8".into()),
-                                },
-                            ));
                         }
                     } else {
                         this.terminal

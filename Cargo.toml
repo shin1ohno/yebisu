@@ -11,11 +11,12 @@ version = "0.1.0"
 [workspace.dependencies]
 base64 = "0.23.1"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
-herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "3ec67ca3850e38e369cb537255cd81145cef79e7" }
+herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "1e9f6094c394ec79fb88b966e7a02a9aa5bb753b" }
 "herdr-ssh" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
+"sheprd-credentials" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-commands" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-i18n" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }

@@ -6,6 +6,9 @@ use crate::{
 };
 use gpui::{prelude::*, *};
 
+/// Hidden by design until a supported installed-font picker is proven.
+const FAMILY_PICKER: bool = false;
+
 pub(crate) fn button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -37,6 +40,17 @@ impl Smoke {
         button("open-settings", "Settings", true)
             .on_click(cx.listener(|this, _, window, cx| this.begin_settings_modal(window, cx)))
             .into_any_element()
+    }
+    /// Escape cancels a pending key confirmation first, then closes the sheet.
+    pub(crate) fn settings_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.key_ticket.take().is_some() {
+            if let Some(h) = &mut self.settings {
+                h.keys.cancel();
+            }
+            cx.notify();
+        } else {
+            self.end_settings_modal(window, cx);
+        }
     }
     pub(crate) fn render_settings_sheet(
         &mut self,
@@ -146,21 +160,18 @@ impl Smoke {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+                crate::p11_observer::callback(&this.observation, "sheet-modal", "down");
                 this.actions.consumed.insert(event.keystroke.key.clone());
                 cx.stop_propagation();
                 window.prevent_default();
                 if event.keystroke.key == "escape" && !event.is_held {
-                    if this.key_ticket.take().is_some() {
-                        if let Some(h) = &mut this.settings {
-                            h.keys.cancel();
-                        }
-                        cx.notify();
-                    } else {
-                        this.end_settings_modal(window, cx);
-                    }
+                    this.settings_escape(window, cx);
                 }
             }))
             .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+                #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+                crate::p11_observer::callback(&this.observation, "sheet-modal", "up");
                 this.actions.consumed.remove(&event.keystroke.key);
                 cx.stop_propagation();
             }))
@@ -230,17 +241,19 @@ impl Smoke {
             values.font.family,
             crate::settings_pages::fonts::TERMINAL_FAMILY
         ));
-        for (index, family) in self.settings_fonts.iter().enumerate() {
-            let family = family.clone();
-            view = view.child(
-                button(format!("font-family-{index}"), family.clone(), enabled).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        let mut v = this.settings_values();
-                        v.font.family = family.clone();
-                        this.apply_settings(v, cx);
-                    }),
-                ),
-            );
+        // The design hides the family picker until a supported installed-font picker is
+        // proven: proportional faces break the cell grid. Size stays adjustable.
+        if FAMILY_PICKER {
+            for (index, family) in self.settings_fonts.iter().enumerate() {
+                let family = family.clone();
+                view = view.child(
+                    button(format!("font-family-{index}"), family.clone(), enabled).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.select_settings_font_family(family.clone(), cx);
+                        }),
+                    ),
+                );
+            }
         }
         view.into_any_element()
     }
@@ -301,6 +314,7 @@ impl Smoke {
         if let Some(line) = host.keys.line() {
             view = view.child(line.to_owned());
         }
+        view = view.children(self.key_qa_label());
         let idle = !host.keys.busy();
         view = view
             .child(
@@ -318,9 +332,7 @@ impl Smoke {
                     host.keys.line().is_some(),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(line) = this.settings.as_ref().and_then(|h| h.keys.line()) {
-                        cx.write_to_clipboard(ClipboardItem::new_string(line.to_owned()));
-                    }
+                    this.copy_device_key(cx);
                 })),
             )
             .child(
@@ -341,7 +353,7 @@ impl Smoke {
                 })))
                 .child(button("settings-key-confirm","Confirm replacement",idle).on_click(cx.listener(move|this,_,_,cx|{
                     let visible=this.settings_modal && this.settings_page==Page::DeviceKey && this.key_ticket==Some(ticket);
-                    if let Some(h)=&mut this.settings{h.keys.confirm(ticket,visible,false);}this.key_ticket=None;cx.notify();
+                    this.confirm_device_key(ticket,visible);this.key_ticket=None;cx.notify();
                 })));
         }
         view.into_any_element()

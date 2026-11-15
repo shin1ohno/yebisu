@@ -1,5 +1,7 @@
 # P11 production settings integration
 
+> Current status and known gaps: see `docs/p11-status.md` (supersedes UNRUN statements below).
+
 The running Settings route is available from Hosts and the terminal toolbar.
 SettingsHost owns persisted draft values and the device-key operation owner.
 The sheet consumes PR27's page models, whose original provenance remains in
@@ -31,11 +33,12 @@ The app's live provider is compiled out of every Rust test.
 
 Native runner sequence, only with its isolated checkout lease:
 `just check`, `just lint-ios`, `just test`, then one guarded
-`python3 scripts/ios/p11-check.py`. The latter mounts the production route,
+`python3 scripts/ios/p11-observer-check.py` (the isolated collector; `p11-check.py` is the
+legacy probe, see `docs/p11-status.md`). The probe mounts the production route,
 edits a real font, invokes actual native selectors while modal, and requires
 receiving peer FIFO markers with zero input between them, native callback
 receipts, matching resize/paint geometry and on-disk/relaunch font values.
-All Rust/native cases are unexecuted until exact-head Mac logs are attached.
+Mac mini results for head c8379979 are recorded in `docs/p11-status.md`.
 
 Remaining integration: PR22 changes composition-retirement semantics and PR25
 publishes native edit availability using its SDK update. Do not silently merge

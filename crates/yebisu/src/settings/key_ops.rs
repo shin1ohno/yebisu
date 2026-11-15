@@ -58,6 +58,15 @@ pub(crate) struct Owner {
     display: KeyView,
     worker: Option<Worker>,
     unresolved: bool,
+    #[cfg(test)]
+    refuse: Option<Refusal>,
+}
+/// Test-only refusal injected into the real `start()` entry.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    Spawn,
+    Queue,
 }
 impl Default for Owner {
     fn default() -> Self {
@@ -84,10 +93,15 @@ impl Owner {
             display: KeyView::failed(),
             worker: None,
             unresolved: false,
+            #[cfg(test)]
+            refuse: None,
         }
     }
     pub fn supported(&self) -> bool {
         self.provider.supported() && self.provider.identity() == provider::IDENTITY
+    }
+    pub fn injected(&self) -> bool {
+        self.provider.injected() && self.supported()
     }
     pub fn busy(&self) -> bool {
         self.worker.is_some()
@@ -142,26 +156,44 @@ impl Owner {
         let key = self.key.wrapping_add(1);
         let provider = self.provider.clone();
         // A failed spawn/send has not invoked the provider. Never retry implicitly.
-        let handle = match std::thread::Builder::new()
-            .name("device-key".into())
-            .spawn(move || {
-                if let Ok(request) = receive.recv() {
-                    let value = match request {
-                        Operation::Read => provider.read_or_initialize(),
-                        Operation::Replace => provider.replace(),
+        #[cfg(test)]
+        let refused = self.refuse == Some(Refusal::Spawn);
+        #[cfg(not(test))]
+        let refused = false;
+        let spawned = if refused {
+            Err(std::io::Error::other("injected spawn refusal"))
+        } else {
+            std::thread::Builder::new()
+                .name("device-key".into())
+                .spawn(move || {
+                    if let Ok(request) = receive.recv() {
+                        let value = match request {
+                            Operation::Read => provider.read_or_initialize(),
+                            Operation::Replace => provider.replace(),
+                        }
+                        .and_then(|raw| {
+                            crate::keys::authorized_line(&raw).map_err(|_| Failure::Format)
+                        });
+                        let _ = done.send(Reply { op, key, value });
                     }
-                    .and_then(|raw| {
-                        crate::keys::authorized_line(&raw).map_err(|_| Failure::Format)
-                    });
-                    let _ = done.send(Reply { op, key, value });
-                }
-            }) {
+                })
+        };
+        let handle = match spawned {
             Ok(handle) => handle,
             Err(_) => {
                 self.state = State::NotStarted;
                 self.failure = Some(Failure::Worker);
                 return false;
             }
+        };
+        #[cfg(test)]
+        let send = if self.refuse == Some(Refusal::Queue) {
+            // A channel whose receiver is gone refuses every submission.
+            let (closed, gone) = mpsc::sync_channel::<Operation>(1);
+            drop(gone);
+            closed
+        } else {
+            send
         };
         let submitted = self.enqueue(&send, kind, key);
         self.worker = Some(Worker {

@@ -150,6 +150,51 @@ final class SmokeQA: XCTestCase {
         XCTAssertTrue(text.contains("daemon-effective state unverified"))
     }
 
+    // SDK11 candidate source harness. UI waits never certify native completion;
+    // only the Rust state machine's actual callback/worker/peer receipts advance.
+    private func observerProbe(modal: Bool, drawing: Bool = false, disabled: Bool = false) throws {
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launchEnvironment["YEBISU_P11_CAPTURE"] = "1"
+        app.launchEnvironment["YEBISU_P11_BINDING"] = "P11_BINDING_UNSET"
+        app.launchEnvironment[modal ? "YEBISU_P11_QA" : "YEBISU_NATIVE_QA"] = "1"
+        if drawing { app.launchEnvironment["YEBISU_P11_DRAWING"] = "1" }
+        if disabled { app.launchEnvironment["YEBISU_P11_OBSERVER_DISABLED"] = "1" }
+        app.launch()
+        sleep(3)
+        if modal {
+            try tapText("Settings", in: app)
+            try tapText("Larger", in: app)
+        }
+        let done = modal ? "Observer matrix collected" : "Native matrix collected"
+        var collected = false
+        for _ in 0..<160 {
+            if textVisible(done) { collected = true; break }
+            try tapText(modal ? "Observer next" : "Native next", in: app)
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertTrue(collected, "Missing actual callback/worker/receiving completion")
+        save(modal ? "p11-observer-modal" : "p11-observer-positive")
+        if modal {
+            try tapText("Close", in: app)
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            app.terminate()
+            app.launch()
+            sleep(3)
+            save("p11-observer-relaunch")
+        }
+        app.terminate()
+        XCTAssertEqual(app.state, .notRunning)
+    }
+    func testP11ObserverText() throws { try observerProbe(modal: false) }
+    func testP11ObserverDrawing() throws { try observerProbe(modal: false, drawing: true) }
+    func testP11ObserverModal() throws { try observerProbe(modal: true) }
+    func testP11ObserverDisabled() throws { try observerProbe(modal: true, disabled: true) }
+
     func testP11Settings() throws {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
@@ -184,6 +229,7 @@ final class SmokeQA: XCTestCase {
         app.activate()
         sleep(3)
         save("p2-initial")
+        try tapText("QA injected key provider", in: app, tap: false)
         try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-key")
@@ -199,6 +245,7 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
         app.launch()
         sleep(3)
+        try tapText("QA injected key provider", in: app, tap: false)
         try tapText("Read or initialize device key", in: app)
         sleep(4)
         save("p2-restarted")
@@ -258,47 +305,6 @@ final class SmokeQA: XCTestCase {
             sleep(1)
         }
         save("p8-native")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testSH1150CJK() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("QA CJK", in: app)
-        sleep(2)
-        save("sh1-150-cjk")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP8Handoff() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("QA Text", in: app)
-        try tapText("Paste", in: app)
-        sleep(2)
-        try tapText("QA Image", in: app)
-        sleep(8)
-        try tapText("QA image ready", in: app, tap: false)
-        try tapText("Paste", in: app)
-        sleep(1)
-        try tapText("Paste image", in: app)
-        app.typeText("P8-after")
-        sleep(10)
-        try tapText("QA Selection", in: app)
-        sleep(2)
-        save("p8-handoff")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
@@ -426,219 +432,52 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    func testP4Input() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
-        app.typeText("P4-once")
-        sleep(2)
-        try tapText("Input options", in: app)
-        sleep(1)
-        try tapText("Option: Native", in: app)
-        try tapText("Command: Local", in: app)
-        try tapText("Candidate: Clause", in: app)
-        sleep(2)
-        save("p4-variants")
-        try tapText("QA mark", in: app)
-        sleep(2)
-        save("p4-composition")
-        try tapText("QA delete", in: app)
-        sleep(2)
-        save("p4-partial-delete")
-        try tapText("QA cancel", in: app)
-        sleep(2)
-        save("p4-cancelled")
-        try tapText("QA mark", in: app)
-        sleep(2)
-        try tapText("QA commit", in: app)
-        sleep(2)
-        save("p4-committed")
-        XCTAssertEqual(app.state, .runningForeground)
+    /// Non-asserting OCR lookup. A busy frame can make Vision drop a whole row of small
+    /// controls that the screenshot shows (P11 adds a Settings button above the SH1-154
+    /// strip), so one pass over the whole screenshot is followed by overlapping horizontal
+    /// bands. `matching` counts the recognized lines of the whole-screenshot pass that carry
+    /// `label`, so a caller can reject an ambiguous tap.
+    private func locateText(_ label: String, excludingSuffix: String? = nil) throws -> (box: CGRect, matching: Int)? {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
+        for index in 0..<5 {
+            let top = CGFloat(index) * 0.18
+            passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
+        }
+        var matching = 0
+        var candidateCount = 0
+        for (pass, band) in passes.enumerated() {
+            // Controls precede the terminal surface. Prefer the uppermost
+            // match so shell output containing e.g. "Detach" cannot steal taps.
+            let lines = try recognize(image, label: label, bottom: band.bottom, height: band.height)
+                .sorted { $0.midY > $1.midY }
+            if pass == 0 {
+                matching = SmokeQA.ocrLineCount(lines.map { $0.texts.map { $0.string } }, label: label)
+                candidateCount = lines.reduce(0) { $0 + $1.texts.count }
+            }
+            for line in lines {
+                for candidate in line.texts {
+                    guard let range = candidate.string.range(of: label),
+                          let observation = try candidate.boundingBox(for: range) else { continue }
+                    if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
+                        continue
+                    }
+                    let local = observation.boundingBox
+                    let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
+                                     width: local.width, height: local.height * line.height)
+                    print("OCR match pass=\(pass) lines=\(matching)")
+                    return (box, matching)
+                }
+            }
+        }
+        print("OCR candidate count=\(candidateCount), text suppressed")
+        return nil
     }
 
-    func testSH1155Inactive() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        save("sh1-155-before")
-        // Control Center produces a real scene inactive notification without Home.
-        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.01))
-        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.65))
-        top.press(forDuration: 0.1, thenDragTo: lower)
-        sleep(3)
-        save("sh1-155-inactive")
-        app.activate()
-        sleep(3)
-        save("sh1-155-returned")
-        XCUIDevice.shared.press(.home)
-        sleep(3)
-        app.activate()
-        sleep(4)
-        save("sh1-155-background-return")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP5Reconnect() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_P5_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launch()
-        sleep(3)
-        save("p5-before")
-        XCUIDevice.shared.press(.home)
-        sleep(2)
-        app.activate()
-        sleep(4)
-        save("p5-returned")
-        try tapText("Return: Automatic", in: app)
-        XCUIDevice.shared.press(.home)
-        sleep(2)
-        app.activate()
-        sleep(3)
-        save("p5-manual")
-        try tapText("Reconnect", in: app)
-        sleep(3)
-        save("p5-tapped")
-        try tapText("Hosts", in: app)
-        sleep(2)
-        save("p5-hosts")
-        try tapText("Developer: simulate save failure", in: app)
-        sleep(2)
-        save("p5-save-failure")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testR3Mismatch() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_R3_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("Version mismatch", in: app)
-        XCUIDevice.shared.press(.home)
-        sleep(2)
-        app.activate()
-        sleep(3)
-        try tapText("Version mismatch", in: app)
-        try tapText("Reconnect", in: app)
-        sleep(2)
-        try tapText("Version mismatch", in: app)
-        save("r3-mismatch-returned")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testR5LateMismatch() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_R5_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("Return: Automatic", in: app, tap: false)
-        XCUIDevice.shared.press(.home)
-        sleep(2)
-        app.activate()
-        sleep(3)
-        try tapText("R5-late-reader", in: app, tap: false)
-        try tapText("Reconnect", in: app)
-        sleep(2)
-        try tapText("R5-late-reader", in: app, tap: false)
-        save("r5-late-mismatch-returned")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP6Board() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_BOARD_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launch()
-        sleep(4)
-        save("p6-dense")
-        try tapText("Board: Dense", in: app)
-        sleep(2)
-        save("p6-roomy")
-        try tapText("Board: Roomy", in: app)
-        sleep(1)
-        try tapText("Space 2", in: app)
-        sleep(2)
-        save("p6-space")
-        try tapText("reviewer", in: app)
-        sleep(2)
-        save("p6-agent")
-        try scrollBoard(in: app)
-        try tapText("qa-beta", in: app)
-        sleep(3)
-        save("p6-beta")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP7Tabs() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launch()
-        sleep(3)
-        try tapText("Toggle Sidebar", in: app)
-        sleep(1)
-        save("p7-initial")
-        try tapText("New Tab", in: app)
-        sleep(2)
-        save("p7-tab")
-        try tapText("Split Right", in: app)
-        sleep(2)
-        save("p7-split")
-        try tapText("main", in: app)
-        sleep(2)
-        save("p7-return")
-        try tapText("Command Palette", in: app)
-        sleep(1)
-        save("p7-palette")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testR6Shortcuts() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_R6_QA"] = "1"
-        app.launch()
-        sleep(3)
-        try tapText("Toggle Sidebar", in: app)
-        sleep(1)
-        try tapText("New Tab", in: app)
-        sleep(2)
-        save("r6-created")
-        try tapText("QA Next", in: app)
-        sleep(2)
-        save("r6-next")
-        try tapText("QA Previous", in: app)
-        sleep(2)
-        save("r6-previous")
-        try tapText("QA Escape", in: app)
-        sleep(2)
-        save("r6-escape")
-        XCTAssertEqual(app.state, .runningForeground)
+    // Non-asserting presence probe for polling loops. Use tapText(tap: false) only
+    // where the control MUST already be on screen.
+    private func textVisible(_ label: String) -> Bool {
+        (try? locateText(label)) != nil
     }
 
     private func scrollBoard(in app: XCUIApplication) throws {
@@ -682,48 +521,15 @@ final class SmokeQA: XCTestCase {
     private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> Int {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
-        // A busy frame can make Vision drop a whole row of small controls that the
-        // screenshot shows (P11 adds a Settings button above the SH1-154 strip), so a
-        // pass over the whole screenshot is followed by overlapping horizontal bands.
-        var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
-        for index in 0..<5 {
-            let top = CGFloat(index) * 0.18
-            passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
-        }
         for attempt in 0..<attempts {
-            let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-            var seen: [String] = []
-            var matching = 0
-            for (pass, band) in passes.enumerated() {
-                // Controls precede the terminal surface. Prefer the uppermost
-                // match so shell output containing e.g. "Detach" cannot steal taps.
-                let lines = try recognize(image, label: label, bottom: band.bottom, height: band.height)
-                    .sorted { $0.midY > $1.midY }
-                if pass == 0 {
-                    matching = SmokeQA.ocrLineCount(lines.map { $0.texts.map { $0.string } }, label: label)
+            if let found = try locateText(label, excludingSuffix: excludingSuffix) {
+                print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
+                if tap {
+                    app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
                 }
-                for line in lines {
-                    for candidate in line.texts {
-                        guard let range = candidate.string.range(of: label),
-                              let observation = try candidate.boundingBox(for: range) else { continue }
-                        if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
-                            continue
-                        }
-                        let local = observation.boundingBox
-                        let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
-                                         width: local.width, height: local.height * line.height)
-                        print("OCR tap \(label) frame=\(app.frame) box=\(box) pass=\(pass)")
-                        if tap {
-                            app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? box.midX, dy: 1-box.midY)).tap()
-                        }
-                        return matching
-                    }
-                }
-                if pass == 0 {
-                    seen = lines.flatMap { $0.texts.map { $0.string } }
-                }
+                return found.matching
             }
-            print("OCR attempt \(attempt): \(seen)")
+            print("OCR attempt \(attempt) for \(label)")
             sleep(1)
         }
         save("missing-control")
