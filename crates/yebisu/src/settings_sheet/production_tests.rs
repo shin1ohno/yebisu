@@ -360,10 +360,13 @@ fn p11_escape_cancels_a_pending_key_ticket_then_closes_the_sheet(cx: &mut TestAp
     });
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1100.), px(900.)));
+    // The key preflight must be admitted by a live observation sink, as in production QA.
+    let (logs, _records) = std::sync::mpsc::sync_channel(256);
     view.update(cx, |this, _| {
         let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
         host.keys = Owner::new(fake.clone());
         this.settings = Some(host);
+        this.observation = crate::observation::Observation::injected(logs);
     });
     until_ready(&view, cx);
     cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
@@ -393,5 +396,6 @@ fn p11_escape_cancels_a_pending_key_ticket_then_closes_the_sheet(cx: &mut TestAp
     cx.update(|window, cx| view.update(cx, |this, cx| this.settings_escape(window, cx)));
     assert!(!view.read_with(cx, |this, _| this.settings_modal));
     assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
-    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+    // No edit was made, so the settings directory may never have been created.
+    let _ = std::fs::remove_dir_all(root);
 }
