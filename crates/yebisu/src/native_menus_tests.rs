@@ -486,11 +486,11 @@ fn two_native_local_selections_each_execute_once_and_unknown_ids_refuse(cx: &mut
                 .to_owned();
             let command = NativeCommand { name };
             let before = this.actions.board_hidden;
-            this.native_menu_action(&command, window, cx);
+            this.native_command_action(&command, window, cx);
             assert_ne!(this.actions.board_hidden, before, "first native selection");
-            this.native_menu_action(&command, window, cx);
+            this.native_command_action(&command, window, cx);
             assert_eq!(this.actions.board_hidden, before, "second native selection");
-            this.native_menu_action(
+            this.native_command_action(
                 &NativeCommand {
                     name: "new_window".into(),
                 },
@@ -499,7 +499,7 @@ fn two_native_local_selections_each_execute_once_and_unknown_ids_refuse(cx: &mut
             );
             assert!(this.terminal.live.status.contains("unsupported command"));
             this.focus.focus(window, cx);
-            this.native_menu_action(&command, window, cx);
+            this.native_command_action(&command, window, cx);
             assert_eq!(this.actions.board_hidden, before, "wrong focus must refuse");
         })
     });

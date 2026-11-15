@@ -170,7 +170,7 @@ impl Smoke {
         cx.set_menus(vec![Menu::new("Terminal").items(items)]);
     }
 
-    pub(crate) fn native_menu_action(
+    pub(crate) fn native_command_action(
         &mut self,
         action: &NativeCommand,
         window: &mut Window,

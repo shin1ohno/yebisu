@@ -756,3 +756,25 @@ trackpad, hardware keyboard, native-menu, suspension, or network behavior.
 
 The app does not chmod or delete uploads. It uses the existing core connection,
 keeps text priority, and preserves Herdr 1's 16 MiB image limit.
+
+## SH1-152
+
+以下は owner が実機 iPad（M5）で行う14項目です。Simulator の成功では完了にしません。
+実施日、iPadOS、入力機器、Herdr 1/2、送信先と受信結果を PR に記録します。
+
+- [ ] 1. 指で500 ms長押ししたときの感触、メニュー位置、指による隠れ方、Pencil の挙動を確認します。
+- [ ] 2. トラックパッドの副ボタンでメニューが開き、主ボタンの長押し・ドラッグは従来の選択になることを確認します。
+- [ ] 3. Start: Drag と Start: Select / double tap の両方で、指の長押しが選択を作らず、1セルの選択が残らず、直後の入力が届くことを確認します。
+- [ ] 4. software / hardware keyboard の両方で、メニューの Paste は1回、キー入力は0件になることを確認します。Command→Control と terminal priority を両方有効にしても同じ結果を確認します。
+- [ ] 5. text clipboard の物理 Command-V は既定設定で Paste が1回、Command→Control と terminal priority を両方有効にすると Ctrl-V が届くことを確認します。image-only の仕様は SH1-154 の対象です。
+- [ ] 6. メニューを開いたまま選択解除、送信先変更、切断、background 遷移を行い、古い Copy/Paste が実行されないことを確認します。
+- [ ] 7. Stage Manager の2ウィンドウで、メニュー位置、Copy の選択、Paste の送信先が各ウィンドウに属することを確認します。
+- [ ] 8. 指ドラッグで選択が始まるかを記録します。始まらない場合は別 issue を起票します。確認と必要な issue 起票でこの項目は完了です。
+- [ ] 9. メニューバー Edit の Copy/Paste が従来どおり各1回動くことを確認します。Simulator E7 で UI に到達できなかった場合も、この項目で確認します。
+- [ ] 10. メニューを出したまま Control Center / Notification Center を開いて戻し、古い操作は0回、新しい長押しの操作は1回になることを確認します。inactive-only と Background を区別します。
+- [ ] 11. 設定シートなど端末に重なる UI の上では長押しが端末メニューを開かず、その UI の操作が残ることを確認します。
+- [ ] 12. software keyboard の隠すキーで最小化し、端末をタップして開き直します。restart 到達、acquire の実戻り値、guard 終了時の両 responder の所有状態を記録します。失敗入力が成立したときは古い Paste 0回・clipboard 不変、新しい長押しは1回です。入力を作れなかった場合は未検証とします。hardware keyboard の抜き差しで内部切り替えが成功する場合は、保持メニューが1回動くことも確認します。
+- [ ] 13. 選択なしの長押しでは Paste だけ、選択ありの長押しでは Copy と Paste だけが出ることを確認します。Copy が灰色で残る場合も規則違反として記録します（Simulator は無効な項目を隠すため、この表示は実機でしか確かめられません）。
+- [ ] 14. 項目 6 の送信先変更と項目 7 の2ウィンドウの切り替えそれぞれの直後に、新しい送信先で長押ししてメニューが出ること、Paste がその送信先に1回届くことを確認します。メニューが出ない場合は、Herdr 1/2 の別と pane の大きさを記録します。
+
+14項目が完了するまでは SH1-152 の実機受け入れを未完了とします。
