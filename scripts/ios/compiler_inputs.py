@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import subprocess
@@ -19,6 +20,11 @@ from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True
 MAX_DEPFILE = 16 * 1024 * 1024
+REGULAR_MODES = ('100644', '100755')
+SYMLINK_MODE = '120000'
+MAX_LINK_HOPS = 8
+# Cargo itself writes this marker into every git checkout it creates.
+CARGO_MARKER = '.cargo-ok'
 
 
 def sha(path):
@@ -37,6 +43,111 @@ def sibling(name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def tree_entries(top, revision):
+    """{path: (mode, oid)} of the frozen revision, from `git ls-tree`."""
+    entries = {}
+    for item in filter(None, git(top, 'ls-tree', '-r', '-z', '--full-tree', revision).decode().split('\0')):
+        meta, _, name = item.partition('\t')
+        mode, kind, oid = meta.split(' ')
+        entries[name] = (mode, oid)
+    return entries
+
+
+def index_entries(top):
+    """{path: (mode, oid)} of the index, from `git ls-files -s` (stage 0 only)."""
+    entries = {}
+    for item in filter(None, git(top, 'ls-files', '-s', '-z').decode().split('\0')):
+        meta, _, name = item.partition('\t')
+        mode, oid, stage = meta.split(' ')
+        if stage != '0' or name in entries:
+            raise ValueError('SDK checkout has an unmerged entry: ' + name)
+        entries[name] = (mode, oid)
+    return entries
+
+
+def checkout_parents(top, name):
+    """Every directory above a tracked path must be a real directory."""
+    current = top
+    for part in name.split('/')[:-1]:
+        current = current / part
+        if current.is_symlink() or not current.is_dir():
+            raise ValueError('SDK checkout path crosses a symlink or non-directory: ' + name)
+
+
+def link_destination(tree, name, text, hops=0):
+    """Resolve a tracked symlink inside the revision, never on disk.
+
+    The destination must be a tracked regular file of the same revision. Absolute
+    targets, targets that leave the checkout, `..` after a normal component, links
+    through another symlink directory and chains over MAX_LINK_HOPS are refused.
+    """
+    if hops >= MAX_LINK_HOPS:
+        raise ValueError('SDK symlink chain too long or cyclic: ' + name)
+    target = text.decode()
+    parts = target.split('/')
+    if not target or target.startswith('/') or '\0' in target or '' in parts or '.' in parts:
+        raise ValueError('SDK symlink target unsupported: ' + name)
+    normal = [i for i, part in enumerate(parts) if part != '..']
+    if normal and any(part == '..' for part in parts[normal[0]:]):
+        raise ValueError('SDK symlink target unsupported: ' + name)
+    joined = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+    if joined == '..' or joined.startswith('../') or joined == '.':
+        raise ValueError('SDK symlink leaves the checkout: ' + name)
+    segments = joined.split('/')
+    for end in range(1, len(segments)):
+        if tree.get('/'.join(segments[:end]), ('',))[0] == SYMLINK_MODE:
+            raise ValueError('SDK symlink goes through another symlink: ' + name)
+    destination = tree.get(joined)
+    if destination is None:
+        raise ValueError('SDK symlink target is not tracked: ' + name)
+    if destination[0] in REGULAR_MODES:
+        return joined
+    if destination[0] == SYMLINK_MODE:
+        return link_destination(tree, joined, tree[joined][2], hops + 1)
+    raise ValueError('SDK symlink target is not a regular file: ' + name)
+
+
+def checkout_inputs(top, revision):
+    """Verify every tracked entry of an SDK git checkout against the frozen revision.
+
+    The mode comes from `git ls-tree` of the revision and must equal the index.
+    Regular files must be regular files with the blob bytes. A tracked symlink must
+    still be that symlink with the blob's link text and must resolve to a tracked
+    regular file inside the checkout. Nothing untracked is allowed except Cargo's
+    own marker.
+    """
+    top = Path(top)
+    tree, index = tree_entries(top, revision), index_entries(top)
+    for name in sorted(set(tree) | set(index)):
+        if tree.get(name) != index.get(name):
+            raise ValueError('SDK checkout index differs from revision: ' + name)
+    for name in sorted(tree):
+        checkout_parents(top, name)
+    for name in filter(None, git(top, 'ls-files', '-z', '--others').decode().split('\0')):
+        if name != CARGO_MARKER:
+            raise ValueError('SDK checkout has an untracked file: ' + name)
+    contents, blobs, links = {}, {}, {}
+    for name in sorted(tree):
+        mode = tree[name][0]
+        if mode not in REGULAR_MODES and mode != SYMLINK_MODE:
+            raise ValueError('SDK checkout entry mode unsupported: ' + name)
+        original = git(top, 'show', revision + ':' + name)
+        file = top / name
+        if mode in REGULAR_MODES:
+            if file.is_symlink() or not file.is_file() or file.read_bytes() != original:
+                raise ValueError('SDK checkout blob mismatch: ' + name)
+            blobs[str(file)] = hashlib.sha256(original).hexdigest()
+        elif mode == SYMLINK_MODE:
+            if not file.is_symlink() or os.readlink(os.fsencode(file)) != original:
+                raise ValueError('SDK checkout symlink mismatch: ' + name)
+            contents[name] = original
+            links[str(file)] = hashlib.sha256(original).hexdigest()
+    tree = {name: (*value, contents.get(name)) for name, value in tree.items()}
+    for name in contents:
+        link_destination(tree, name, contents[name])
+    return blobs, links
 
 
 def make_words(line):
@@ -156,15 +267,8 @@ def metadata_snapshot(metadata, source, expected):
                 raise ValueError('SDK checkout revision mismatch')
             key = (str(top), revision)
             if key not in checkouts:
-                blobs = {}
-                for name in filter(None, git(top, 'ls-files', '-z').decode().split('\0')):
-                    file = top / name
-                    original = git(top, 'show', revision + ':' + name)
-                    if file.is_symlink() or not file.is_file() or file.read_bytes() != original:
-                        raise ValueError('SDK checkout blob mismatch: ' + name)
-                    blobs[str(file)] = hashlib.sha256(original).hexdigest()
-                checkouts[key] = blobs
-            entry.update(git_root=str(top), revision=revision, blobs=checkouts[key])
+                checkouts[key] = checkout_inputs(top, revision)
+            entry.update(git_root=str(top), revision=revision, blobs=checkouts[key][0], links=checkouts[key][1])
         elif not origin and not manifest.is_relative_to(source):
             raise ValueError('external path dependency unsupported')
         elif origin and not origin.startswith('registry+'):
@@ -472,6 +576,9 @@ def unchanged(packages, records):
         for path, digest in p.get('blobs', {}).items():
             if sha(path) != digest:
                 raise ValueError('SDK source changed during build/install')
+        for path, digest in p.get('links', {}).items():
+            if not Path(path).is_symlink() or hashlib.sha256(os.readlink(os.fsencode(path))).hexdigest() != digest:
+                raise ValueError('SDK symlink changed during build/install')
     for r in records:
         for kind in ('inputs', 'outputs', 'generated'):
             for path, digest in r.get(kind, {}).items():
