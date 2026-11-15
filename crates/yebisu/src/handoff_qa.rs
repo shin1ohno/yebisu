@@ -1,59 +1,32 @@
 //! Simulator-only adapters exercise production handoff against the private peer.
 use crate::app::Smoke;
-use gpui::{AnyElement, ClipboardItem, Context, div, prelude::*, rgb};
+use gpui::{AnyElement, Context, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_HANDOFF_QA")?;
-        Some(div().flex().gap_2().px_4().children([("qa-cjk","QA CJK"),("qa-text","QA Text"),("qa-image","QA Image"),("qa-image-only","QA Image only"),("qa-select","QA Selection")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,window,cx| {
-            match id {
-                "qa-text"=>cx.write_to_clipboard(ClipboardItem::new_string("P8-text-かな".into())),
-                "qa-image" | "qa-image-only"=> {
-                    this.handoff.qa_image_ready=false;
-                    let work=cx.background_executor().spawn(async move {
-                        let mut state=1u32;
-                        let image=image::RgbaImage::from_fn(2200,2200,|_,_| {
-                            let mut c=[0;4];
-                            for b in &mut c {state^=state<<13;state^=state>>17;state^=state<<5;*b=state as u8;}
-                            image::Rgba(c)
-                        });
-                        let mut bytes=std::io::Cursor::new(Vec::new());
-                        image::DynamicImage::ImageRgba8(image).write_to(&mut bytes,image::ImageFormat::Png).map(|()|bytes.into_inner())
-                    });
-                    cx.spawn(async move |weak,cx| {
-                        let result=work.await;
-                        let _=weak.update(cx,|this,cx| {
-                            if let Ok(bytes)=result {
-                                this.observation.record(serde_json::json!({"kind":"p8-image-source","bytes":bytes.len(),"width":2200,"height":2200}));
-                                seed_representation(&bytes, id == "qa-image-only");
-                                this.handoff.qa_image_ready=true;
-                                this.terminal.live.status="QA image ready".into(); cx.notify();
-                            }
-                        });
-                    }).detach();
-                },
-                "qa-cjk"=> {
-                    let g=this.terminal.geometry;
-                    let at=|x:f32|g.grid.origin+gpui::point(gpui::px((x+0.5)*g.cell_width),gpui::px(2.5*g.cell_height));
-                    this.handoff.select_mode=true;
-                    this.selection_down(&gpui::MouseDownEvent {position:at(2.),button:gpui::MouseButton::Left,click_count:1,modifiers:Default::default(),first_mouse:false},window,cx);
-                    this.selection_move(&gpui::MouseMoveEvent {position:at(10.),pressed_button:Some(gpui::MouseButton::Left),modifiers:Default::default()},cx);
-                    this.selection_up(cx); this.copy_selection(cx);
-                    let text=cx.read_from_clipboard().and_then(|item|item.text());
-                    let spans=this.handoff.selection.as_ref().map(|s|s.spans());
-                    this.observation.record(serde_json::json!({"kind":"sh1-150-copy","text":text,"spans":spans}));
-                    this.terminal.live.status=format!("CJK copied: {}",text.unwrap_or_default());
-                },
-                "qa-select"=> {
-                    let g=this.terminal.geometry;
-                    let at=|x:f32|g.grid.origin+gpui::point(gpui::px((x+0.5)*g.cell_width),gpui::px(2.5*g.cell_height));
-                    this.handoff.select_mode=true;
-                    this.selection_down(&gpui::MouseDownEvent {position:at(1.),button:gpui::MouseButton::Left,click_count:1,modifiers:Default::default(),first_mouse:false},window,cx);
-                    this.selection_move(&gpui::MouseMoveEvent {position:at(6.),pressed_button:Some(gpui::MouseButton::Left),modifiers:Default::default()},cx);
-                    this.selection_up(cx); this.copy_selection(cx);
-                    let text=cx.read_from_clipboard().and_then(|item|item.text());
-                    this.observation.record(serde_json::json!({"kind":"p8-selection-copy","text":text}));
-                }, _=>{}
-            }
+        Some(div().flex().gap_2().px_4().children([("qa-image","QA Image"),("qa-image-only","QA Image only")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,_,cx| {
+            this.handoff.qa_image_ready=false;
+            let work=cx.background_executor().spawn(async move {
+                let mut state=1u32;
+                let image=image::RgbaImage::from_fn(2200,2200,|_,_| {
+                    let mut c=[0;4];
+                    for b in &mut c {state^=state<<13;state^=state>>17;state^=state<<5;*b=state as u8;}
+                    image::Rgba(c)
+                });
+                let mut bytes=std::io::Cursor::new(Vec::new());
+                image::DynamicImage::ImageRgba8(image).write_to(&mut bytes,image::ImageFormat::Png).map(|()|bytes.into_inner())
+            });
+            cx.spawn(async move |weak,cx| {
+                let result=work.await;
+                let _=weak.update(cx,|this,cx| {
+                    if let Ok(bytes)=result {
+                        this.observation.record(serde_json::json!({"kind":"p8-image-source","bytes":bytes.len(),"width":2200,"height":2200}));
+                        seed_representation(&bytes, id == "qa-image-only");
+                        this.handoff.qa_image_ready=true;
+                        this.terminal.live.status="QA image ready".into(); cx.notify();
+                    }
+                });
+            }).detach();
             cx.notify();
         })))).child(if self.handoff.qa_image_ready { "QA image ready" } else { "" }).into_any_element())
     }
