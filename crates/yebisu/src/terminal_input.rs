@@ -60,6 +60,7 @@ pub(crate) struct TerminalInput {
     pub options: InputOptions,
     pending: Option<HeldInput>,
     cancelled: bool,
+    retirement_revision: u64,
     pub ready: bool,
     pub report_all: bool,
 }
@@ -87,14 +88,31 @@ impl TerminalInput {
     }
     /// Fence selection/API changes, including queued keys and late IME callbacks.
     pub fn detach(&mut self) {
+        let revision = self.retirement_revision.saturating_add(1);
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
         self.cancelled = true;
+        self.retirement_revision = revision;
     }
     pub fn discard(&mut self) {
+        if !self.composition.text.is_empty() {
+            self.retirement_revision = self.retirement_revision.saturating_add(1);
+        }
         self.cancelled |= !self.composition.text.is_empty();
         self.composition = Input::default();
+    }
+    pub fn retirement_revision(&self) -> u64 {
+        self.retirement_revision
+    }
+    /// Only a correlated native-client retirement may release this revision.
+    pub fn acknowledge_retirement(&mut self, revision: u64) -> bool {
+        if !self.cancelled || revision != self.retirement_revision || revision == u64::MAX {
+            return false;
+        }
+        self.composition = Input::default();
+        self.cancelled = false;
+        true
     }
     pub fn requires_gesture(&self) -> bool {
         self.cancelled

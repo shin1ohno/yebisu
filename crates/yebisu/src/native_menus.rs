@@ -55,6 +55,9 @@ pub(crate) fn catalog_rows(
 ) -> Vec<actions::Action> {
     actions::catalog(terminal)
         .into_iter()
+        // Search opens from its shortcut and the palette; the keyless OS menu
+        // keeps its pre-search command set.
+        .filter(|row| row.info.command != Command::Find)
         .map(|mut row| {
             row.available &=
                 focused && !(actions.terminal_priority && terminal.input.options.command_control);
