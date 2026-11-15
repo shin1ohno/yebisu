@@ -75,3 +75,40 @@ class P14Oracle(unittest.TestCase):
         data[0][5]["generation"] = 99
         with self.assertRaisesRegex(ValueError, "coherent actual toast"):
             p14.validate(*data)
+
+    def test_backlog_replay_or_extra_input_is_rejected(self):
+        data = fixture()
+        data[1].insert(0, {"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"Paste": "p14-live"}]}})
+        with self.assertRaisesRegex(ValueError, "backlog"):
+            p14.validate(*data)
+
+    def test_focus_must_carry_the_current_boot(self):
+        data = fixture()
+        for message in data[1]:
+            if "ClientShellEndpointRequest" in message:
+                message["ClientShellEndpointRequest"]["boot_id"] = "boot-old"
+        with self.assertRaisesRegex(ValueError, "focus boot"):
+            p14.validate(*data)
+
+    def test_each_negative_reason_must_be_observed_separately(self):
+        for step, reason in [(2, "QuietHours"), (3, "InvalidTarget"), (5, "Stale")]:
+            data = fixture()
+            for record in data[0]:
+                if record.get("step") == step and reason in record.get("status", ""):
+                    record["status"] = "Busy"
+            with self.assertRaisesRegex(ValueError, "specific negative rejection: " + reason):
+                p14.validate(*data)
+
+    def test_disconnect_must_reach_the_consumer(self):
+        data = fixture()
+        for record in data[0]:
+            if record.get("step") == 4:
+                record["connected"] = True
+        with self.assertRaisesRegex(ValueError, "disconnect did not reach consumer"):
+            p14.validate(*data)
+
+    def test_late_tap_must_not_send_to_the_peer(self):
+        data = fixture()
+        data[0][4]["sent"] = True
+        with self.assertRaisesRegex(ValueError, "reconnected/replayed"):
+            p14.validate(*data)

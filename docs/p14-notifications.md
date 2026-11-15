@@ -1,9 +1,10 @@
 # P14 connected notifications — frozen P11 contract integration
 
-Base: dc2511fe695935cdce60ba6bb3cfb4288a425778. SDK draft PR:
-https://github.com/shin1ohno/herdr-uikit/pull/10 at
-the exact revision in Cargo.toml/Cargo.lock. No SDK8/9 integration.
-Do not merge this consumer before separate SDK review and approval.
+The SDK side (herdr-uikit PR #10, P14 response lifetimes) is merged. This
+consumer pins herdr-uikit `7f70d2d6f03cddf0cd72a1c2a56bca000da86b1c`, the first SDK
+main commit that contains both PR #10 and the SH1-152 native edit work, in
+Cargo.toml and Cargo.lock. No SDK8/9 integration. The consumer is merged only
+after independent review and owner approval.
 
 The source integrates the controller-frozen P11 contract at
 f54b1ecc02abd458b428bb2366fe004b5917d2a1 into this owned branch, preserving both
@@ -56,12 +57,24 @@ the sheet is open are consumed with Busy status in its header and no focus
 command. The overlay remains below the modal. Combined native/modal/narrow-layout
 behavior still requires receiving-system verification.
 
-## Verification remaining
+## Verification status
 
-Source static batch passed formatting, provenance (105 rows), sorted regions,
-file limits and diff checks before final integration edits. Native build/test
-results are NOT available. Both lockfiles are resolved and the exact SDK pin is
-verified by locked offline metadata; no Linux Rust product build was run.
+Native results exist for PR #45 head 03391ad17715fb7c4c3f66fa87ebe9133a2b8fe5
+(SDK 7f70d2d), run on the Mac mini under the exclusive lease (task 8910aef8de114bc9
+attempt 4): `check`, `lint-ios` (both device and Simulator targets) and
+`cargo test --workspace` (284 tests) passed; the SDK Simulator notification tests
+passed 13 with 1 ignored; the D4 display-fence and D5 six-second-response mutants
+failed at the intended assertions and were restored byte for byte; the six consumer
+response tests passed. Python `scripts/ios` tests that import `tomllib` could not run
+on the mini (Python 3.9); hosted CI runs them. Hosted CI jobs are the other
+evidence. None of this is OS banner, sound, tap, suspension or physical proof, and
+the real-app gate `scripts/ios/p14-check.py` (XCTest `testP14ConnectedNotifications`)
+has not been run. Results for later heads must be re-measured.
+
+The consumer response tests in `notification_view/response_tests.rs` are compiled
+only for `target_os = "ios"` (they call the SDK's iOS response dispatch), so the
+hosted macOS host `check` job does not run them; the Simulator run above is their
+evidence.
 
 Under explicit controller lease: run exact-head guarded check/lint-ios/test,
 then run private-peer SemanticNotification
@@ -79,12 +92,15 @@ this proof, event age and the coherent inbox after authorization and after OS
 completion (`post_notification_when`). Sound checks that same generation in its
 worker, independently of the UI poll cadence.
 
-Lock resolution completed without compilation: SDK adds UserNotifications 0.3.2;
-consumer adds its exact SDK pin and Rodio 0.22.2 / CPAL 0.17.3 / Symphonia 0.5.5
-closure. Existing package versions are retained. Unrelated resolver rebinding of
-iana-time-zone and winapi-util Windows edges was restored to the prior lock.
-Both owned manifests pass `cargo metadata --locked --offline --no-deps` resolution.
-
+Lock resolution (measured against main 68fd709, Cargo.lock): 40 packages are added
+(UserNotifications 0.3.2, Rodio 0.22.2, CPAL 0.17.3, Symphonia 0.5.5 and their
+closure); no existing package changes version and none is removed. Existing packages
+whose dependency edges changed: herdr-uikit (new source ID and the
+UserNotifications edge), yebisu (chrono, rodio), objc2-core-foundation (block2,
+libc), objc2-foundation (block2, libc, objc2-core-foundation), and two Windows-only
+edges that the resolver rebinds when the new dependencies are added: iana-time-zone
+(windows-core 0.57.0 to 0.62.2) and winapi-util (windows-sys 0.48.0 to 0.61.2).
+Neither Windows edge is built for the iOS or macOS targets.
 
 ## Review repair D1-D4 (source stage only)
 
@@ -106,3 +122,38 @@ permission denial and stale tap. Background OS delivery may bypass willPresent;
 no claim of cancellation/display correctness is made without native evidence.
 P11's modal-refusal observer is a separate missing SDK dependency. All original
 N1-N5 and physical owner gates remain unverified until their evidence is recorded.
+
+## Review repair B1, S1-S6 (attempt 5)
+
+Independent review of 03391ad found one blocking and six should-fix items.
+
+- B1 (reader lock contention cancelled valid notifications): fixed. A failed
+  `try_lock` of the reader inbox, and a snapshot that is waiting for its surface, are
+  `Verdict::Undecided`, never `Invalid`. The 33 ms scan only cancels on a decided
+  mismatch; a waiting event stays queued until it is decided or ages out (5 s,
+  then `Stale`). The sound worker and the SDK display predicate share one
+  `Validity` latch: it starts valid, contention keeps the last decided answer, and
+  only a decided mismatch revokes it (sticky). Tests hold the inbox lock from
+  another thread (`notifications/tests.rs`, `notification_view/tests.rs`).
+- S1 (terminal closed to the Hosts list): fixed. The current host's reader is drained
+  like a hidden host while its terminal is closed (clipboard effects are dropped, as
+  for hidden hosts), so notifications are collected and delivered.
+- S2 (refused tap): fixed. A refused tap never closes the open terminal. A transient
+  `Busy` (reader busy or navigation pending) returns the single-use tag; every other
+  refusal still consumes it, so a stale or duplicate tag cannot be replayed.
+- S3 (snapshot/surface mismatch at capture): fixed. Capture needs connectedness, the
+  snapshot boot and pane membership only, as the reference implementation checks
+  connection only (herdr-gpui 398c132a state.rs:755-777). The coherence check
+  remains at delivery time and is retried, not dropped.
+- S4: this document and the PR body now state the measured lock facts and the
+  current verification status.
+- S5: the bundle ships the license texts (`Licenses/` in the app: repository Apache-2.0
+  LICENSE, Rodio MIT, Symphonia MPL-2.0 and a notice with source locations);
+  `scripts/ios/test_bundle.py` asserts them.
+- S6: five negative cases were added to `test_p14_check.py` (backlog replay, focus boot,
+  per-reason rejections, disconnect, late tap); `notification_lifecycle` is tested
+  directly. The real-app gate `p14-check.py` stays unrun until the controller grants
+  the Mac mini.
+
+Nits: n4 is corrected (40 packages). n1-n3 and n5 are not changed: they are
+diagnostics and documented limits, not behaviour defects.

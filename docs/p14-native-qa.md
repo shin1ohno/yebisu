@@ -1,6 +1,9 @@
 # P14 native harness readiness
 
-Status: AUTHORED, native UNRUN. D5 separates SDK display eligibility from issued-tag responses.
+Status: the SDK Simulator runner (`p14-sdk-check.py`) has been run natively on the Mac mini at PR #45
+head 03391ad / SDK 7f70d2d (13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer
+tests; see docs/p14-notifications.md). The real-app runner (`p14-check.py`) and every OS, sound and
+physical check remain UNRUN. D5 separates SDK display eligibility from issued-tag responses.
 The exact SDK revision is in Cargo.toml and Cargo.lock. P11's SDK entry/refusal observer is
 still missing and its modal gate stays closed. No permission request, OS database
 change, APNs, live host, signing, Keychain or after-suspension delivery is added.
@@ -15,8 +18,8 @@ just guarded python3 scripts/ios/p14-sdk-check.py --sdk-root /absolute/leased/he
 ```
 
 Both commands compile native code and require a Mac, Xcode, xcodegen, the
-installed simulator and the existing Rust iOS target. They were NOT run during
-source staging. Keep the 6 GiB guard and the controller's single-build rule.
+installed simulator and the existing Rust iOS target. They were not run during
+source staging (the SDK runner has since run once, see Status). Keep the 6 GiB guard and the controller's single-build rule.
 The SDK checkout must be clean and match the manifest's exact revision; the
 mutant is restored even when the test returns an error or SIGTERM interrupts it.
 A forced SIGKILL cannot run cleanup: use the saved original.rs / response-original.rs and compare the
@@ -95,7 +98,7 @@ command stdout/stderr, and uses new per-run owned-sdk-target and
 owned-consumer-target directories. These outputs must not be shared with other
 leases or used as proof of an app bundle. Before running, the controller records
 `rustc -Vv`, `cargo -V`, Xcode/SDK/target versions, selected simulator, lease ID,
-manifest/lock/source SHA256 and test inventory. Native execution is UNRUN here.
+manifest/lock/source SHA256 and test inventory. Native execution of the real-app runner is UNRUN here.
 The app GUI runner needs a separately owned target/profile/output tree; record
 its cargo JSON compiler-artifact executable path, bundle binary UUID/SHA256,
 bundle identifier and installed/launching app path before accepting screenshots.
