@@ -11,9 +11,9 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-fn key(name: &str) -> KeyDownEvent {
+fn key(name: &'static str) -> KeyDownEvent {
     KeyDownEvent {
-        keystroke: Keystroke::parse(name).unwrap(),
+        keystroke: Keystroke::parse(name).unwrap_or_else(|e| panic!("key: {e}")),
         is_held: false,
         prefer_character_input: false,
     }

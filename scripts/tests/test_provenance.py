@@ -47,7 +47,8 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual({r["kind"] for r in rows}, {"copy", "model"})
         self.assertEqual({r["upstream_repository"] for r in rows},
-                         {UPSTREAM, "https://github.com/shin1ohno/herdr-uikit"})
+                         {UPSTREAM, "https://github.com/shin1ohno/herdr-uikit",
+                          "https://github.com/shin1ohno/herdr-gpui"})
         uikit = [r for r in rows if r["upstream_repository"].endswith("/herdr-uikit")]
         self.assertEqual({r["upstream_ref"] for r in uikit}, {"main"})
         self.assertEqual({r["source_path"] for r in uikit},

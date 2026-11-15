@@ -5,7 +5,7 @@ use crate::{
     terminal_painter::{Ground, TerminalPainter},
     theme::Theme,
 };
-use gpui::{AnyElement, ClipboardItem, Context, canvas, div, font, prelude::*, rgb};
+use gpui::{AnyElement, ClipboardItem, Context, div, font, prelude::*, rgb};
 use sheprd_client::{ConnectOptions, ConnectTarget};
 
 #[derive(Default)]
@@ -399,6 +399,8 @@ impl Smoke {
             .children(self.p13_qa_controls(cx))
             .children(self.handoff_qa_controls(cx))
             .children(self.native_edit_qa_controls(cx))
+            .children(self.edit_menu_qa_controls(cx))
+            .children(self.sh1_152_controls(cx))
             .child(
                 div()
                     .id("terminal-input")
@@ -411,7 +413,23 @@ impl Smoke {
                             if this.find.is_some() {
                                 return;
                             }
-                            this.selection_down(event, window, cx);
+                            if !this.front_layers.covers(event.position, window) {
+                                this.selection_down(event, window, cx);
+                            }
+                        }),
+                    )
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                            if this.find.is_none()
+                                && !window.default_prevented()
+                                && this.terminal.geometry.contains(event.position)
+                                && !this.front_layers.covers(event.position, window)
+                            {
+                                this.present_edit_menu(event.position, window, cx);
+                                window.prevent_default();
+                                cx.stop_propagation();
+                            }
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))
@@ -423,7 +441,7 @@ impl Smoke {
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.selection_up(cx)),
                     )
-                    .child(canvas(|_, _, _| (), self.terminal_paint_callback(cx)).size_full()),
+                    .child(self.edit_menu_canvas(cx)),
             )
             .into_any_element()
     }
@@ -432,3 +450,10 @@ impl Smoke {
 #[cfg(test)]
 #[path = "terminal_view_tests.rs"]
 mod tests;
+
+#[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+impl Smoke {
+    fn sh1_152_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+}

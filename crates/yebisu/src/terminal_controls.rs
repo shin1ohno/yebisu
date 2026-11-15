@@ -5,6 +5,54 @@ use crate::{
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
+    pub(crate) fn publish_native_edits(&mut self, window: &Window) {
+        let availability = self.native_edit_availability(window);
+        self.edit_menu_check(window);
+        self.edit_menu
+            .presenter
+            .publish(window.window_handle(), availability);
+    }
+
+    pub(crate) fn native_edit_availability(
+        &mut self,
+        window: &Window,
+    ) -> Option<crate::edit_menu::Availability> {
+        self.refresh_terminal_input();
+        self.sync_handoff();
+        if !self.terminal.open {
+            return None;
+        }
+        Some({
+            let focused = self.terminal_focus.is_focused(window)
+                && self.terminal.navigating.is_none()
+                && !self.actions.palette
+                && !self.terminal.reconnect.suspended
+                && self.handoff.stamp.is_some();
+            let copy = focused
+                && self
+                    .handoff
+                    .selection
+                    .as_ref()
+                    .and_then(crate::handoff::Selection::text)
+                    .is_some();
+            crate::edit_menu::Availability {
+                copy,
+                // Preserve D3: Cut copies terminal cells without deleting them.
+                cut: copy,
+                paste: focused
+                    && self.terminal.input.ready
+                    && self.handoff.workers == 0
+                    && self
+                        .handoff
+                        .core_ticket
+                        .as_ref()
+                        .is_none_or(|ticket| ticket.is_finished()),
+                // D3 has no terminal Select All implementation.
+                select_all: false,
+            }
+        })
+    }
+
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
         if self.find.is_some() || terminal.navigating.is_some() || self.actions.palette {
@@ -32,10 +80,19 @@ impl Smoke {
             self.hold_for_paste(event);
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let receipt = serde_json::json!({"kind":"terminal-input", "variant":match &event.event {
+            sheprd_client::protocol::ClientPaneInputEvent::Paste(_) => "Paste",
+            sheprd_client::protocol::ClientPaneInputEvent::Key { .. } => "Key",
+            sheprd_client::protocol::ClientPaneInputEvent::TextCommit(_) => "TextCommit",
+            sheprd_client::protocol::ClientPaneInputEvent::Mouse { .. } => "Mouse",
+        }, "terminal":match &event.destination.target { crate::terminal::InputTarget::Pane(id) | crate::terminal::InputTarget::Popup(id) => id }});
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
             return;
         }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.observation.record(receipt);
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
@@ -70,24 +127,35 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.find.is_some() || !self.terminal_focus.is_focused(window) {
+        // Search owns input while open, and the retirement fence holds every
+        // terminal key, native Edit commands included, until it is released.
+        if self.find.is_some() {
             return;
         }
         if self.find_handoff.paused {
-            cx.stop_propagation();
-            window.prevent_default();
+            if self.terminal_focus.is_focused(window) {
+                cx.stop_propagation();
+                window.prevent_default();
+            }
             return;
         }
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
+            use crate::edit_menu::{EditAction, MenuToken};
             use herdr_uikit::NativeEditAction;
-            match action {
-                NativeEditAction::Paste => self.start_paste(false, cx),
-                NativeEditAction::Copy | NativeEditAction::Cut => self.copy_selection(cx),
-                NativeEditAction::SelectAll => {}
+            let token = herdr_uikit::native_edit_menu_token().map(MenuToken::Native);
+            if token.is_some() || self.terminal_focus.is_focused(window) {
+                let action = match action {
+                    NativeEditAction::Copy => EditAction::Copy,
+                    NativeEditAction::Cut => EditAction::Cut,
+                    NativeEditAction::Paste => EditAction::Paste,
+                    NativeEditAction::SelectAll => EditAction::SelectAll,
+                };
+                self.native_menu_action(action, token, window, cx);
+                return;
             }
-            cx.stop_propagation();
-            window.prevent_default();
+        }
+        if !self.terminal_focus.is_focused(window) {
             return;
         }
         if event.keystroke.modifiers.platform
@@ -129,7 +197,7 @@ impl Smoke {
             return;
         }
         if let Some(command) =
-            crate::actions::shortcut(&self.terminal, &self.actions, &event.keystroke)
+            crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
         {
             if command == sheprd_commands::Command::Find {
                 if !event.is_held {
@@ -140,7 +208,7 @@ impl Smoke {
                 return;
             }
             if !event.is_held
-                && let Err(e) = self.run_action(command)
+                && let Err(e) = self.run_catalog_command(command, None, window.is_window_active())
             {
                 self.terminal.live.status = e.to_string();
             }

@@ -6,10 +6,14 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Superseded pull_request runs are cancelled; main pushes are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  simulator-smoke:
+  edit-menu:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,8 +24,43 @@ jobs:
         run: brew install just xcodegen
       - name: Fetch
         run: just guarded cargo fetch --locked
+      - name: Native edit menu receiving-system checks
+        run: just guarded python3 scripts/ios/ci-sh1-152.py
+      - name: Upload menu receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edit-menu-evidence
+          path: |
+            target/ios-sh1-152/
+            target/ios-sh1-153/
+            target/ios-p8-native/
+            target/ios-selection-settings/
+            target/disk.log
+  simulator-smoke:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install pinned Rust
+        run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install simulator tools
+        run: brew install just xcodegen
+      - name: Fetch
+        run: just guarded cargo fetch --locked
       - name: Build, launch and verify simulator
-        run: just guarded python3 scripts/ios/ci-smoke.py
+        run: just guarded python3 scripts/ios/ci-smoke.py --p9
+      - name: Verify installed keyless native menus
+        run: just guarded python3 scripts/ios/p12-ci.py
+      - name: Upload native menu evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p12-native-menu-evidence
+          path: target/p12-evidence/
       - name: Upload simulator smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -29,6 +68,7 @@ jobs:
           name: simulator-smoke-evidence
           path: |
             target/ios-smoke/*/
+            target/ios-p9/*/
             !target/ios-smoke/build/
   check:
     runs-on: macos-26
@@ -38,6 +78,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
       - name: Install just
@@ -50,6 +91,14 @@ jobs:
         run: just lint-ios
       - name: Test
         run: just test
+      - name: Native menu source mutations
+        run: python3 scripts/ios/p12-mutations.py
+      - name: Upload mutation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p12-mutation-evidence
+          path: target/p12-mutations/
       - name: Commit subjects
         if: github.event_name == 'pull_request'
-        run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
+        run: just check-commits

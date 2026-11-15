@@ -542,7 +542,7 @@ UIKit pin is `b2fa7811fa9fad9592f47b06d851fc0c33facb16` (merged PR #7).
    repeats and release; confirm one delivery. Paste plain text using Command-V
    and the native Paste action; Command: Ctrl with Terminal priority must deliver
    Control-V instead of reading the clipboard. Herdr 2 supports text paste;
-   image paste remains a Herdr 1 operation. Repeat with a program requesting
+   image paste uses terminal.put in Herdr 2 (2 MiB PNG after downscale). Repeat with a program requesting
    kitty key reports and after unplug/replug. Candidate options are visual only.
 5. Tap **Split (2 panes)**. Both remote terminals must remain visible. Tap
    **Pane 1** and **Pane 2**, type distinct markers, and confirm routing only to
@@ -644,6 +644,71 @@ Start: Drag and Copy: Manual. Simulator evidence does not prove touch/trackpad f
    choice, density, shortcut priority and board visibility stay unchanged.
 6. Restore Start: Drag and Copy: Manual. Record device/iPadOS and results in PR QA.
 
+## SH1-153 — native Edit menu enabling
+
+Physical-only checks are **unverified**. After locally unlocking the signing
+keychain, run `just ipad` and record device/iPadOS/build revision. Connect to an
+already authorized disposable Herdr 1 session; no new credential or host setup
+is part of this check.
+
+1. With software keyboard shown and terminal focused, open the menu bar Edit
+   menu: Paste enabled, Copy disabled without selection. Select `日本語` and
+   confirm Copy enabled, Copy puts exactly that text on the clipboard.
+2. Attach the hardware keyboard, dismiss software input, reopen Edit and repeat.
+   Capture a screenshot of enabled Paste/Copy in both modes. Menu Paste must
+   produce one paste and no Command/Ctrl key bytes even with Command→Control and
+   terminal shortcut priority enabled. Command-V retains its prior physical path.
+3. Clear selection while the menu is open: Copy must no-op, never copy stale cells.
+   Open the command palette, switch target, disconnect, or background before
+   choosing Paste: no old-destination input, no replay on return. Refocus the
+   terminal and confirm fresh Paste works.
+4. Cut retains D3 copy-only semantics; Select All stays disabled (unimplemented).
+   Setup fields retain the SDK default policy. Long-press UI itself (SH1-152)
+   remains outside this task; it can reuse the standard selectors and policy.
+5. On a quiet terminal, begin a large image paste, then select cells before
+   preparation finishes. Once the cancelled worker exits, reopen Edit without
+   typing or receiving terminal output: Paste must be enabled again. The old
+   payload and any input held behind it must not arrive, even after refocusing.
+
+Simulator gate after a controller build lease: `just check`, `just lint-ios`,
+`just test`, `just guarded python3 scripts/ios/sh1-153-check.py`, and the existing
+`just guarded python3 scripts/ios/p8-native-check.py`. The SH1-153 harness tests
+text/drawing responders, no-selection and unfocused refusal, and selection loss
+between validation and execution. Its case screenshots alone do not prove the
+menu bar was visible. Capture an actual Edit menu screenshot separately, attempt
+Simulator hardware-keyboard connection, and record any unavailable menu/keyboard
+facility explicitly rather than substituting the harness for that visual gate.
+Observed Simulator hardware-connection limitation (2026-11-12 UTC): on
+`mini.home.local`, the selected Xcode 27.2 (27B52) at
+`/Applications/Xcode-27.2.0.app/Contents/Developer` has no `Applications`
+directory. A bounded search of `/Applications`, `/System/Applications`, and
+`~/Applications` found no `Simulator.app`. An actual GUI launch request,
+`open -b com.apple.iphonesimulator --args -CurrentDeviceUDID
+C2348F15-A037-4111-8712-5926A51CFE7F`, exited 1 with
+`LSCopyApplicationURLsForBundleIdentifier() failed` for that bundle identifier.
+The iPad Pro 13-inch (M5), iOS 26.5 CoreSimulator device was Booted, so headless
+native tests remain available. The Simulator GUI and its Connect Hardware
+Keyboard menu could not be reached through this installed environment; its
+connection state and connected hardware-key delivery are **unverified**. This
+is not a claim that Simulator generally lacks hardware-keyboard simulation.
+No software was installed and no permission/trust dialog was answered.
+
+Owner follow-up: on a Mac with the Simulator GUI available, open that iPad
+Simulator, choose I/O > Keyboard > Connect Hardware Keyboard, and capture the
+menu checkmark (record the actual menu path if it differs). Run the same source
+revision, focus the terminal, select `日本語`, then show the actual Edit menu and
+capture enabled Copy/Paste. Choose Paste once and inspect the disposable peer
+for one Paste and no Key; repeat with software input shown. Keep the screenshot,
+revision, connection state and peer receipt together. The existing KeyOnly
+responder checks and screenshots do not establish hardware connection. Physical
+keyboard/IME behavior still requires the separate device sequence above.
+
+The harness turns off the periodic smoke redraw after entering its first case.
+`cancelled_paste_completion_notifies_with_quiet_peer` separately gates the real
+paste worker, cancels it, drains notifications, and checks completion invalidation
+with smoke mode off and a silent private peer. Its wire barrier rejects replay of
+both the cancelled payload and held input. Removing the completion notification
+must fail the invalidation assertion; restoring it must pass.
 
 ## SH1-155: keep the connection while inactive
 
@@ -654,7 +719,7 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 3. Open the app switcher or move Stage Manager focus to another visible window, wait at least 5 seconds, return and send the pasted path. Confirm the host still has that exact file, record its original creation time and the return/send times. Confirm input and painting continue without a reconnect. Distinguish inactive-only from true Background in the lifecycle log: a full-screen app switch can background yebisu and is not covered by this retention guarantee. Repeat with Control Center and a system sheet.
 4. Enter the Home screen (true Background). Confirm the connection closes and record the staged file's deletion observation time (including the monitor's 0.2-second resolution), as in the pro-dev monitor on 2026-11-11. Return and confirm Automatic reconnects and fresh input works; do not expect the old staged file to survive Background.
 5. Repeat inactive-only and true-background transitions with Return: Tap reconnect: inactive keeps the connection; after Background, tap Reconnect to resume.
-6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (image paste is Herdr 1 only). Include a hidden host where available.
+6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (include Herdr 2 image paste through terminal.put). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
 
 ## P13 terminal search (owner acceptance pending)
@@ -703,3 +768,59 @@ the remaining mark while keeping search open and terminal input silent.
 An ordinary IME commit with no explicit replacement range must still replace
 the entire marked clause. The Simulator observes the real UIKit `cut:` selector;
 host tests exercise its production callback and the hardware key branch.
+
+## SH1-154 — Herdr 2 image paste (device QA pending)
+
+These checks require a physical iPad; Simulator callbacks do not prove touch,
+trackpad, hardware keyboard, native-menu, suspension, or network behavior.
+
+- [ ] Paste PNG/JPEG/screenshots copied from Photos and Files with touch Paste,
+  Paste image, trackpad, image-only Command-V, Command-Shift-V, and native Paste.
+  Observe one path per gesture. Command-as-Control with Terminal priority must
+  send Control-V without reading the clipboard or uploading an image.
+- [ ] Inspect the returned path on the receiving host: stat state/files/terminal
+  directories and file ownership/modes; file/identify (or sips) confirms PNG,
+  dimensions and the receipt's byte count. In a fresh empty terminal, two images
+  produce paste.png and paste-2.png without replacing the first. Have Claude Code
+  read the actual returned path.
+- [ ] Paste a 2732x2048 PNG and verify at most 2 MiB after downscale. Measure
+  gesture-to-path latency and drawing stalls separately on LAN and LTE.
+- [ ] Cancel during preparation/upload by changing terminal, split or host,
+  beginning selection, or toggling Select. Confirm no stale path. Exact enqueue
+  and partial-write boundaries are deterministic host tests, not manual claims.
+- [ ] On a disposable host with spaces in XDG_STATE_HOME, pass the escaped path
+  directly to zsh ls -l and Claude Code and verify both read the file.
+- [ ] Inactive (Stage Manager/App Switcher) permits completion. Background closes
+  the connection; Active creates no late input. Files remain after Background.
+- [ ] On a disposable host, verify hc rm deletes the terminal's files. Separately
+  start core with HC_RETAIN_MS=60000; record terminal parent and remove any live
+  parent dependency, then exit the terminal. Record that both record and files
+  remain before 60 seconds. After 60 seconds invoke hc ls to trigger pruning;
+  verify hc ls --all lacks the record and its files directory is absent.
+- [ ] Where available, paste to a machine/t7 terminal and verify storage on that
+  machine. Record unavailable environments as unverified.
+
+The app does not chmod or delete uploads. It uses the existing core connection,
+keeps text priority, and preserves Herdr 1's 16 MiB image limit.
+
+## SH1-152
+
+以下は owner が実機 iPad（M5）で行う14項目です。Simulator の成功では完了にしません。
+実施日、iPadOS、入力機器、Herdr 1/2、送信先と受信結果を PR に記録します。
+
+- [ ] 1. 指で500 ms長押ししたときの感触、メニュー位置、指による隠れ方、Pencil の挙動を確認します。
+- [ ] 2. トラックパッドの副ボタンでメニューが開き、主ボタンの長押し・ドラッグは従来の選択になることを確認します。
+- [ ] 3. Start: Drag と Start: Select / double tap の両方で、指の長押しが選択を作らず、1セルの選択が残らず、直後の入力が届くことを確認します。
+- [ ] 4. software / hardware keyboard の両方で、メニューの Paste は1回、キー入力は0件になることを確認します。Command→Control と terminal priority を両方有効にしても同じ結果を確認します。
+- [ ] 5. text clipboard の物理 Command-V は既定設定で Paste が1回、Command→Control と terminal priority を両方有効にすると Ctrl-V が届くことを確認します。image-only の仕様は SH1-154 の対象です。
+- [ ] 6. メニューを開いたまま選択解除、送信先変更、切断、background 遷移を行い、古い Copy/Paste が実行されないことを確認します。
+- [ ] 7. Stage Manager の2ウィンドウで、メニュー位置、Copy の選択、Paste の送信先が各ウィンドウに属することを確認します。
+- [ ] 8. 指ドラッグで選択が始まるかを記録します。始まらない場合は別 issue を起票します。確認と必要な issue 起票でこの項目は完了です。
+- [ ] 9. メニューバー Edit の Copy/Paste が従来どおり各1回動くことを確認します。Simulator E7 で UI に到達できなかった場合も、この項目で確認します。
+- [ ] 10. メニューを出したまま Control Center / Notification Center を開いて戻し、古い操作は0回、新しい長押しの操作は1回になることを確認します。inactive-only と Background を区別します。
+- [ ] 11. 設定シートなど端末に重なる UI の上では長押しが端末メニューを開かず、その UI の操作が残ることを確認します。
+- [ ] 12. software keyboard の隠すキーで最小化し、端末をタップして開き直します。restart 到達、acquire の実戻り値、guard 終了時の両 responder の所有状態を記録します。失敗入力が成立したときは古い Paste 0回・clipboard 不変、新しい長押しは1回です。入力を作れなかった場合は未検証とします。hardware keyboard の抜き差しで内部切り替えが成功する場合は、保持メニューが1回動くことも確認します。
+- [ ] 13. 選択なしの長押しでは Paste だけ、選択ありの長押しでは Copy と Paste だけが出ることを確認します。Copy が灰色で残る場合も規則違反として記録します（Simulator は無効な項目を隠すため、この表示は実機でしか確かめられません）。
+- [ ] 14. 項目 6 の送信先変更と項目 7 の2ウィンドウの切り替えそれぞれの直後に、新しい送信先で長押ししてメニューが出ること、Paste がその送信先に1回届くことを確認します。メニューが出ない場合は、Herdr 1/2 の別と pane の大きさを記録します。
+
+14項目が完了するまでは SH1-152 の実機受け入れを未完了とします。

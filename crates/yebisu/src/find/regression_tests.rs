@@ -17,9 +17,9 @@ use std::{
     sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
-fn key(name: &str, held: bool) -> KeyDownEvent {
+fn key(name: &'static str, held: bool) -> KeyDownEvent {
     KeyDownEvent {
-        keystroke: Keystroke::parse(name).unwrap(),
+        keystroke: Keystroke::parse(name).unwrap_or_else(|e| panic!("key: {e}")),
         is_held: held,
         prefer_character_input: false,
     }
@@ -156,6 +156,9 @@ fn d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down
     );
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
+            // A draw since the first update re-sent the window size; without the
+            // peer's resized surface, production readiness holds fresh input.
+            this.terminal.size = None;
             let ticket = this.begin_find_retirement(40).unwrap();
             assert!(this.complete_find_retirement(&ticket, 40, 41, window));
             assert!(
@@ -416,7 +419,7 @@ fn cut_then_escape(cx: &mut TestAppContext, command: bool) {
             assert_eq!(field.input.text, "pre:変😀中:post");
             assert_eq!(field.input.marked, Some(4..8));
             assert_eq!(field.input.selected, 5..7);
-            cx.write_to_clipboard(ClipboardItem::new_string("sentinel"));
+            cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));
             if command {
                 field.key(&key("cmd-x", false), window, cx);
             } else {
@@ -486,14 +489,6 @@ fn offscreen_match_receives_scroll_and_paints_the_new_viewport(cx: &mut TestAppC
     let (client, receipts) = crate::find::peer::connect().unwrap();
     install(&view, cx, "scroll", client);
     let field = open(&view, cx);
-    let expected_offset = view.update(cx, |this, _| {
-        u64::from(
-            this.terminal.live.surface.as_ref().unwrap().panes[0]
-                .inner_rect
-                .height
-                / 2,
-        )
-    });
     edit(&field, cx, "beyond");
     matched(&view, cx);
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -510,20 +505,27 @@ fn offscreen_match_receives_scroll_and_paints_the_new_viewport(cx: &mut TestAppC
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-    let mut saw_scroll = false;
+    // The peer resizes its pane to each received window size, so the expected
+    // centring offset comes from the rows it last received, not its first frame.
+    let mut rows = u64::from(crate::find::peer::surface().frame.height);
+    let mut scrolled = None;
     while let Ok(message) = receipts.try_recv() {
-        if let ClientMessage::ClientShellEndpointRequest { request, .. } = message {
-            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
-            if request["method"] == "pane.scroll" {
-                saw_scroll = true;
-                assert_eq!(request["params"]["offset_from_bottom"], expected_offset);
+        match message {
+            ClientMessage::ClientShellResize { surface_size, .. } => {
+                rows = u64::from(surface_size.rows);
             }
+            ClientMessage::ClientShellEndpointRequest { request, .. } => {
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                if request["method"] == "pane.scroll" {
+                    assert_eq!(request["params"]["offset_from_bottom"], rows / 2);
+                    scrolled = Some(rows / 2);
+                }
+            }
+            _ => {}
         }
     }
-    assert!(
-        saw_scroll,
-        "offscreen search did not reach pane.scroll receiving peer"
-    );
+    let expected_offset = scrolled
+        .unwrap_or_else(|| panic!("offscreen search did not reach pane.scroll receiving peer"));
     view.update(cx, |this, _| {
         let surface = this.terminal.live.surface.as_ref().unwrap();
         assert_eq!(

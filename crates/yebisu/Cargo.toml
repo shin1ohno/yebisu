@@ -12,6 +12,7 @@ workspace = true
 p13-native-probe = ["herdr-uikit/test-support"]
 
 [dependencies]
+base64.workspace = true
 thiserror.workspace = true
 herdr-ssh.workspace = true
 sheprd-client.workspace = true
@@ -29,8 +30,9 @@ gpui.workspace = true
 herdr-uikit.workspace = true
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }
-objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIPasteboard", "std"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIApplication", "UICommand", "UIEditMenuInteraction", "UIMenu", "UIMenuElement", "UIPasteboard", "std"] }
 
 [dev-dependencies]
 sheprd-client = { workspace = true, features = ["test-support"] }
+sheprd-commands = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }

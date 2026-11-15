@@ -65,9 +65,13 @@ mod mock_commands;
 mod review_r5_tests;
 
 #[cfg(any(target_os = "ios", test))]
+mod core_paste_view;
+#[cfg(any(target_os = "ios", test))]
 mod handoff;
 #[cfg(any(target_os = "ios", test))]
 mod handoff_clipboard;
+#[cfg(any(target_os = "ios", test))]
+mod handoff_ticket;
 #[cfg(any(target_os = "ios", test))]
 mod handoff_view;
 
@@ -83,6 +87,8 @@ mod handoff_review_tests;
 #[cfg(test)]
 mod handoff_resume_tests;
 
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod native_edit_qa;
 
@@ -110,3 +116,23 @@ mod find;
 
 #[cfg(any(target_os = "ios", test))]
 mod find_view;
+
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu;
+#[cfg(any(target_os = "ios", test))]
+mod edit_menu_gestures;
+#[cfg(test)]
+mod edit_menu_tests;
+#[cfg(any(target_os = "ios", test))]
+mod front_layer;
+#[cfg(any(target_os = "ios", test))]
+mod native_menus;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_native;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_scenes;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod edit_menu_qa_sh1_152;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod native_menus_qa;
