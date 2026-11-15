@@ -6,7 +6,9 @@ use crate::{
     },
 };
 use chrono::Timelike;
-use gpui::{AnyElement, Context, SystemNotification, div, prelude::*, rgb};
+use gpui::{
+    AnyElement, Context, Pixels, SystemNotification, Window, WindowInsets, div, prelude::*, px, rgb,
+};
 use std::{
     collections::VecDeque,
     sync::mpsc,
@@ -45,6 +47,35 @@ pub(crate) struct State {
     epoch: u64,
     results: mpsc::Receiver<(u64, Result<(), Failure>)>,
     sender: mpsc::SyncSender<(u64, Result<(), Failure>)>,
+}
+/// Distance from the window's bottom edge for the toast and its status text: the
+/// software keyboard's height while it is up, so the overlay is never covered.
+pub(crate) fn overlay_bottom(insets: &WindowInsets) -> Pixels {
+    let bottom = insets.ime.bottom;
+    if bottom > px(0.) { bottom } else { px(0.) }
+}
+
+/// The predicate shared by the sound worker and the SDK display decision.
+///
+/// Contention on the inbox is not evidence the target changed: it is undecided
+/// and keeps the last decided answer; only a decided mismatch revokes, for good.
+pub(crate) fn display_predicate(
+    active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    policy: Policy,
+    received: Instant,
+    target: TargetContext,
+    inbox: std::sync::Arc<std::sync::Mutex<crate::live::Live>>,
+) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+    let validity = Validity::default();
+    std::sync::Arc::new(move || {
+        let local = chrono::Local::now();
+        active.load(std::sync::atomic::Ordering::Acquire)
+            && policy
+                .suppression((local.hour() * 60 + local.minute()) as u16)
+                .is_none()
+            && received.elapsed() < notifications::MAX_AGE
+            && validity.observe(target.verdict(&inbox, &target.host, target.generation))
+    })
 }
 impl Default for State {
     fn default() -> Self {
@@ -165,27 +196,13 @@ impl State {
             self.fail(error);
             return;
         }
-        let validation = target.clone();
-        let policy = self.policy.clone();
-        let received = event.received;
-        // Shared by the sound worker and the SDK display predicate. Contention on
-        // the inbox is not evidence the target changed: it is undecided and keeps
-        // the last decided answer; only a decided mismatch revokes.
-        let validity = std::sync::Arc::new(Validity::default());
-        let current: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
-            std::sync::Arc::new(move || {
-                let local = chrono::Local::now();
-                active.load(std::sync::atomic::Ordering::Acquire)
-                    && policy
-                        .suppression((local.hour() * 60 + local.minute()) as u16)
-                        .is_none()
-                    && received.elapsed() < notifications::MAX_AGE
-                    && validity.observe(validation.verdict(
-                        &inbox,
-                        &validation.host,
-                        validation.generation,
-                    ))
-            });
+        let current = display_predicate(
+            active,
+            self.policy.clone(),
+            event.received,
+            target.clone(),
+            inbox,
+        );
         if self.active
             && self.policy.sound
             && let Some(sound) = event.sound
@@ -387,13 +404,15 @@ impl Smoke {
             }
             self.notifications.waiting.push_back(pair);
         }
-        while let Some((event, target)) = self
-            .notifications
-            .waiting
-            .front()
-            .filter(|(event, _)| event.received.elapsed() >= Duration::from_secs(1))
-            .cloned()
-        {
+        // Every event is decided on its own: one that cannot be decided yet (reader
+        // busy, projection in flux) stays queued without holding back events for
+        // other hosts, and ages out as Stale.
+        let mut kept = VecDeque::new();
+        for (event, target) in std::mem::take(&mut self.notifications.waiting) {
+            if event.received.elapsed() < Duration::from_secs(1) {
+                kept.push_back((event, target));
+                continue;
+            }
             let terminal = if target.host == self.terminal.reconnect.target {
                 Some(&self.terminal)
             } else {
@@ -408,22 +427,21 @@ impl Smoke {
                             Ok((t.link.notification_active.clone(), t.link.inbox.clone()))
                         }
                         Verdict::Invalid(error) => Err(error),
-                        // Reader busy or projection in flux: keep the event for the
-                        // next tick, and let it age out instead of dropping it now.
                         Verdict::Undecided if event.received.elapsed() < notifications::MAX_AGE => {
-                            break;
+                            kept.push_back((event, target));
+                            continue;
                         }
                         Verdict::Undecided => Err(Failure::Stale),
                     }
                 }
             };
-            self.notifications.waiting.pop_front();
             changed = true;
             match valid {
                 Ok((active, inbox)) => self.notifications.submit(event, target, active, inbox),
                 Err(error) => self.notifications.fail(error),
             }
         }
+        self.notifications.waiting = kept;
         changed |= self.notifications.poll();
         if changed {
             cx.notify();
@@ -528,12 +546,12 @@ impl Smoke {
         }
         cx.notify();
     }
-    pub(crate) fn render_notification(&self, cx: &Context<Self>) -> AnyElement {
+    pub(crate) fn render_notification(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
         let mut panel = div()
             .absolute()
-            .bottom_0()
+            .bottom(overlay_bottom(&window.insets()))
             .right_0()
-            .max_w(gpui::px(384.))
+            .max_w(px(384.))
             .p_2()
             .bg(rgb(0x3b4252))
             .text_color(rgb(0xeceff4));

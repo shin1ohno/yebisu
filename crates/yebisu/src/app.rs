@@ -152,7 +152,7 @@ impl Render for Smoke {
             .relative()
             .size_full()
             .child(rendered)
-            .child(self.render_notification(cx))
+            .child(self.render_notification(window, cx))
             .into_any_element();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()

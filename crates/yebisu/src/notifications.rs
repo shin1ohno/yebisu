@@ -204,7 +204,20 @@ fn current(live: &Live) -> Result<&sheprd_client::protocol::ClientShellSnapshot,
 }
 impl Context {
     pub fn validate(&self, live: &Live, host: &str, generation: u64) -> Result<(), Failure> {
-        self.validate_snapshot(current(live)?, host, generation)
+        if !live.connected || live.version_mismatch.get().is_some() {
+            return Err(Failure::Disconnected);
+        }
+        // A mismatch already decided by the newest snapshot (even one still waiting
+        // for its surface, e.g. a closed pane or a new boot) must not be masked as
+        // incoherence; only a target the newest snapshot still contains can be
+        // undecided.
+        let newest = live
+            .pending_snapshot
+            .as_deref()
+            .or(live.snapshot.as_deref())
+            .ok_or(Failure::Incoherent)?;
+        self.validate_snapshot(newest, host, generation)?;
+        current(live).map(|_| ())
     }
     /// Re-check this target without blocking the reader thread.
     ///

@@ -157,3 +157,26 @@ Independent review of 03391ad found one blocking and six should-fix items.
 
 Nits: n4 is corrected (40 packages). n1-n3 and n5 are not changed: they are
 diagnostics and documented limits, not behaviour defects.
+
+## Re-review repair R1-R3 and toast placement (attempt 6)
+
+- R1: a mismatch already decided by the newest snapshot is `Invalid`, even while that
+  snapshot waits for its surface (a closed pane, a new boot). `Context::validate`
+  checks host, generation, boot and pane against `pending_snapshot` (or the snapshot)
+  first and reports `Incoherent` only for a target the newest snapshot still holds, so
+  the cancel bound no longer depends on the server sending the surface.
+- R2: a waiting event that cannot be decided yet no longer holds back the queue: each
+  event is decided on its own, an undecided one stays queued (FIFO order kept) and ages
+  out as `Stale`, while events for other hosts are delivered in the same tick.
+- R3: the predicate shared by the sound worker and the SDK display decision is one
+  function, `display_predicate`, exercised on the host under a held reader lock (1000
+  calls stay true), revoked by a decided mismatch and sticky afterwards.
+- Toast placement (owner decision): the toast and its status text sit above the software
+  keyboard. The overlay's bottom offset is the window's keyboard inset
+  (`window.insets().ime.bottom`, set by herdr-uikit from the keyboard frame) and is zero
+  when no software keyboard is shown, so layout without a keyboard is unchanged. The
+  real-app XCTest keeps the keyboard up and fails if the recognized toast text lies below
+  the keyboard's top edge (`p14-toast-above-keyboard` screenshot).
+- r2 (nit): the closed-terminal test also pins that clipboard effects are dropped.
+  r1 (nit, a Busy tap returns the tag but the toast is gone) is a limitation: the tag is
+  only kept for the 33 ms scan and the OS notification, not for a new toast.

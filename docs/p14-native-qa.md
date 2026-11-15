@@ -3,7 +3,8 @@
 Status: the SDK Simulator runner (`p14-sdk-check.py`) has been run natively on the Mac mini at PR #45
 head 03391ad / SDK 7f70d2d (13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer
 tests; see docs/p14-notifications.md). The real-app runner (`p14-check.py`) and every OS, sound and
-physical check remain UNRUN. D5 separates SDK display eligibility from issued-tag responses.
+physical check remain UNRUN. The real-app runner has since run once on the Mac mini (head 6d924fc,
+receiving-result pass); its XCTest also checks that the toast is not below the software keyboard. D5 separates SDK display eligibility from issued-tag responses.
 The exact SDK revision is in Cargo.toml and Cargo.lock. P11's SDK entry/refusal observer is
 still missing and its modal gate stays closed. No permission request, OS database
 change, APNs, live host, signing, Keychain or after-suspension delivery is added.

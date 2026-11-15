@@ -254,9 +254,14 @@ fn terminal_closed_to_the_hosts_list_still_receives_current_host_notifications(
             inbox.apply(sheprd_client::ClientEvent::Message(
                 sheprd_client::protocol::ServerMessage::SemanticNotification(event),
             ));
+            inbox.clipboard.push_back("osc52 while closed".into());
         }
         this.poll_terminal(cx);
         assert_eq!(this.terminal.live.notifications.pending.len(), 1);
+        assert!(
+            this.terminal.live.clipboard.is_empty(),
+            "a closed terminal drops clipboard effects, as a hidden host does"
+        );
         this.collect_notifications(cx);
         assert_eq!(this.notifications.waiting.len(), 1);
         assert!(this.terminal.live.notifications.pending.is_empty());
@@ -338,4 +343,122 @@ fn lifecycle_phases_gate_foreground_effects_and_background_clears_pending(cx: &m
         this.notification_lifecycle(Phase::Disconnected);
         assert!(!this.notifications.active);
     });
+}
+
+#[gpui::test]
+fn an_undecided_event_does_not_hold_back_another_hosts_event(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        let first = current_target(this);
+        // Host A's projection is waiting for its surface but still holds the target:
+        // undecided. Host B is hidden and fully current.
+        {
+            let mut live = this
+                .terminal
+                .link
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            live.pending_snapshot = live.snapshot.clone();
+        }
+        let hidden_host = "hidden@private-peer";
+        let mut hidden = crate::terminal_view::TerminalView::default();
+        hidden.reconnect.target = hidden_host.into();
+        let live = ready_live();
+        let second = Event::capture(&live, semantic(&live), Instant::now())
+            .unwrap_or_else(|e| panic!("capture: {e:?}"))
+            .context(hidden_host.into(), hidden.link.generation);
+        *hidden.link.inbox.lock().unwrap_or_else(|e| e.into_inner()) = live;
+        this.board.hidden.insert(hidden_host.into(), hidden);
+        let aged = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .unwrap_or_else(|| panic!("clock too young for the fixture"));
+        for target in [first, second] {
+            let live = ready_live();
+            let event = Event::capture(&live, semantic(&live), aged)
+                .unwrap_or_else(|e| panic!("capture: {e:?}"));
+            this.notifications.waiting.push_back((event, target));
+        }
+        this.collect_notifications(cx);
+        // B was decided and submitted (route Off reports Disabled); A is still queued.
+        assert!(this.notifications.status.contains("Disabled"));
+        assert_eq!(this.notifications.waiting.len(), 1);
+        assert_eq!(this.notifications.waiting[0].1.host, HOST);
+    });
+}
+
+#[test]
+fn shared_display_predicate_survives_contention_and_stays_revoked_after_a_mismatch() {
+    let live = ready_live();
+    let target = Event::capture(&live, semantic(&live), Instant::now())
+        .unwrap_or_else(|e| panic!("capture: {e:?}"))
+        .context(HOST.into(), 1);
+    let inbox = std::sync::Arc::new(std::sync::Mutex::new(live));
+    let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let current = display_predicate(
+        active.clone(),
+        Policy::default(),
+        Instant::now(),
+        target,
+        inbox.clone(),
+    );
+    assert!(current());
+    with_reader_lock(&inbox, || {
+        for _ in 0..1000 {
+            assert!(current(), "contention must not cancel sound or display");
+        }
+    });
+    assert!(current());
+    // A decided mismatch (the reader moved to another boot) revokes it for good.
+    let mut other: sheprd_client::protocol::ClientShellSnapshot =
+        serde_json::from_str(crate::mock_peer::SNAPSHOT).unwrap_or_else(|e| panic!("fixture: {e}"));
+    other.boot_id = "another-boot".into();
+    let valid = {
+        let mut live = inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let valid = live.snapshot.clone();
+        live.snapshot = Some(std::sync::Arc::new(other));
+        valid
+    };
+    assert!(!current());
+    inbox.lock().unwrap_or_else(|e| e.into_inner()).snapshot = valid;
+    assert!(!current(), "revocation is sticky");
+    with_reader_lock(&inbox, || assert!(!current()));
+    // An inactive app is never current, whatever the reader says.
+    let inactive = display_predicate(
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Policy::default(),
+        Instant::now(),
+        TargetContext {
+            host: HOST.into(),
+            generation: 1,
+            boot: "x".into(),
+            pane: None,
+            tab: None,
+            workspace: None,
+        },
+        inbox,
+    );
+    assert!(!inactive());
+}
+
+#[test]
+fn toast_clears_the_software_keyboard() {
+    use gpui::{Edges, WindowInsets};
+    assert_eq!(overlay_bottom(&WindowInsets::default()), px(0.));
+    let keyboard = WindowInsets {
+        ime: Edges {
+            bottom: px(318.),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(overlay_bottom(&keyboard), px(318.));
+    let negative = WindowInsets {
+        ime: Edges {
+            bottom: px(-4.),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(overlay_bottom(&negative), px(0.));
 }

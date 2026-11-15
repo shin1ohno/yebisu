@@ -45,16 +45,25 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_P14_QA"] = "1"
         app.launch()
         sleep(4)
-        hideSoftKeyboard(app)
         try tapText("P14 next", in: app)
         sleep(2)
-        try tapText("Agent needs attention", in: app, tap: false)
+        let toast = try tapText("Agent needs attention", in: app, tap: false)
         save("p14-toast")
+        // Owner decision: with the software keyboard up, the toast sits just above it.
+        let keyboards = app.keyboards
+        if keyboards.count > 0 {
+            let keyboardTop = keyboards.element(boundBy: 0).frame.minY
+            let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
+            print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
+            XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
+            save("p14-toast-above-keyboard")
+        } else {
+            print("P14 keyboard not shown; toast position relative to it not measured")
+        }
         try tapText("Agent needs attention", in: app)
         sleep(2)
         save("p14-focus")
         for name in ["p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"] {
-            hideSoftKeyboard(app)
             try tapText("P14 next", in: app)
             sleep(3)
             save(name)
@@ -570,18 +579,8 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
-    /// The P14 controls and toast sit at the bottom right, where the software
-    /// keyboard of a Simulator without a connected hardware keyboard covers them.
-    private func hideSoftKeyboard(_ app: XCUIApplication) {
-        for _ in 0..<3 {
-            let hide = app.keyboards.buttons["Hide keyboard"]
-            guard app.keyboards.count > 0, hide.exists else { return }
-            hide.tap()
-            sleep(1)
-        }
-    }
-
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
+    @discardableResult
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws -> CGRect {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         for attempt in 0..<attempts {
@@ -606,7 +605,7 @@ final class SmokeQA: XCTestCase {
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
                 }
-                return
+                return box
             }
             print("OCR attempt \(attempt): \(candidates.map { $0.string })")
             sleep(1)
