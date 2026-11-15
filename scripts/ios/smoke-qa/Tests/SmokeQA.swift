@@ -65,6 +65,15 @@ final class SmokeQA: XCTestCase {
             try tapText("P14 next", in: app)
             sleep(3)
             save(name)
+            if name == "p14-quiet" {
+                // The on-screen status line lives five seconds like the toast.
+                let shown = try recognizedStrings().contains { $0.contains("QuietHours") }
+                XCTAssertTrue(shown, "the status line must be visible right after the refusal")
+                sleep(4)
+                save("p14-status-expired")
+                let lingering = try recognizedStrings().contains { $0.contains("QuietHours") }
+                XCTAssertFalse(lingering, "the status line must disappear after its lifetime")
+            }
         }
         XCTAssertEqual(app.state, .runningForeground)
         // Never visit notification settings or answer an OS permission dialog.
@@ -575,6 +584,14 @@ final class SmokeQA: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 20 / app.frame.height))
         start.press(forDuration: 0.1, thenDragTo: end)
         sleep(1)
+    }
+
+    private func recognizedStrings() throws -> [String] {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        return (request.results ?? []).flatMap { $0.topCandidates(3).map { $0.string } }
     }
 
     @discardableResult
