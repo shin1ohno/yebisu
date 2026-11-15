@@ -269,6 +269,10 @@ else
   "${cargo_command[@]}" >"$cargo_messages"
 fi
 messages=$(cat "$cargo_messages")
+# Optional QA evidence sink. Never overwrite an earlier compiler transcript.
+if [[ -n ${YEBISU_P12_BUILD_MESSAGES:-} ]]; then
+  (set -C; printf '%s\n' "$messages" > "$YEBISU_P12_BUILD_MESSAGES")
+fi
 artifact=$(python3 -I -c '
 import json, sys
 

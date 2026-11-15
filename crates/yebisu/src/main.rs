@@ -123,6 +123,8 @@ mod edit_menu_gestures;
 mod edit_menu_tests;
 #[cfg(any(target_os = "ios", test))]
 mod front_layer;
+#[cfg(any(target_os = "ios", test))]
+mod native_menus;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_native;
@@ -132,6 +134,8 @@ mod edit_menu_qa_scenes;
 mod edit_menu_qa_sh1_152;
 #[path = "host_settings/availability.rs"]
 mod host_settings_availability;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod native_menus_qa;
 #[cfg(any(target_os = "ios", test))]
 mod p15_settings_view;
 #[cfg(any(target_os = "ios", test))]
