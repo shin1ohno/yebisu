@@ -11,7 +11,72 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Cheap Linux job that decides which macOS jobs a pull request needs, so a
+  # change that cannot affect a job does not queue it on a macOS runner. Pushes
+  # to main and workflow_dispatch always run every job. The diff is the whole
+  # pull request against its merge base, never just the latest push, so a green
+  # head always means every relevant job passed on the current content. If the
+  # diff cannot be computed, every job runs. Changes to this file alone do not
+  # select a macOS job; run workflow_dispatch on the branch to exercise them.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      check: ${{ steps.filter.outputs.check }}
+      simulator-smoke: ${{ steps.filter.outputs.simulator-smoke }}
+      edit-menu: ${{ steps.filter.outputs.edit-menu }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select jobs by changed paths
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed.txt"
+          all=false
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "Event $EVENT_NAME runs every job."
+            all=true
+          elif ! git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$changed"; then
+            echo "Could not diff $BASE_SHA...$HEAD_SHA; running every job."
+            all=true
+          else
+            echo "Changed files in the pull request:"
+            sed 's/^/  /' "$changed"
+          fi
+          # Everything each job compiles or bundles: the crate, its toolchain
+          # and lockfile, the fonts bundle.sh copies, the just entry point,
+          # the disk guard, and the bundling scripts.
+          build='^(crates/|\.cargo/|assets/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh)$)'
+          # check also runs clippy (clippy.toml), the repository checks, every
+          # unit test under scripts/, the provenance register, and reads
+          # testflight.yml in a test.
+          check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
+          # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
+          smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
+          # edit-menu: ci-sh1-152.py and the four checks it runs.
+          menu="$build|"'^scripts/ios/(ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)'
+          decide() {
+            if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+              echo "$1: run"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+              echo "$1: skip"
+            fi
+          }
+          decide check "$check"
+          decide simulator-smoke "$smoke"
+          decide edit-menu "$menu"
   edit-menu:
+    needs: changes
+    if: needs.changes.outputs.edit-menu == 'true'
     runs-on: macos-26
     timeout-minutes: 90
     steps:
@@ -38,6 +103,8 @@ jobs:
             target/ios-selection-settings/
             target/disk.log
   simulator-smoke:
+    needs: changes
+    if: needs.changes.outputs.simulator-smoke == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -71,6 +138,8 @@ jobs:
             target/ios-p9/*/
             !target/ios-smoke/build/
   check:
+    needs: changes
+    if: needs.changes.outputs.check == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
