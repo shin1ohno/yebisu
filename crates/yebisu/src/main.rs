@@ -36,6 +36,8 @@ use upstream::{font_weight, osc52, terminal, terminal_painter};
 mod theme;
 
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+mod animation_qa;
+#[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 mod mock_peer;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_view;
