@@ -65,9 +65,9 @@ final class SmokeQA: XCTestCase {
         sleep(4)
         save("p15-default")
         // Real UIKit typing brackets the modal operations in the peer's FIFO. Focus the
-        // terminal on its last body row, as the coordinate taps of P4/P9 do, not on the
-        // title row that sits next to the board header.
-        try tapText(terminalInputRow, in: app)
+        // terminal on its last body row at mid-width, as the coordinate taps of P4/P9 do
+        // (the row's text starts at the left edge, where the first run tapped).
+        try tapText(terminalInputRow, in: app, dx: 0.5)
         app.typeText("P15-start")
         sleep(1)
         try tapText("Settings", in: app)
@@ -84,7 +84,7 @@ final class SmokeQA: XCTestCase {
         try tapText("Close", in: app)
         sleep(2)
         save("p15-closed")
-        try tapText(terminalInputRow, in: app)
+        try tapText(terminalInputRow, in: app, dx: 0.5)
         app.typeText("P15-end")
         sleep(1)
         // Use the existing production board host buttons, not direct actions.
@@ -679,7 +679,7 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws -> Int {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> Int {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // A busy frame can make Vision drop a whole row of small controls that the
@@ -714,7 +714,7 @@ final class SmokeQA: XCTestCase {
                                          width: local.width, height: local.height * line.height)
                         print("OCR tap \(label) frame=\(app.frame) box=\(box) pass=\(pass)")
                         if tap {
-                            app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                            app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? box.midX, dy: 1-box.midY)).tap()
                         }
                         return matching
                     }
