@@ -1,5 +1,7 @@
 # P11 final source correction
 
+> Current status and known gaps: see `docs/p11-status.md` (supersedes UNRUN statements below).
+
 Base: 60abb8040cbf3e50c59af0bec8608e1087eda2ff. Original P1–P5 and F01–F26 remain required. This source stage is not native/product acceptance.
 
 ## Explicit font family intent

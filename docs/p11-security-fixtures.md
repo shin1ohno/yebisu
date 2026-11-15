@@ -1,6 +1,8 @@
 # P11 mandatory security fixtures at source stage 2
 
-All 26 requirements remain mandatory. This map describes authored assertions, not test execution. Rust, Simulator and real Keychain acceptance are UNRUN for the new head. Run the full `just check`, `just lint-ios`, `just test` on a leased Mac; targeted case filters below are diagnostic aids, not a replacement for those gates.
+> Current status and known gaps: see `docs/p11-status.md` (supersedes UNRUN statements below).
+
+All 26 requirements remain mandatory. This map describes authored assertions, not test execution. The Rust suite and the Simulator collector ran on the Mac mini at c8379979 (see `docs/p11-status.md`); real Keychain acceptance stays an owner gate. Run the full `just check`, `just lint-ios`, `just test` on a leased Mac; targeted case filters below are diagnostic aids, not a replacement for those gates.
 
 | ID | Primary source | Runnable case filter / scope |
 |---|---|---|

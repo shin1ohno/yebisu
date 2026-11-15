@@ -249,7 +249,7 @@ fn print_receipt(
         json!({"kind":"F19-test-only-reproducer","key":key.json(),
         "source_head":source_head,
         "source_binding":"requires external exact-head clean-source/build receipt",
-        "sdk_commit":"398c132a06723a0cc1494842a34666d173ec0200",
+        "sdk_commit":"6ab69074b298f52884265ed45078437522035c59",
         "modal_event_order":modal,"publication_event_order":"writer-accepted/frame-complete rows",
         "writer_sequence":"per-frame rows","accepted_offsets":"writer-accepted rows",
         "receiver_sequence":"receiver-frame rows","ordered_list_id":marker,

@@ -1,5 +1,7 @@
 # Provisional SDK11 consumer adoption — source only
 
+> Current status and known gaps: see `docs/p11-status.md` (supersedes UNRUN statements below).
+
 This is a frozen source candidate, not SDK/native acceptance. The controller
 admitted plan 0461ca658933341948bc47aa09fe5b1015fe6e1bb3d1be2f85a6f8623c6bf4d9,
 not the implementation. Dependency: herdr-uikit PR11 commit
@@ -117,10 +119,10 @@ final writer fence remains open independently of SDK11 observation. Controller
 must separately review an actual transport drain/fence contract before closing
 this gate. Existing final-send/Unknown/one-worker/reconcile checks are retained.
 
-Old `scripts/ios/p11-check.py` remains the historical 0/4 failure oracle.
+Old `scripts/ios/p11-check.py` remains the historical 0/4 failure oracle (legacy probe, not an acceptance route).
 New supported-control results cannot delete that failure or waive P1-P5/F01-F26.
 `docs/p11-security-fixtures.md` remains the full26 source/runnable-case map;
-all target Rust/native cases remain UNRUN.
+the Rust suite and the four collector cases ran on the Mac mini at c8379979 (`docs/p11-status.md`).
 
 ## Isolated collector handoff (UNRUN)
 
