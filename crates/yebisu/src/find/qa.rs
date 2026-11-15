@@ -40,7 +40,7 @@ impl Smoke {
                             5 => field.key(&qa_key("shift-enter"),window,cx),
                             6 => {
                                 field.input.selected=0..field.input.text.encode_utf16().count();
-                                cx.write_to_clipboard(ClipboardItem::new_string("needle"));
+                                cx.write_to_clipboard(ClipboardItem::new_string("needle".into()));
                             }
                             7 | 9 | 10 => {
                                 field.input.set_text("pre::post".into());
@@ -82,7 +82,7 @@ impl Smoke {
             })).into_any_element())
     }
 }
-fn qa_key(name: &str) -> KeyDownEvent {
+fn qa_key(name: &'static str) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke::parse(name).unwrap_or_default(),
         is_held: false,
