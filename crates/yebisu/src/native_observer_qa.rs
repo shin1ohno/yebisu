@@ -49,7 +49,7 @@ impl Smoke {
                 if i%6<4 {
                     let action=[sdk::Action::Paste,sdk::Action::Copy,sdk::Action::Cut,sdk::Action::SelectAll][(i%6)as usize];
                     let origin=if std::env::var_os("YEBISU_P11_DRAWING").is_some(){sdk::ResponderOrigin::Drawing}else{sdk::ResponderOrigin::Text};
-                    let policy=this.native_edit_availability(window);
+                    let policy=this.native_edit_availability(window).map(crate::edit_menu::Availability::native);
                     this.observer.start(window.window_handle(),&this.observation,action,origin,policy,policy);
                 } else {
                     // Existing physical-key adapter control; not hardware proof.

@@ -30,6 +30,17 @@ pub(crate) struct Availability {
     pub paste: bool,
     pub select_all: bool,
 }
+#[cfg(target_os = "ios")]
+impl Availability {
+    pub(crate) fn native(self) -> herdr_uikit::NativeEditAvailability {
+        herdr_uikit::NativeEditAvailability {
+            copy: self.copy,
+            cut: self.cut,
+            paste: self.paste,
+            select_all: self.select_all,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct SelectionKey {
@@ -75,12 +86,7 @@ impl MenuPresenter for NativePresenter {
         #[cfg(target_os = "ios")]
         herdr_uikit::set_native_edit_availability(
             _window,
-            _availability.map(|a| herdr_uikit::NativeEditAvailability {
-                copy: a.copy,
-                cut: a.cut,
-                paste: a.paste,
-                select_all: a.select_all,
-            }),
+            _availability.map(Availability::native),
         );
     }
     fn present(&mut self, _window: AnyWindowHandle, _at: Point<Pixels>) -> Option<MenuToken> {

@@ -43,7 +43,7 @@ impl Smoke {
                 let policy = if i/8 == 0 {None} else {Some(NativeEditAvailability{copy:allow,cut:allow,paste:allow,select_all:allow})};
                 // Keep real sheet focus. Some/allow must reach the sheet's actual handler.
                 this.settings_focus.focus(window,cx);
-                let restore = this.native_edit_availability(window);
+                let restore = this.native_edit_availability(window).map(crate::edit_menu::Availability::native);
                 if !this.observer_marker("start",this.observer.phase) { this.observer.fail(); return; }
                 this.observer.start(window.window_handle(),&this.observation,action,origin,policy,restore);
                 cx.notify();
