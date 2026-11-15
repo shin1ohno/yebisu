@@ -55,7 +55,7 @@ impl Smoke {
 
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if terminal.navigating.is_some() || self.actions.palette {
+        if self.settings_modal || terminal.navigating.is_some() || self.actions.palette {
             terminal.input.detach();
             return;
         }
@@ -93,7 +93,7 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
-        if self.terminal.navigating.is_some() || self.actions.palette {
+        if self.settings_modal || self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
         }
@@ -121,6 +121,19 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.settings_modal {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os("YEBISU_P11_QA").is_some()
+                && let Some(action) = herdr_uikit::native_edit_action()
+            {
+                self.observation
+                    .record(serde_json::json!({"kind":"p11-native-blocked", "action":format!("{action:?}")}));
+            }
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
             use crate::edit_menu::{EditAction, MenuToken};
@@ -138,6 +151,12 @@ impl Smoke {
             }
         }
         if !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        // A held closing key is not a fresh gesture that can resume input.
+        if event.is_held && self.terminal.input.requires_gesture() {
+            cx.stop_propagation();
+            window.prevent_default();
             return;
         }
         if event.keystroke.modifiers.platform
@@ -212,6 +231,11 @@ impl Smoke {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.settings_modal {
+            self.actions.consumed.remove(&event.keystroke.key);
+            cx.stop_propagation();
+            return;
+        }
         #[cfg(target_os = "ios")]
         if herdr_uikit::native_edit_action().is_some() {
             cx.stop_propagation();

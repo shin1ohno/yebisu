@@ -100,11 +100,13 @@ fn sh1_151_strip_edit_before_load_preserves_other_fields(cx: &mut TestAppContext
     for copy in [false, true] {
         let root = directory("selection-load-race");
         let stored = Values {
+            theme: crate::theme_picker::Palette::default(),
             compact: true,
             terminal_priority: true,
             board_hidden: true,
             drag_select: !copy,
             copy_on_select: !copy,
+            ..Values::default()
         };
         store::save(&root, &stored).unwrap_or_else(|e| panic!("{e}"));
         let expected = Values {

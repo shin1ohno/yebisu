@@ -103,6 +103,10 @@ mod core_mock;
 #[cfg(any(target_os = "ios", test))]
 mod settings;
 #[cfg(any(target_os = "ios", test))]
+mod settings_pages;
+#[cfg(any(target_os = "ios", test))]
+mod settings_sheet;
+#[cfg(any(target_os = "ios", test))]
 mod settings_view;
 
 #[cfg(any(target_os = "ios", test))]
@@ -126,3 +130,9 @@ mod edit_menu_qa_native;
 mod edit_menu_qa_scenes;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_sh1_152;
+#[path = "host_settings/availability.rs"]
+mod host_settings_availability;
+#[cfg(any(target_os = "ios", test))]
+mod p15_settings_view;
+#[cfg(any(target_os = "ios", test))]
+mod theme_picker;

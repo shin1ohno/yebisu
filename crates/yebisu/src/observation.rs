@@ -6,18 +6,43 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) struct Observation(Option<SyncSender<Value>>, usize);
 static NEXT_OBSERVATION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(crate) struct Observation {
+    sender: Option<SyncSender<Value>>,
+    window: usize,
+    #[cfg(test)]
+    diagnostics: Option<SyncSender<String>>,
+}
 
 impl Observation {
+    fn with_sender(sender: Option<SyncSender<Value>>, window: usize) -> Self {
+        Self {
+            sender,
+            window,
+            #[cfg(test)]
+            diagnostics: None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn capture_diagnostics(&mut self, sender: SyncSender<String>) {
+        self.diagnostics = Some(sender);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn injected(sender: SyncSender<Value>) -> Self {
+        Self::with_sender(Some(sender), 0)
+    }
+
     pub(crate) fn new() -> Self {
         let p10 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SETTINGS_QA").is_some();
         let selection =
             cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SELECTION_SETTINGS_QA").is_some();
         let p9 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_CORE_QA").is_some();
+        let p11 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_P11_QA").is_some();
+        let p15 = cfg!(target_abi = "sim") && std::env::var_os("YEBISU_P15_QA").is_some();
         let p2 = std::env::var_os("YEBISU_P2_OBSERVE").is_some();
         if !p2 && std::env::var_os("YEBISU_SMOKE_OBSERVE").is_none() {
-            return Self(None, 0);
+            return Self::with_sender(None, 0);
         }
         let id = NEXT_OBSERVATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let menu_case = if cfg!(target_abi = "sim") {
@@ -37,8 +62,8 @@ impl Observation {
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .write(true)
-                    .append(p2 || p10 || selection || (p9 && filename.is_none()))
-                    .truncate(!(p2 || p10 || selection || (p9 && filename.is_none())))
+                    .append(p2 || p10 || selection || p11 || p15 || (p9 && filename.is_none()))
+                    .truncate(!(p2 || p10 || selection || p11 || p15 || (p9 && filename.is_none())))
                     .open(directory.join(if let Some(filename) = filename.as_deref() {
                         filename
                     } else if selection {
@@ -60,14 +85,14 @@ impl Observation {
                 eprintln!("smoke observation writer: {error}");
             }
         });
-        let observation = Self(Some(sender), id);
+        let observation = Self::with_sender(Some(sender), id);
         observation
             .record(serde_json::json!({"kind": "launch", "phase": if p2 { "P2" } else { "P0" }}));
         observation
     }
 
     pub(crate) fn record(&self, mut value: Value) {
-        let Some(sender) = &self.0 else {
+        let Some(sender) = &self.sender else {
             return;
         };
         let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
@@ -75,11 +100,23 @@ impl Observation {
         };
         if let Ok(case) = std::env::var("YEBISU_SH1_152_CASE") {
             value["case"] = case.into();
-            value["window"] = self.1.into();
+            value["window"] = self.window.into();
         }
         value["time"] = now.as_secs_f64().into();
         if let Err(error) = sender.try_send(value) {
-            eprintln!("smoke observation dropped: {error}");
+            let reason = match error {
+                std::sync::mpsc::TrySendError::Full(_) => "full",
+                std::sync::mpsc::TrySendError::Disconnected(_) => "disconnected",
+            };
+            let message = format!("smoke observation dropped: {reason}");
+            #[cfg(test)]
+            if let Some(sink) = &self.diagnostics {
+                let _ = sink.try_send(message.clone());
+            }
+            eprintln!("{message}");
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -124,6 +124,11 @@ fn normalize_shortcut(binding: &mut Keystroke) {
 }
 impl Smoke {
     pub(crate) fn run_action(&mut self, command: Command) -> crate::Result<()> {
+        if self.settings_modal {
+            return Err(crate::Error::Settings(
+                "terminal action blocked by settings".into(),
+            ));
+        }
         self.handoff.cancel();
         self.handoff.selection = None;
         if !catalog(&self.terminal)
