@@ -32,16 +32,32 @@ final class EditMenuQA: XCTestCase {
                 app.activate()
                 sleep(4)
             } else if name == "E3e" {
-                let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
-                let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-                top.press(forDuration: 0.1, thenDragTo: bottom)
-                sleep(2)
-                bottom.press(forDuration: 0.1, thenDragTo: top)
-                sleep(2)
-                // The system overlay can stay open in the Simulator, leaving
-                // only its search keyboard on screen (PR run 43630200713).
-                // Leaving through Home adds a Background phase, so the oracle
-                // reports E3e unverified (device item 10), never a false pass.
+                // A drag from the top centre does not open a system overlay on
+                // the hosted iPadOS 26 Simulator: it grabs the full-screen app
+                // as a window and moves it off-screen, with no lifecycle change
+                // (main run 43668219161 screen recording). The window state then
+                // outlives the app and shifts every later launch. Pull Control
+                // Center from the top-right status corner, which the system
+                // owns, in screen space.
+                frame("E3e before overlay", app)
+                screenPoint(app, 0.97, 0.002).press(forDuration: 0.1, thenDragTo: screenPoint(app, 0.97, 0.5))
+                // Control Center dims the app but leaves its labels readable,
+                // so a visible "152 Replay" does not mean the overlay closed
+                // (PR run 43675932357: the Replay tap only dismissed it). Its
+                // header shows "Carrier", which the app's status bar never does.
+                let opened = waitText("Carrier", present: true, seconds: 8, app, "E3e overlay open")
+                save("E3e-overlay")
+                if opened {
+                    // Tap the empty left side; Control Center's modules sit on the right.
+                    screenPoint(app, 0.2, 0.5).tap()
+                    _ = waitText("Carrier", present: false, seconds: 8, app, "E3e overlay closed")
+                }
+                // An app that is no longer full screen means a gesture moved
+                // its window; the receipt names it instead of a missing label.
+                frame("E3e after overlay", app)
+                // If the overlay stays open, leaving through Home adds a
+                // Background phase, so the oracle reports E3e unverified
+                // (device item 10), never a false pass.
                 if (try? coordinate("152 Replay", app, required: false)) == nil {
                     print("SH1-152 E3e overlay stayed open; leaving through Home")
                     XCUIDevice.shared.press(.home)
@@ -155,7 +171,49 @@ final class EditMenuQA: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(4)
+        frame("launch \(name)", app)
         return app
+    }
+
+    // OCR reads screen positions, but app.coordinate is relative to the app's
+    // own frame. In main run 43668219161 the app launched as a smaller window,
+    // so taps on "152 Begin" landed on "New Tab" (three tab.create receipts in
+    // E5a). Convert a screen-normalized point into a tap at that screen point.
+    private func screenPoint(_ app: XCUIApplication, _ x: CGFloat, _ y: CGFloat) -> XCUICoordinate {
+        let screen = screenSize()
+        let origin = app.frame.origin
+        return app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: screen.width * x - origin.x, dy: screen.height * y - origin.y))
+    }
+
+    // Records whether the app still fills the screen, so a moved window shows
+    // up in the log at the step that moved it.
+    private func frame(_ step: String, _ app: XCUIApplication) {
+        let screen = screenSize()
+        let frame = app.frame
+        let full = abs(frame.minX) < 1 && abs(frame.minY) < 1 && abs(frame.width - screen.width) < 1 && abs(frame.height - screen.height) < 1
+        print("SH1-152 FRAME \(step) app=\(frame) screen=\(screen) fullscreen=\(full)")
+    }
+
+    // Reads the screen until `label` is (or is no longer) shown, for at most
+    // `seconds`; each read takes about a second, so no fixed sleep is added.
+    // Prints the outcome and elapsed time; the OCR lines record what was seen.
+    private func waitText(_ label: String, present: Bool, seconds: TimeInterval, _ app: XCUIApplication, _ step: String) -> Bool {
+        let start = Date()
+        repeat {
+            let shown = (try? coordinate(label, app, required: false, attempts: 1)) != nil
+            if shown == present {
+                print("SH1-152 WAIT \(step): '\(label)' present=\(present) after \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
+                return true
+            }
+        } while Date().timeIntervalSince(start) < seconds
+        print("SH1-152 WAIT \(step): '\(label)' present=\(present) not reached in \(Int(seconds))s")
+        return false
+    }
+
+    // Screen size in points: SpringBoard always spans the whole screen.
+    private func screenSize() -> CGSize {
+        XCUIApplication(bundleIdentifier: "com.apple.springboard").frame.size
     }
 
     // Owner rule (iOS convention): only usable items are shown. Without a
@@ -191,8 +249,8 @@ final class EditMenuQA: XCTestCase {
         try coordinate(label, app).tap()
     }
 
-    private func coordinate(_ label: String, _ app: XCUIApplication, required: Bool = true) throws -> XCUICoordinate {
-        for attempt in 0..<4 {
+    private func coordinate(_ label: String, _ app: XCUIApplication, required: Bool = true, attempts: Int = 4) throws -> XCUICoordinate {
+        for attempt in 0..<attempts {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -203,7 +261,7 @@ final class EditMenuQA: XCTestCase {
                 guard let range = candidate.string.range(of: label), let observed = try candidate.boundingBox(for: range) else { continue }
                 let box = observed.boundingBox
                 print("SH1-152 OCR \(label) \(box)")
-                return app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY))
+                return screenPoint(app, box.midX, 1-box.midY)
             }
             // An open edit menu can cover the start of a control: "52 Mutate"
             // beside Paste, "utate" beside Copy and Paste (runs 43564245188,
@@ -216,11 +274,11 @@ final class EditMenuQA: XCTestCase {
                           let observed = try candidate.boundingBox(for: text.startIndex..<text.endIndex) else { continue }
                     let box = observed.boundingBox
                     print("SH1-152 OCR \(label) partially covered as '\(text)' \(box)")
-                    return app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY))
+                    return screenPoint(app, box.midX, 1-box.midY)
                 }
             }
             print("SH1-152 OCR attempt \(attempt): \(candidates.map { $0.string })")
-            sleep(1)
+            if attempt + 1 < attempts { sleep(1) }
         }
         if required {
             save("missing-\(label)")
