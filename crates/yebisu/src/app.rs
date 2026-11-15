@@ -340,30 +340,6 @@ pub(crate) fn run() {
                             }
                             Err(error) => this.terminal.link.install(generation, Err(error)),
                         }
-                    } else if std::env::var_os("YEBISU_R5_QA").is_some() {
-                        let (release, wait) = std::sync::mpsc::channel();
-                        let old = this.terminal.link.inbox.clone();
-                        this.terminal.late_reader_release = Some(release);
-                        this.terminal.link.reader = Some(std::thread::spawn(move || {
-                            if wait.recv_timeout(Duration::from_secs(60)).is_ok()
-                                && let Ok(mut live) = old.lock()
-                            {
-                                live.apply(sheprd_client::ClientEvent::VersionMismatch(
-                                    sheprd_client::VersionMismatch::DaemonOutdated {
-                                        server_version: Some("R5-late-reader".into()),
-                                    },
-                                ));
-                            }
-                        }));
-                    } else if std::env::var_os("YEBISU_R3_QA").is_some() {
-                        // Inject only into the reader mailbox, before any UI poll.
-                        if let Ok(mut live) = this.terminal.link.inbox.try_lock() {
-                            live.apply(sheprd_client::ClientEvent::VersionMismatch(
-                                sheprd_client::VersionMismatch::DaemonOutdated {
-                                    server_version: Some("0.8".into()),
-                                },
-                            ));
-                        }
                     } else {
                         this.terminal
                             .link
@@ -371,15 +347,6 @@ pub(crate) fn run() {
                     }
                     this.terminal.open = true;
                     this.terminal.needs_focus = true;
-                    if std::env::var_os("YEBISU_BOARD_QA").is_some() {
-                        this.terminal.link.reset();
-                        this.terminal.reconnect.begin("qa-alpha".into());
-                        let generation = this.terminal.link.generation;
-                        this.terminal
-                            .link
-                            .install(generation, crate::mock_peer::connect_board());
-                        this.start_host_connection("qa-beta".into(), cx);
-                    }
                     cx.notify();
                 });
             }

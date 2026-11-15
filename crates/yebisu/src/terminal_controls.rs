@@ -303,62 +303,6 @@ impl Smoke {
     // Deterministic Simulator adapter exercise; never compiled into device UI.
     pub(crate) fn input_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        if std::env::var_os("YEBISU_R6_QA").is_some() {
-            return Some(
-                div()
-                    .flex()
-                    .gap_4()
-                    .px_4()
-                    .children(
-                        [
-                            ("r6-next", "QA Next", "}"),
-                            ("r6-prev", "QA Previous", "{"),
-                            ("r6-escape", "QA Escape", "escape"),
-                        ]
-                        .into_iter()
-                        .map(|(id, label, key)| {
-                            div()
-                                .id(id)
-                                .p_2()
-                                .bg(rgb(0x3b4252))
-                                .child(label)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.terminal_focus.focus(window, cx);
-                                    if key == "escape" {
-                                        this.actions.palette = true;
-                                    }
-                                    let keystroke = gpui::Keystroke {
-                                        key: key.into(),
-                                        key_char: None,
-                                        modifiers: gpui::Modifiers {
-                                            platform: key != "escape",
-                                            ..Default::default()
-                                        },
-                                    };
-                                    for is_held in [false, true, true, true] {
-                                        this.terminal_key_down(
-                                            &KeyDownEvent {
-                                                keystroke: keystroke.clone(),
-                                                is_held,
-                                                prefer_character_input: false,
-                                            },
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                    this.terminal_key_up(&KeyUpEvent { keystroke }, window, cx);
-                                    this.observation.record(serde_json::json!({
-                                        "kind":"r6-key", "key":key, "palette":this.actions.palette,
-                                        "consumed":this.actions.consumed.len(),
-                                    }));
-                                    cx.notify();
-                                }))
-                        }),
-                    )
-                    .into_any_element(),
-            );
-        }
-        #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if std::env::var_os("YEBISU_INPUT_QA").is_some() {
             use gpui::EntityInputHandler;
             return Some(

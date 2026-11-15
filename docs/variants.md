@@ -101,8 +101,7 @@ is absent from device builds.
 
 No new design fork affecting device feel was found. UIKit symbol normalization
 and retaining a UI-consumed press until release repair the specified behavior.
-Existing runtime shortcut-priority and input switches remain available. R6 QA
-buttons are Simulator-only under YEBISU_R6_QA and absent from device builds.
+Existing runtime shortcut-priority and input switches remain available.
 
 ## P8 handoff
 
