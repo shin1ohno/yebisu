@@ -11,6 +11,7 @@ use std::{
 #[derive(Clone, Default)]
 pub(crate) struct Live {
     pub connected: bool,
+    pub search: crate::find::adapter::Mailbox,
     /// Preserves target changes even when the latest-state mailbox skips a frame.
     pub input_epoch: u64,
     pub snapshot: Option<Arc<ClientShellSnapshot>>,
@@ -85,6 +86,7 @@ impl Live {
                 request_id,
                 response,
             } => {
+                crate::find::adapter::receive(self, &request_id, &response);
                 if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
                     if let Some(error) = response.get("error") {
@@ -97,6 +99,14 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
+                if self
+                    .search
+                    .ticket
+                    .as_ref()
+                    .is_some_and(|(_, id)| Some(id) == request_id.as_ref())
+                {
+                    self.search.answer = Some(Err(crate::find::State::SendFailed));
+                }
                 crate::diagnostics::record("command_rejected");
                 if request_id == self.pending_request {
                     self.failed_request = request_id;
@@ -113,6 +123,7 @@ impl Live {
             ClientEvent::Disconnected { reason, ssh: _ } => {
                 crate::diagnostics::record("disconnected");
                 self.connected = false;
+                self.search.clear();
                 if self.version_mismatch.get().is_none() {
                     self.status = format!("Disconnected: {reason}");
                 }

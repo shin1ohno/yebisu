@@ -92,6 +92,9 @@ impl Smoke {
 impl EntityInputHandler for Smoke {
     fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
         if self.terminal.open {
+            if self.find.is_some() || self.find_handoff.paused {
+                return false;
+            }
             self.terminal
                 .input
                 .accepts(self.active_focus().is_focused(window), false)
@@ -132,6 +135,9 @@ impl EntityInputHandler for Smoke {
         self.active_input().marked.clone()
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.terminal.open && (self.find.is_some() || self.find_handoff.paused) {
+            return;
+        }
         self.active_input_mut().marked = None;
         if self.terminal.open {
             self.terminal.input.composition = Input::default();
@@ -150,6 +156,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.find.is_some() || self.find_handoff.paused {
+                return;
+            }
             if self.handoff.selection.is_some() || self.handoff.select_mode {
                 return;
             }
@@ -186,6 +195,9 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if self.terminal.open {
+            if self.find.is_some() || self.find_handoff.paused {
+                return;
+            }
             if self.handoff.selection.is_some() || self.handoff.select_mode {
                 return;
             }
@@ -263,6 +275,9 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal.open && (self.find.is_some() || self.find_handoff.paused) {
+            return;
+        }
         let start = self.active_input().byte(range.start);
         let end = self.active_input().byte(range.end.max(range.start));
         self.active_input_mut().selected = self.active_input().text[..start].encode_utf16().count()

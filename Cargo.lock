@@ -2363,7 +2363,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=3ec67ca3850e38e369cb537255cd81145cef79e7#3ec67ca3850e38e369cb537255cd81145cef79e7"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=33e288d762e158888b8edcd9f2b9eb9ed862e1b2#33e288d762e158888b8edcd9f2b9eb9ed862e1b2"
 dependencies = [
  "anyhow",
  "block2",
@@ -2385,6 +2385,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "objc2-ui-kit",
+ "objc2-user-notifications",
  "parking_lot",
  "pathfinder_geometry",
  "raw-window-handle",
@@ -3522,6 +3523,18 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-quartz-core",
+]
+
+[[package]]
+name = "objc2-user-notifications"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "objc2",
+ "objc2-foundation",
 ]
 
 [[package]]

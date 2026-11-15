@@ -55,7 +55,7 @@ impl Smoke {
 
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if terminal.navigating.is_some() || self.actions.palette {
+        if self.find.is_some() || terminal.navigating.is_some() || self.actions.palette {
             terminal.input.detach();
             return;
         }
@@ -68,6 +68,9 @@ impl Smoke {
         }
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
+        if self.find.is_some() || self.find_handoff.paused {
+            return;
+        }
         self.refresh_terminal_input();
         self.sync_handoff();
         if self.handoff.selection.is_some() || self.handoff.select_mode {
@@ -93,6 +96,9 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
+        if self.find.is_some() || self.find_handoff.paused {
+            return;
+        }
         if self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
@@ -121,6 +127,18 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Search owns input while open, and the retirement fence holds every
+        // terminal key, native Edit commands included, until it is released.
+        if self.find.is_some() {
+            return;
+        }
+        if self.find_handoff.paused {
+            if self.terminal_focus.is_focused(window) {
+                cx.stop_propagation();
+                window.prevent_default();
+            }
+            return;
+        }
         #[cfg(target_os = "ios")]
         if let Some(action) = herdr_uikit::native_edit_action() {
             use crate::edit_menu::{EditAction, MenuToken};
@@ -181,6 +199,14 @@ impl Smoke {
         if let Some(command) =
             crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
         {
+            if command == sheprd_commands::Command::Find {
+                if !event.is_held {
+                    self.open_find(window, cx);
+                }
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
             if !event.is_held
                 && let Err(e) = self.run_catalog_command(command, None, window.is_window_active())
             {
@@ -218,6 +244,10 @@ impl Smoke {
             return;
         }
         if self.actions.consumed.remove(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
+        if self.find_handoff.paused {
             cx.stop_propagation();
             return;
         }

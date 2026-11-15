@@ -112,6 +112,12 @@ mod i18n;
 mod settings_spike;
 
 #[cfg(any(target_os = "ios", test))]
+mod find;
+
+#[cfg(any(target_os = "ios", test))]
+mod find_view;
+
+#[cfg(any(target_os = "ios", test))]
 mod edit_menu;
 #[cfg(any(target_os = "ios", test))]
 mod edit_menu_gestures;

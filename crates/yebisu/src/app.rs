@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    pub(crate) find: Option<crate::find_view::FindBar>,
+    pub(crate) find_handoff: crate::find::retirement::Handoff,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
@@ -77,6 +79,7 @@ impl Smoke {
                             cx.notify();
                         }
                         this.poll_settings(cx);
+                        this.poll_find(cx);
                         this.poll_terminal(cx)
                     })
                     .is_err()
@@ -87,6 +90,8 @@ impl Smoke {
         })
         .detach();
         Self {
+            find: None,
+            find_handoff: Default::default(),
             settings: None,
             settings_error: None,
             focus,
@@ -340,6 +345,12 @@ pub(crate) fn run() {
                             }
                             Err(error) => this.terminal.link.install(generation, Err(error)),
                         }
+                    } else if std::env::var_os("YEBISU_P13_QA").is_some() {
+                        this.terminal.link.install(
+                            generation,
+                            crate::find::peer::connect().map(|(client, _)| client),
+                        );
+                        this.actions.board_hidden = true;
                     } else {
                         this.terminal
                             .link

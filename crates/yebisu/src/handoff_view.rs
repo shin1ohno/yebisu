@@ -6,7 +6,9 @@ use crate::{
 use gpui::{AnyElement, ClipboardItem, Context, Window, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn sync_handoff(&mut self) {
-        let stamp = if self.terminal.open
+        let stamp = if self.find.is_none()
+            && !self.find_handoff.paused
+            && self.terminal.open
             && self.terminal.navigating.is_none()
             && !self.actions.palette
             && !self.terminal.reconnect.suspended
@@ -193,7 +195,9 @@ impl Smoke {
         self.terminal.input.detach();
         if !self.handoff.select_mode {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
         }
     }
     pub(crate) fn selection_down(
@@ -230,7 +234,9 @@ impl Smoke {
             }
         } else {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
             window.request_virtual_keyboard();
         }
         cx.notify();
