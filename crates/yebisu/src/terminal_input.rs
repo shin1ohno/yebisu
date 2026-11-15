@@ -51,7 +51,10 @@ pub(crate) fn gap(live: &Live) -> Option<&'static str> {
     }
     match &surface.popup {
         Some(_) => None,
-        None => snapshot.focused_pane_id.is_none().then_some("no-destination"),
+        None => snapshot
+            .focused_pane_id
+            .is_none()
+            .then_some("no-destination"),
     }
 }
 
