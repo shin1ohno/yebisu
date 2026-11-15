@@ -432,17 +432,19 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// Non-asserting OCR lookup. A busy frame can make Vision drop a whole row of small
-    /// controls that the screenshot shows (P11 adds a Settings button above the SH1-154
-    /// strip), so one pass over the whole screenshot is followed by overlapping horizontal
-    /// bands. `matching` counts the recognized lines of the whole-screenshot pass that carry
-    /// `label`, so a caller can reject an ambiguous tap.
-    private func locateText(_ label: String, excludingSuffix: String? = nil) throws -> (box: CGRect, matching: Int)? {
+    /// Non-asserting OCR lookup. `matching` counts the recognized lines of the
+    /// whole-screenshot pass that carry `label`, so a caller can reject an ambiguous tap.
+    /// With `bands`, a miss on the whole screenshot is followed by overlapping horizontal
+    /// bands: a busy frame can make Vision drop a whole row of small controls that the
+    /// screenshot shows (P11 adds a Settings button above the SH1-154 strip).
+    private func locateText(_ label: String, excludingSuffix: String? = nil, bands: Bool = false) throws -> (box: CGRect, matching: Int)? {
         let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
         var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
-        for index in 0..<5 {
-            let top = CGFloat(index) * 0.18
-            passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
+        if bands {
+            for index in 0..<5 {
+                let top = CGFloat(index) * 0.18
+                passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
+            }
         }
         var matching = 0
         var candidateCount = 0
@@ -521,8 +523,11 @@ final class SmokeQA: XCTestCase {
     private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> Int {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
+        // The whole screenshot is tried on every attempt, as before; the horizontal
+        // bands are only the last resort, so a control the whole-screenshot pass finds
+        // is never replaced by a band match.
         for attempt in 0..<attempts {
-            if let found = try locateText(label, excludingSuffix: excludingSuffix) {
+            if let found = try locateText(label, excludingSuffix: excludingSuffix, bands: attempt == attempts - 1) {
                 print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
