@@ -45,6 +45,7 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_P14_QA"] = "1"
         app.launch()
         sleep(4)
+        hideSoftKeyboard(app)
         try tapText("P14 next", in: app)
         sleep(2)
         try tapText("Agent needs attention", in: app, tap: false)
@@ -53,6 +54,7 @@ final class SmokeQA: XCTestCase {
         sleep(2)
         save("p14-focus")
         for name in ["p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"] {
+            hideSoftKeyboard(app)
             try tapText("P14 next", in: app)
             sleep(3)
             save(name)
@@ -566,6 +568,17 @@ final class SmokeQA: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 20 / app.frame.height))
         start.press(forDuration: 0.1, thenDragTo: end)
         sleep(1)
+    }
+
+    /// The P14 controls and toast sit at the bottom right, where the software
+    /// keyboard of a Simulator without a connected hardware keyboard covers them.
+    private func hideSoftKeyboard(_ app: XCUIApplication) {
+        for _ in 0..<3 {
+            let hide = app.keyboards.buttons["Hide keyboard"]
+            guard app.keyboards.count > 0, hide.exists else { return }
+            hide.tap()
+            sleep(1)
+        }
     }
 
     private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
