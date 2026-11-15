@@ -14,6 +14,7 @@ use worker::{Completion, Request};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
+    pub theme: crate::theme_picker::Palette,
     pub font: font::TerminalFont,
     pub compact: bool,
     pub terminal_priority: bool,
@@ -26,6 +27,7 @@ impl Default for Values {
     fn default() -> Self {
         Self {
             font: font::TerminalFont::default(),
+            theme: crate::theme_picker::Palette::default(),
             compact: false,
             terminal_priority: false,
             board_hidden: false,
@@ -38,6 +40,7 @@ impl Default for Values {
 // Edit tracking is independent of setting defaults (Drag defaults to true).
 #[derive(Default)]
 struct Edited {
+    theme: bool,
     font_size: bool,
     font_family: bool,
     compact: bool,
@@ -96,6 +99,19 @@ impl SettingsHost {
         })
     }
 
+    pub fn choose_theme(&mut self, palette: crate::theme_picker::Palette) {
+        if !self.loaded {
+            self.edited_before_load.theme = true;
+            if self.draft.theme == palette {
+                self.revision += 1;
+                self.retry_requested = true;
+            }
+        }
+        let mut values = self.draft.clone();
+        values.theme = palette;
+        self.edit(values);
+    }
+
     pub fn edit(&mut self, values: Values) {
         self.edit_values(values, EditIntent::Snapshot);
     }
@@ -129,6 +145,7 @@ impl SettingsHost {
         }
         if self.draft != values || pending_intent {
             if !self.loaded {
+                self.edited_before_load.theme |= self.draft.theme != values.theme;
                 self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
                 self.edited_before_load.font_family |= self.draft.font.family != values.font.family;
                 self.edited_before_load.compact |= self.draft.compact != values.compact;
@@ -158,6 +175,9 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
+                            if !self.edited_before_load.theme {
+                                self.draft.theme = values.theme;
+                            }
                             if !self.edited_before_load.font_size {
                                 self.draft.font.size = values.font.size;
                             }
@@ -297,3 +317,6 @@ mod font_tests;
 
 #[cfg(test)]
 mod family_tests;
+
+#[cfg(test)]
+mod theme_tests;

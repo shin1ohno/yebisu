@@ -145,6 +145,7 @@ fn regular_button_before_load_preserves_reset_intent_and_other_fields(
                 family: "Menlo".into(),
             },
             copy_on_select: true,
+            theme: crate::theme_picker::Palette::HighContrast,
             ..Values::default()
         };
         store::save(&root, &stored).unwrap_or_else(|e| panic!("{e}"));
@@ -211,6 +212,7 @@ fn regular_button_before_load_preserves_reset_intent_and_other_fields(
         assert_eq!(durable.font.size, None);
         assert_eq!(durable.font.family, stored.font.family);
         assert!(durable.copy_on_select);
+        assert_eq!(durable.theme, stored.theme);
         assert_eq!(durable.board_hidden, prior_edit);
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {

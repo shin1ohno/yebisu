@@ -5,7 +5,7 @@ use crate::settings::Values;
 fn pages_are_the_supported_allowlist() {
     assert_eq!(
         Page::ALL.map(Page::id),
-        ["fonts", "keyboard", "ipad-key", "general"]
+        ["fonts", "appearance", "keyboard", "ipad-key", "general"]
     );
 }
 

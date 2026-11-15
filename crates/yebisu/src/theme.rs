@@ -11,6 +11,19 @@ pub(crate) struct Theme {
     pub palette: [u32; 256],
 }
 impl Theme {
+    pub(crate) fn from_palette(palette: crate::theme_picker::Palette) -> Self {
+        let mut theme = Self::default();
+        if let Some(colors) = palette.colors() {
+            theme.background = colors.background;
+            theme.foreground = colors.foreground;
+            theme.bold = Some(colors.foreground);
+            theme.cursor = colors.foreground;
+            theme.muted = colors.muted;
+            theme.primary = colors.primary;
+        }
+        theme
+    }
+
     pub fn primary(&self) -> u32 {
         self.primary
     }

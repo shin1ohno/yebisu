@@ -14,17 +14,25 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Page {
     Fonts,
+    Appearance,
     Keyboard,
     DeviceKey,
     General,
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 4] = [Self::Fonts, Self::Keyboard, Self::DeviceKey, Self::General];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Fonts,
+        Self::Appearance,
+        Self::Keyboard,
+        Self::DeviceKey,
+        Self::General,
+    ];
 
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::Fonts => "fonts",
+            Self::Appearance => "appearance",
             Self::Keyboard => "keyboard",
             Self::DeviceKey => "ipad-key",
             Self::General => "general",
