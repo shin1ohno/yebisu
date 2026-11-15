@@ -53,13 +53,13 @@ final class SmokeQA: XCTestCase {
         let keyboardTop = keyboard.exists ? keyboard.frame.minY : app.frame.height
         XCTAssertLessThan(keyboardTop, app.frame.height - 100, "the software keyboard must be up for this measurement")
         try tapText("P14 next", in: app)
-        sleep(2)
-        let toast = try tapText("Agent needs attention", in: app, tap: false)
+        sleep(1)
+        // The toast lives five seconds: one screenshot, then one OCR pass that also taps.
         save("p14-toast")
+        let toast = try tapText("Agent needs attention", in: app)
         let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
         print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
         XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
-        try tapText("Agent needs attention", in: app)
         sleep(2)
         save("p14-focus")
         for name in ["p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"] {
