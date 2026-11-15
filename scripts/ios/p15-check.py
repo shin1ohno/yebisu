@@ -8,7 +8,10 @@ import importlib.util
 import os
 import json
 from pathlib import Path
+import re
 import shutil
+import subprocess
+import threading
 import time
 import tempfile
 
@@ -19,6 +22,161 @@ SEED = dict(version=1, language="en-US", theme="owner-default", compact=False,
             terminal_font_family="SauceCodePro Nerd Font Mono",
             notifications=dict(route="toast", sound=False, volume=37, muted=True, quiet=[60, 120]),
             future=dict(preserve=42))
+
+
+# Page button text on the settings sheet: PageId::id() is shown as is. This must
+# equal the SmokeQA constant, because OCR matching is case-sensitive.
+APPEARANCE_PAGE = "appearance"
+CONTROLS = ("P15-start", "P15-end")
+# xcresulttool export attachments: <name>_<index>_<UUID><ext>
+ATTACHMENT = re.compile(r"^(?P<base>.+)_(?P<index>\d+)_(?P<uuid>[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-"
+                        r"[0-9A-F]{4}-[0-9A-F]{12})(?P<ext>\.[A-Za-z0-9]+)?$")
+STAGES = ["default", "alpha", "high-first", "owner-reset", "selected", "closed", "beta",
+          "returned", "relaunch", "relaunch-host"]
+
+
+def attachment_files(manifest, root):
+    """Exactly one exported file per (base name, extension), matched exactly.
+
+    XCTest exports `p15-ui.json` as `p15-ui_0_<UUID>.json`. A prefix match would let
+    `p15-relaunch-host_0_...` satisfy `p15-relaunch`, so names are decomposed and
+    compared whole. Names of any other shape are refused.
+    """
+    found = {}
+    for test in manifest:
+        for item in test["attachments"]:
+            name = item["suggestedHumanReadableName"]
+            match = ATTACHMENT.match(name)
+            if not match:
+                raise ValueError("attachment name has an unexpected shape: " + name)
+            key = (match["base"], match["ext"] or "")
+            if key in found:
+                raise ValueError("duplicate attachment: " + match["base"] + key[1])
+            found[key] = Path(root) / item["exportedFileName"]
+    for stage in STAGES:
+        if ("p15-" + stage, ".png") not in found:
+            raise ValueError("missing native screenshot: " + stage)
+    if ("p15-ui", ".json") not in found:
+        raise ValueError("missing unique installed UI transcript")
+    return found[("p15-ui", ".json")]
+
+
+def check_page_label(rust_pages, rust_view, swift):
+    """The page button label, the OCR constant and the checker must agree."""
+    ids = re.findall(r'Self::Appearance\s*=>\s*"([^"]+)"', rust_pages)
+    if len(ids) != 1:
+        raise ValueError("settings_pages: Appearance page id not found exactly once")
+    if not re.search(r'button\(\s*format!\("settings-page-\{\}",\s*page\.id\(\)\),\s*page\.id\(\)', rust_view):
+        raise ValueError("settings_sheet: page button no longer shows page.id() as its label")
+    constants = re.findall(r'private let appearancePage = "([^"]+)"', swift)
+    if constants != [ids[0]]:
+        raise ValueError("SmokeQA appearancePage must equal the page id " + repr(ids[0]))
+    if ids[0] != APPEARANCE_PAGE:
+        raise ValueError("p15-check APPEARANCE_PAGE must equal the page id " + repr(ids[0]))
+    if re.search(r'tapText\("[Aa]ppearance"', swift):
+        raise ValueError("SmokeQA taps a literal Appearance label instead of appearancePage")
+    if len(re.findall(r"tapText\(appearancePage", swift)) != 1 or len(re.findall(r"tapAppearance\(in:", swift)) != 3:
+        raise ValueError("SmokeQA must tap appearancePage through tapAppearance exactly three times")
+
+
+def delivered_text(messages):
+    events = []
+    for message in messages:
+        if "ClientShellPaneInput" in message:
+            body = message["ClientShellPaneInput"]
+            if body.get("pane_id") != "w1:p1":
+                raise ValueError("wrong FIFO receiving pane")
+            events.extend(body["events"])
+    if any(set(event) != {"TextCommit"} for event in events):
+        raise ValueError("unexpected terminal wire event")
+    return "".join(event["TextCommit"] for event in events)
+
+
+def modal_openings(records):
+    openings, was_open = 0, False
+    for record in records:
+        if record.get("kind") == "terminal":
+            now = record.get("settings_modal") is True
+            openings += now and not was_open
+            was_open = now
+    return openings
+
+
+def fifo_gate(records, messages):
+    """Positive controls must reach the peer before the next phase starts.
+
+    A control typed into the terminal is the only evidence that the later
+    "nothing else arrived" observation could have seen a leak. Missing, dropped and
+    leaked input fail with different messages.
+    """
+    dropped = [r.get("reason") for r in records if r.get("kind") == "input-dropped"]
+    if dropped:
+        raise ValueError("input dropped by the app (" + ",".join(sorted({str(r) for r in dropped})) +
+                         "): positive control not delivered")
+    text = delivered_text(messages)
+    opened = modal_openings(records)
+    for needed, control in enumerate(CONTROLS, 1):
+        if opened >= needed and control not in text:
+            raise ValueError("positive control not delivered before the next phase: " + control)
+    return text
+
+
+def validate_fifo(records, messages):
+    text = fifo_gate(records, messages)
+    for control in CONTROLS:
+        if control not in text:
+            raise ValueError("positive control not delivered: " + control)
+    if text != "".join(CONTROLS):
+        if text == "".join(reversed(CONTROLS)):
+            raise ValueError("positive controls arrived out of order")
+        raise ValueError("terminal wire leak around the positive controls: " + repr(text))
+
+
+def watch_fifo(process, records_path, previous, peer_path, peer_previous, grace=10.0, poll=1.0, clock=time.monotonic):
+    """Poll the receiving files while XCTest runs and stop at the first missing control."""
+    def lines(path, skip):
+        if not path.exists():
+            return []
+        result = []
+        for line in path.read_text().splitlines()[skip:]:
+            try:
+                result.append(json.loads(line))
+            except json.JSONDecodeError:
+                break  # a line still being written
+        return result
+    failing_since, problem = None, None
+    while process.poll() is None:
+        try:
+            fifo_gate(lines(records_path, previous), lines(peer_path, peer_previous))
+            failing_since = None
+        except ValueError as error:
+            problem = error
+            failing_since = failing_since if failing_since is not None else clock()
+            if clock() - failing_since >= grace:
+                process.terminate()
+                process.wait()
+                raise ValueError("stopped XCTest: " + str(error)) from error
+        time.sleep(poll)
+    return problem
+
+
+def run_watched(arguments, cwd, env, watch):
+    """subprocess.run(capture_output) equivalent that also polls the FIFO gate."""
+    print("P15 COMMAND", list(arguments), flush=True)
+    process = subprocess.Popen(arguments, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT)
+    output = []
+    reader = threading.Thread(target=lambda: output.extend(process.stdout), daemon=True)
+    reader.start()
+    try:
+        watch(process)
+    finally:
+        reader.join(timeout=30)
+    text = "".join(output)
+    print(text, flush=True)
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, arguments, output=text)
+    return subprocess.CompletedProcess(arguments, 0, stdout=text, stderr="")
 
 
 def validate(records, disk):
@@ -61,6 +219,9 @@ def validate(records, disk):
 
 def validate_ui_wire(records, messages, ui):
     """Installed GUI + private peer evidence; not remote-settings/SSH proof."""
+    ocr = [r.get("count") for r in ui if r.get("kind") == "ocr-match" and r.get("label") == APPEARANCE_PAGE]
+    if ocr != [1, 1, 1]:
+        raise ValueError("the appearance label must match exactly one OCR line on each tap: " + repr(ocr))
     picks = [r.get("label") for r in ui if r.get("kind") == "theme-click"]
     if picks != ["High contrast", "Owner default", "High contrast"]:
         raise ValueError("actual GUI theme choices missing")
@@ -81,21 +242,12 @@ def validate_ui_wire(records, messages, ui):
                   and r.get("time", 0) <= screen["time"]]
         if not paints or paints[-1].get("host") != screen["host"] or not paints[-1].get("settings_modal"):
             raise ValueError("host screen disagrees with current renderer")
-    events = []
     for message in messages:
         if "ClientShellEndpointRequest" in message:
             request = json.loads(message["ClientShellEndpointRequest"]["request"])
             if request.get("method") != "client_shell.surface.set":
                 raise ValueError("unexpected endpoint operation in theme-only fixture")
-        if "ClientShellPaneInput" in message:
-            body = message["ClientShellPaneInput"]
-            if body.get("pane_id") != "w1:p1":
-                raise ValueError("wrong FIFO receiving pane")
-            events.extend(body["events"])
-    if any(set(event) != {"TextCommit"} for event in events):
-        raise ValueError("unexpected terminal wire event")
-    if "".join(event["TextCommit"] for event in events) != "P15-startP15-end":
-        raise ValueError("missing FIFO positive controls or terminal wire leak")
+    validate_fifo(records, messages)
 
 
 def build_owned(session, directory, source, device, environment, head):
@@ -107,9 +259,9 @@ def build_owned(session, directory, source, device, environment, head):
                     profile=dict(opt_level='0', debuginfo=0, debug_assertions=True,
                                  overflow_checks=True, test=False),
                     sdk=[dict(name='herdr-uikit', url='https://github.com/shin1ohno/herdr-uikit',
-                              revision='b2fa7811fa9fad9592f47b06d851fc0c33facb16'),
+                              revision='3ec67ca3850e38e369cb537255cd81145cef79e7'),
                          dict(name='herdr-ssh', url='https://github.com/shin1ohno/herdr-gpui',
-                              revision='398c132a06723a0cc1494842a34666d173ec0200')])
+                              revision='6ab69074b298f52884265ed45078437522035c59')])
     return session.build_install(directory, source, device,
                                  ['--package', 'yebisu', '--bin', 'yebisu'],
                                  environment, expected=expected)
@@ -231,11 +383,13 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = out / "result.xcresult"
     try:
-        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"),
-                     "-scheme", "SmokeOracle", "-destination", "id=" + device,
-                     "-derivedDataPath", str(derived),
-                     "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
-                     "-only-testing:SmokeOracle/SmokeQA/testP15Theme")
+        tested = run_watched(
+            ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"),
+             "-scheme", "SmokeOracle", "-destination", "id=" + device,
+             "-derivedDataPath", str(derived),
+             "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
+             "-only-testing:SmokeOracle/SmokeQA/testP15Theme"], ROOT, environment,
+            lambda process: watch_fifo(process, records_path, previous, peer_path, peer_previous))
     finally:
         # Even failed XCTest/oracle runs retain receiving files before validation.
         records = [json.loads(line) for line in records_path.read_text().splitlines()[previous:]] if records_path.exists() else []
@@ -247,16 +401,8 @@ def main():
         raise ValueError("P15 XCTest did not execute and pass")
     attachments = out / "attachments"
     run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(attachments))
-    names = [a["suggestedHumanReadableName"] for test in json.loads((attachments / "manifest.json").read_text()) for a in test["attachments"]]
-    for stage in ["default", "alpha", "high-first", "owner-reset", "selected", "closed", "beta", "returned", "relaunch", "relaunch-host"]:
-        if not any(name.startswith("p15-" + stage) for name in names):
-            raise ValueError("missing native screenshot: " + stage)
-    ui_files = [attachments / a["exportedFileName"]
-                for test in json.loads((attachments / "manifest.json").read_text())
-                for a in test["attachments"] if a["suggestedHumanReadableName"].startswith("p15-ui.json")]
-    if len(ui_files) != 1:
-        raise ValueError("missing unique installed UI transcript")
-    ui = json.loads(ui_files[0].read_text())
+    ui_file = attachment_files(json.loads((attachments / "manifest.json").read_text()), attachments)
+    ui = json.loads(ui_file.read_text())
     (out / "ui.json").write_text(json.dumps(ui, indent=2))
     validate(records, disk)
     validate_ui_wire(records, messages, ui)

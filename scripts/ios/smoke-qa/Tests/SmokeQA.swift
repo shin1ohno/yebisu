@@ -37,6 +37,12 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    // The settings sheet shows PageId::id() as is ("appearance"), and tapText matches
+    // case-sensitively. test_p15_check.py ties this value to settings_pages/mod.rs.
+    private let appearancePage = "appearance"
+    // Last body row of the private wire peer surface (mock_peer.rs).
+    private let terminalInputRow = "Type here"
+
     func testP15Theme() throws {
         continueAfterFailure = false
         var ui: [[String: Any]] = []
@@ -58,12 +64,14 @@ final class SmokeQA: XCTestCase {
         app.launch()
         sleep(4)
         save("p15-default")
-        // Real UIKit typing brackets the modal operations in the peer's FIFO.
-        try tapText("private wire peer", in: app)
+        // Real UIKit typing brackets the modal operations in the peer's FIFO. Focus the
+        // terminal on its last body row, as the coordinate taps of P4/P9 do, not on the
+        // title row that sits next to the board header.
+        try tapText(terminalInputRow, in: app)
         app.typeText("P15-start")
         sleep(1)
         try tapText("Settings", in: app)
-        try tapText("Appearance", in: app)
+        try tapAppearance(in: app, ui: &ui)
         try p15Host("qa-alpha", stale: "qa-beta", stage: "alpha", ui: &ui)
         for (label, stage) in [("High contrast", "high-first"),
                                ("Owner default", "owner-reset"),
@@ -76,7 +84,7 @@ final class SmokeQA: XCTestCase {
         try tapText("Close", in: app)
         sleep(2)
         save("p15-closed")
-        try tapText("private wire peer", in: app)
+        try tapText(terminalInputRow, in: app)
         app.typeText("P15-end")
         sleep(1)
         // Use the existing production board host buttons, not direct actions.
@@ -84,7 +92,7 @@ final class SmokeQA: XCTestCase {
         try tapText("qa-beta", in: app)
         sleep(2)
         try tapText("Settings", in: app)
-        try tapText("Appearance", in: app)
+        try tapAppearance(in: app, ui: &ui)
         try p15Host("qa-beta", stale: "qa-alpha", stage: "beta", ui: &ui)
         try tapText("Close", in: app)
         XCUIDevice.shared.press(.home)
@@ -97,11 +105,26 @@ final class SmokeQA: XCTestCase {
         sleep(4)
         save("p15-relaunch")
         try tapText("Settings", in: app)
-        try tapText("Appearance", in: app)
+        try tapAppearance(in: app, ui: &ui)
         try tapText("High contrast", in: app, tap: false)
         try p15Host("qa-alpha", stale: "qa-beta", stage: "relaunch-host", ui: &ui)
         try tapText("Close", in: app)
         XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// Taps the Appearance page button and records how many OCR lines carried the label.
+    /// More than one line means the tap could land on another text (e.g. terminal output).
+    private func tapAppearance(in app: XCUIApplication, ui: inout [[String: Any]]) throws {
+        let lines = try tapText(appearancePage, in: app)
+        ui.append(["kind": "ocr-match", "label": appearancePage, "count": lines,
+                   "time": Date().timeIntervalSince1970])
+        XCTAssertEqual(lines, 1, "OCR lines containing \(appearancePage)")
+    }
+
+    /// Number of recognized text lines where any candidate contains `label`.
+    /// Pure so the 0 and 2 cases do not need a Simulator.
+    static func ocrLineCount(_ lines: [[String]], label: String) -> Int {
+        lines.filter { candidates in candidates.contains { $0.contains(label) } }.count
     }
 
     private func p15Host(_ host: String, stale: String, stage: String,
@@ -634,7 +657,8 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
+    @discardableResult
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws -> Int {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         for attempt in 0..<attempts {
@@ -645,9 +669,11 @@ final class SmokeQA: XCTestCase {
             try VNImageRequestHandler(cgImage: image).perform([request])
             // Controls precede the terminal surface. Prefer the uppermost
             // match so shell output containing e.g. "Detach" cannot steal taps.
-            let candidates = (request.results ?? [])
+            let lines = (request.results ?? [])
                 .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-                .flatMap { $0.topCandidates(5) }
+                .map { $0.topCandidates(5) }
+            let matching = SmokeQA.ocrLineCount(lines.map { $0.map { $0.string } }, label: label)
+            let candidates = lines.flatMap { $0 }
             for candidate in candidates {
                 guard let range = candidate.string.range(of: label),
                       let observation = try candidate.boundingBox(for: range) else { continue }
@@ -659,7 +685,7 @@ final class SmokeQA: XCTestCase {
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
                 }
-                return
+                return matching
             }
             print("OCR attempt \(attempt): \(candidates.map { $0.string })")
             sleep(1)

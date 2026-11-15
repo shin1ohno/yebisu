@@ -69,8 +69,9 @@ class ThemeOracle(unittest.TestCase):
 
 class InstalledUIWireOracle(unittest.TestCase):
     def fixture(self):
-        ui = [dict(kind="theme-click", label=label) for label in
-              ["High contrast", "Owner default", "High contrast"]]
+        ui = [dict(kind="ocr-match", label=p15.APPEARANCE_PAGE, count=1) for _ in range(3)]
+        ui += [dict(kind="theme-click", label=label) for label in
+               ["High contrast", "Owner default", "High contrast"]]
         records = []
         for index, (stage, host, stale) in enumerate([
                 ("alpha", "qa-alpha", "qa-beta"), ("beta", "qa-beta", "qa-alpha"),
@@ -88,7 +89,7 @@ class InstalledUIWireOracle(unittest.TestCase):
 
     def test_stale_host_negative(self):
         records, messages, ui = self.fixture()
-        ui[4]["lines"][0] = "Host: qa-alpha"
+        ui[7]["lines"][0] = "Host: qa-alpha"
         with self.assertRaisesRegex(ValueError, "stale host"):
             p15.validate_ui_wire(records, messages, ui)
         records, messages, ui = self.fixture()
@@ -97,17 +98,208 @@ class InstalledUIWireOracle(unittest.TestCase):
             p15.validate_ui_wire(records, messages, ui)
 
     def test_wire_leak_and_missing_positive_negative(self):
-        for events in [[{"TextCommit": "P15-startLEAKP15-end"}], [],
-                       [{"Paste": "P15-startP15-end"}],
-                       [{"TextCommit": "P15-endP15-start"}]]:
+        for events, reason in [
+                ([{"TextCommit": "P15-startLEAKP15-end"}], "terminal wire leak"),
+                ([{"TextCommit": "P15-start"}, {"TextCommit": "P15-end"}, {"TextCommit": "x"}],
+                 "terminal wire leak"),
+                ([], "positive control not delivered.*P15-start"),
+                ([{"TextCommit": "P15-start"}], "positive control not delivered.*P15-end"),
+                ([{"TextCommit": "P15-end"}], "positive control not delivered.*P15-start"),
+                ([{"Paste": "P15-startP15-end"}], "unexpected terminal wire event"),
+                ([{"TextCommit": "P15-endP15-start"}], "arrived out of order")]:
             records, messages, ui = self.fixture()
             messages[0]["ClientShellPaneInput"]["events"] = events
-            with self.subTest(events=events), self.assertRaises(ValueError):
+            with self.subTest(events=events), self.assertRaisesRegex(ValueError, reason):
                 p15.validate_ui_wire(records, messages, ui)
         records, messages, ui = self.fixture()
         messages.append({"ClientShellEndpointRequest": {"request": '{"method":"config.reload"}'}})
         with self.assertRaisesRegex(ValueError, "unexpected endpoint"):
             p15.validate_ui_wire(records, messages, ui)
+
+    # F1: the peer never received P15-start (the attempt 6 run: 55 ClientShellResize only)
+    def test_f1_attempt_6_peer_without_text_commits_is_unreceived(self):
+        records, messages, ui = self.fixture()
+        messages = [{"ClientShellResize": {"surface_size": {"cols": 80, "rows": 24}}}] * 55
+        with self.assertRaisesRegex(ValueError, "positive control not delivered.*P15-start"):
+            p15.validate_ui_wire(records, messages, ui)
+
+    # F2: both controls arrived, then something else leaked
+    def test_f2_extra_text_after_the_controls_is_a_leak_not_an_absence(self):
+        records, messages, ui = self.fixture()
+        messages[0]["ClientShellPaneInput"]["events"].append({"TextCommit": "leak"})
+        with self.assertRaisesRegex(ValueError, "terminal wire leak"):
+            p15.validate_ui_wire(records, messages, ui)
+
+    # F3: the app itself recorded that it dropped the input
+    def test_f3_input_dropped_record_fails_with_its_reason(self):
+        for reason in ["no-destination", "not-connected", "incoherent", "fenced"]:
+            records, messages, ui = self.fixture()
+            records.append(dict(kind="input-dropped", reason=reason))
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, "input dropped by the app.*" + reason):
+                p15.validate_ui_wire(records, messages, ui)
+
+    # N-d / P2-13(c): the page label must match exactly one OCR line on every tap
+    def test_appearance_label_must_match_exactly_one_ocr_line(self):
+        for counts in ([0, 1, 1], [1, 2, 1], [1, 1, 3], [1, 1], [1, 1, 1, 1]):
+            records, messages, ui = self.fixture()
+            ui = [r for r in ui if r.get("kind") != "ocr-match"]
+            ui = [dict(kind="ocr-match", label=p15.APPEARANCE_PAGE, count=n) for n in counts] + ui
+            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, "exactly one OCR line"):
+                p15.validate_ui_wire(records, messages, ui)
+        records, messages, ui = self.fixture()
+        ui = [r for r in ui if r.get("kind") != "ocr-match"]
+        with self.assertRaisesRegex(ValueError, "exactly one OCR line"):
+            p15.validate_ui_wire(records, messages, ui)
+
+
+class FifoStages(unittest.TestCase):
+    """The gate that runs while XCTest is still going, so a missing control stops the run."""
+
+    def paint(self, modal):
+        return dict(kind="terminal", settings_modal=modal)
+
+    def text(self, *values):
+        return [{"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"TextCommit": v} for v in values]}}]
+
+    def test_nothing_is_required_before_the_first_modal(self):
+        p15.fifo_gate([self.paint(False)], [])
+
+    def test_start_is_required_when_the_first_modal_opens(self):
+        with self.assertRaisesRegex(ValueError, "before the next phase: P15-start"):
+            p15.fifo_gate([self.paint(False), self.paint(True)], [])
+        p15.fifo_gate([self.paint(False), self.paint(True)], self.text("P15-start"))
+
+    def test_end_is_required_when_the_second_modal_opens(self):
+        records = [self.paint(True), self.paint(False), self.paint(True)]
+        with self.assertRaisesRegex(ValueError, "before the next phase: P15-end"):
+            p15.fifo_gate(records, self.text("P15-start"))
+        p15.fifo_gate(records, self.text("P15-start", "P15-end"))
+
+    def test_repaints_inside_one_modal_are_one_opening(self):
+        self.assertEqual(p15.modal_openings([self.paint(True), self.paint(True), self.paint(False)]), 1)
+        self.assertEqual(p15.modal_openings([self.paint(True), self.paint(False), self.paint(True)]), 2)
+
+    def test_watcher_stops_the_run_after_the_grace_period(self):
+        import tempfile
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            records = Path(directory) / "records.jsonl"
+            records.write_text("\n".join(json.dumps(r) for r in [self.paint(False), self.paint(True)]))
+            peer = Path(directory) / "peer.jsonl"
+            process = Mock()
+            process.poll.return_value = None
+            ticks = iter(range(0, 100, 4))
+            with self.assertRaisesRegex(ValueError, "stopped XCTest: positive control not delivered.*P15-start"):
+                p15.watch_fifo(process, records, 0, peer, 0, grace=10, poll=0, clock=lambda: next(ticks))
+            process.terminate.assert_called_once()
+            # P15-start arrives within the grace: the run continues until it exits.
+            peer.write_text(json.dumps(self.text("P15-start")[0]))
+            process = Mock()
+            process.poll.side_effect = [None, None, 0]
+            self.assertIsNone(p15.watch_fifo(process, records, 0, peer, 0, grace=10, poll=0))
+            process.terminate.assert_not_called()
+
+
+def attempt_6_manifest():
+    """Names exactly as xcresulttool exported them in attempt 6 (run-plain-2/attachments/manifest.json)."""
+    names = ["p15-ui_0_34508657-C1CB-4FE1-BEA7-946CD8B9213F.json",
+             "p15-relaunch-host_0_27EF29E6-D331-4446-93AC-13D91A88EB33.png",
+             "p15-relaunch_0_D678CA94-B050-4606-B9EB-64498CBF3050.png",
+             "p15-returned_0_5580E22B-5749-4876-B268-8366FB7DDAED.png",
+             "p15-beta_0_00C4CF18-0822-49AC-A61F-258D6D8DDD97.png",
+             "p15-closed_0_AA81734B-C5F1-411B-A8DA-D0C0BFB24A9F.png",
+             "p15-selected_0_40F3A807-FA7D-410D-B153-B96040E63D80.png",
+             "p15-owner-reset_0_8C64A8B7-9F5C-4119-9BCC-6F4B3577DB30.png",
+             "p15-high-first_0_25CF1F30-90EA-48FB-832F-357E912C0CE8.png",
+             "p15-alpha_0_7198C852-03DE-42D8-897F-DC50D1BE34D9.png",
+             "p15-default_0_9372F17F-2F39-4C5E-A592-C0AA07CC40BE.png"]
+    return [dict(testIdentifier="SmokeQA/testP15Theme()", attachments=[
+        dict(suggestedHumanReadableName=name, exportedFileName="exported-%02d" % index)
+        for index, name in enumerate(names)])]
+
+
+class AttachmentNames(unittest.TestCase):
+    # A1: the real export shape is accepted (the old prefix match on `p15-ui.json` found none)
+    def test_a1_attempt_6_export_shape_passes(self):
+        found = p15.attachment_files(attempt_6_manifest(), "/exported")
+        self.assertEqual(found, Path("/exported/exported-00"))
+
+    # A2: two UI transcripts are ambiguous
+    def test_a2_two_transcripts_fail(self):
+        manifest = attempt_6_manifest()
+        manifest[0]["attachments"].append(dict(
+            suggestedHumanReadableName="p15-ui_1_11111111-2222-3333-4444-555555555555.json", exportedFileName="x"))
+        with self.assertRaisesRegex(ValueError, "duplicate attachment: p15-ui.json"):
+            p15.attachment_files(manifest, "/exported")
+
+    # A3: `p15-relaunch-host` must not satisfy `p15-relaunch` (the old prefix match did)
+    def test_a3_neighbouring_stage_name_is_not_a_match(self):
+        manifest = attempt_6_manifest()
+        manifest[0]["attachments"] = [a for a in manifest[0]["attachments"]
+                                      if not a["suggestedHumanReadableName"].startswith("p15-relaunch_")]
+        with self.assertRaisesRegex(ValueError, "missing native screenshot: relaunch"):
+            p15.attachment_files(manifest, "/exported")
+
+    # A4: a name without the index/UUID suffix is not an XCTest export
+    def test_a4_names_without_a_uuid_fail(self):
+        for name in ["p15-ui.json", "p15-ui_0_.json", "p15-ui_0_34508657.json", "p15-ui_x_34508657-C1CB-4FE1-BEA7-946CD8B9213F.json"]:
+            manifest = attempt_6_manifest()
+            manifest[0]["attachments"][0]["suggestedHumanReadableName"] = name
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "unexpected shape"):
+                p15.attachment_files(manifest, "/exported")
+
+    def test_wrong_extension_does_not_satisfy_a_stage_or_the_transcript(self):
+        manifest = attempt_6_manifest()
+        manifest[0]["attachments"][0]["suggestedHumanReadableName"] = "p15-ui_0_34508657-C1CB-4FE1-BEA7-946CD8B9213F.txt"
+        with self.assertRaisesRegex(ValueError, "missing unique installed UI transcript"):
+            p15.attachment_files(manifest, "/exported")
+        manifest = attempt_6_manifest()
+        manifest[0]["attachments"][4]["suggestedHumanReadableName"] = "p15-beta_0_00C4CF18-0822-49AC-A61F-258D6D8DDD97.jpg"
+        with self.assertRaisesRegex(ValueError, "missing native screenshot: beta"):
+            p15.attachment_files(manifest, "/exported")
+
+
+class PageLabel(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[2]
+
+    def sources(self):
+        read = lambda path: (self.ROOT / path).read_text()
+        return (read("crates/yebisu/src/settings_pages/mod.rs"), read("crates/yebisu/src/settings_sheet/view.rs"),
+                read("scripts/ios/smoke-qa/Tests/SmokeQA.swift"))
+
+    def test_checked_in_sources_agree(self):
+        p15.check_page_label(*self.sources())
+
+    # L1: the Swift constant goes back to the display name
+    def test_l1_swift_constant_with_a_capital_fails(self):
+        pages, view, swift = self.sources()
+        swift = swift.replace('private let appearancePage = "appearance"', 'private let appearancePage = "Appearance"')
+        with self.assertRaisesRegex(ValueError, "appearancePage must equal the page id"):
+            p15.check_page_label(pages, view, swift)
+
+    def test_l1_literal_tap_fails(self):
+        pages, view, swift = self.sources()
+        with self.assertRaisesRegex(ValueError, "literal Appearance"):
+            p15.check_page_label(pages, view, swift.replace("tapText(appearancePage", 'tapText("Appearance"', 1))
+
+    # L2: the page id changes in Rust
+    def test_l2_page_id_change_fails(self):
+        pages, view, swift = self.sources()
+        with self.assertRaisesRegex(ValueError, "appearancePage must equal the page id"):
+            p15.check_page_label(pages.replace('Self::Appearance => "appearance"', 'Self::Appearance => "Appearance"'), view, swift)
+
+    # L3: the button stops showing page.id()
+    def test_l3_button_label_change_fails(self):
+        pages, view, swift = self.sources()
+        changed = view.replace('page.id(), true)', 'display_name(page), true)')
+        self.assertNotEqual(changed, view)
+        with self.assertRaisesRegex(ValueError, "no longer shows page.id"):
+            p15.check_page_label(pages, changed, swift)
+
+    def test_missing_page_id_fails(self):
+        pages, view, swift = self.sources()
+        with self.assertRaisesRegex(ValueError, "not found exactly once"):
+            p15.check_page_label("", view, swift)
 
 
 class ProvenanceCaller(unittest.TestCase):
