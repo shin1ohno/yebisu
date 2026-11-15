@@ -2,6 +2,8 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -44,6 +46,24 @@ class SmokeOracleTests(unittest.TestCase):
                 oracle.negative_fixture(self.positive, negative, mode)
                 with self.assertRaisesRegex(oracle.SmokeFailure, reason):
                     oracle.validate(negative, verbose=False)
+
+    def test_command_line_exit_status_matches_the_verdict(self):
+        # The command-line contract: callers see exit 0 for a positive capture
+        # and exit 1 with the reason otherwise.
+        script = Path(__file__).with_name('smoke_oracle.py')
+        def run(directory):
+            return subprocess.run([sys.executable, '-I', str(script), str(directory)],
+                                  capture_output=True, text=True, timeout=120)
+        positive = run(self.positive)
+        self.assertEqual(positive.returncode, 0, positive.stdout + positive.stderr)
+        for mode, reason in [('text','text region'), ('input','input result'), ('counter-idle','counter did not advance across idle')]:
+            with self.subTest(mode=mode):
+                negative = self.root / ('cli-' + mode)
+                oracle.negative_fixture(self.positive, negative, mode)
+                result = run(negative)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('SMOKE FAIL: ', result.stdout)
+                self.assertIn(reason, result.stdout)
 
 
 if __name__ == '__main__':
