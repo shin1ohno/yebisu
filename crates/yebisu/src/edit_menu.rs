@@ -84,10 +84,7 @@ pub(crate) struct NativePresenter;
 impl MenuPresenter for NativePresenter {
     fn publish(&mut self, _window: AnyWindowHandle, _availability: Option<Availability>) {
         #[cfg(target_os = "ios")]
-        herdr_uikit::set_native_edit_availability(
-            _window,
-            _availability.map(Availability::native),
-        );
+        herdr_uikit::set_native_edit_availability(_window, _availability.map(Availability::native));
     }
     fn present(&mut self, _window: AnyWindowHandle, _at: Point<Pixels>) -> Option<MenuToken> {
         #[cfg(target_os = "ios")]
