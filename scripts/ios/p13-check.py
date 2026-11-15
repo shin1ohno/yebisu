@@ -6,7 +6,9 @@ Offline validation accepts an existing evidence directory; --run builds and
 collects one Simulator observation using a task-specific generated XCTest target.
 """
 import argparse
+import hashlib
 import json
+import os
 import platform
 from pathlib import Path
 import shutil
@@ -161,8 +163,8 @@ def validate(records, messages):
     print("P13 receipt validation PASS; verify artifact provenance separately; physical IME/hardware input UNVERIFIED", flush=True)
 
 
-def run(args, directory, name):
-    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, timeout=1200)
+def run(args, directory, name, env=None):
+    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, timeout=1200, env=env)
     (directory / (name + ".stdout")).write_text(result.stdout)
     (directory / (name + ".stderr")).write_text(result.stderr)
     (directory / (name + ".exit")).write_text(str(result.returncode) + "\n")
@@ -183,9 +185,16 @@ def collect(directory, expected_head, query_mode=False, verify_mutant=None):
         verify_mutant()
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "head.txt").write_text(head + "\n")
-    bundle = run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", "--features", "p13-native-probe"], directory, "bundle").strip().splitlines()[-1]
+    for name, argv in TOOLCHAIN:
+        run(argv, directory, name)
+    messages = directory / "compiler-messages.jsonl"
+    env = dict(os.environ, YEBISU_P12_BUILD_MESSAGES=str(messages))
+    bundle = run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", "--features", "p13-native-probe"], directory, "bundle", env).strip().splitlines()[-1]
     device = run(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"'], directory, "device").strip().splitlines()[-1]
     run(["xcrun", "simctl", "install", device, bundle], directory, "install")
+    installed = run(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "app"], directory, "installed").strip()
+    run(["xcrun", "simctl", "list", "devices", "--json"], directory, "devices")
+    provenance(directory, head, bundle, installed, device, mutant=verify_mutant is not None)
     project = directory / "oracle"
     (project / "Tests").mkdir(parents=True)
     swift = SWIFT
@@ -202,6 +211,66 @@ def collect(directory, expected_head, query_mode=False, verify_mutant=None):
     container = Path(run(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], directory, "container").strip())
     for source, name in [("p0-smoke.jsonl", "app.jsonl"), ("p13-peer.jsonl", "peer.jsonl")]:
         shutil.copyfile(container / "Documents" / source, directory / name)
+
+
+TOOLCHAIN = [("rustc", ["rustc", "-vV"]), ("cargo", ["cargo", "-V"]), ("xcodebuild", ["xcodebuild", "-version"]), ("sw-vers", ["sw_vers"])]
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def git(*args):
+    return subprocess.check_output(["git", "-C", str(ROOT)] + list(args), text=True)
+
+
+def provenance(directory, head, bundle, installed, device, mutant):
+    """F2: this run's own source, compiler artifact, bundle and installed app.
+
+    Every value is read from this run's own outputs; nothing is copied from an
+    earlier run or task. A mismatch stops the run before any receipt is read.
+    """
+    artifacts = []
+    for line in (directory / "compiler-messages.jsonl").read_text().splitlines():
+        if line.startswith("{"):
+            message = json.loads(line)
+            target = message.get("target", {})
+            if message.get("reason") == "compiler-artifact" and target.get("name") == "yebisu" and "bin" in target.get("kind", []):
+                artifacts.append(message)
+    if len(artifacts) != 1 or not artifacts[0].get("executable"):
+        raise RuntimeError("p13-provenance-compiler-artifact: " + str(len(artifacts)))
+    artifact = artifacts[0]
+    manifest = Path(artifact["manifest_path"]).resolve()
+    if manifest != (ROOT / "crates/yebisu/Cargo.toml").resolve():
+        raise RuntimeError("p13-provenance-foreign-source: " + str(manifest))
+    if "p13-native-probe" not in artifact.get("features", []):
+        raise RuntimeError("p13-provenance-features")
+    changed = git("diff", "--name-only", "HEAD").splitlines()
+    status = git("status", "--porcelain")
+    if mutant and artifact.get("fresh") is not False:
+        raise RuntimeError("p13-provenance-mutant-not-rebuilt")
+    if not mutant and (status or changed):
+        raise RuntimeError("p13-provenance-dirty-baseline")
+    devices = json.loads((directory / "devices.stdout").read_text())["devices"]
+    runtime = [name for name, rows in devices.items() if any(row.get("udid") == device for row in rows)]
+    record = {
+        "head": head, "tree": git("rev-parse", "HEAD^{tree}").strip(),
+        "status_porcelain": status, "changed": {name: digest(ROOT / name) for name in changed},
+        "cargo_lock_sha256": digest(ROOT / "Cargo.lock"), "cargo_toml_sha256": digest(ROOT / "Cargo.toml"),
+        "rust_toolchain_sha256": digest(ROOT / "rust-toolchain.toml"),
+        "toolchain": {name: (directory / (name + ".stdout")).read_text() for name, _ in TOOLCHAIN},
+        "compiler": {"package_id": artifact["package_id"], "manifest_path": str(manifest), "features": artifact["features"],
+                     "fresh": artifact.get("fresh"), "executable": artifact["executable"],
+                     "executable_sha256": digest(artifact["executable"]), "profile": artifact.get("profile")},
+        "bundle": {"path": bundle, "executable_sha256": digest(Path(bundle) / "yebisu"), "info_plist_sha256": digest(Path(bundle) / "Info.plist")},
+        "installed": {"path": installed, "executable_sha256": digest(Path(installed) / "yebisu"), "info_plist_sha256": digest(Path(installed) / "Info.plist")},
+        "simulator": {"udid": device, "runtime": runtime},
+    }
+    shas = {record["compiler"]["executable_sha256"], record["bundle"]["executable_sha256"], record["installed"]["executable_sha256"]}
+    if len(shas) != 1 or record["bundle"]["info_plist_sha256"] != record["installed"]["info_plist_sha256"] or len(runtime) != 1:
+        raise RuntimeError("p13-provenance-installed-differs")
+    (directory / "provenance.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+    return record
 
 
 def main():

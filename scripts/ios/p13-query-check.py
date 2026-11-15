@@ -9,12 +9,14 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-SDK = 'fe3a0da1d1a9c2d52a94510c4d4f7302339cd5f7'
-SOURCE = 'crates/yebisu/src/find/field.rs'
+# Test-support Cut/first-query helper, herdr-uikit PR 14 frozen handoff head.
+SDK = '33e288d762e158888b8edcd9f2b9eb9ed862e1b2'
+FIELD = 'crates/yebisu/src/find/field.rs'
+QUERIES = 'crates/yebisu/src/find/native_queries.rs'
 LENGTH = '''    fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
         Some(self.input.text.encode_utf16().count())
     }
@@ -24,10 +26,25 @@ CUT = '''            window,
         );
     }
     pub(crate) fn key('''
+FIRST = '    finish(client.cut_and_observe_selection());\n'
+# Defers the same first query to the next native turn; the caret may look right.
+LATER = '    let _ = client.cut_and_observe_selection_next_turn(finish);\n'
 CASES = {
-    'D6': (LENGTH, '', 'p13-native-document-end'),
-    'wrong-cut-caret': (CUT, CUT.replace('        );\n    }', '        );\n        self.input.selected = 0..0;\n    }'), 'p13-native-cut-caret'),
+    'D6': (FIELD, LENGTH, '', 'p13-native-document-end'),
+    'wrong-cut-caret': (FIELD, CUT, CUT.replace('        );\n    }', '        );\n        self.input.selected = 0..0;\n    }'), 'p13-native-cut-caret'),
+    'cut-first-query-order': (QUERIES, FIRST, LATER, 'p13-cut-first-query-order'),
 }
+# The only legal milestone order (SDK NativeCutPhase); refusals carry no phase claim.
+PHASES = ['Armed', 'AcceptedCut', 'DownReturned', 'UpReturned', 'OriginRestored', 'ModifiersRestored',
+          'SnapshotEntered', 'SnapshotReturned', 'SelectorReturned', 'FirstGetterEntered', 'FirstResultStored']
+TURN_CROSSINGS = 7
+
+
+def pinned_sdk():
+    """Cargo.toml's herdr-uikit rev without tomllib (the leased Mac runs 3.9)."""
+    text = (ROOT / 'Cargo.toml').read_text()
+    rows = re.findall(r'^"?herdr-uikit"?\s*=\s*\{[^}\n]*"?rev"?\s*=\s*"([0-9a-f]{40})"', text, re.M)
+    return rows[0] if len(rows) == 1 else None
 
 
 def load_base():
@@ -38,21 +55,46 @@ def load_base():
 
 
 def mutate(source, case):
-    before, after, _ = CASES[case]
+    _, before, after, _ = CASES[case]
     if source.count(before) != 1:
         raise ValueError('native query mutation anchor is not unique: ' + case)
     return source.replace(before, after)
 
 
 def verify_mutant(case):
-    original = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:' + SOURCE])
+    source = CASES[case][0]
+    original = subprocess.check_output(['git', '-C', str(ROOT), 'show', 'HEAD:' + source])
     candidate = mutate(original.decode(), case).encode()
     changed = subprocess.check_output(['git', '-C', str(ROOT), 'diff', '--name-only', 'HEAD'], text=True).splitlines()
     untracked = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '--others', '--exclude-standard'], text=True)
-    if changed != [SOURCE] or untracked or (ROOT / SOURCE).read_bytes() != candidate:
+    if changed != [source] or untracked or (ROOT / source).read_bytes() != candidate:
         raise RuntimeError('Only the exact declared P13 query mutation may be collected')
-    return {'case': case, 'original_sha256': hashlib.sha256(original).hexdigest(),
+    return {'case': case, 'source': source, 'original_sha256': hashlib.sha256(original).hexdigest(),
             'mutant_sha256': hashlib.sha256(candidate).hexdigest()}
+
+
+def cut_order(row, client):
+    """F1: one accepted actual Cut, then this receiver's FIRST selection query,
+    with no deferral, turn crossing or other refusal in between."""
+    cut = row.get('cut')
+    if not isinstance(cut, dict) or cut.get('ok') is not True or cut.get('reason') is not None:
+        raise ValueError('p13-cut-first-query-order: ' + repr(cut))
+    if cut.get('selector_sent') is not True or cut.get('selector_returned') is not True or cut.get('client') != client:
+        raise ValueError('p13-cut-first-query-order: selector/client ' + repr(cut))
+    counters = cut.get('counters')
+    if cut.get('refused') != 0 or not isinstance(counters, list) or len(counters) != 8 or counters[TURN_CROSSINGS] != 0:
+        raise ValueError('p13-cut-first-query-order: refused/crossings ' + repr(cut))
+    events = cut.get('events') or []
+    if any(e.get('refusal') is not None for e in events):
+        raise ValueError('p13-cut-first-query-order: refusal event')
+    order = [PHASES.index(e.get('phase')) if e.get('phase') in PHASES else -1 for e in events]
+    sequence = [e.get('sequence') for e in events]
+    if -1 in order or order != sorted(set(order)) or sequence != sorted(set(sequence)):
+        raise ValueError('p13-cut-first-query-order: phases ' + repr([e.get('phase') for e in events]))
+    named = [e.get('phase') for e in events]
+    if not {'AcceptedCut', 'SelectorReturned', 'FirstGetterEntered'} <= set(named) or named[-1] != 'FirstResultStored':
+        raise ValueError('p13-cut-first-query-order: milestones ' + repr(named))
+    return events[-1]
 
 
 def sample(result, client, value, assertion):
@@ -66,6 +108,11 @@ def observation(row, client, selected, length, assertion='p13-native-document-en
     if row.get('captured') != client:
         raise ValueError('p13-captured-client-identity')
     caret_assertion = 'p13-native-cut-caret' if row['label'] == 'Q03' else 'p13-native-selection'
+    if row['label'] == 'Q03':
+        # Order first: a later-correct caret never repairs a deferred first query.
+        stored = cut_order(row, client)
+        if stored.get('range') != [selected['start'], selected['end']]:
+            raise ValueError(caret_assertion + ': stored ' + repr(stored))
     # The Cut caret MUST be checked before document/position and model state.
     sample(row.get('before'), client, selected, caret_assertion)
     sample(row.get('document'), client, length, assertion)
@@ -99,8 +146,8 @@ def validate(records, messages):
         raise ValueError('p13-query-numeric-error')
     if query_rows[2].get('clipboard') != '😀':
         raise ValueError('p13-native-cut-clipboard')
-    if not any(r.get('kind') == 'p13-query-cut-scheduled' and r.get('scheduled') is True for r in records):
-        raise ValueError('p13-native-cut-not-scheduled')
+    if any(r.get('kind') == 'p13-query-cut-scheduled' for r in records):
+        raise ValueError('p13-cut-first-query-order: timer-scheduled Cut')
     if not any(r.get('kind') == 'p13-query-escape' and r.get('handled') is True for r in records):
         raise ValueError('p13-native-escape-not-handled')
     current = query_rows[4]
@@ -146,13 +193,17 @@ def main():
     if args.run:
         if not args.expected_head:
             parser.error('--run requires --expected-head')
-        pin = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['dependencies']['herdr-uikit']['rev']
-        if pin != SDK or ('#' + SDK) not in (ROOT / 'Cargo.lock').read_text():
+        if pinned_sdk() != SDK or ('#' + SDK) not in (ROOT / 'Cargo.lock').read_text():
             raise RuntimeError('P13 query collector requires the reviewed isolated SDK helper')
         base = load_base()
         check = (lambda: verify_mutant(args.mutation_case)) if args.mutation_case else None
         base.collect(directory, args.expected_head, query_mode=True, verify_mutant=check)
-        metadata = {'head': args.expected_head, 'sdk': SDK, 'mode': 'native-query', 'mutation': verify_mutant(args.mutation_case) if args.mutation_case else None}
+        provenance = json.loads((directory / 'provenance.json').read_text())
+        metadata = {'head': args.expected_head, 'sdk': SDK, 'mode': 'native-query',
+                    'mutation': verify_mutant(args.mutation_case) if args.mutation_case else None,
+                    'source_tree': provenance['tree'], 'changed': provenance['changed'],
+                    'executable_sha256': provenance['installed']['executable_sha256'],
+                    'compiler_fresh': provenance['compiler']['fresh']}
         (directory / 'query-provenance.json').write_text(json.dumps(metadata, indent=2) + '\n')
     records = [json.loads(line) for line in (directory / 'app.jsonl').read_text().splitlines()]
     messages = [json.loads(line) for line in (directory / 'peer.jsonl').read_text().splitlines()]

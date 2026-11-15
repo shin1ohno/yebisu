@@ -1,8 +1,9 @@
 //! Opt-in receiving query probe on captured real native clients. No OS oracle.
 use crate::app::Smoke;
-use gpui::{AnyElement, Context, Window, div, prelude::*};
+use gpui::{AnyElement, AsyncWindowContext, Context, WeakEntity, Window, div, prelude::*};
 use herdr_uikit::retirement_probe::{
-    NativeClient, NativeQuery, NativeQueryError, capture, key, next_native_turn,
+    NativeClient, NativeCutProbeResult, NativeQuery, NativeQueryError, capture, key,
+    next_native_turn,
 };
 use serde_json::{Value, json};
 use std::{
@@ -35,15 +36,66 @@ fn setup(client: &NativeClient, range: Range<usize>) -> Value {
     }
 }
 fn observe(client: &NativeClient, label: &str, from: usize, delta: isize) -> Value {
-    // Selection MUST be first, especially after Cut. No setter/focus/handler
-    // operation repairs an observation. Values come only from SDK selectors.
     let before = selection(client);
+    rest(client, label, before, from, delta)
+}
+// Everything after the FIRST selection observation. No setter/focus/handler
+// operation repairs an observation. Values come only from SDK selectors.
+fn rest(client: &NativeClient, label: &str, before: Value, from: usize, delta: isize) -> Value {
     let document = number(client.document_length_utf16());
     let position = number(client.position_offset_utf16(from, delta));
     let beyond = number(client.position_offset_utf16(from, delta + 1));
     let after = selection(client);
     json!({"kind":"p13-native-query","label":label,"captured":client.identity(),
         "before":before,"document":document,"position":position,"beyond":beyond,"after":after})
+}
+// The SDK's stored result and passive trace, unchanged; no text or keys.
+fn cut_record(result: &NativeCutProbeResult) -> (Value, Value) {
+    let (observation, reason, sent) = match result {
+        Ok(o) => (Some(o), None, true),
+        Err(f) => (
+            f.observation.as_ref(),
+            Some(format!("{:?}", f.reason)),
+            f.selector_sent,
+        ),
+    };
+    let Some(o) = observation else {
+        let first = json!({"error":"NoObservation"});
+        return (
+            first,
+            json!({"ok":false,"reason":reason,"selector_sent":sent}),
+        );
+    };
+    let first = match &o.first_selection {
+        Ok(q) => json!({"client":q.client,"value":q.value}),
+        Err(e) => json!({"error":format!("{e:?}")}),
+    };
+    let events: Vec<Value> = o
+        .trace
+        .events
+        .iter()
+        .flatten()
+        .map(|e| {
+            json!({"sequence":e.sequence,"phase":format!("{:?}",e.phase),
+                "refusal":e.refusal.map(|r|format!("{r:?}")),"range":e.range.map(|(a,b)|[a,b])})
+        })
+        .collect();
+    let trace = json!({"ok":result.is_ok(),"reason":reason,"selector_sent":sent,"run":o.run,
+        "client":o.client,"selector_returned":o.selector_returned,"refused":o.trace.refused,
+        "len":o.trace.len,"counters":o.trace.counters,"events":events});
+    (first, trace)
+}
+// Q03: one actual production `cut:` joined to this same retained receiver's
+// FIRST selection query (SDK helper), then the remaining queries, then state.
+fn cut_q03(client: &NativeClient, done: impl FnOnce(Value) + 'static) {
+    let captured = client.clone();
+    let finish = move |cut: NativeCutProbeResult| {
+        let (first, trace) = cut_record(&cut);
+        let mut q = rest(&captured, "Q03", first, 5, 6);
+        q["cut"] = trace;
+        done(q);
+    };
+    finish(client.cut_and_observe_selection());
 }
 
 impl Smoke {
@@ -77,7 +129,7 @@ impl Smoke {
             let Some(client) = client else {
                 return;
             };
-            let mut record = match step {
+            let record = match step {
                 0 => {
                     client.insert("abcdef");
                     let set = setup(&client, 3..3);
@@ -97,7 +149,19 @@ impl Smoke {
                     q["setup"] = json!([all, caret, selected]);
                     q
                 }
-                2 => observe(&client, "Q03", 5, 6),
+                // Q03 was captured with the Cut; this phase only injects Escape.
+                2 => {
+                    // Production composing Escape, never native unmark/commit. This
+                    // is an injected native-origin event, not physical-key evidence.
+                    let handled = key(handle, "escape", true);
+                    let _ = context.update(|_, cx| {
+                        let _ = weak.update(cx, |this, _| {
+                            this.observation
+                                .record(json!({"kind":"p13-query-escape","handled":handled}));
+                        });
+                    });
+                    return;
+                }
                 3 => observe(&client, "Q04", 4, 5),
                 4 => {
                     let _ = context.update(|window, cx| {
@@ -142,42 +206,27 @@ impl Smoke {
                 5 => json!({"kind":"p13-query-done","captured":client.identity()}),
                 _ => return,
             };
-            // State is read only AFTER the first native selection observation.
-            let _ = context.update(|_, cx| {
-                let _ = weak.update(cx, |this, cx| {
-                    if let Some(bar) = &this.find {
-                        let field = bar.field.read(cx);
-                        record["text"] = json!(field.input.text);
-                        record["marked"] = json!(field.input.marked);
-                        record["model_selection"] = json!(field.input.selected);
-                    }
-                    record["clipboard"] = json!(cx.read_from_clipboard().and_then(|i| i.text()));
-                    this.observation.record(record);
-                    cx.notify();
-                });
-            });
+            publish(&mut context, &weak, record);
             if step == 1 {
-                // Same existing actual UIKit Cut selector and native-origin guard.
-                let scheduled = super::qa::schedule_edit(true);
-                let _ = context.update(|_, cx| {
-                    let _ = weak.update(cx, |this, _| {
-                        this.observation.record(
-                            json!({"kind":"p13-query-cut-scheduled","scheduled":scheduled}),
-                        );
-                    });
-                });
-            }
-            if step == 2 {
-                // Production composing Escape, never native unmark/commit. This
-                // is an injected native-origin event, not physical-key evidence.
-                let handled = key(handle, "escape", true);
-                let _ = context.update(|_, cx| {
-                    let _ = weak.update(cx, |this, _| {
-                        this.observation
-                            .record(json!({"kind":"p13-query-escape","handled":handled}));
-                    });
-                });
+                // Same turn, no wait: Q02 state is already stored above.
+                cut_q03(&client, move |q| publish(&mut context, &weak, q));
             }
         });
     }
+}
+// State is read only AFTER the first native selection observation.
+fn publish(context: &mut AsyncWindowContext, weak: &WeakEntity<Smoke>, mut record: Value) {
+    let _ = context.update(|_, cx| {
+        let _ = weak.update(cx, |this, cx| {
+            if let Some(bar) = &this.find {
+                let field = bar.field.read(cx);
+                record["text"] = json!(field.input.text);
+                record["marked"] = json!(field.input.marked);
+                record["model_selection"] = json!(field.input.selected);
+            }
+            record["clipboard"] = json!(cx.read_from_clipboard().and_then(|i| i.text()));
+            this.observation.record(record);
+            cx.notify();
+        });
+    });
 }

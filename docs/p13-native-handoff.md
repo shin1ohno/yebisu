@@ -13,10 +13,12 @@ owner, newer close, focus change, unavailable destination or saturated identity
 keeps input paused. Neither terminal taps nor GPUI key events can release this
 P13 fence. No input is buffered or replayed for recovery.
 
-The experimental SDK is pinned to the controller-authorized frozen PR9 head
-fe3a0da1d1a9c2d52a94510c4d4f7302339cd5f7 (isolated query helper over SDK789).
-This consumer adoption neither merges
-the SDK nor establishes its original S/Z acceptance or OS delivery guarantees.
+The SDK is pinned to the unmerged herdr-uikit PR 14 frozen handoff head
+33e288d762e158888b8edcd9f2b9eb9ed862e1b2. It contains the earlier fe3a0da query
+helper, main's 3ec67ca, and a test-support-only Cut/first-query helper whose
+production-path hooks are all `cfg(feature = "test-support")`. Only the opt-in
+`p13-native-probe` feature calls that helper. This adoption neither merges the
+SDK nor establishes its original S/Z acceptance or OS delivery guarantees.
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
 
@@ -46,9 +48,12 @@ prepared source, not a record that it has run.
 
 The admitted helper adds nonmutating selection/document/position observations
 on the same retained native object. Setup setters are used only before Q01/Q02.
-The separate query mode invokes actual native insert/mark and Cut, reads the
-post-Cut selection FIRST, and then injects native-origin Escape into the actual
-consumer field listener. Escape's expected caret is 4..4: Input::replace removes
+The separate query mode invokes actual native insert/mark and Cut. In the same
+native turn as the Q02 setup, `NativeClient::cut_and_observe_selection` sends the
+real `cut:` once on the captured object and stores that object's FIRST selection
+query before any timer, frame, flush or next turn; Q03's remaining queries and
+consumer state follow. The next phase only injects native-origin Escape into
+the actual consumer field listener. Escape's expected caret is 4..4: Input::replace removes
 the marked 4..6 range and positions the caret at replacement start. Native unmark
 is not used as an Escape substitute. Query helpers never repair selection.
 
@@ -59,13 +64,22 @@ selection before/after every query, error/nil/zero distinctions, captured IDs,
 real Close and a current length6 positive versus retained-old length0. Separate
 FIFO barriers require zero old/search wire and one fresh native commit.
 
-Run the two actual consumer negatives with
+Run the three actual consumer negatives with
 `HERDR_RETIREMENT_LEASE=exclusive just guarded python3 scripts/ios/p13-query-mutate.py <new-dir> --expected-head <head>`
 only after that lease is granted. It removes the exact production document-length
-override and separately makes Cut leave a wrong caret. The collector permits
+override, separately makes Cut leave a wrong caret, and separately defers the
+same first query to the next native turn (`p13-cut-first-query-order`: the
+passive trace fails even if the later caret looks right). The collector permits
 only each declared exact patch, records hashes, requires its named actual native
 receipt assertion and exact-byte restore/repass; compile/setup failure cannot
 certify a negative. This does not replace the original D1-D6 host mutants.
+Every collector run writes `provenance.json` from its own outputs: head, tree,
+changed-file hashes, lock/toolchain hashes, `rustc -vV`/`cargo -V`/Xcode, the
+yebisu compiler artifact (own manifest, features, fresh flag), and the built,
+bundled and installed executable hashes, which must be identical. A mutant run
+must be a rebuilt (`fresh=false`) binary differing from the baseline, and each
+restored run must have the baseline tree with no changed file. Keep evidence
+directories outside the checkout. Python here is 3.9-compatible (no tomllib).
 
 SDK helper Q05 recapture/nonmutation/nil/numeric negatives remain SDK-owner work:
 the reviewed fe3 script has four distinct definitions, including actual current
