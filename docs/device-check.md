@@ -273,7 +273,7 @@ Worker は実機署名・実機操作を行っていない。下記を実機の�
 6. Toggle `Board: Dense` and `Board: Roomy`. Compare row tap accuracy and terminal room. Repeat in narrow Split View and both orientations; scroll to the last host/agent and verify labels remain usable. Record preferred density, device/iPadOS version and any clipping.
 7. Lock/unlock with both hosts connected. With automatic return enabled, both must receive new snapshots. Disconnect one sandbox host: its heading must report disconnection while the other continues updating. Reconnect it; old queued input must not replay.
 
-Simulator coverage is separate: `just guarded python3 scripts/ios/p6-check.py` uses two private in-process peers, checks hidden-host snapshot updates, and observes workspace/pane endpoint requests. It does not prove physical IME, hardware keyboard or device update latency.
+Host coverage is separate: `crates/yebisu/src/board_tests.rs` uses private in-process peers for hidden-host snapshot updates and workspace/pane endpoint requests. It does not prove physical IME, hardware keyboard or device update latency.
 
 ## R3 review repairs (P5 and P4 check)
 
@@ -300,12 +300,11 @@ Simulator coverage is separate: `just guarded python3 scripts/ios/p6-check.py` u
    Repeat the P4 physical IME/hardware keyboard and P5 lock/network/no-replay
    checks above. Record device/iPadOS version and actual results in PR QA.
 
-R3 Simulator-only `YEBISU_R3_QA` injects a version mismatch into the inbox and
-never contacts a host. `just guarded python3 scripts/ios/r3-check.py` checks
-visible reason persistence and that automatic return/manual tap do not dial.
-The strengthened P4 oracle additionally rejects any non-TextCommit peer event
-in its scripted composition/cancel/commit sequence. These checks do not prove
-physical IME/hardware keyboard behavior.
+Host tests in `crates/yebisu/src/reconnect_tests.rs` inject a version mismatch
+into the inbox, check visible reason persistence and that automatic return and
+manual tap do not dial. `crates/yebisu/src/terminal_input_tests.rs` covers the
+composition/cancel/commit sequence. These checks do not prove physical
+IME/hardware keyboard behavior.
 
 ## R4: P6 review repairs
 
@@ -368,12 +367,12 @@ Simulator evidence uses the private in-process peer only. The Simulator gate cre
    Record actual results in PR QA. Revert a device regression that cannot be
    repaired within one business day.
 
-`just guarded python3 scripts/ios/r5-check.py` runs a Simulator-only reader
-that emits its mismatch after the Automatic return attempt, then checks OCR
-and absence of a dial receipt. `p6-check.py` verifies real Simulator board taps,
-focus/surface/input destinations and private peer API receipts. The precise
-response/single-poll/key/late-projection order is covered by the host regression
-with a gated private wire peer. None proves physical keyboard or Japanese IME.
+`crates/yebisu/src/review_r5_tests.rs` holds a reader that emits its mismatch
+after the Automatic return attempt and checks that no dial follows, and
+`crates/yebisu/src/board_tests.rs` checks focus/surface/input destinations and
+private peer API receipts. The precise response/single-poll/key/late-projection
+order is covered by the same host regression with a gated private wire peer.
+None proves physical keyboard or Japanese IME.
 
 
 ## R6 — P7 UIKit symbol shortcuts and consumed Escape (owner)
@@ -722,6 +721,23 @@ Owner choice: 2026-11-11, SH1-155 option 1. Simulator checks do not prove physic
 6. Repeat both policies with Herdr 2, confirming same-session input and paint after inactive-only, disconnect on Background, and automatic/manual recovery respectively (include Herdr 2 image paste through terminal.put). Include a hidden host where available.
 7. Lock/unlock and switch networks. If iPadOS suspends or the transport dies while inactive, confirm the status reports the observed disconnect and Reconnect restores input/paint; no keep-alive or background grace period is promised. Record device/iPadOS, policy, phase log, connection identity, host file creation/deletion timestamps and outcomes in PR QA.
 
+## P11 settings owner acceptance
+
+After the exact-head native runner and independent source review, locally unlock
+and install through the existing `just ipad` workflow. On each supported window
+size, open Settings from Hosts and the terminal, scroll every page, edit font
+family/size, density, shortcut priority, board visibility and selection toggles;
+background/lock/relaunch immediately and compare restored consumers. Check
+native VoiceOver/FKA, keyboard Escape/focus return, floating keyboard and no
+terminal input while the sheet or confirmation is open. Simulator is not this proof.
+
+Compare both installed apps' signed entitlement groups. Record the old exact
+public blob before intentionally replacing the yebisu key. Cancel once, then
+confirm once, wait for worker termination, explicitly read/initialize current
+key, and install that exact new blob on an authorized disposable host. Confirm a
+fresh connection, back up and remove only the recorded old blob, confirm another
+fresh connection, and verify other app/device keys still work. No worker may
+perform these trust/keychain mutations. Record device/iPadOS, head and receipts.
 
 ## SH1-154 — Herdr 2 image paste (device QA pending)
 

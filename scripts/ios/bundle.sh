@@ -272,6 +272,15 @@ executable=${artifact%$'\n'*}
 version=${artifact##*$'\n'}
 
 app="${executable%/*}/$name.app"
+# Optional collector boundary must run BEFORE removing or creating a bundle.
+if [[ -n ${HERDR_IOS_ARTIFACT_ROOT:-} ]]; then
+  python3 -I -c '
+import pathlib, sys
+root, executable, app = [pathlib.Path(p).resolve() for p in sys.argv[1:]]
+if not root.is_dir() or not executable.is_file() or any(not p.is_relative_to(root) or p == root for p in (executable, app)):
+    sys.exit("error: cargo artifact escaped the requested isolated root")
+' "$HERDR_IOS_ARTIFACT_ROOT" "$executable" "$app"
+fi
 # The whole bundle is this script's own output, rebuilt from scratch so a
 # renamed executable leaves nothing stale behind.
 rm -rf "$app"

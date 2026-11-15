@@ -94,15 +94,14 @@ Tap that control to select **Shortcuts: Terminal priority**. With **Command: Ctr
 No new design fork affecting device feel was found. Waiting for a coherent
 post-move projection and observing the old reader finish are correctness
 requirements. Existing density, input, reconnect-policy and shortcut switches
-remain available without rebuilding. R5 fault injection is Simulator-only and
-is absent from device builds.
+remain available without rebuilding. The late-reader mismatch is reproduced by
+the host test at crates/yebisu/src/review_r5_tests.rs:119, not in the app.
 
 ## R6 review repairs
 
 No new design fork affecting device feel was found. UIKit symbol normalization
 and retaining a UI-consumed press until release repair the specified behavior.
-Existing runtime shortcut-priority and input switches remain available. R6 QA
-buttons are Simulator-only under YEBISU_R6_QA and absent from device builds.
+Existing runtime shortcut-priority and input switches remain available.
 
 ## P8 handoff
 
