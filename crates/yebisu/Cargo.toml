@@ -28,6 +28,8 @@ image.workspace = true
 
 [target.'cfg(target_os = "ios")'.dependencies]
 gpui.workspace = true
+# Named only to match the SDK's typed device-key errors in key_ops/provider.rs.
+sheprd-credentials.workspace = true
 herdr-uikit.workspace = true
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }

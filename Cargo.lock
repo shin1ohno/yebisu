@@ -6884,6 +6884,7 @@ dependencies = [
  "sheprd-client",
  "sheprd-commands",
  "sheprd-core-client",
+ "sheprd-credentials",
  "sheprd-i18n",
  "thiserror 2.0.21",
  "tracing",

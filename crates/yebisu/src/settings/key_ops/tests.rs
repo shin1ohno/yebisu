@@ -463,23 +463,3 @@ fn f05_f06_confirm_entry_consumes_the_ticket_when_spawn_or_queue_is_refused() {
         assert_eq!(fake.replacements.load(Ordering::SeqCst), 0, "{refusal:?}");
     }
 }
-
-#[test]
-fn sdk_error_messages_classify_as_locked_missing_or_provider() {
-    use super::provider::{LOCKED_MESSAGE, MISSING_MESSAGE, classify_message};
-    assert_eq!(
-        LOCKED_MESSAGE,
-        "The iPad is locked. Unlock it and try again."
-    );
-    assert_eq!(
-        MISSING_MESSAGE,
-        "The device key was not in the Keychain after it was created. Try again."
-    );
-    assert_eq!(classify_message(LOCKED_MESSAGE), Failure::Locked);
-    assert_eq!(classify_message(MISSING_MESSAGE), Failure::Missing);
-    assert_eq!(classify_message("anything else"), Failure::Provider);
-    assert_eq!(
-        classify_message("The iPad is locked. Unlock it and try again"),
-        Failure::Provider
-    );
-}

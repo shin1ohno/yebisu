@@ -35,6 +35,18 @@ terminal (every ingress is gated on `settings_modal`); input accepted **before**
 opens may still be delivered after it opens. Closing the race needs an SDK writer fence and is
 a separate ticket (SH1-309), not part of this PR.
 
+## Device-key error classes (SH1-299 S4)
+
+`key_ops/provider.rs` maps the SDK's device-key errors to `Failure::Locked` and
+`Failure::Missing` by matching the typed variants on iOS
+(`Error::Ssh(InProcess(DeviceKey(Credentials::DeviceKey(device_key::Error::Locked | Missing))))`),
+not by comparing display text. A renamed or removed variant is a compile error in the iOS
+build (`just lint-ios`, part of the hosted `check` job). The device-key module exists only for
+iOS (and the SDK's own tests), so no host test can reach this mapping: it is verified by the
+iOS build, not by a unit test. An earlier commit (`7c37369`) and an earlier version of this PR
+claimed a host test pinned the SDK strings; that test compared yebisu's constants with identical
+literals and could not fail on an SDK wording change. It was removed.
+
 ## Hidden control
 
 The terminal family picker is hidden (`FAMILY_PICKER = false` in `settings_sheet/view.rs`):

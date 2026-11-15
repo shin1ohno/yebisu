@@ -16,6 +16,7 @@ herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "1e9f609
 "sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
+"sheprd-credentials" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-commands" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 "sheprd-i18n" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "6ab69074b298f52884265ed45078437522035c59" }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
