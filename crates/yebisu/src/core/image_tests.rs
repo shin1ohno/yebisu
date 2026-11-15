@@ -113,19 +113,20 @@ fn image_clipboard_uses_put_then_one_path_and_text_has_priority(cx: &mut TestApp
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let probe = Probe::default();
     connect(&view, cx, probe.clone(), Control::default(), "image-host");
-    for (both, image_only, expected) in [
-        (false, true, 1),
-        (false, false, 2),
-        (true, false, 2),
-        (true, true, 3),
+    // Cumulative puts and peer-recorded inputs after each paste. The peer thread
+    // records an input after the paste completes, so wait for the exact count.
+    for (both, image_only, puts, inputs) in [
+        (false, true, 1, 1),
+        (false, false, 2, 2),
+        (true, false, 2, 3),
+        (true, true, 3, 4),
     ] {
         clipboard(cx, both);
         start(&view, cx, image_only);
         wait(&view, cx, |this| {
-            this.handoff.workers == 0
-                && probe.lock().inputs.len() >= if both && !image_only { 3 } else { expected }
+            this.handoff.workers == 0 && probe.lock().inputs.len() >= inputs
         });
-        assert_eq!(probe.lock().puts.len(), expected);
+        assert_eq!(probe.lock().puts.len(), puts);
     }
     let state = probe.lock();
     assert_eq!(state.inputs.len(), 4);
