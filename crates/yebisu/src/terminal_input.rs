@@ -38,6 +38,23 @@ pub(crate) fn destination(live: &Live, generation: u64) -> Option<Destination> {
     })
 }
 
+/// Why `destination` is `None`, for diagnostics only; `destination` decides.
+pub(crate) fn gap(live: &Live) -> Option<&'static str> {
+    if !live.connected || live.version_mismatch.get().is_some() {
+        return Some("not-connected");
+    }
+    let (Some(snapshot), Some(surface)) = (live.snapshot.as_ref(), live.surface.as_ref()) else {
+        return Some("no-destination");
+    };
+    if !crate::live::coherent(snapshot, surface) {
+        return Some("incoherent");
+    }
+    match &surface.popup {
+        Some(_) => None,
+        None => snapshot.focused_pane_id.is_none().then_some("no-destination"),
+    }
+}
+
 /// A semantic event keeps the identity observed when it was generated.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedInput {
@@ -62,12 +79,18 @@ pub(crate) struct TerminalInput {
     cancelled: bool,
     pub ready: bool,
     pub report_all: bool,
+    gap: Option<&'static str>,
+    reported: std::cell::Cell<Option<&'static str>>,
 }
 
 impl TerminalInput {
     pub fn sync(&mut self, live: &Live, generation: u64, size: Option<ConnectOptions>) {
         self.report_all = live.keyboard_report_all;
         let next = destination(live, generation);
+        self.gap = gap(live);
+        if next.is_some() {
+            self.reported.set(None);
+        }
         if self.destination != next {
             self.discard();
             self.held = HeldKeys::default();
@@ -95,6 +118,24 @@ impl TerminalInput {
     pub fn discard(&mut self) {
         self.cancelled |= !self.composition.text.is_empty();
         self.composition = Input::default();
+    }
+    /// Records once per reason why typed text cannot reach a terminal. Without it a
+    /// positive control that never arrives looks the same as no input at all.
+    pub fn report_drop(&self, observation: &crate::observation::Observation) {
+        let reason = if self.destination.is_none() {
+            Some(self.gap.unwrap_or("no-destination"))
+        } else if self.cancelled {
+            Some("fenced")
+        } else {
+            None
+        };
+        if self.reported.get() == reason {
+            return;
+        }
+        self.reported.set(reason);
+        if let Some(reason) = reason {
+            observation.record(serde_json::json!({"kind":"input-dropped", "reason":reason}));
+        }
     }
     pub fn requires_gesture(&self) -> bool {
         self.cancelled
