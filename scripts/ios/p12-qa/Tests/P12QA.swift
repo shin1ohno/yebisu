@@ -52,7 +52,7 @@ final class P12QA: XCTestCase {
     private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
-        // Pinned herdr-uikit b2fa781 menu::placement maps GPUI position 0
+        // The pinned herdr-uikit (see Cargo.toml) menu::placement maps GPUI position 0
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
         let owner = springboard

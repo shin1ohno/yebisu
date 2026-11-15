@@ -112,7 +112,7 @@ impl NativeMenus {
     fn command_gate(
         &self,
         command: Command,
-        installed: bool,
+        from_menu: bool,
         terminal: &TerminalView,
         actions: &actions::Actions,
         focused: bool,
@@ -122,7 +122,7 @@ impl NativeMenus {
         }
         // Approach C: only a menu selection carries displayed-scope authority.
         // A physical key is a new intent and uses the current catalog state.
-        if installed && self.scope.as_ref() != Some(&Scope::current(terminal, actions, focused)) {
+        if from_menu && self.scope.as_ref() != Some(&Scope::current(terminal, actions, focused)) {
             return Err(crate::Error::NativeMenu("displayed menu scope changed"));
         }
         if !catalog_rows(terminal, actions, focused)
