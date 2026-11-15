@@ -657,37 +657,73 @@ final class SmokeQA: XCTestCase {
         sleep(1)
     }
 
+    /// One Vision pass over the whole screenshot (`height == 1`) or over a horizontal band of it.
+    /// `bottom` and `height` are fractions of the screenshot measured from its bottom edge, and
+    /// `midY` is mapped back to the full screenshot.
+    private func recognize(_ image: CGImage, label: String, bottom: CGFloat = 0, height: CGFloat = 1) throws
+        -> [(texts: [VNRecognizedText], midY: CGFloat, bottom: CGFloat, height: CGFloat)] {
+        var target = image
+        if height < 1 {
+            let full = CGFloat(image.height)
+            let area = CGRect(x: 0, y: full * (1 - bottom - height), width: CGFloat(image.width), height: full * height)
+            guard let cropped = image.cropping(to: area) else { return [] }
+            target = cropped
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.customWords = [label]
+        try VNImageRequestHandler(cgImage: target).perform([request])
+        return (request.results ?? []).map {
+            (texts: $0.topCandidates(5), midY: bottom + height * $0.boundingBox.midY, bottom: bottom, height: height)
+        }
+    }
+
     @discardableResult
     private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws -> Int {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
+        // A busy frame can make Vision drop a whole row of small controls that the
+        // screenshot shows (P11 adds a Settings button above the SH1-154 strip), so a
+        // pass over the whole screenshot is followed by overlapping horizontal bands.
+        var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
+        for index in 0..<5 {
+            let top = CGFloat(index) * 0.18
+            passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
+        }
         for attempt in 0..<attempts {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.customWords = [label]
-            try VNImageRequestHandler(cgImage: image).perform([request])
-            // Controls precede the terminal surface. Prefer the uppermost
-            // match so shell output containing e.g. "Detach" cannot steal taps.
-            let lines = (request.results ?? [])
-                .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-                .map { $0.topCandidates(5) }
-            let matching = SmokeQA.ocrLineCount(lines.map { $0.map { $0.string } }, label: label)
-            let candidates = lines.flatMap { $0 }
-            for candidate in candidates {
-                guard let range = candidate.string.range(of: label),
-                      let observation = try candidate.boundingBox(for: range) else { continue }
-                if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
-                    continue
+            var seen: [String] = []
+            var matching = 0
+            for (pass, band) in passes.enumerated() {
+                // Controls precede the terminal surface. Prefer the uppermost
+                // match so shell output containing e.g. "Detach" cannot steal taps.
+                let lines = try recognize(image, label: label, bottom: band.bottom, height: band.height)
+                    .sorted { $0.midY > $1.midY }
+                if pass == 0 {
+                    matching = SmokeQA.ocrLineCount(lines.map { $0.texts.map { $0.string } }, label: label)
                 }
-                let box = observation.boundingBox
-                print("OCR tap \(label) frame=\(app.frame) box=\(box)")
-                if tap {
-                    app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                for line in lines {
+                    for candidate in line.texts {
+                        guard let range = candidate.string.range(of: label),
+                              let observation = try candidate.boundingBox(for: range) else { continue }
+                        if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
+                            continue
+                        }
+                        let local = observation.boundingBox
+                        let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
+                                         width: local.width, height: local.height * line.height)
+                        print("OCR tap \(label) frame=\(app.frame) box=\(box) pass=\(pass)")
+                        if tap {
+                            app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                        }
+                        return matching
+                    }
                 }
-                return matching
+                if pass == 0 {
+                    seen = lines.flatMap { $0.texts.map { $0.string } }
+                }
             }
-            print("OCR attempt \(attempt): \(candidates.map { $0.string })")
+            print("OCR attempt \(attempt): \(seen)")
             sleep(1)
         }
         save("missing-control")
