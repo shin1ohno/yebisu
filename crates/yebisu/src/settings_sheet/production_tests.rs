@@ -6,7 +6,7 @@ use crate::{
         key_ops::{Failure, Owner, Provider, State},
     },
 };
-use gpui::{TestAppContext, px, size};
+use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
 use std::{
     path::PathBuf,
     sync::{
@@ -258,4 +258,140 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         leaked.contains("FAKE_PRIVATE_SENTINEL"),
         "negative detector control"
     );
+}
+
+fn until_ready(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(SettingsHost::ready)
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+fn press(cx: &mut VisualTestContext, id: &'static str) {
+    let bounds = cx
+        .debug_bounds(id)
+        .unwrap_or_else(|| panic!("missing control {id}"));
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut TestAppContext) {
+    use crate::settings_pages::keyboard::{set_terminal_priority, terminal_priority};
+    let root = directory("sheet-controls");
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    view.update(cx, |this, _| {
+        this.settings = Some(SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}")));
+    });
+    until_ready(&view, cx);
+    press(cx, "open-settings");
+    // Larger then Smaller returns to the default size, so Smaller really lowers it.
+    press(cx, "font-plus");
+    assert_eq!(
+        view.read_with(cx, |this, _| this.terminal.font.size),
+        Some(15.)
+    );
+    press(cx, "font-minus");
+    assert_eq!(
+        view.read_with(cx, |this, _| this.terminal.font.size),
+        Some(14.)
+    );
+    press(cx, "settings-page-keyboard");
+    for id in [
+        "settings-priority",
+        "settings-board",
+        "settings-drag",
+        "settings-copy",
+    ] {
+        let before = view.read_with(cx, |this, _| this.settings_values());
+        let mut expected = before.clone();
+        match id {
+            "settings-priority" => {
+                let flipped = !terminal_priority(&expected);
+                set_terminal_priority(&mut expected, flipped);
+            }
+            "settings-board" => expected.board_hidden = !expected.board_hidden,
+            "settings-drag" => expected.drag_select = !expected.drag_select,
+            _ => expected.copy_on_select = !expected.copy_on_select,
+        }
+        press(cx, id);
+        let after = view.read_with(cx, |this, _| this.settings_values());
+        assert_eq!(after, expected, "{id} must flip only its own value");
+        assert_ne!(after, before, "{id} must change a value");
+    }
+    // A failed write stays unsaved until Retry save is pressed.
+    until_ready(&view, cx);
+    let pending = root.join("yebisu-settings.pending");
+    std::fs::create_dir(&pending).unwrap_or_else(|e| panic!("{e}"));
+    press(cx, "settings-copy");
+    let until = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.error.is_some())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    std::fs::remove_dir(&pending).unwrap_or_else(|e| panic!("{e}"));
+    view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        assert!(!this.settings.as_ref().is_some_and(SettingsHost::ready));
+    });
+    press(cx, "settings-retry");
+    until_ready(&view, cx);
+    assert!(view.read_with(cx, |this, _| {
+        this.settings.as_ref().is_some_and(|h| h.error.is_none())
+    }));
+    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[gpui::test]
+fn p11_escape_cancels_a_pending_key_ticket_then_closes_the_sheet(cx: &mut TestAppContext) {
+    let root = directory("escape");
+    let fake = Arc::new(Injected {
+        replaces: AtomicUsize::new(0),
+        reads: AtomicUsize::new(0),
+        reject: AtomicBool::new(false),
+        release: Mutex::new(None),
+    });
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1100.), px(900.)));
+    view.update(cx, |this, _| {
+        let mut host = SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}"));
+        host.keys = Owner::new(fake.clone());
+        this.settings = Some(host);
+    });
+    until_ready(&view, cx);
+    cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
+    view.update(cx, |this, cx| this.read_device_key(cx));
+    let until = Instant::now() + Duration::from_secs(5);
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|h| h.keys.busy())
+    }) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    view.update(cx, |this, _| {
+        this.key_ticket = this
+            .settings
+            .as_mut()
+            .and_then(|host| host.keys.confirmation());
+        assert!(this.key_ticket.is_some(), "confirmation must be pending");
+    });
+    cx.update(|window, cx| view.update(cx, |this, cx| this.settings_escape(window, cx)));
+    view.read_with(cx, |this, _| {
+        assert!(this.settings_modal, "first Escape only cancels the ticket");
+        assert!(this.key_ticket.is_none());
+        let state = this.settings.as_ref().map(|host| host.keys.state);
+        assert_eq!(state, Some(State::Ready));
+    });
+    cx.update(|window, cx| view.update(cx, |this, cx| this.settings_escape(window, cx)));
+    assert!(!view.read_with(cx, |this, _| this.settings_modal));
+    assert_eq!(fake.replaces.load(Ordering::SeqCst), 0);
+    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
 }

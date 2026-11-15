@@ -6,6 +6,9 @@ use crate::{
 };
 use gpui::{prelude::*, *};
 
+/// Hidden by design until a supported installed-font picker is proven.
+const FAMILY_PICKER: bool = false;
+
 pub(crate) fn button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -37,6 +40,17 @@ impl Smoke {
         button("open-settings", "Settings", true)
             .on_click(cx.listener(|this, _, window, cx| this.begin_settings_modal(window, cx)))
             .into_any_element()
+    }
+    /// Escape cancels a pending key confirmation first, then closes the sheet.
+    pub(crate) fn settings_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.key_ticket.take().is_some() {
+            if let Some(h) = &mut self.settings {
+                h.keys.cancel();
+            }
+            cx.notify();
+        } else {
+            self.end_settings_modal(window, cx);
+        }
     }
     pub(crate) fn render_settings_sheet(
         &mut self,
@@ -151,14 +165,7 @@ impl Smoke {
                 cx.stop_propagation();
                 window.prevent_default();
                 if event.keystroke.key == "escape" && !event.is_held {
-                    if this.key_ticket.take().is_some() {
-                        if let Some(h) = &mut this.settings {
-                            h.keys.cancel();
-                        }
-                        cx.notify();
-                    } else {
-                        this.end_settings_modal(window, cx);
-                    }
+                    this.settings_escape(window, cx);
                 }
             }))
             .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
@@ -233,15 +240,19 @@ impl Smoke {
             values.font.family,
             crate::settings_pages::fonts::TERMINAL_FAMILY
         ));
-        for (index, family) in self.settings_fonts.iter().enumerate() {
-            let family = family.clone();
-            view = view.child(
-                button(format!("font-family-{index}"), family.clone(), enabled).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        this.select_settings_font_family(family.clone(), cx);
-                    }),
-                ),
-            );
+        // The design hides the family picker until a supported installed-font picker is
+        // proven: proportional faces break the cell grid. Size stays adjustable.
+        if FAMILY_PICKER {
+            for (index, family) in self.settings_fonts.iter().enumerate() {
+                let family = family.clone();
+                view = view.child(
+                    button(format!("font-family-{index}"), family.clone(), enabled).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.select_settings_font_family(family.clone(), cx);
+                        }),
+                    ),
+                );
+            }
         }
         view.into_any_element()
     }

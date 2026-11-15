@@ -111,10 +111,11 @@ fn default_family_button_before_loaded_survives_background_and_reopen(cx: &mut T
             assert_eq!(this.terminal.font.family, "SauceCodePro Nerd Font Mono");
         });
         cx.run_until_parked();
-        let family = cx
-            .debug_bounds("font-family-0")
-            .unwrap_or_else(|| panic!("family button"));
-        cx.simulate_click(family.center(), Default::default());
+        // The picker is hidden in the sheet; the listener's entry point is exercised directly.
+        assert!(cx.debug_bounds("font-family-0").is_none());
+        view.update(cx, |this, cx| {
+            this.select_settings_font_family("SauceCodePro Nerd Font Mono".into(), cx);
+        });
         view.update(cx, |this, cx| {
             let host = this.settings.as_ref().unwrap_or_else(|| panic!("host"));
             assert!(!host.loaded, "real listener must run before Loaded");
