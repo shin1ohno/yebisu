@@ -462,3 +462,44 @@ fn toast_clears_the_software_keyboard() {
     };
     assert_eq!(overlay_bottom(&negative), px(0.));
 }
+
+#[test]
+fn status_line_expires_like_the_toast_but_the_settings_text_stays() {
+    let mut state = State::default();
+    state.fail(Failure::Disabled);
+    let now = Instant::now();
+    assert_eq!(state.visible_status_at(now), "Notifications: Disabled");
+    let later = now + STATUS_TTL + Duration::from_millis(1);
+    assert_eq!(state.visible_status_at(later), "");
+    assert_eq!(
+        state.status, "Notifications: Disabled",
+        "the notification settings page keeps showing the same text"
+    );
+    state.status_until = Instant::now().checked_sub(Duration::from_secs(1));
+    assert!(state.poll(), "expiry must request a redraw");
+    assert_eq!(state.visible_status(), "");
+    assert!(!state.poll(), "and only once");
+    state.fail(Failure::Busy);
+    assert_eq!(state.visible_status(), "Notifications: Busy");
+}
+
+#[test]
+fn nothing_is_drawn_over_the_terminal_without_a_toast_status_or_control() {
+    assert!(!overlay_needed(false, "", false));
+    assert!(overlay_needed(true, "", false));
+    assert!(overlay_needed(false, "Notifications: Busy", false));
+    assert!(overlay_needed(false, "", true));
+}
+
+#[gpui::test]
+fn expired_status_is_redrawn_away_by_the_notification_tick(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.notifications.fail(Failure::Busy);
+        assert!(this.notifications.visible_status().contains("Busy"));
+        this.notifications.status_until = Instant::now().checked_sub(Duration::from_secs(1));
+        this.collect_notifications(cx);
+        assert_eq!(this.notifications.visible_status(), "");
+        assert!(this.notifications.status.contains("Busy"));
+    });
+}

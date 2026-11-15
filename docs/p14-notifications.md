@@ -59,17 +59,21 @@ behavior still requires receiving-system verification.
 
 ## Verification status
 
-Native results exist for PR #45 head 03391ad17715fb7c4c3f66fa87ebe9133a2b8fe5
-(SDK 7f70d2d), run on the Mac mini under the exclusive lease (task 8910aef8de114bc9
-attempt 4): `check`, `lint-ios` (both device and Simulator targets) and
-`cargo test --workspace` (284 tests) passed; the SDK Simulator notification tests
-passed 13 with 1 ignored; the D4 display-fence and D5 six-second-response mutants
-failed at the intended assertions and were restored byte for byte; the six consumer
-response tests passed. Python `scripts/ios` tests that import `tomllib` could not run
-on the mini (Python 3.9); hosted CI runs them. Hosted CI jobs are the other
-evidence. None of this is OS banner, sound, tap, suspension or physical proof, and
-the real-app gate `scripts/ios/p14-check.py` (XCTest `testP14ConnectedNotifications`)
-has not been run. Results for later heads must be re-measured.
+Native results exist from the Mac mini under the exclusive lease (task 8910aef8de114bc9):
+
+- PR #45 head 03391ad / SDK 7f70d2d (attempt 4): `check`, `lint-ios` (device and Simulator
+  targets) and `cargo test --workspace` (284 tests) passed; the SDK Simulator notification tests
+  passed 13 with 1 ignored; the D4 display-fence and D5 six-second-response mutants failed at the
+  intended assertions and were restored byte for byte; the six consumer response tests passed.
+- Head 9f97578 (attempt 5): the same gates passed again (291 Rust tests); Python `scripts/ios`
+  tests that import `tomllib` could not run on the mini (Python 3.9) and run in hosted CI.
+- The real-app gate `scripts/ios/p14-check.py` (XCTest `testP14ConnectedNotifications`) passed at
+  6d924fc (software keyboard hidden by the harness, no toast-position measurement) and at f164c79
+  (keyboard up; toast above it). The runs between them failed on the oracle for harness timing; the
+  full history is in docs/p14-native-qa.md. Hosted CI is green on c10e1df and f164c79.
+
+None of this is OS banner, sound, tap, suspension or physical proof (still UNRUN), and heads after
+a layout or status change must be re-measured.
 
 The consumer response tests in `notification_view/response_tests.rs` are compiled
 only for `target_os = "ios"` (they call the SDK's iOS response dispatch), so the
@@ -180,3 +184,16 @@ diagnostics and documented limits, not behaviour defects.
 - r2 (nit): the closed-terminal test also pins that clipboard effects are dropped.
   r1 (nit, a Busy tap returns the tag but the toast is gone) is a limitation: the tag is
   only kept for the 33 ms scan and the OS notification, not for a new toast.
+
+## Status line lifetime (attempt 7)
+
+- F1 (owner decision): the on-screen status line expires after five seconds, like the toast
+  (`STATUS_TTL`). The text stays in the notification state, so the notification settings page
+  still shows the last result, but the bottom-right overlay draws nothing once the toast, the
+  status and the QA controls are gone, so no filled box sits over the terminal's bottom row.
+  Tests: `status_line_expires_like_the_toast_but_the_settings_text_stays`,
+  `nothing_is_drawn_over_the_terminal_without_a_toast_status_or_control`,
+  `expired_status_is_redrawn_away_by_the_notification_tick`.
+- F2: the verification paragraphs above and in docs/p14-native-qa.md now list what ran at which
+  head and what stays UNRUN. The overlay can still cover the right end of the bottom row while a
+  toast or a fresh status is shown (five seconds at most).

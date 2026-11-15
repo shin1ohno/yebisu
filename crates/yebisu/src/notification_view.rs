@@ -15,6 +15,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How long the on-screen status line stays, like the toast's five seconds.
+pub(crate) const STATUS_TTL: Duration = Duration::from_secs(5);
+
 struct Posted {
     tag: String,
     target: TargetContext,
@@ -37,6 +40,7 @@ pub(crate) struct State {
     pub policy: Policy,
     pub active: bool,
     pub status: String,
+    status_until: Option<Instant>,
     pub toast: Option<Toast>,
     posted: VecDeque<Posted>,
     waiting: VecDeque<(Event, TargetContext)>,
@@ -53,6 +57,11 @@ pub(crate) struct State {
 pub(crate) fn overlay_bottom(insets: &WindowInsets) -> Pixels {
     let bottom = insets.ime.bottom;
     if bottom > px(0.) { bottom } else { px(0.) }
+}
+
+/// Whether the bottom-right overlay draws anything at all.
+pub(crate) fn overlay_needed(toast: bool, status: &str, controls: bool) -> bool {
+    toast || !status.is_empty() || controls
 }
 
 /// The predicate shared by the sound worker and the SDK display decision.
@@ -98,6 +107,7 @@ impl Default for State {
             policy: Policy::default(),
             active: true,
             status: String::new(),
+            status_until: None,
             toast: None,
             posted: VecDeque::new(),
             waiting: VecDeque::new(),
@@ -175,8 +185,25 @@ impl State {
         );
         self.posted.clear();
     }
+    /// Records the latest outcome. The text stays in `status` (the notification
+    /// settings page shows it), but the on-screen overlay shows it only for
+    /// `STATUS_TTL`, like the toast, so it never lingers over the terminal.
+    fn set_status(&mut self, text: impl Into<String>) {
+        self.status = text.into();
+        self.status_until = Some(Instant::now() + STATUS_TTL);
+    }
+    pub fn visible_status_at(&self, now: Instant) -> &str {
+        if self.status_until.is_some_and(|until| now < until) {
+            &self.status
+        } else {
+            ""
+        }
+    }
+    pub fn visible_status(&self) -> &str {
+        self.visible_status_at(Instant::now())
+    }
     fn fail(&mut self, error: Failure) {
-        self.status = format!("Notifications: {error:?}");
+        self.set_status(format!("Notifications: {error:?}"));
     }
     fn submit(
         &mut self,
@@ -256,7 +283,7 @@ impl State {
                 title: event.title(),
                 expires: now + Duration::from_secs(5),
             });
-            self.status = "Notifications: foreground toast".into();
+            self.set_status("Notifications: foreground toast");
         } else {
             let notification = SystemNotification {
                 tag: tag.into(),
@@ -288,7 +315,7 @@ impl State {
                 let _ = current;
                 let _ = sender.try_send((epoch, Err(Failure::Native)));
             }
-            self.status = "Notifications: OS submission pending".into();
+            self.set_status("Notifications: OS submission pending");
         }
     }
     pub fn poll(&mut self) -> bool {
@@ -299,7 +326,7 @@ impl State {
             match result {
                 Ok(state) => {
                     self.authorization = state;
-                    self.status = format!("Notification permission: {state:?}");
+                    self.set_status(format!("Notification permission: {state:?}"));
                 }
                 Err(error) => self.fail(error),
             }
@@ -311,7 +338,7 @@ impl State {
             changed = true;
             match result {
                 Ok(()) => {
-                    self.status = "Notifications: OS accepted request; display not confirmed".into()
+                    self.set_status("Notifications: OS accepted request; display not confirmed")
                 }
                 Err(error) => self.fail(error),
             }
@@ -328,6 +355,13 @@ impl State {
             .is_some_and(|t| t.expires <= Instant::now())
         {
             self.toast = None;
+            changed = true;
+        }
+        if self
+            .status_until
+            .is_some_and(|until| until <= Instant::now())
+        {
+            self.status_until = None;
             changed = true;
         }
         changed
@@ -547,6 +581,22 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn render_notification(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
+        let status = self.notifications.visible_status();
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let controls: Vec<AnyElement> = [self.p14_controls(cx), self.p14_paint(cx)]
+            .into_iter()
+            .flatten()
+            .collect();
+        #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+        let controls: Vec<AnyElement> = Vec::new();
+        // Nothing to show: draw nothing, so no filled box sits over the terminal.
+        if !overlay_needed(
+            self.notifications.toast.is_some(),
+            status,
+            !controls.is_empty(),
+        ) {
+            return div().absolute().size_0().into_any_element();
+        }
         let mut panel = div()
             .absolute()
             .bottom(overlay_bottom(&window.insets()))
@@ -561,16 +611,10 @@ impl Smoke {
                 cx.listener(move |this, _, _, cx| this.open_notification(&tag, false, cx)),
             ));
         }
-        if !self.notifications.status.is_empty() {
-            panel = panel.child(self.notifications.status.clone());
+        if !status.is_empty() {
+            panel = panel.child(status.to_owned());
         }
-        #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        {
-            panel = panel
-                .children(self.p14_controls(cx))
-                .children(self.p14_paint(cx));
-        }
-        panel.into_any_element()
+        panel.children(controls).into_any_element()
     }
 }
 

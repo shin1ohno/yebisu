@@ -1,10 +1,22 @@
 # P14 native harness readiness
 
-Status: the SDK Simulator runner (`p14-sdk-check.py`) has been run natively on the Mac mini at PR #45
-head 03391ad / SDK 7f70d2d (13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer
-tests; see docs/p14-notifications.md). The real-app runner (`p14-check.py`) and every OS, sound and
-physical check remain UNRUN. The real-app runner has since run once on the Mac mini (head 6d924fc,
-receiving-result pass); its XCTest also checks that the toast is not below the software keyboard. D5 separates SDK display eligibility from issued-tag responses.
+Status (what actually ran, all on the Mac mini under the exclusive lease):
+
+- SDK Simulator runner `p14-sdk-check.py`: passed at PR #45 head 03391ad and again at 9f97578
+  (SDK 7f70d2d): 13 pass/1 ignored, D4 and D5 mutants killed and restored, 6 consumer tests.
+- Real-app runner `p14-check.py` (XCTest `testP14ConnectedNotifications` plus the receiving
+  oracle): 9f97578 failed ("P14 next" hidden behind the software keyboard); 6d924fc passed with
+  the keyboard hidden by the harness and no toast-position measurement; c10e1df passed the XCTest
+  but not the oracle (the shared Simulator's keyboard was not up and the toast expired before
+  the tap); 6a894d8 failed on the shared Simulator (keyboard not up) and, on a disposable
+  Simulator, passed the XCTest but not the oracle (toast expired); 19bfd8c the same;
+  **f164c79 passed both**, with the software keyboard up (keyboard top 1028 pt, toast text bottom
+  892 pt, screenshot `p14-toast`), authorization query NotDetermined (read-only).
+- Still UNRUN, and not claimed: actual OS banner, sound, notification tap, Inactive/Background/
+  suspend delivery, permission grant, physical volume/mute, and any run after later edits to the
+  toast or status layout. Model, SDK-fixture and Simulator receipts are not OS delivery proof.
+
+D5 separates SDK display eligibility from issued-tag responses.
 The exact SDK revision is in Cargo.toml and Cargo.lock. P11's SDK entry/refusal observer is
 still missing and its modal gate stays closed. No permission request, OS database
 change, APNs, live host, signing, Keychain or after-suspension delivery is added.
