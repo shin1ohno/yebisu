@@ -28,4 +28,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# CI path filter probe; removed again in the next commit.
