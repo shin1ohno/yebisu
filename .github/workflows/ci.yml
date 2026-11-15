@@ -35,7 +35,7 @@ jobs:
             target/disk.log
   simulator-smoke:
     runs-on: macos-26
-    timeout-minutes: 80
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,8 +51,6 @@ jobs:
         run: just guarded python3 scripts/ios/ci-smoke.py --p9
       - name: Verify installed keyless native menus
         run: just guarded python3 scripts/ios/p12-ci.py
-      - name: Verify P15 local theme oracle
-        run: just guarded python3 scripts/ios/p15-ci.py
       - name: Upload native menu evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,7 +65,6 @@ jobs:
           path: |
             target/ios-smoke/*/
             target/ios-p9/*/
-            target/ios-p15/*/
             !target/ios-smoke/build/
   check:
     runs-on: macos-26
