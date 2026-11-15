@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("native menu refused: {0}")]
+    NativeMenu(&'static str),
     #[error("invalid settings: {0}")]
     Settings(String),
     #[error("Herdr 2: {0}")]
