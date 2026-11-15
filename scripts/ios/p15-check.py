@@ -16,8 +16,10 @@ import time
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+# drag_select stays False: with Drag on, a tap on the terminal starts a selection and fences
+# the input (handoff_view.rs selection_down), so the FIFO positive controls would never be typed.
 SEED = dict(version=1, language="en-US", theme="owner-default", compact=False,
-            terminal_priority=False, board_hidden=False, drag_select=True,
+            terminal_priority=False, board_hidden=False, drag_select=False,
             copy_on_select=False, terminal_font_size=None,
             terminal_font_family="SauceCodePro Nerd Font Mono",
             notifications=dict(route="toast", sound=False, volume=37, muted=True, quiet=[60, 120]),
