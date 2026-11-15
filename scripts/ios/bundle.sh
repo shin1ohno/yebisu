@@ -294,6 +294,10 @@ if [[ $package == yebisu && $kind == bin && $name == yebisu ]]; then
     cp "$font_source/SauceCodeProNerdFontMono-$face.ttf" "$app/Fonts/"
   done
   cp "$font_source/LICENSE.txt" "$font_source/README.md" "$font_source/PROVENANCE.md" "$font_source/NERD-FONTS-LICENSE.txt" "$app/Fonts/"
+  # The sounds and the MP3 decoder are linked into this binary: ship their license texts.
+  mkdir -p "$app/Licenses"
+  cp assets/licenses/NOTICE.md assets/licenses/Rodio-MIT.txt assets/licenses/Symphonia-MPL-2.0.txt "$app/Licenses/"
+  cp LICENSE "$app/Licenses/Apache-2.0.txt"
   plutil -replace UIAppFonts -json '["Fonts/SauceCodeProNerdFontMono-Regular.ttf","Fonts/SauceCodeProNerdFontMono-Bold.ttf","Fonts/SauceCodeProNerdFontMono-Italic.ttf","Fonts/SauceCodeProNerdFontMono-BoldItalic.ttf"]' "$plist"
 fi
 plutil -lint "$plist" >&2

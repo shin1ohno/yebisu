@@ -236,6 +236,7 @@ class BundleTests(unittest.TestCase):
         info = plistlib.loads((app / "Info.plist").read_bytes())
         self.assertNotIn("UIAppFonts", info)
         self.assertFalse((app / "Fonts").exists())
+        self.assertFalse((app / "Licenses").exists())
 
     def test_bundle_registers_sauce_code_pro_without_system_font_privileges(self):
         result = self.run_bundle("--package", "yebisu", "--bin", "yebisu")
@@ -252,6 +253,15 @@ class BundleTests(unittest.TestCase):
                          (REPOSITORY / "assets/fonts/SauceCodePro/LICENSE.txt").read_bytes())
         self.assertTrue((app / "Fonts/PROVENANCE.md").is_file())
         self.assertTrue((app / "Fonts/NERD-FONTS-LICENSE.txt").is_file())
+        # The Apache-2.0 sounds, Rodio/CPAL and the MPL-2.0 Symphonia decoder are
+        # linked into this binary, so their license texts must travel with it.
+        licenses = REPOSITORY / "assets/licenses"
+        self.assertEqual((app / "Licenses/Apache-2.0.txt").read_bytes(),
+                         (REPOSITORY / "LICENSE").read_bytes())
+        for name in ["NOTICE.md", "Rodio-MIT.txt", "Symphonia-MPL-2.0.txt"]:
+            self.assertEqual((app / "Licenses" / name).read_bytes(), (licenses / name).read_bytes())
+        self.assertIn("Mozilla Public License Version 2.0",
+                      (app / "Licenses/Symphonia-MPL-2.0.txt").read_text())
         for call in self.calls():
             self.assertNotIn("com.apple.developer.user-fonts", call.get("entitlements", {}))
 

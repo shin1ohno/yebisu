@@ -10,5 +10,6 @@ sound/playback.rs; its local-file reader and external configuration are omitted.
 
 The resolved consumer lock records Rodio 0.22.2 (MIT OR Apache-2.0), CPAL 0.17.3
 (Apache-2.0), and Symphonia 0.5.5 MP3 components (MPL-2.0). The reference notice
-above records those license families. Preserve their complete third-party
-license texts with any binary distribution; this source stage ships no binary.
+above records those license families. `scripts/ios/bundle.sh` copies the full
+texts (`assets/licenses/` plus the repository Apache-2.0 LICENSE) into the app
+bundle's `Licenses/` folder, so a TestFlight or device build carries them.
