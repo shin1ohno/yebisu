@@ -10,6 +10,9 @@ pub(crate) struct MenuQa {
     pub stage: usize,
     /// The E5 scene opened by "Second"; its controls carry a distinct label.
     pub second: bool,
+    /// The stage whose Begin ran. The control then reads "Begun", so the
+    /// driver can see a lost tap and retry without a second start marker.
+    pub begun: Option<usize>,
 }
 
 pub(crate) fn case() -> String {
@@ -35,6 +38,7 @@ impl Smoke {
         } else {
             "152"
         };
+        let begun = self.menu_qa.begun == Some(self.menu_qa.stage);
         Some(
             div()
                 .flex()
@@ -45,7 +49,11 @@ impl Smoke {
                         .id(format!("sh1-152-{command}"))
                         .p_2()
                         .bg(rgb(0x3b4252))
-                        .child(format!("{prefix} {command}"))
+                        .child(if command == "Begin" && begun {
+                            format!("{prefix} Begun")
+                        } else {
+                            format!("{prefix} {command}")
+                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.sh1_152_command(command, window, cx)
                         }))
@@ -116,6 +124,10 @@ impl Smoke {
                     .record(serde_json::json!({"kind":"sh1-152-close-other", "closed":closed}));
             }
             "Begin" | "Fresh" => {
+                if command == "Begin" && self.menu_qa.begun == Some(self.menu_qa.stage) {
+                    self.observation.record(serde_json::json!({"kind":"sh1-152-begin-repeat", "case":case(), "stage":self.menu_qa.stage}));
+                    return;
+                }
                 if command == "Fresh" {
                     self.menu_qa.stage += 1;
                     self.menu_qa.capture = None;
@@ -138,6 +150,8 @@ impl Smoke {
                     self.menu_qa.stage
                 )));
                 self.sh1_152_marker("start");
+                self.menu_qa.begun = Some(self.menu_qa.stage);
+                cx.notify();
                 if case().starts_with("E1") {
                     self.focus.focus(window, cx);
                 }

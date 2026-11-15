@@ -5,8 +5,7 @@ final class EditMenuQA: XCTestCase {
     func testSH1152Basic() throws {
         for name in ["E1-text", "E1-key", "E2-text", "E2-key", "E1-core", "E2-core"] {
             let app = launch(name)
-            try tap("152 Begin", app)
-            sleep(2)
+            try begin("152", app)
             if name.hasPrefix("E2") { try tap("152 Select", app); sleep(1) }
             try menu(app, name, selected: name.hasPrefix("E2"))
             let action = name.hasPrefix("E2") ? "Copy" : "Paste"
@@ -23,8 +22,7 @@ final class EditMenuQA: XCTestCase {
     func testSH1152Transitions() throws {
         for name in ["E3a", "E3b", "E3c", "E3d", "E3e", "E3f-text", "E3f-key", "E3g-text", "E3g-key", "E3h", "E3i", "E3a-core"] {
             let app = launch(name)
-            try tap("152 Begin", app)
-            sleep(2)
+            try begin("152", app)
             let selected = name == "E3c" || name.hasPrefix("E3f")
             if selected { try tap("152 Select", app); sleep(1) }
             try menu(app, name, selected: selected)
@@ -92,8 +90,7 @@ final class EditMenuQA: XCTestCase {
     func testSH1152DismissAndSystemEdit() throws {
         for name in ["E4-text", "E4-key", "E7"] {
             let app = launch(name)
-            try tap("152 Begin", app)
-            sleep(2)
+            try begin("152", app)
             try menu(app, name, selected: false)
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
             if name == "E7" {
@@ -121,8 +118,7 @@ final class EditMenuQA: XCTestCase {
         for name in ["E5a", "E5b", "E5c", "E5d"] {
             let app = launch(name)
             let selectFirst = name == "E5b" || name == "E5c"
-            try tap("152 Begin", app)
-            sleep(2)
+            try begin("152", app)
             if selectFirst { try tap("152 Select", app); sleep(1) }
             try menu(app, name, selected: selectFirst, target: "AAA-152")
             if name == "E5a" { app.menuItems["Paste"].tap() }
@@ -136,8 +132,7 @@ final class EditMenuQA: XCTestCase {
             sleep(6)
             save("\(name)-second-open")
             if name == "E5d" { try tap("152 Two Close", app); sleep(3) }
-            try tap("152 Two Begin", app)
-            sleep(2)
+            try begin("152 Two", app)
             if name == "E5b" { try tap("152 Two Select", app); sleep(1) }
             try menu(app, name, selected: name == "E5b", target: "BBB-152")
             app.menuItems[name == "E5b" ? "Copy" : "Paste"].tap()
@@ -175,6 +170,21 @@ final class EditMenuQA: XCTestCase {
         if !selected { XCTAssertFalse(app.menuItems["Copy"].exists, "Copy shown without a selection: \(name)") }
         save("menu-\(name)")
         sleep(1)
+    }
+
+    // A Begin tap can be lost: in PR run 43659150803, E3d had no start
+    // marker and kept the previous case's clipboard. The app relabels the
+    // control "Begun" once Begin runs and ignores a repeat, so retry until then.
+    private func begin(_ prefix: String, _ app: XCUIApplication) throws {
+        for attempt in 0..<3 {
+            if attempt > 0 { print("SH1-152 \(prefix) Begin not acknowledged; retry \(attempt)") }
+            if let control = try? coordinate("\(prefix) Begin", app, required: false) { control.tap() }
+            sleep(2)
+            if (try? coordinate("\(prefix) Begun", app, required: false)) != nil { return }
+        }
+        save("missing-\(prefix) Begun")
+        XCTFail("\(prefix) Begin was not acknowledged")
+        throw NSError(domain: "EditMenuQA.MissingControl", code: 2)
     }
 
     private func tap(_ label: String, _ app: XCUIApplication) throws {
