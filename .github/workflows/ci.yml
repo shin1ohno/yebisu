@@ -16,8 +16,8 @@ jobs:
   # to main and workflow_dispatch always run every job. The diff is the whole
   # pull request against its merge base, never just the latest push, so a green
   # head always means every relevant job passed on the current content. If the
-  # diff cannot be computed, every job runs. Changes to this file alone do not
-  # select a macOS job; run workflow_dispatch on the branch to exercise them.
+  # diff cannot be computed, every job runs. A change to this file selects
+  # every macOS job, so a workflow edit is exercised by its own pull request.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -52,8 +52,9 @@ jobs:
           fi
           # Everything each job compiles or bundles: the crate, its toolchain
           # and lockfile, the fonts bundle.sh copies, the just entry point,
-          # the disk guard, and the bundling scripts.
-          build='^(crates/|\.cargo/|assets/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh)$)'
+          # the disk guard, and the bundling scripts. This workflow file selects
+          # every job because it defines them.
+          build='^(\.github/workflows/ci\.yml$|crates/|\.cargo/|assets/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh)$)'
           # check also runs clippy (clippy.toml), the repository checks, every
           # unit test under scripts/, the provenance register, and reads
           # testflight.yml in a test.
@@ -74,6 +75,21 @@ jobs:
           decide check "$check"
           decide simulator-smoke "$smoke"
           decide edit-menu "$menu"
+  # Commit subjects are the release changelog, so every pull request is
+  # checked, including ones that start no macOS job. Same command as
+  # `just check-commits`; the script needs only Python.
+  commit-subjects:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Commit subjects
+        run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
   edit-menu:
     needs: changes
     if: needs.changes.outputs.edit-menu == 'true'
@@ -168,6 +184,3 @@ jobs:
         with:
           name: p12-mutation-evidence
           path: target/p12-mutations/
-      - name: Commit subjects
-        if: github.event_name == 'pull_request'
-        run: just check-commits
