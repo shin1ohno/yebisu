@@ -119,3 +119,86 @@ fn full_queue_drops_without_waiting_and_unknown_codes_are_ignored() {
     });
     assert_eq!(receiver.try_iter().collect::<Vec<_>>(), ["startup"]);
 }
+
+#[test]
+fn f24_child_panic_sink_probe() -> TestResult {
+    if std::env::var_os("YEBISU_F24_CHILD").is_none() {
+        return Ok(());
+    }
+    let path = PathBuf::from(std::env::var_os("YEBISU_F24_LOG").ok_or("missing test path")?);
+    let (send, receive) = sync_channel(4);
+    let destination = path.clone();
+    let worker = std::thread::spawn(move || write_loop(&destination, receive));
+    let (observation, observation_worker) =
+        crate::observation::Observation::file_for_test(path.with_extension("observation.jsonl"));
+    observation.record(serde_json::json!({"kind":"f24-observation-positive","key_ready":true}));
+    drop(observation);
+    observation_worker
+        .join()
+        .map_err(|_| "observation worker panic")??;
+    let (queued, messages) = sync_channel(1);
+    let observation = crate::observation::Observation::injected(queued);
+    observation.record(serde_json::json!({"kind":"queue-positive"}));
+    observation.record(serde_json::json!({"raw":"FAKE_PRIVATE_SENTINEL FAKE_PUBLIC_KEY_SENTINEL"}));
+    assert!(messages.recv()?.to_string().contains("queue-positive"));
+    drop(messages);
+    observation.record(serde_json::json!({"raw":"FAKE_PRIVATE_SENTINEL FAKE_PUBLIC_KEY_SENTINEL"}));
+    install_panic_hook();
+    tracing::subscriber::with_default(Capture(send), || {
+        record("startup");
+        let _ = std::panic::catch_unwind(|| {
+            panic!("FAKE_PRIVATE_SENTINEL RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM")
+        });
+    });
+    worker.join().map_err(|_| "writer panic")??;
+    println!("f24-child-positive");
+    Ok(())
+}
+
+#[test]
+fn f24_aggregate_actual_process_stderr_and_diagnostic_file() -> TestResult {
+    let temporary = Temporary::new()?;
+    let path = temporary.0.join("diagnostic.jsonl");
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "diagnostics::tests::f24_child_panic_sink_probe",
+            "--nocapture",
+        ])
+        .env("YEBISU_F24_CHILD", "1")
+        .env("YEBISU_F24_LOG", &path)
+        .output()?;
+    assert!(child.status.success());
+    let stdout = String::from_utf8(child.stdout)?;
+    let stderr = String::from_utf8(child.stderr)?;
+    let observation = std::fs::read_to_string(path.with_extension("observation.jsonl"))?;
+    let diagnostic = std::fs::read_to_string(path)?;
+    assert!(stdout.contains("f24-child-positive"));
+    assert!(stderr.contains("yebisu panic: payload suppressed"));
+    assert!(stderr.contains("smoke observation dropped: full"));
+    assert!(stderr.contains("smoke observation dropped: disconnected"));
+    assert!(observation.contains("f24-observation-positive"));
+    assert!(diagnostic.contains("startup") && diagnostic.contains("panic"));
+    let clean = |s: &str| {
+        ![
+            "FAKE_PRIVATE_SENTINEL",
+            "FAKE_PUBLIC_KEY_SENTINEL",
+            "RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM",
+        ]
+        .iter()
+        .any(|v| s.contains(v))
+    };
+    let aggregate = format!("{stdout}\n{stderr}\n{diagnostic}\n{observation}");
+    assert!(clean(&aggregate));
+    for secret in [
+        "FAKE_PRIVATE_SENTINEL",
+        "FAKE_PUBLIC_KEY_SENTINEL",
+        "RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM",
+    ] {
+        assert!(
+            !clean(&format!("{aggregate}{secret}")),
+            "same detector negative control"
+        );
+    }
+    Ok(())
+}

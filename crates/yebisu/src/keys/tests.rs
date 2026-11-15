@@ -56,3 +56,18 @@ fn name_is_bounded_and_safe() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn f23_delimiter_valid_bidi_is_sanitized_and_control_bytes_are_rejected() -> Result<()> {
+    let formatted = authorized_line("restrict ssh-ed25519 RkFLRQ== herdr-ipad-safe\u{202e}name")?;
+    assert_eq!(formatted, "restrict ssh-ed25519 RkFLRQ== yebisu-safe-name");
+    for control in ['\0', '\r', '\n', '\t', '\u{7f}', '\u{85}'] {
+        assert!(
+            authorized_line(&format!(
+                "restrict ssh-ed25519 RkFLRQ== herdr-ipad-{control}"
+            ))
+            .is_err()
+        );
+    }
+    Ok(())
+}
