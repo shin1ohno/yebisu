@@ -1,7 +1,8 @@
 //! Opt-in receiving query probe on captured real native clients. No OS oracle.
 use crate::app::Smoke;
 use gpui::{
-    AnyElement, AsyncWindowContext, ClipboardItem, Context, WeakEntity, Window, div, prelude::*,
+    AnyElement, AnyWindowHandle, AsyncWindowContext, ClipboardItem, Context, WeakEntity, div,
+    prelude::*,
 };
 use herdr_uikit::retirement_probe::{
     NativeClient, NativeCutProbeResult, NativeQuery, NativeQueryError, capture, key,
@@ -109,116 +110,129 @@ impl Smoke {
             .py_2()
             .child("P13 Next")
             .on_click(cx.listener(|this, _, window, cx| {
-                let step = STEP.fetch_add(1, Ordering::Relaxed);
-                if step == 0 {
-                    // Records read the pasteboard; content from another install
-                    // makes iOS ask for paste permission and blocks the probe.
-                    cx.write_to_clipboard(ClipboardItem::new_string(SENTINEL.into()));
-                    this.open_find(window, cx);
+                // One tap runs every step; later taps would move UIKit focus
+                // off the field and detach its native session mid-sequence.
+                if STEP.fetch_add(1, Ordering::Relaxed) != 0 {
+                    return;
                 }
-                this.schedule_p13_query(step, window, cx);
+                // Records read the pasteboard; content from another install
+                // makes iOS ask for paste permission and blocks the probe.
+                cx.write_to_clipboard(ClipboardItem::new_string(SENTINEL.into()));
+                this.open_find(window, cx);
+                let weak = cx.entity().downgrade();
+                query_step(0, window.window_handle(), window.to_async(cx), weak);
             }))
             .into_any_element()
     }
-    fn schedule_p13_query(&mut self, step: usize, window: &Window, cx: &Context<Self>) {
-        let handle = window.window_handle();
-        let mut context = window.to_async(cx);
-        let weak = cx.entity().downgrade();
-        next_native_turn(move || {
-            let client = if step == 0 {
-                let current = capture(handle);
-                CAPTURED.with_borrow_mut(|slot| *slot = current.clone());
-                current
-            } else {
-                CAPTURED.with_borrow(Clone::clone)
-            };
-            let Some(client) = client else {
+}
+// Each step runs on its own native turn and schedules the next one itself.
+fn query_step(
+    step: usize,
+    handle: AnyWindowHandle,
+    mut context: AsyncWindowContext,
+    weak: WeakEntity<Smoke>,
+) {
+    next_native_turn(move || {
+        let client = if step == 0 {
+            let current = capture(handle);
+            CAPTURED.with_borrow_mut(|slot| *slot = current.clone());
+            current
+        } else {
+            CAPTURED.with_borrow(Clone::clone)
+        };
+        let Some(client) = client else {
+            return;
+        };
+        let record = match step {
+            0 => {
+                client.insert("abcdef");
+                let set = setup(&client, 3..3);
+                let mut q = observe(&client, "Q01", 3, 3);
+                q["setup"] = json!([set]);
+                q["one"] = number(client.position_offset_utf16(3, 1));
+                q["overflow"] = number(client.position_offset_utf16(usize::MAX, 0));
+                q
+            }
+            1 => {
+                let all = setup(&client, 0..6);
+                client.insert("pre::post");
+                let caret = setup(&client, 4..4);
+                client.mark("変😀中");
+                let selected = setup(&client, 5..7);
+                let mut q = observe(&client, "Q02", 5, 8);
+                q["setup"] = json!([all, caret, selected]);
+                q
+            }
+            // Q03 was captured with the Cut; this phase only injects Escape.
+            2 => {
+                // Production composing Escape, never native unmark/commit. This
+                // is an injected native-origin event, not physical-key evidence.
+                let handled = key(handle, "escape", true);
+                let _ = context.update(|_, cx| {
+                    let _ = weak.update(cx, |this, _| {
+                        this.observation
+                            .record(json!({"kind":"p13-query-escape","handled":handled}));
+                    });
+                });
+                query_step(3, handle, context, weak);
                 return;
-            };
-            let record = match step {
-                0 => {
-                    client.insert("abcdef");
-                    let set = setup(&client, 3..3);
-                    let mut q = observe(&client, "Q01", 3, 3);
-                    q["setup"] = json!([set]);
-                    q["one"] = number(client.position_offset_utf16(3, 1));
-                    q["overflow"] = number(client.position_offset_utf16(usize::MAX, 0));
-                    q
-                }
-                1 => {
-                    let all = setup(&client, 0..6);
-                    client.insert("pre::post");
-                    let caret = setup(&client, 4..4);
-                    client.mark("変😀中");
-                    let selected = setup(&client, 5..7);
-                    let mut q = observe(&client, "Q02", 5, 8);
-                    q["setup"] = json!([all, caret, selected]);
-                    q
-                }
-                // Q03 was captured with the Cut; this phase only injects Escape.
-                2 => {
-                    // Production composing Escape, never native unmark/commit. This
-                    // is an injected native-origin event, not physical-key evidence.
-                    let handled = key(handle, "escape", true);
+            }
+            3 => observe(&client, "Q04", 4, 5),
+            4 => {
+                let _ = context.update(|window, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.p13_native_barrier("query-before-close");
+                        this.close_find(window, cx);
+                        cx.notify();
+                    });
+                });
+                next_native_turn(move || {
+                    let Some(current) = capture(handle) else {
+                        return;
+                    };
+                    client.mark("Q05-fresh");
+                    client.insert("Q05-fresh");
+                    client.unmark();
+                    client.delete();
+                    client.edit_actions();
                     let _ = context.update(|_, cx| {
                         let _ = weak.update(cx, |this, _| {
-                            this.observation
-                                .record(json!({"kind":"p13-query-escape","handled":handled}));
+                            this.p13_native_barrier("query-old-after-close")
                         });
                     });
-                    return;
-                }
-                3 => observe(&client, "Q04", 4, 5),
-                4 => {
-                    let _ = context.update(|window, cx| {
+                    current.mark("abcdef");
+                    let ready = current.text_readiness();
+                    let mut q = observe(&current, "Q05-current", 0, 6);
+                    // Query the retained old endpoint, never recapture it.
+                    q["old"] = observe(&client, "Q05-old", 0, 0);
+                    q["ready"] = json!([ready.0, ready.1, ready.2]);
+                    current.insert("Q05-fresh");
+                    let _ = context.update(|_, cx| {
                         let _ = weak.update(cx, |this, cx| {
-                            this.p13_native_barrier("query-before-close");
-                            this.close_find(window, cx);
+                            this.p13_native_barrier("query-fresh-after-close");
+                            q["paused"] = json!(this.find_handoff.paused);
+                            this.observation.record(q);
                             cx.notify();
                         });
                     });
-                    next_native_turn(move || {
-                        let Some(current) = capture(handle) else {
-                            return;
-                        };
-                        client.mark("Q05-fresh");
-                        client.insert("Q05-fresh");
-                        client.unmark();
-                        client.delete();
-                        client.edit_actions();
-                        let _ = context.update(|_, cx| {
-                            let _ = weak.update(cx, |this, _| {
-                                this.p13_native_barrier("query-old-after-close")
-                            });
-                        });
-                        current.mark("abcdef");
-                        let ready = current.text_readiness();
-                        let mut q = observe(&current, "Q05-current", 0, 6);
-                        // Query the retained old endpoint, never recapture it.
-                        q["old"] = observe(&client, "Q05-old", 0, 0);
-                        q["ready"] = json!([ready.0, ready.1, ready.2]);
-                        current.insert("Q05-fresh");
-                        let _ = context.update(|_, cx| {
-                            let _ = weak.update(cx, |this, cx| {
-                                this.p13_native_barrier("query-fresh-after-close");
-                                q["paused"] = json!(this.find_handoff.paused);
-                                this.observation.record(q);
-                                cx.notify();
-                            });
-                        });
-                    });
-                    return;
-                }
-                5 => json!({"kind":"p13-query-done","captured":client.identity()}),
-                _ => return,
-            };
-            publish(&mut context, &weak, record);
-            if step == 1 {
-                // Same turn, no wait: Q02 state is already stored above.
-                cut_q03(&client, move |q| publish(&mut context, &weak, q));
+                    query_step(5, handle, context, weak);
+                });
+                return;
             }
-        });
-    }
+            5 => json!({"kind":"p13-query-done","captured":client.identity()}),
+            _ => return,
+        };
+        publish(&mut context, &weak, record);
+        if step == 1 {
+            // Same turn, no wait: Q02 state is already stored above.
+            cut_q03(&client, move |q| {
+                publish(&mut context, &weak, q);
+                query_step(2, handle, context, weak);
+            });
+        } else if step < 5 {
+            query_step(step + 1, handle, context, weak);
+        }
+    });
 }
 // State is read only AFTER the first native selection observation.
 fn publish(context: &mut AsyncWindowContext, weak: &WeakEntity<Smoke>, mut record: Value) {

@@ -200,7 +200,7 @@ def collect(directory, expected_head, query_mode=False, verify_mutant=None):
     (project / "Tests").mkdir(parents=True)
     swift = SWIFT
     if query_mode:
-        swift = swift.replace('app.launchEnvironment["YEBISU_P13_QA"] = "1"', 'app.launchEnvironment["YEBISU_P13_QA"] = "1"\n        app.launchEnvironment["YEBISU_P13_QUERY_QA"] = "1"').replace('0..<14', '0..<6')
+        swift = swift.replace('app.launchEnvironment["YEBISU_P13_QA"] = "1"', 'app.launchEnvironment["YEBISU_P13_QA"] = "1"\n        app.launchEnvironment["YEBISU_P13_QUERY_QA"] = "1"').replace('0..<14', '0..<1').replace('sleep(2)', 'sleep(12)')
     (project / "Tests/P13QA.swift").write_text(swift)
     (project / "project.yml").write_text(PROJECT)
     run(["xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project)], directory, "generate")
