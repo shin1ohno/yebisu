@@ -63,15 +63,24 @@ impl Provider for Platform {
     }
 }
 // Match the pinned SDK's fixed, credential-free Display categories. Never log errors.
-#[cfg(all(target_os = "ios", not(test)))]
-fn classify(error: sheprd_client::Error) -> Failure {
-    match error.to_string().as_str() {
-        "The iPad is locked. Unlock it and try again." => Failure::Locked,
-        "The device key was not in the Keychain after it was created. Try again." => {
-            Failure::Missing
-        }
+// The strings are pinned by a non-iOS test, so an SDK wording change fails CI instead of
+// silently turning Locked and Missing into Provider.
+#[cfg(any(test, target_os = "ios"))]
+pub(super) const LOCKED_MESSAGE: &str = "The iPad is locked. Unlock it and try again.";
+#[cfg(any(test, target_os = "ios"))]
+pub(super) const MISSING_MESSAGE: &str =
+    "The device key was not in the Keychain after it was created. Try again.";
+#[cfg(any(test, target_os = "ios"))]
+pub(super) fn classify_message(message: &str) -> Failure {
+    match message {
+        LOCKED_MESSAGE => Failure::Locked,
+        MISSING_MESSAGE => Failure::Missing,
         _ => Failure::Provider,
     }
+}
+#[cfg(all(target_os = "ios", not(test)))]
+fn classify(error: sheprd_client::Error) -> Failure {
+    classify_message(&error.to_string())
 }
 
 #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
