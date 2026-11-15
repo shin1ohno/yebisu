@@ -759,7 +759,7 @@ keeps text priority, and preserves Herdr 1's 16 MiB image limit.
 
 ## SH1-152
 
-以下は owner が実機 iPad（M5）で行う12項目です。Simulator の成功では完了にしません。
+以下は owner が実機 iPad（M5）で行う14項目です。Simulator の成功では完了にしません。
 実施日、iPadOS、入力機器、Herdr 1/2、送信先と受信結果を PR に記録します。
 
 - [ ] 1. 指で500 ms長押ししたときの感触、メニュー位置、指による隠れ方、Pencil の挙動を確認します。
@@ -774,5 +774,7 @@ keeps text priority, and preserves Herdr 1's 16 MiB image limit.
 - [ ] 10. メニューを出したまま Control Center / Notification Center を開いて戻し、古い操作は0回、新しい長押しの操作は1回になることを確認します。inactive-only と Background を区別します。
 - [ ] 11. 設定シートなど端末に重なる UI の上では長押しが端末メニューを開かず、その UI の操作が残ることを確認します。
 - [ ] 12. software keyboard の隠すキーで最小化し、端末をタップして開き直します。restart 到達、acquire の実戻り値、guard 終了時の両 responder の所有状態を記録します。失敗入力が成立したときは古い Paste 0回・clipboard 不変、新しい長押しは1回です。入力を作れなかった場合は未検証とします。hardware keyboard の抜き差しで内部切り替えが成功する場合は、保持メニューが1回動くことも確認します。
+- [ ] 13. 選択なしの長押しでは Paste だけ、選択ありの長押しでは Copy と Paste だけが出ることを確認します。Copy が灰色で残る場合も規則違反として記録します（Simulator は無効な項目を隠すため、この表示は実機でしか確かめられません）。
+- [ ] 14. 項目 6 の送信先変更と項目 7 の2ウィンドウの切り替えそれぞれの直後に、新しい送信先で長押ししてメニューが出ること、Paste がその送信先に1回届くことを確認します。メニューが出ない場合は、Herdr 1/2 の別と pane の大きさを記録します。
 
-12項目が完了するまでは SH1-152 の実機受け入れを未完了とします。
+14項目が完了するまでは SH1-152 の実機受け入れを未完了とします。
