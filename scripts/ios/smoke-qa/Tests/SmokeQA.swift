@@ -54,9 +54,8 @@ final class SmokeQA: XCTestCase {
         XCTAssertLessThan(keyboardTop, app.frame.height - 100, "the software keyboard must be up for this measurement")
         try tapText("P14 next", in: app)
         sleep(1)
-        // The toast lives five seconds: one screenshot, then one OCR pass that also taps.
-        save("p14-toast")
-        let toast = try tapText("Agent needs attention", in: app)
+        // The toast lives five seconds: a single pass screenshots, recognizes and taps it.
+        let toast = try tapText("Agent needs attention", in: app, attachAs: "p14-toast")
         let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
         print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
         XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
@@ -579,11 +578,12 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws -> CGRect {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, attachAs: String? = nil) throws -> CGRect {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         for attempt in 0..<attempts {
-            let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+            let screenshot = XCUIScreen.main.screenshot()
+            let image = try XCTUnwrap(screenshot.image.cgImage)
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.customWords = [label]
@@ -601,6 +601,12 @@ final class SmokeQA: XCTestCase {
                 }
                 let box = observation.boundingBox
                 print("OCR tap \(label) frame=\(app.frame) box=\(box)")
+                if let name = attachAs {
+                    let attachment = XCTAttachment(screenshot: screenshot)
+                    attachment.name = name
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
                 }
