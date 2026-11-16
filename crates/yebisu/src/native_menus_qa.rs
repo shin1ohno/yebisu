@@ -19,6 +19,9 @@ pub(crate) struct MenuQa {
     /// legitimately moves focus to the new pane, so "original" is relative to
     /// the prepare, not the fixture's first pane.
     pane_baseline: Option<String>,
+    /// OS menu rebuilds so far, and how many the last step record accounted for.
+    rebuilds: u64,
+    noted_rebuilds: u64,
 }
 impl Smoke {
     pub(crate) fn p12_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -74,6 +77,39 @@ impl Smoke {
                 .into_any_element(),
         )
     }
+    /// Called by `install_native_menus` right before `cx.set_menus`, that is,
+    /// exactly when `NativeMenus::refresh` found a changed Scope or row. Every
+    /// OS menu rebuild is recorded, including one caused by the Scope alone
+    /// (host, pane, boot, epoch), so a tap that arrives while UIKit swaps the
+    /// menu can be matched to the rebuild by time. The record precedes the swap.
+    pub(crate) fn p12_note_menu_rebuild(&mut self) {
+        if std::env::var_os("YEBISU_P12_QA").is_none() {
+            return;
+        }
+        self.p12_qa.rebuilds += 1;
+        self.observation.record(
+            serde_json::json!({"kind":"p12-menu-build","source":"rebuild",
+            "case":self.p12_qa.case,"changed":true,"rebuilds":self.p12_qa.rebuilds,
+            "build":self.native_menus.p12_build_record()}),
+        );
+    }
+    /// Records the menu state at a setup step. `changed` is true when at least
+    /// one rebuild (see `p12_note_menu_rebuild`) happened since the previous
+    /// step record; `rebuilds` is the running total.
+    fn p12_note_menu_step(&mut self, window: &Window, source: &'static str) {
+        let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
+        let availability =
+            crate::native_menus::catalog_rows(&self.terminal, &self.actions, focused)
+                .iter()
+                .map(|row| row.available)
+                .collect::<Vec<_>>();
+        let changed = self.p12_qa.rebuilds != self.p12_qa.noted_rebuilds;
+        self.p12_qa.noted_rebuilds = self.p12_qa.rebuilds;
+        self.observation
+            .record(serde_json::json!({"kind":"p12-menu-build","source":source,
+                "case":self.p12_qa.case,"changed":changed,"rebuilds":self.p12_qa.rebuilds,
+                "focused":focused,"availability":availability}));
+    }
     fn p12_restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((host, pane, methods, boot)) = self.p12_qa.saved.take() {
             // Restore only the injected field. Never resurrect connected state,
@@ -114,6 +150,7 @@ impl Smoke {
         } else if case == "current" {
             self.p12_qa.freeze = false;
             self.install_native_menus(window, cx);
+            self.p12_note_menu_step(window, "current");
             self.observation.record(
                 serde_json::json!({"kind":"p12-current", "case":self.p12_qa.case,
                 "state":self.p12_state(window)}),
@@ -149,6 +186,7 @@ impl Smoke {
             self.p12_qa.pane_baseline =
                 crate::board::snapshot(&self.terminal.live).and_then(|s| s.focused_pane_id.clone());
             self.install_native_menus(window, cx);
+            self.p12_note_menu_step(window, "prepare");
             let negative = matches!(case, "host" | "pane" | "boot" | "focus" | "capability");
             if negative {
                 self.p12_qa.saved = Some((

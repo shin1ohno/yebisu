@@ -112,6 +112,27 @@ impl NativeMenus {
         true
     }
 
+    /// QA only: the Scope and rows the OS menu is being rebuilt from, for the
+    /// `p12-menu-build` record. Everything `refresh` compares is included, so a
+    /// rebuild caused by the Scope alone (host, pane, boot, epoch) is visible.
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub(crate) fn p12_build_record(&self) -> serde_json::Value {
+        let scope = self.scope.as_ref();
+        serde_json::json!({
+            "host": scope.map(|s| s.host.as_str()),
+            "generation": scope.map(|s| s.generation),
+            "boot": scope.map(|s| s.boot.as_str()),
+            "workspace": scope.and_then(|s| s.workspace.as_deref()),
+            "tab": scope.and_then(|s| s.tab.as_deref()),
+            "pane": scope.and_then(|s| s.pane.as_deref()),
+            "epoch": scope.map(|s| s.epoch),
+            "methods": scope.map(|s| s.methods.len()),
+            "palette": scope.map(|s| s.palette),
+            "focused": scope.map(|s| s.focused),
+            "availability": self.rows.iter().map(|(_, _, enabled)| *enabled).collect::<Vec<_>>(),
+        })
+    }
+
     fn command_gate(
         &self,
         command: Command,
@@ -167,6 +188,9 @@ impl Smoke {
         {
             return;
         }
+        // QA only: `refresh` returned true, so the OS menu is rebuilt below.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.p12_note_menu_rebuild();
         let items = self.native_menus.rows.iter().map(|(name, label, enabled)| {
             MenuItem::action(label.clone(), NativeCommand { name: name.clone() }).disabled(!enabled)
         });
