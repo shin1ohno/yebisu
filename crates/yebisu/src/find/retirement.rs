@@ -80,7 +80,14 @@ impl Smoke {
     /// A draw while the fence was closed reported FocusLost
     /// (`accepts_text_input`, input.rs:98); the native client's third
     /// readiness value (herdr-uikit 33e288d text_input/probe.rs:54-60) holds
-    /// that until the next draw re-evaluates focus.
+    /// that until the next draw re-evaluates focus. Read by the P13 probes.
+    #[cfg_attr(
+        not(any(test, feature = "p13-native-probe")),
+        allow(
+            dead_code,
+            reason = "only the opt-in P13 probes and host tests read it"
+        )
+    )]
     pub(crate) fn find_input_settled(&self) -> bool {
         !self.find_handoff.paused
             && self
