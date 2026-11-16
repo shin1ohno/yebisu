@@ -28,7 +28,7 @@ final class SmokeQA: XCTestCase {
         XCUIDevice.shared.press(.home)
         // activate() issued while the Home press is still being handled leaves the app
         // suspended in the background (class C of the L17 diagnosis).
-        try requireState(app, [.notRunning], "app left the foreground after press(.home)")
+        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "activate() after press(.home)")
         try waitForRenderedText("input", what: "repaint of 'P0-input' after returning")
