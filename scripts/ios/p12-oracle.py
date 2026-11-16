@@ -1,4 +1,6 @@
 """Joint installed-GUI, consumer and private-peer oracle. No model-only UI pass."""
+import re
+
 CASES = ["remote", "sidebar", "rearm", "palette", "host", "pane", "boot", "focus", "capability"]
 NEGATIVE = CASES[4:]
 LABELS = {"remote": "Split Right", "rearm": "Split Right", "sidebar": "Toggle Sidebar", "palette": "Command Palette"}
@@ -17,12 +19,51 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def screenshot_names(name, data):
-    if not (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8")):
+def is_image(data):
+    return data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8")
+
+
+def attachment_named(name, expected):
+    return name.startswith(expected + "_") or name.startswith(expected + ".")
+
+
+def hierarchy_key(case):
+    return f"p12-menu-{case}-hierarchy"
+
+
+def hierarchy_evidence(name, data):
+    """Evidence tokens of one Springboard AX hierarchy attachment, or none.
+
+    While the OS menu is open the oracle takes no screenshot (they are failure
+    evidence only); the menu's proof is the Springboard hierarchy saved right after
+    the menu opened. A token is returned only when that text, in its SPRINGBOARD
+    section, lists the case's native command as a button: `<key>` for the item being
+    listed and `<key>-enabled` when it is not marked Disabled."""
+    if is_image(data):
         return set()
-    expected = ["p12-finished", "p12-menu-focus-current",
-                *[f"p12-{stage}-{case}" for stage in ["menu", "before", "after"] for case in CASES]]
-    return {item for item in expected if name.startswith(item + "_") or name.startswith(item + ".")}
+    for case in [*CASES, "focus-current"]:
+        key = hierarchy_key(case)
+        if not attachment_named(name, key):
+            continue
+        sections = data.decode("utf-8", "replace").split("\nSPRINGBOARD\n", 1)
+        if len(sections) != 2:
+            return set()
+        label = re.escape(LABELS.get(case, "Split Right"))
+        # Same label rule as the os-menu-pick check: the command, then an optional shortcut suffix.
+        items = re.findall(rf"Button, [^\n]*label: '{label}(?:[\u3000,][^']*)?'([^\n]*)", sections[1])
+        if not items:
+            return set()
+        return {key, *([key + "-enabled"] if not any("Disabled" in flags for flags in items) else [])}
+    return set()
+
+
+def screenshot_names(name, data):
+    """Evidence names one exported attachment proves: real screenshots and the menu hierarchies."""
+    if not is_image(data):
+        return hierarchy_evidence(name, data)
+    # The three screenshots taken while the OS menu is open are failure evidence only.
+    expected = ["p12-finished", "p12-menu-focus-current", *[f"p12-after-{case}" for case in CASES]]
+    return {item for item in expected if attachment_named(name, item)}
 
 
 def validate(records, messages, ui, screenshots):
@@ -39,7 +80,11 @@ def validate(records, messages, ui, screenshots):
         require(pick.get("owner") in ["com.apple.springboard", "com.shin1ohno.yebisu"], "wrong native owner")
         label = LABELS.get(case, "Split Right")
         require(pick.get("command") == label and pick.get("buttonLabel", "").split("　")[0].split(",")[0] == label, "wrong native command label")
-        require(all(f"p12-{stage}-{case}" in screenshots for stage in ["menu", "before", "after"]), "real screenshot missing")
+        require(f"p12-after-{case}" in screenshots, "real screenshot missing")
+        require(hierarchy_key(case) in screenshots, f"Springboard AX hierarchy item missing in case {case}")
+        if case not in NEGATIVE:
+            # A negative case's menu is captured before the stale fault lands, so only its listing is required.
+            require(hierarchy_key(case) + "-enabled" in screenshots, f"native item disabled in the AX hierarchy in case {case}")
         matches = [r for r in prepare["catalog"] if r["label"] == label]
         require(len(matches) == 1 and matches[0]["enabled"], "prepared catalog mismatch")
         received = [r for r in receivers if r["case"] == case]
@@ -76,6 +121,7 @@ def validate(records, messages, ui, screenshots):
                 require(shown[0].get("enabled") is True and shown[0].get("owner") == "com.apple.springboard"
                         and shown[0].get("buttonLabel", "").split("　")[0] == "Split Right", "current native menu unavailable")
                 require("p12-menu-focus-current" in screenshots, "current native menu screenshot missing")
+                require(hierarchy_key("focus-current") + "-enabled" in screenshots, "current native menu AX hierarchy item missing")
             if pick.get("tapped"):
                 require(pick.get("enabled") is True and len(received) == 1, "stale enabled GUI pick lacks one receiver")
                 negative_routes[case] = "consumer_rejected_actual_os_pick"

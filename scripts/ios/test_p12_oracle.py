@@ -9,6 +9,17 @@ p12 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p12)
 
 
+def hierarchy_text(label, flags="", section="SPRINGBOARD"):
+    """An exported p12-menu-*-hierarchy attachment in the format of a real run's, trimmed to its menu button."""
+    return ("APP\n  Application, 0x1, pid: 1\n" + section + "\n  Application, 0x2, pid: 2\n"
+            f"    Button, 0x3, {{{{324.5, 75.5}}, {{274.0, 38.0}}}}, label: '{label}\u3000\u2318D'{flags}\n").encode()
+
+
+def hierarchy_shots(case, **kwargs):
+    label = p12.LABELS.get(case, "Split Right")
+    return p12.screenshot_names(f"p12-menu-{case}-hierarchy_0_UUID.txt", hierarchy_text(label, **kwargs))
+
+
 def fixture():
     records, ui = [], []
     state = dict(original_boot=True, scene_active=True, focused=True, pending=False,
@@ -98,7 +109,11 @@ def fixture():
     records.append(dict(kind="p12-finish", enqueued=True, time=clock-1.5))
     messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=sequence+1,
                          message=dict(input=["fifo_fence"]), time=clock-1.5))
-    shots = {"p12-finished", "p12-menu-focus-current", *[f"p12-{stage}-{case}" for stage in ("menu", "before", "after") for case in p12.CASES]}
+    # No screenshot is taken while the OS menu is open (p12-revealed-*, p12-menu-<case>, p12-before-*):
+    # the menu is proved by its Springboard hierarchy.
+    shots = {"p12-finished", "p12-menu-focus-current", *[f"p12-after-{case}" for case in p12.CASES]}
+    for case in [*p12.CASES, "focus-current"]:
+        shots |= hierarchy_shots(case)
     return records, messages, ui, shots
 
 
@@ -152,7 +167,53 @@ class P12OracleTests(unittest.TestCase):
         self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-menu-receiver","remote")), "cardinality mismatch")
 
     def test_real_screenshot_required(self):
-        self.rejected(lambda r,m,u,s: s.remove("p12-menu-focus"), "real screenshot missing")
+        self.rejected(lambda r,m,u,s: s.remove("p12-after-focus"), "real screenshot missing")
+        self.rejected(lambda r,m,u,s: s.clear(), "real screenshot missing")
+
+    def test_menu_open_screenshots_are_not_required(self):
+        """The evidence change: no PNG taken while the OS menu is open is needed, only the hierarchy."""
+        _, _, _, shots = fixture()
+        open_menu = {f"p12-{stage}-{case}" for stage in ("revealed", "before") for case in p12.CASES}
+        open_menu |= {f"p12-menu-{case}" for case in p12.CASES}
+        self.assertFalse(open_menu & shots)
+        self.assertEqual(p12.validate(*fixture())["installed_os_menu"], "pass")
+
+    def test_menu_hierarchy_item_is_required_for_every_case(self):
+        for case in p12.CASES:
+            self.rejected(lambda r,m,u,s: s.difference_update(hierarchy_shots(case)),
+                          f"Springboard AX hierarchy item missing in case {case}")
+
+    def test_positive_menu_item_must_be_enabled_in_the_hierarchy(self):
+        for case in ("remote", "sidebar", "rearm", "palette"):
+            self.rejected(lambda r,m,u,s: s.discard(f"p12-menu-{case}-hierarchy-enabled"),
+                          f"native item disabled in the AX hierarchy in case {case}")
+
+    def test_negative_menu_item_may_be_disabled_in_the_hierarchy(self):
+        """A negative case's hierarchy is saved before its stale fault lands; its own disabled pick is checked elsewhere."""
+        data = fixture()
+        data[3].discard("p12-menu-capability-hierarchy-enabled")
+        self.assertEqual(p12.validate(*data)["installed_os_menu"], "pass")
+
+    def test_current_focus_hierarchy_item_is_required(self):
+        self.rejected(lambda r,m,u,s: s.discard("p12-menu-focus-current-hierarchy-enabled"),
+                      "current native menu AX hierarchy item missing")
+
+    def test_hierarchy_item_must_be_the_native_command(self):
+        # The menu hierarchy of another case's command is not evidence of this case.
+        self.assertEqual(p12.screenshot_names("p12-menu-palette-hierarchy_0_U.txt", hierarchy_text("Toggle Sidebar")), set())
+        self.assertEqual(p12.screenshot_names("p12-menu-focus-hierarchy_0_U.txt", hierarchy_text("Split Left")), set())
+        self.assertEqual(hierarchy_shots("palette"), {"p12-menu-palette-hierarchy", "p12-menu-palette-hierarchy-enabled"})
+
+    def test_hierarchy_item_must_be_in_the_springboard_section(self):
+        # Present only in the app's own tree is not the OS menu.
+        self.assertEqual(hierarchy_shots("focus", section="OTHER"), set())
+        self.assertEqual(p12.screenshot_names("p12-menu-focus-hierarchy_0_U.txt", b"SPRINGBOARD\nno separator"), set())
+
+    def test_disabled_item_lists_but_is_not_enabled(self):
+        self.assertEqual(hierarchy_shots("sidebar", flags=", Disabled"), {"p12-menu-sidebar-hierarchy"})
+
+    def test_hierarchy_name_is_not_evidence_for_an_image(self):
+        self.assertEqual(p12.screenshot_names("p12-menu-sidebar-hierarchy_0_U.png", b"\x89PNG\r\n\x1a\n"), set())
 
     def test_unmutated_negative(self):
         self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-mutated","host")), "stale mutation")
@@ -175,7 +236,13 @@ class P12OracleTests(unittest.TestCase):
         name = "p12-menu-focus-current_0_276531E2-7FFC-41F2-891A-B135417934A2.png"
         self.assertEqual(p12.screenshot_names(name, b"\x89PNG\r\n\x1a\n"), {"p12-menu-focus-current"})
         self.assertEqual(p12.screenshot_names(name, b"APP hierarchy"), set())
-        self.assertEqual(p12.screenshot_names("p12-menu-focus_0_UUID.jpeg", b"\xff\xd8"), {"p12-menu-focus"})
+        self.assertEqual(p12.screenshot_names("p12-after-focus_0_UUID.jpeg", b"\xff\xd8"), {"p12-after-focus"})
+        # Screenshots taken while the OS menu is open are no evidence any more.
+        for taken in ("p12-menu-focus", "p12-before-focus", "p12-revealed-focus"):
+            self.assertEqual(p12.screenshot_names(taken + "_0_UUID.png", b"\x89PNG\r\n\x1a\n"), set())
+        # focus and focus-current hierarchies are different attachments.
+        self.assertEqual(p12.screenshot_names("p12-menu-focus-current-hierarchy_0_U.txt", hierarchy_text("Split Right")),
+                         {"p12-menu-focus-current-hierarchy", "p12-menu-focus-current-hierarchy-enabled"})
 
     def test_current_focus_screenshot_is_required(self):
         self.rejected(lambda r,m,u,s: s.remove("p12-menu-focus-current"), "current native menu screenshot missing")
