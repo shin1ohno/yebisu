@@ -87,6 +87,7 @@ impl Smoke {
             Page::Appearance => self.render_p15_settings(cx),
             Page::Keyboard => self.settings_keyboard(&values, can_edit, cx),
             Page::DeviceKey => self.settings_keys(cx),
+            Page::Notifications => self.render_notification_settings(cx),
             Page::General => div()
                 .flex()
                 .flex_col()
@@ -118,6 +119,7 @@ impl Smoke {
                 .flex_shrink_0()
                 .child("Settings")
                 .child(status)
+                .child(self.notifications.status.clone())
                 .child(
                     button("settings-retry", "Retry save", can_edit).on_click(cx.listener(
                         |this, _, _, cx| {

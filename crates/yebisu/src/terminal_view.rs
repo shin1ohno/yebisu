@@ -178,7 +178,20 @@ impl Smoke {
         }
         self.poll_hidden(cx);
         self.sync_handoff();
-        if !self.terminal.open || self.terminal.reconnect.suspended {
+        if self.terminal.reconnect.suspended {
+            return;
+        }
+        if !self.terminal.open {
+            // The Hosts list does not disconnect the current host. Keep draining its
+            // reader exactly as a hidden host is, so a notification that arrives
+            // while the terminal is closed is delivered now instead of aging out.
+            if let Some(mut live) = self.terminal.link.take_update() {
+                live.clipboard.clear();
+                self.terminal.live = live;
+                crate::board::finish_navigation(&mut self.terminal);
+                self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
+                cx.notify();
+            }
             return;
         }
         if let Some(mut live) = self.terminal.link.take_update() {

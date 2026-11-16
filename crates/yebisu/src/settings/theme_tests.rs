@@ -49,7 +49,7 @@ fn theme_handler_applies_immediately_and_survives_background_relaunch(
         serde_json::from_slice(&fs::read(&file).unwrap_or_else(|e| panic!("{e}")))
             .unwrap_or_else(|e| panic!("{e}"));
     json["future"] = serde_json::json!({"preserve": 42});
-    // P14 c639876 preferences.rs encode shape, retained before its integration.
+    // P14 preferences.rs encode shape.
     let notifications = serde_json::json!({"route":"toast","sound":false,
         "volume":37,"muted":true,"quiet":[60,120]});
     json["notifications"] = notifications.clone();
@@ -69,9 +69,12 @@ fn theme_handler_applies_immediately_and_survives_background_relaunch(
         let _content = this.render_p15_settings(cx);
     });
     let saved = store::load(&root).unwrap_or_else(|e| panic!("{e}"));
+    // With P14 integrated the stored notification policy loads, so it is expected back.
     assert_eq!(
         saved,
         Values {
+            notifications: crate::notifications::Policy::decode(Some(&notifications))
+                .unwrap_or_else(|e| panic!("{e}")),
             theme: Palette::HighContrast,
             ..initial
         }
