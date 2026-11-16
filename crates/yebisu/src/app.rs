@@ -8,6 +8,7 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    pub(crate) notifications: crate::notification_view::State,
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
     pub(crate) observer: crate::p11_observer::Harness,
     pub(crate) settings: Option<crate::settings::SettingsHost>,
@@ -86,7 +87,8 @@ impl Smoke {
                             cx.notify();
                         }
                         this.poll_settings(cx);
-                        this.poll_terminal(cx)
+                        this.poll_terminal(cx);
+                        this.collect_notifications(cx);
                     })
                     .is_err()
                 {
@@ -96,6 +98,7 @@ impl Smoke {
         })
         .detach();
         Self {
+            notifications: Default::default(),
             #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
             observer: Default::default(),
             settings: None,
@@ -149,8 +152,14 @@ impl Render for Smoke {
                     }
                 }));
         }
-        let screen = self.render_screen(window, cx);
+        let rendered = self.render_screen(window, cx);
         self.publish_native_edits(window);
+        let screen = div()
+            .relative()
+            .size_full()
+            .child(rendered)
+            .child(self.render_notification(window, cx))
+            .into_any_element();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()
             .relative()
@@ -344,6 +353,12 @@ pub(crate) fn run() {
     herdr_uikit::application().run(|cx: &mut App| {
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
+            let notification_owner = entity.downgrade();
+            cx.on_system_notification_response(move |response, cx| {
+                let _ = notification_owner.update(cx, |this, cx| {
+                    this.open_notification(&response.tag, response.action_id.is_some(), cx)
+                });
+            });
             let weak = entity.downgrade();
             cx.on_app_lifecycle(move |phase, cx| {
                 let _ = weak.update(cx, |this, cx| this.lifecycle(phase, cx));
@@ -356,6 +371,7 @@ pub(crate) fn run() {
                     return;
                 }
                 this.start_settings(cx);
+                this.query_notification_permission();
                 this.start_job(crate::setup::Job::Load, cx);
             });
             #[cfg(target_abi = "sim")]

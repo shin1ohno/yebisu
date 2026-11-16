@@ -25,12 +25,14 @@ serde_json.workspace = true
 unicode-width.workspace = true
 tracing.workspace = true
 image.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 gpui.workspace = true
 # Named only to match the SDK's typed device-key errors in key_ops/provider.rs.
 sheprd-credentials.workspace = true
 herdr-uikit.workspace = true
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "tracing"] }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }
 objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["UIApplication", "UICommand", "UIEditMenuInteraction", "UIMenu", "UIMenuElement", "UIPasteboard", "std"] }
@@ -43,3 +45,6 @@ libc = { version = "0.2", optional = true }
 sheprd-client = { workspace = true, features = ["test-support"] }
 sheprd-commands = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "ios")'.dev-dependencies]
+herdr-uikit = { workspace = true, features = ["test-support"] }
