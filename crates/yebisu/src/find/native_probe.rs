@@ -1,44 +1,80 @@
 //! Opt-in actual UIKit selectors; this does not emulate OS queued input.
 use crate::app::Smoke;
-use gpui::{AsyncWindowContext, Context, EntityInputHandler, WeakEntity, Window};
+use gpui::{AnyWindowHandle, AsyncWindowContext, Context, EntityInputHandler, WeakEntity, Window};
 use herdr_uikit::retirement_probe::{capture, next_native_turn};
 use std::time::{Duration, Instant};
 
-/// Longest wait for the post-acknowledgement frame. Past it the probe reads
-/// readiness anyway and records `settled: false`, which the oracle rejects.
+/// Longest wait for the post-acknowledgement frame and the SDK's responder
+/// update after it. Past it the probe reads readiness anyway; the oracle
+/// rejects `settled: false` and any readiness that is not all true.
 const SETTLE: Duration = Duration::from_secs(2);
 
+/// What the probe waited for before its readiness read.
+#[derive(Clone, Copy)]
+pub(super) struct Settle {
+    /// GPUI drew a frame after the accepted retirement acknowledgement.
+    pub drawn: bool,
+    /// After that frame, the current native client read ready on all three
+    /// values at least once.
+    pub responder: bool,
+    pub turns: u32,
+}
+
 /// Runs `then` on the first native turn after GPUI drew a frame following the
-/// accepted retirement acknowledgement (`Smoke::find_input_settled`), or once
-/// `SETTLE` passed. GPUI tells the SDK about text input focus only inside
-/// `Window::draw` (gpui-pre 0.3.12 window.rs:3733-3740), so readiness read in
-/// `then` is the focus that draw re-evaluated. Probe scheduling only: each
-/// turn reads state and never touches retirement or input.
+/// accepted retirement acknowledgement (`Smoke::find_input_settled`) and the
+/// current native client then read ready, or once `SETTLE` passed.
+///
+/// GPUI tells the SDK about text input focus only inside `Window::draw`
+/// (gpui-pre 0.3.12 window.rs:3733-3740). The SDK applies a focus change to
+/// UIKit's first responder two asynchronous hops later: `set_text_input_focused`
+/// defers `update_first_responder` to a later main-queue turn (herdr-uikit
+/// 33e288d window/lifecycle.rs:370-383, 424-475), whose `activate` schedules a
+/// run-loop flush (text_input/sync.rs:25-37, run_loop.rs:18-26) that calls
+/// `becomeFirstResponder` (text_input/sync.rs:92-122).
+/// `text_readiness` only reads; it never requests focus or retries acquisition
+/// (text_input/probe.rs:51-60). Probe scheduling only: each turn reads state
+/// and never touches retirement or input.
 pub(super) fn after_input_settles(
+    handle: AnyWindowHandle,
     context: AsyncWindowContext,
     weak: WeakEntity<Smoke>,
-    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>, bool, u32) + 'static,
+    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>, Settle) + 'static,
 ) {
-    settle_turn(context, weak, Instant::now() + SETTLE, 1, then);
+    settle_turn(handle, context, weak, Instant::now() + SETTLE, 1, then);
 }
 fn settle_turn(
+    handle: AnyWindowHandle,
     mut context: AsyncWindowContext,
     weak: WeakEntity<Smoke>,
     deadline: Instant,
     turns: u32,
-    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>, bool, u32) + 'static,
+    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>, Settle) + 'static,
 ) {
     next_native_turn(move || {
-        let settled = context
+        let drawn = context
             .update(|_, cx| {
                 weak.upgrade()
                     .is_some_and(|view| view.read(cx).find_input_settled())
             })
             .unwrap_or(false);
-        if settled || Instant::now() >= deadline {
-            then(context, weak, settled, turns);
+        let responder = drawn
+            && capture(handle).is_some_and(|client| client.text_readiness() == (true, true, true));
+        if responder || Instant::now() >= deadline {
+            let settle = Settle {
+                drawn,
+                responder,
+                turns,
+            };
+            then(context, weak, settle);
         } else {
-            settle_turn(context, weak, deadline, turns.saturating_add(1), then);
+            settle_turn(
+                handle,
+                context,
+                weak,
+                deadline,
+                turns.saturating_add(1),
+                then,
+            );
         }
     });
 }
@@ -74,7 +110,7 @@ impl Smoke {
                 });
             });
             // Probe scheduling only: never retries production retirement or input.
-            after_input_settles(context, weak, move |mut context, weak, settled, turns| {
+            after_input_settles(handle, context, weak, move |mut context, weak, settle| {
                 let Some(new) = capture(handle) else {
                     return;
                 };
@@ -100,7 +136,7 @@ impl Smoke {
                         this.observation.record(serde_json::json!({
                             "kind":"p13-native-close-probe","old":ids.0,"new":ids.1,
                             "ready":[ready.0,ready.1,ready.2],"paused":this.find_handoff.paused,
-                            "settled":settled,"settle_turns":turns,
+                            "settled":settle.drawn,"responder":settle.responder,"settle_turns":settle.turns,
                             "receipt":this.find_handoff.receipt.as_ref().map(|r|format!("{:?}",r.status())),
                             "reason":this.find_handoff.reason,
                             "physical_ime":"unverified","os_retarget_loss":"unverified"

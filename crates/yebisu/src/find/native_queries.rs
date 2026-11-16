@@ -189,9 +189,10 @@ fn query_step(
                     });
                 });
                 super::native_probe::after_input_settles(
+                    handle,
                     context,
                     weak,
-                    move |mut context, weak, settled, turns| {
+                    move |mut context, weak, settle| {
                         let Some(current) = capture(handle) else {
                             return;
                         };
@@ -211,8 +212,9 @@ fn query_step(
                         // Query the retained old endpoint, never recapture it.
                         q["old"] = observe(&client, "Q05-old", 0, 0);
                         q["ready"] = json!([ready.0, ready.1, ready.2]);
-                        q["settled"] = json!(settled);
-                        q["settle_turns"] = json!(turns);
+                        q["settled"] = json!(settle.drawn);
+                        q["responder"] = json!(settle.responder);
+                        q["settle_turns"] = json!(settle.turns);
                         current.insert("Q05-fresh");
                         let _ = context.update(|_, cx| {
                             let _ = weak.update(cx, |this, cx| {
