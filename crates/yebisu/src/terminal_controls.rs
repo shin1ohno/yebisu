@@ -73,12 +73,16 @@ impl Smoke {
             terminal.input.detach();
             return;
         }
+        // A busy mailbox means the reader or the core worker is publishing.
+        // Keep the last observed state, as sync_handoff does: input generated
+        // now still leaves in order, and each send path rechecks the target
+        // (Link::send_verified, the core worker's destination check). Marking
+        // input unready here held it behind later requests (P13 D5) and made
+        // start_paste refuse a paste during a publication (L14).
         if let Ok(live) = terminal.link.inbox.try_lock() {
             terminal
                 .input
                 .sync(&live, terminal.link.generation, terminal.size);
-        } else {
-            terminal.input.ready = false;
         }
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
@@ -467,3 +471,7 @@ impl Smoke {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_controls_tests.rs"]
+mod tests;
