@@ -156,28 +156,18 @@ impl Smoke {
                 .record(serde_json::json!({"kind":"p13-retirement-unrequested", "reason":"owner"}));
             return;
         };
-        let mut context = window.to_async(cx);
+        let context = window.to_async(cx);
         let weak = cx.entity().downgrade();
         let callback_ticket = ticket.clone();
         self.find_handoff.receipt = None;
         let result = herdr_uikit::retire_text_input_session(handle, move |sessions| {
-            let _ = context.update(|window, cx| {
-                let _ = weak.update(cx, |this, cx| {
-                    let accepted = window.window_handle() == handle
-                        && this.complete_find_retirement(
-                            &callback_ticket,
-                            sessions.retired,
-                            sessions.replacement,
-                            window,
-                        );
-                    this.observation.record(serde_json::json!({
-                        "kind":"p13-native-retirement", "accepted":accepted,
-                        "serial":callback_ticket.serial, "retired":sessions.retired,
-                        "replacement":sessions.replacement
-                    }));
-                    cx.notify();
-                });
-            });
+            deliver_find_retirement(
+                context,
+                weak,
+                handle,
+                callback_ticket,
+                (sessions.retired, sessions.replacement),
+            );
         });
         match result {
             Ok(receipt) => self.find_handoff.receipt = Some(receipt),
@@ -217,4 +207,56 @@ impl Smoke {
             "D5 correlated retirement rejected"
         );
     }
+}
+
+/// Runs the SDK retirement callback body once per accepted request.
+///
+/// The SDK drains its callback when no SDK-entered GPUI call is on the stack.
+/// A turn GPUI did not enter (an SDK `next_native_turn` probe) can still hold
+/// GPUI's app borrowed through `AsyncWindowContext::update`; the immediate
+/// update then fails instead of acknowledging, and dropping that error left
+/// the fence paused for good. One foreground task acknowledges instead; the
+/// fence keeps input closed until it runs.
+#[cfg(any(target_os = "ios", test))]
+pub(crate) fn deliver_find_retirement(
+    mut context: gpui::AsyncWindowContext,
+    weak: gpui::WeakEntity<Smoke>,
+    handle: gpui::AnyWindowHandle,
+    ticket: Ticket,
+    sessions: (u64, u64),
+) {
+    let immediate = context.update(|window, cx| {
+        acknowledge_find_retirement(&weak, handle, &ticket, sessions, false, window, cx)
+    });
+    if immediate.is_ok() {
+        return;
+    }
+    context
+        .spawn(async move |cx| {
+            let _ = cx.update(|window, cx| {
+                acknowledge_find_retirement(&weak, handle, &ticket, sessions, true, window, cx)
+            });
+        })
+        .detach();
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn acknowledge_find_retirement(
+    weak: &gpui::WeakEntity<Smoke>,
+    handle: gpui::AnyWindowHandle,
+    ticket: &Ticket,
+    (retired, replacement): (u64, u64),
+    deferred: bool,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    let _ = weak.update(cx, |this, cx| {
+        let accepted = window.window_handle() == handle
+            && this.complete_find_retirement(ticket, retired, replacement, window);
+        this.observation.record(serde_json::json!({
+            "kind":"p13-native-retirement", "accepted":accepted, "deferred":deferred,
+            "serial":ticket.serial, "retired":retired, "replacement":replacement
+        }));
+        cx.notify();
+    });
 }
