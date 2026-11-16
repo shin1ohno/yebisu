@@ -20,9 +20,18 @@ use std::{
 
 pub(crate) struct FindBar {
     pub field: Entity<Field>,
+    /// The field's handle, readable without an App context while publishing
+    /// the window's native Edit policy.
+    focus: FocusHandle,
     pub search: Search,
     inbox: Arc<Mutex<Live>>,
     _changed: Subscription,
+}
+impl FindBar {
+    /// True while the search field, not the terminal, is UIKit's editing target.
+    pub(crate) fn owns_text_editing(&self, window: &Window) -> bool {
+        self.focus.is_focused(window)
+    }
 }
 pub(crate) fn available(terminal: &crate::terminal_view::TerminalView) -> bool {
     terminal.open
@@ -132,6 +141,7 @@ impl Smoke {
         window.request_virtual_keyboard();
         self.find = Some(FindBar {
             field,
+            focus,
             search: Search::new(scope, true),
             inbox,
             _changed: changed,
@@ -459,3 +469,7 @@ mod regression_tests;
 #[cfg(test)]
 #[path = "find/document_tests.rs"]
 mod document_tests;
+
+#[cfg(test)]
+#[path = "find/edit_policy_tests.rs"]
+mod edit_policy_tests;

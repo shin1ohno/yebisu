@@ -19,7 +19,16 @@ impl Smoke {
     ) -> Option<crate::edit_menu::Availability> {
         self.refresh_terminal_input();
         self.sync_handoff();
-        if !self.terminal.open {
+        // While the search field holds focus, publish no window-wide policy:
+        // the terminal's explicit Edit policy (Cut only with a terminal
+        // selection) would otherwise refuse the field's own Cut, Copy and
+        // Paste, and the SDK's default text-input rules apply instead.
+        if !self.terminal.open
+            || self
+                .find
+                .as_ref()
+                .is_some_and(|bar| bar.owns_text_editing(window))
+        {
             return None;
         }
         Some({
