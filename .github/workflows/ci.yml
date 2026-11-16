@@ -61,11 +61,18 @@ jobs:
           check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
           # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
           smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
-          # edit-menu (four parallel jobs, one pattern): everything $build lists,
-          # because each check runs scripts/ios/bundle.sh, which builds the
-          # crate and bundles the fonts, then the files below. A PR that touches
-          # only docs/, P12 files (scripts/ios/p12-*, p12-qa/) or other
-          # scripts/ios files matches none of them and skips the jobs.
+          # edit-menu (four parallel jobs, one pattern) is narrower than $build:
+          # a pull request runs it only when a file the four checks drive
+          # changes, so a change to other crates/yebisu code (search, hosts,
+          # notifications, ...) skips it. Pushes to main and workflow_dispatch
+          # still run all four (all=true above), so a break from an unrelated
+          # change is found after merge. The files, and why each is listed:
+          #   build harness     every check runs scripts/ios/bundle.sh, which
+          #                     cargo-builds the crate (Cargo.toml and Cargo.lock
+          #                     pin the SDK and GPUI, rust-toolchain.toml and
+          #                     .cargo/ the compiler, justfile and guarded.py
+          #                     the `just guarded` wrapper) and copies assets/,
+          #                     scripts/ios/Info.plist and lib.sh (ios_sim_boot)
           #   ci-smoke.py       ci-sh1-152.py:10 loads it for select_template
           #   ci-sh1-152.py     the driver every job runs
           #   the four checks   sh1-152-check.py, sh1-153-check.py,
@@ -74,7 +81,33 @@ jobs:
           #   smoke-qa/         the XCTest bundle all four xcodebuild test runs
           #                     build (Tests/EditMenuQA.swift for SH1-152,
           #                     Tests/SmokeQA.swift for the other three, project.yml)
-          menu="$build|"'^scripts/ios/(ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)'
+          #   crates/yebisu     the app code the checks drive, found from the
+          #                     YEBISU_* variables the XCTest sets:
+          #     Cargo.toml        features and dependencies of the binary
+          #     main.rs, app.rs   module list; app.rs:119,378,410 read
+          #                       YEBISU_SMOKE_OBSERVE/TERMINAL_QA/CORE_QA
+          #     edit_menu*.rs     the edit menu and its QA scenes
+          #                       (edit_menu_qa.rs:12 YEBISU_EDIT_MENU_QA,
+          #                       edit_menu_qa_sh1_152.rs:24 YEBISU_SH1_152_CASE)
+          #     native_menus.rs, native_edit_qa.rs, native_observer_qa.rs
+          #                       the native menu and text input that
+          #                       p8-native-check.py drives (YEBISU_NATIVE_QA)
+          #     terminal_controls.rs, terminal_input.rs, terminal_view.rs,
+          #     input.rs, input_geometry.rs
+          #                       the terminal surface the menu opens on
+          #                       (terminal_controls.rs:163, terminal_view.rs:124)
+          #     mock_peer.rs, core_mock.rs, core_view.rs, core_paste_view.rs
+          #                       the mock peer and core the SH1-152 cases run
+          #                       against (mock_peer.rs:13, core_mock.rs:255)
+          #     observation*      the records the oracles read (observation.rs:41-51,100)
+          #     handoff.rs, handoff_view.rs
+          #                       the selection strip (handoff_view.rs:321-331)
+          #     settings*         selection settings that selection-settings-check.py
+          #                       saves and reloads (settings_view.rs:17,71,
+          #                       settings/store.rs, settings_sheet/view.rs:271)
+          # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
+          # other scripts/ios files or other crates/yebisu code skips the jobs.
+          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core_mock|core_view|core_paste_view|handoff|handoff_view|settings|settings_view|settings_sheet|observation|edit_menu[a-z0-9_]*)\.rs$|(settings|settings_sheet|observation)/)))'
           decide() {
             if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
