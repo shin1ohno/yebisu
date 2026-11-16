@@ -79,6 +79,45 @@ def decisions(event, changed, tmp):
     return {k: v == "true" for k, v in (line.split("=") for line in output.read_text().split())}
 
 
+def menu_pattern():
+    """The menu= pattern exactly as ci.yml defines it."""
+    return re.search(r"^          menu='(.*)'$", WORKFLOW, re.M).group(1)
+
+
+def menu_names_and_dirs():
+    """The src/*.rs module names and the src/<dir>/ directories the pattern lists."""
+    pattern = menu_pattern()
+    names = re.search(r"src/\(\((.*?)\|edit_menu", pattern).group(1).split("|")
+    dirs = re.search(r"\|\(([a-z0-9_|]+)\)/\)\)\)$", pattern).group(1).split("|")
+    return names, dirs
+
+
+# Modules main.rs declares that no edit-menu check drives. Evidence per entry: "unreferenced" = no other source file names it
+# (git grep); "outside the checks" = referenced only from app.rs/terminal_view.rs paths that none of the four checks' YEBISU_*
+# variables switch on (the review of PR 64 judged these by reading the callers); the rest say what the module is.
+UNRELATED = {
+    "action_view": "unreferenced",
+    "app_setup": "unreferenced",
+    "diagnostics": "outside the checks: diagnostics sheet and log export, called from app.rs",
+    "error": "crate error type; a break here fails the compile in the check job",
+    "front_layer": "outside the checks: P12 front layer, called from app.rs",
+    "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
+    "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
+    "hosts": "outside the checks: host list, called from terminal_view.rs",
+    "keys": "outside the checks: device keys, called from settings/key_ops.rs",
+    "native_menus_qa": "P12 native menu QA scene (YEBISU_P12_QA), called from app.rs",
+    "notification_settings": "unreferenced",
+    "notification_view": "outside the checks: notification banner, called from app.rs",
+    "notifications": "delivery and sound; only notifications/preferences.rs is matched",
+    "p11_observer": "outside the checks: P11 responder observer, called from app.rs and terminal_controls.rs callbacks",
+    "p15_settings_view": "unreferenced",
+    "reconnect": "outside the checks: reconnect policy, called from terminal_view.rs",
+    "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
+    "setup": "outside the checks: pairing setup, called from app.rs",
+    "upstream": "referenced only by settings_pages/INTEGRATION.md",
+}
+
+
 class PathFilterTests(unittest.TestCase):
     """Runs the changes job's own filter script, so the pattern and the push-to-main rule are both exercised."""
 
@@ -94,8 +133,10 @@ class PathFilterTests(unittest.TestCase):
         self.assertFalse(self.edit_menu("crates/yebisu/src/find.rs", "crates/yebisu/src/find/ui.rs", "crates/yebisu/src/find/tests.rs"))
 
     def test_other_app_code_skips_it(self):
-        self.assertFalse(self.edit_menu("crates/yebisu/src/notifications.rs", "crates/yebisu/src/hosts.rs", "crates/yebisu/src/handoff_clipboard.rs",
-                                        "crates/yebisu/src/native_menus_qa.rs", "crates/yebisu/src/board.rs"))
+        self.assertFalse(self.edit_menu("crates/yebisu/src/notifications.rs", "crates/yebisu/src/notifications/sound.rs", "crates/yebisu/src/hosts.rs",
+                                        "crates/yebisu/src/host_settings/store.rs", "crates/yebisu/src/native_menus_qa.rs", "crates/yebisu/src/p11_observer.rs",
+                                        "crates/yebisu/src/reconnect.rs", "crates/yebisu/src/upstream/mod.rs", "crates/yebisu/src/setup.rs",
+                                        "crates/yebisu/locales/en/main.ftl", "crates/yebisu/src/handoff_cjk_tests.rs"))
 
     def test_push_to_main_and_manual_runs_always_run_it(self):
         self.assertTrue(self.edit_menu("crates/yebisu/src/find/search.rs", event="push"))
@@ -134,15 +175,62 @@ class PathFilterTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))
 
+    def test_every_path_added_after_review_runs_it(self):
+        """Each path the first review found the checks driving but the pattern missing."""
+        for path in (
+            "crates/yebisu/fixtures/endpoint-snapshot-v1.json", "crates/yebisu/fixtures/endpoint-welcome-v1.json",
+            "crates/yebisu/src/handoff_clipboard.rs", "crates/yebisu/src/handoff_ticket.rs",
+            "crates/yebisu/src/core.rs", "crates/yebisu/src/core/paste.rs", "crates/yebisu/src/core/paste_path.rs", "crates/yebisu/src/core/worker.rs",
+            "crates/yebisu/src/core/screen.rs", "crates/yebisu/src/core/store.rs", "crates/yebisu/src/core/publication_probe/peer.rs",
+            "crates/yebisu/src/core_mock/paste.rs", "crates/yebisu/src/core_mock/transport.rs",
+            "crates/yebisu/src/live.rs", "crates/yebisu/src/live/tests.rs",
+            "crates/yebisu/src/notifications/preferences.rs", "crates/yebisu/src/theme_picker/mod.rs", "crates/yebisu/src/theme_picker/tests.rs",
+            "crates/yebisu/src/animation_qa.rs", "crates/yebisu/src/animation_qa/tests.rs",
+            "crates/yebisu/src/actions.rs", "crates/yebisu/src/settings_pages/fonts.rs", "crates/yebisu/src/settings_pages/keyboard.rs",
+            "crates/yebisu/src/mock_commands.rs", "crates/yebisu/src/mock_notifications.rs",
+            "crates/yebisu/src/link.rs", "crates/yebisu/src/theme.rs", "crates/yebisu/src/board.rs", "crates/yebisu/src/i18n.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.edit_menu(path))
+
+    def test_a_sibling_of_an_added_path_that_no_check_drives_still_skips(self):
+        """The additions are exact: notifications/ is not taken whole, only preferences.rs."""
+        self.assertFalse(self.edit_menu("crates/yebisu/src/notifications/sound.rs"))
+        self.assertFalse(self.edit_menu("crates/yebisu/src/notifications/tests.rs"))
+        self.assertFalse(self.edit_menu("crates/yebisu/fixtures-other/x.json"))
+
     def test_every_listed_app_file_exists(self):
         """A renamed or removed file would silently stop selecting the jobs."""
         root = HERE.parents[1]
-        pattern = re.search(r"^          menu='(.*)'$", WORKFLOW, re.M).group(1)
-        names = re.search(r"src/\(\((.*?)\|edit_menu", pattern).group(1).split("|")
+        names, dirs = menu_names_and_dirs()
         self.assertIn("settings_view", names)
+        self.assertIn("handoff_clipboard", names)
+        self.assertIn("core", dirs)
         for name in names:
             with self.subTest(name=name):
                 self.assertTrue((root / "crates/yebisu/src" / f"{name}.rs").is_file())
+        for name in dirs:
+            with self.subTest(directory=name):
+                self.assertTrue((root / "crates/yebisu/src" / name).is_dir())
+        self.assertTrue((root / "crates/yebisu/src/notifications/preferences.rs").is_file())
+        self.assertTrue((root / "crates/yebisu/fixtures").is_dir())
+
+    def test_every_module_in_main_is_matched_or_reviewed_as_unrelated(self):
+        """The pattern is a list, so a module added later is silently left out. Fail until someone decides."""
+        pattern = re.compile(menu_pattern())
+        declared = set(re.findall(r"^mod ([a-z0-9_]+);", (HERE.parents[1] / "crates/yebisu/src/main.rs").read_text(), re.M))
+        unclassified = []
+        for name in sorted(declared):
+            matched = any(pattern.search(f"crates/yebisu/src/{rel}") for rel in (f"{name}.rs", f"{name}/mod.rs"))
+            if not matched and name not in UNRELATED and not name.endswith("_tests"):
+                unclassified.append(name)
+        self.assertEqual(unclassified, [], "main.rs declares modules neither matched by menu= in ci.yml nor listed in UNRELATED: add them to the "
+                         "pattern if an edit-menu check drives them, else to UNRELATED with the reason")
+        for name, reason in UNRELATED.items():
+            with self.subTest(unrelated=name):
+                self.assertIn(name, declared, f"{name} is no longer declared in main.rs; drop it from UNRELATED")
+                self.assertFalse(any(pattern.search(f"crates/yebisu/src/{rel}") for rel in (f"{name}.rs", f"{name}/mod.rs")),
+                                 f"{name} is now matched by the pattern; drop it from UNRELATED ({reason})")
 
     def test_unrelated_jobs_keep_their_own_filters(self):
         with tempfile.TemporaryDirectory() as tmp:
