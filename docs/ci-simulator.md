@@ -89,20 +89,88 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
    class, from job log lines. A failure with no matching signature is a new
    class: do not rerun it, report it.
 3. Area the PR touches. Run `gh pr diff <number> --name-only` and compare it with
-   the paths of `.github/workflows/ci.yml`'s `simulator-smoke` filter that drive
-   the failing step. For the known classes these are:
-   - `crates/`, `Cargo.toml`, `Cargo.lock` and `.github/workflows/ci.yml`;
+   the failing class's area below. A PR owns the failure when a changed path is a
+   shared input or is in that class's area. A path in neither does not touch the
+   class. Narrowing source: the `followups` entry of
+   `/home/shin1ohno/.local/state/chief-of-staff/codex-controller-2026-11-12/known-class-merge-rule-decision.json`
+   (2026-11-16T03:13:58+00:00, "narrow per class"). Areas were drafted from the L17
+   causes; each path is justified by `file:line` on origin/main 673715d, so
+   re-read the named function when a PR moves the lines.
+
+   Shared inputs, part of every class's area:
+   - `Cargo.toml` (it pins `herdr-uikit` at line 14 and `herdr-gpui` at lines
+     15-21), `Cargo.lock`, `rust-toolchain.toml`, `crates/yebisu/Cargo.toml` and
+     `.github/workflows/ci.yml`;
    - the harness scripts `scripts/ios/ci-smoke.py`, `smoke-check.py`,
      `smoke_oracle.py`, `p9-check.py`, `p12-ci.py`, `p12-check.py` and
      `p12-oracle.py` (`p12-ci.py` loads `ci-smoke.py`);
-   - the test projects `scripts/ios/smoke-qa/` (L15, L16, C-snapshot, C-anim) and
-     `scripts/ios/p12-qa/` (A, B);
-   - any other path the same `simulator-smoke` pattern matches (for example
-     `scripts/ios/sim.sh`, `screenshot-color.py`, `.cargo/`, `assets/`).
+   - every other path the `simulator-smoke` pattern matches that is not under
+     `crates/`, `scripts/ios/smoke-qa/` or `scripts/ios/p12-qa/` (for example
+     `scripts/ios/sim.sh`, `screenshot-color.py`, `.cargo/`, `assets/`, `justfile`).
 
-   A PR that changes any of these paths owns the failure. If it is unclear
-   whether a changed path drives the failing step, treat it as touched: the
-   merge is blocked.
+   Class areas (product source, then harness files that could cause or mask the
+   class). `crates/` as a whole is no longer in any area.
+   - **L15 and L16** (P9 `testSH154CoreImage`, the SH1-154 `Paste` strip OCR):
+     - `crates/yebisu/src/settings_sheet/view.rs` (`settings_button`, :39-40),
+       `crates/yebisu/src/terminal_view.rs` (the toolbar row that holds it,
+       :290-297) and `crates/yebisu/src/app_setup.rs` (:67). L15 occurred only on
+       heads whose source has the Settings button (11/41 jobs, 0/49 without; L17
+       diagnosis, "L15" measured facts), and the diagnosis attributes the missed
+       `Paste` label to that extra toolbar row.
+     - `crates/yebisu/src/handoff_view.rs` (`handoff_controls`, :299-359: the
+       `Paste` and `Paste image` buttons the OCR has to tell apart),
+       `crates/yebisu/src/terminal_view.rs` (:386-387, where the strip and the QA
+       row sit) and `crates/yebisu/src/handoff_qa.rs` (:5-31: `QA Image`, `QA
+       Image only` and the `QA image ready` label the test waits on; :46 seeds
+       `P8-shadow`).
+     - The paste data path that `p9-check.py` `validate_images` (:41-74) counts as
+       `puts`, `paths` and `text`, because L16 is `text=0` (all under
+       `crates/yebisu/src/`): `core/paste.rs`, `core/paste_path.rs`,
+       `core_paste_view.rs`, `handoff_clipboard.rs` and `core_mock/paste.rs`.
+     - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (`testSH154CoreImage`
+       :412-444, `locateText` :446-484, `recognize` :510, `tapText` :529-549) and
+       `scripts/ios/smoke-qa/project.yml`.
+   - **C-snapshot** (P0 `testInputAndLifecycleReceipts`: Home :14, `activate()`
+     :16, `typeText("-returned")` :18 in `SmokeQA.swift`):
+     - App launch and lifecycle: `crates/yebisu/src/main.rs` (:18-20, `main` calls
+       `app::run`), `crates/yebisu/src/app.rs` (:344-351, window open and
+       `on_app_lifecycle`), `crates/yebisu/src/reconnect.rs` (`lifecycle` :35-120,
+       Background suspends :45-62, Active resumes :85) and
+       `crates/yebisu/src/settings_view.rs` (`settings_lifecycle` :83-96).
+     - The input that fails to arrive: `crates/yebisu/src/input.rs`
+       (`replace_text_in_range` :159-194, which logs `input committed`) and
+       `crates/yebisu/src/observation.rs` (:38-73, the `p0-smoke.jsonl` receipts
+       `smoke_oracle.py` checks).
+     - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (:5-44) and
+       `scripts/ios/smoke-qa/project.yml`.
+   - **C-anim** (P9 `testP9Core`: `P9-native\n` typed at `SmokeQA.swift:389`). What
+     keeps animating is `[unproven]`, so the area is the path that runs from that
+     input to the idle wait:
+     - Under `crates/yebisu/src/`: `input.rs` (:159-194), `terminal_input.rs`,
+       `terminal_view.rs`, `upstream/terminal_painter.rs` and
+       `upstream/terminal_painter/`, the P9 mock backend `core_mock.rs` (:286,
+       `connect`) with `core_view.rs` (:13, :58) and `app.rs` (:394-400), which
+       select it under `YEBISU_CORE_QA`, and `observation.rs`.
+     - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (`testP9Core`
+       :377-410) and `scripts/ios/smoke-qa/project.yml`.
+   - **A and B** (P12 `testInstalledTerminalMenu`; the reveal wait is
+     `P12QA.swift:75-81`, the pick `:86-112`):
+     - The native menu code: `crates/yebisu/src/native_menus.rs`
+       (`install_native_menus` :155-171 replaces the OS menu through
+       `cx.set_menus`; `catalog_rows` :51) and `crates/yebisu/src/actions.rs`
+       (the catalog the menu rows derive from, :1-2).
+     - The P12 QA code: `crates/yebisu/src/native_menus_qa.rs` (`p12_prepare`
+       :105, `p12_tick` :178 injects the fault 6 s after the menu opens,
+       `p12_menu_begin` :238 and `p12_menu_end` :253), `crates/yebisu/src/app.rs`
+       (:142 `p12_tick`, :159 `p12_qa_controls`, :352-370 P12 connect),
+       `crates/yebisu/src/mock_peer.rs` (:626 `connect_p12`) and
+       `crates/yebisu/src/observation.rs`.
+     - Harness: `scripts/ios/p12-qa/Tests/P12QA.swift` and
+       `scripts/ios/p12-qa/project.yml`.
+
+   A PR that changes a shared input or a path in the failing class's area owns the
+   failure. If it is unclear whether a changed path drives the failing step, treat
+   it as touched: doubt blocks the merge.
 4. Known-class rule (owner decision 2026-11-16, for every shin1ohno/yebisu PR).
    A `simulator-smoke` failure does not block the merge when all of these hold:
    `simulator-smoke` is the only failing job; the failure is classified to a
