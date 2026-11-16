@@ -50,6 +50,18 @@ class ObserverPollProbe(unittest.TestCase):
         self.assertIn("XCTFail(", function)
         self.assertIn("locateText(", function)
 
+    def test_sh154_text_paste_reuses_the_located_control(self):
+        # 2ed2beb: after "QA Image", Vision missed the "Paste" label and a truncated
+        # reading of "Paste image" passed the suffix filter, so the second text-priority
+        # tap started an image paste and the peer never received P8-shadow.
+        test = body(self.source, "func testSH154CoreImage(")
+        self.assertEqual(test.count('tapText("Paste", in: app, excludingSuffix: " image")'), 1)
+        located = test.index('let paste = try tapText("Paste", in: app, excludingSuffix: " image").box')
+        reused = test.index("CGVector(dx: paste.midX, dy: 1 - paste.midY)).tap()")
+        self.assertLess(located, test.index('tapText("QA Image", in: app, excludingSuffix: " only")'))
+        self.assertGreater(reused, test.index('tapText("QA image ready", in: app, tap: false, attempts: 30)', located))
+        self.assertLess(reused, test.rindex('tapText("Paste image", in: app)'))
+
     def test_oracle_conditions_are_unchanged(self):
         # The fix is test-side only: the completion labels the app paints stay exact.
         self.assertIn('"Observer matrix collected"', self.source)
