@@ -37,6 +37,119 @@ final class SmokeQA: XCTestCase {
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
     }
+    // The settings sheet shows PageId::id() as is ("appearance"), and tapText matches
+    // case-sensitively. test_p15_check.py ties this value to settings_pages/mod.rs.
+    private let appearancePage = "appearance"
+    // Last body row of the private wire peer surface (mock_peer.rs).
+    private let terminalInputRow = "Type here"
+
+    func testP15Theme() throws {
+        continueAfterFailure = false
+        var ui: [[String: Any]] = []
+        defer {
+            if let data = try? JSONSerialization.data(withJSONObject: ui, options: [.sortedKeys]) {
+                let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+                attachment.name = "p15-ui.json"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_BOARD_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P15_QA"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        sleep(4)
+        save("p15-default")
+        // Real UIKit typing brackets the modal operations in the peer's FIFO. Focus the
+        // terminal on its last body row at mid-width, as the coordinate taps of P4/P9 do
+        // (the row's text starts at the left edge, where the first run tapped).
+        try tapText(terminalInputRow, in: app, dx: 0.5)
+        app.typeText("P15-start")
+        sleep(1)
+        try tapText("Settings", in: app)
+        try tapAppearance(in: app, ui: &ui)
+        try p15Host("qa-alpha", stale: "qa-beta", stage: "alpha", ui: &ui)
+        for (label, stage) in [("High contrast", "high-first"),
+                               ("Owner default", "owner-reset"),
+                               ("High contrast", "selected")] {
+            try tapText(label, in: app)
+            ui.append(["kind": "theme-click", "label": label, "time": Date().timeIntervalSince1970])
+            sleep(2)
+            save("p15-" + stage)
+        }
+        try tapText("Close", in: app)
+        sleep(2)
+        save("p15-closed")
+        try tapText(terminalInputRow, in: app, dx: 0.5)
+        app.typeText("P15-end")
+        sleep(1)
+        // Use the existing production board host buttons, not direct actions.
+        try scrollBoard(in: app)
+        try tapText("qa-beta", in: app)
+        sleep(2)
+        try tapText("Settings", in: app)
+        try tapAppearance(in: app, ui: &ui)
+        try p15Host("qa-beta", stale: "qa-alpha", stage: "beta", ui: &ui)
+        try tapText("Close", in: app)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        sleep(3)
+        save("p15-returned")
+        app.terminate()
+        app.launch()
+        sleep(4)
+        save("p15-relaunch")
+        try tapText("Settings", in: app)
+        try tapAppearance(in: app, ui: &ui)
+        try tapText("High contrast", in: app, tap: false)
+        try p15Host("qa-alpha", stale: "qa-beta", stage: "relaunch-host", ui: &ui)
+        try tapText("Close", in: app)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// Taps the Appearance page button and records how many OCR lines carried the label.
+    /// More than one line means the tap could land on another text (e.g. terminal output).
+    private func tapAppearance(in app: XCUIApplication, ui: inout [[String: Any]]) throws {
+        let lines = try tapText(appearancePage, in: app).matching
+        ui.append(["kind": "ocr-match", "label": appearancePage, "count": lines,
+                   "time": Date().timeIntervalSince1970])
+        XCTAssertEqual(lines, 1, "OCR lines containing \(appearancePage)")
+    }
+
+    /// Number of recognized text lines where any candidate contains `label`.
+    /// Pure so the 0 and 2 cases do not need a Simulator.
+    static func ocrLineCount(_ lines: [[String]], label: String) -> Int {
+        lines.filter { candidates in candidates.contains { $0.contains(label) } }.count
+    }
+
+    private func p15Host(_ host: String, stale: String, stage: String,
+                         ui: inout [[String: Any]]) throws {
+        // This proves rendered current-host/Unavailable projection only. There is
+        // no settings read request whose stale response could be injected yet.
+        sleep(2)
+        let shot = XCUIScreen.main.screenshot()
+        let image = try XCTUnwrap(shot.image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.customWords = [host, stale, "Unavailable", "File path unavailable"]
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        let text = lines.joined(separator: "\n")
+        ui.append(["kind": "host-screen", "stage": stage, "host": host,
+                   "stale": stale, "lines": lines, "time": Date().timeIntervalSince1970])
+        save("p15-" + stage)
+        XCTAssertTrue(text.contains("Host: " + host), "Current host must be visible")
+        XCTAssertFalse(text.contains("Host: " + stale), "Old host must not occupy the settings view")
+        XCTAssertTrue(text.contains("File path unavailable"), "No invented remote path")
+        XCTAssertTrue(text.contains("Unavailable"), "Read authority is unavailable")
+        XCTAssertTrue(text.contains("daemon-effective state unverified"))
+    }
+
     // SDK11 candidate source harness. UI waits never certify native completion;
     // only the Rust state machine's actual callback/worker/peer receipts advance.
     private func observerProbe(modal: Bool, drawing: Bool = false, disabled: Bool = false) throws {
@@ -307,11 +420,17 @@ final class SmokeQA: XCTestCase {
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
         try tapText("Paste image", in: app)
         try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        try tapText("Paste", in: app, excludingSuffix: " image")
+        let paste = try tapText("Paste", in: app, excludingSuffix: " image").box
         try tapText("paste-1.png", in: app, tap: false, attempts: 30)
         try tapText("QA Image", in: app, excludingSuffix: " only")
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try tapText("Paste", in: app, excludingSuffix: " image")
+        // Tap the text-priority Paste where it was found above instead of reading the
+        // label again. In this frame Vision can miss the "Paste" label, and then a
+        // truncated reading of "Paste image" passes the suffix filter: the tap starts
+        // an image paste and P8-shadow never reaches the peer (main 2ed2beb, job
+        // 132955457568). Nothing in the handoff row changes between the two taps; the
+        // receiving checker (p9-check validate_images) proves the text paste arrived.
+        app.coordinate(withNormalizedOffset: CGVector(dx: paste.midX, dy: 1 - paste.midY)).tap()
         sleep(1)
         try tapText("Paste image", in: app)
         try tapText("paste-2.png", in: app, tap: false, attempts: 30)
@@ -319,26 +438,47 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    private func locateText(_ label: String, excludingSuffix: String? = nil) throws -> CGRect? {
+    /// Non-asserting OCR lookup. `matching` counts the recognized lines of the
+    /// whole-screenshot pass that carry `label`, so a caller can reject an ambiguous tap.
+    /// With `bands`, a miss on the whole screenshot is followed by overlapping horizontal
+    /// bands: a busy frame can make Vision drop a whole row of small controls that the
+    /// screenshot shows (P11 adds a Settings button above the SH1-154 strip).
+    private func locateText(_ label: String, excludingSuffix: String? = nil, bands: Bool = false) throws -> (box: CGRect, matching: Int)? {
         let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.customWords = [label]
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        // Controls precede the terminal surface. Prefer the uppermost
-        // match so shell output containing e.g. "Detach" cannot steal taps.
-        let candidates = (request.results ?? [])
-            .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-            .flatMap { $0.topCandidates(5) }
-        for candidate in candidates {
-            guard let range = candidate.string.range(of: label),
-                  let observation = try candidate.boundingBox(for: range) else { continue }
-            if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
-                continue
+        var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
+        if bands {
+            for index in 0..<5 {
+                let top = CGFloat(index) * 0.18
+                passes.append((bottom: max(0, 1 - top - 0.28), height: min(0.28, 1 - top)))
             }
-            return observation.boundingBox
         }
-        print("OCR candidate count=\(candidates.count), text suppressed")
+        var matching = 0
+        var candidateCount = 0
+        for (pass, band) in passes.enumerated() {
+            // Controls precede the terminal surface. Prefer the uppermost
+            // match so shell output containing e.g. "Detach" cannot steal taps.
+            let lines = try recognize(image, label: label, bottom: band.bottom, height: band.height)
+                .sorted { $0.midY > $1.midY }
+            if pass == 0 {
+                matching = SmokeQA.ocrLineCount(lines.map { $0.texts.map { $0.string } }, label: label)
+                candidateCount = lines.reduce(0) { $0 + $1.texts.count }
+            }
+            for line in lines {
+                for candidate in line.texts {
+                    guard let range = candidate.string.range(of: label),
+                          let observation = try candidate.boundingBox(for: range) else { continue }
+                    if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
+                        continue
+                    }
+                    let local = observation.boundingBox
+                    let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
+                                     width: local.width, height: local.height * line.height)
+                    print("OCR match pass=\(pass) lines=\(matching)")
+                    return (box, matching)
+                }
+            }
+        }
+        print("OCR candidate count=\(candidateCount), text suppressed")
         return nil
     }
 
@@ -348,16 +488,57 @@ final class SmokeQA: XCTestCase {
         (try? locateText(label)) != nil
     }
 
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil) throws {
+    private func scrollBoard(in app: XCUIApplication) throws {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        let header = try XCTUnwrap(request.results?.first {
+            $0.topCandidates(1).first?.string.contains("Board: Dense") == true
+        })
+        // The source defines a 180 pt Dense board immediately below this header.
+        let top = 1 - header.boundingBox.minY + 10 / app.frame.height
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 140 / app.frame.height))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 20 / app.frame.height))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        sleep(1)
+    }
+
+    /// One Vision pass over the whole screenshot (`height == 1`) or over a horizontal band of it.
+    /// `bottom` and `height` are fractions of the screenshot measured from its bottom edge, and
+    /// `midY` is mapped back to the full screenshot.
+    private func recognize(_ image: CGImage, label: String, bottom: CGFloat = 0, height: CGFloat = 1) throws
+        -> [(texts: [VNRecognizedText], midY: CGFloat, bottom: CGFloat, height: CGFloat)] {
+        var target = image
+        if height < 1 {
+            let full = CGFloat(image.height)
+            let area = CGRect(x: 0, y: full * (1 - bottom - height), width: CGFloat(image.width), height: full * height)
+            guard let cropped = image.cropping(to: area) else { return [] }
+            target = cropped
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.customWords = [label]
+        try VNImageRequestHandler(cgImage: target).perform([request])
+        return (request.results ?? []).map {
+            (texts: $0.topCandidates(5), midY: bottom + height * $0.boundingBox.midY, bottom: bottom, height: height)
+        }
+    }
+
+    @discardableResult
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
+        // The whole screenshot is tried on every attempt, as before; the horizontal
+        // bands are only the last resort, so a control the whole-screenshot pass finds
+        // is never replaced by a band match.
         for attempt in 0..<attempts {
-            if let box = try locateText(label, excludingSuffix: excludingSuffix) {
-                print("OCR tap \(label) frame=\(app.frame) box=\(box)")
+            if let found = try locateText(label, excludingSuffix: excludingSuffix, bands: attempt == attempts - 1) {
+                print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
                 if tap {
-                    app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1-box.midY)).tap()
+                    app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
                 }
-                return
+                return found
             }
             print("OCR attempt \(attempt) for \(label)")
             sleep(1)

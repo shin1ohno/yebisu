@@ -98,11 +98,12 @@ impl EntityInputHandler for Smoke {
             if self.find.is_some() || self.find_handoff.paused {
                 return false;
             }
-            self.terminal
-                .input
-                .accepts(self.active_focus().is_focused(window), false)
-                && self.terminal.navigating.is_none()
-                && !self.actions.palette
+            let focused = self.active_focus().is_focused(window);
+            let accepted = self.terminal.input.accepts(focused, false);
+            if focused && !accepted {
+                self.terminal.input.report_drop(&self.observation);
+            }
+            accepted && self.terminal.navigating.is_none() && !self.actions.palette
         } else {
             self.active_focus().is_focused(window) && (self.smoke_mode || !self.setup.busy)
         }
@@ -180,6 +181,8 @@ impl EntityInputHandler for Smoke {
             self.refresh_terminal_input();
             if let Some(event) = self.terminal.input.replace(range, text) {
                 self.send_terminal(event);
+            } else if !text.is_empty() {
+                self.terminal.input.report_drop(&self.observation);
             }
             window.notify_text_input_changed(self.active_focus());
             cx.notify();

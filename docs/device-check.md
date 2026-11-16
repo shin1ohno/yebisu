@@ -840,3 +840,17 @@ keeps text priority, and preserves Herdr 1's 16 MiB image limit.
 - [ ] 14. 項目 6 の送信先変更と項目 7 の2ウィンドウの切り替えそれぞれの直後に、新しい送信先で長押ししてメニューが出ること、Paste がその送信先に1回届くことを確認します。メニューが出ない場合は、Herdr 1/2 の別と pane の大きさを記録します。
 
 14項目が完了するまでは SH1-152 の実機受け入れを未完了とします。
+# P15 candidate: terminal theme and unavailable host settings
+
+Source integration is not device acceptance. After controller-authorized build and
+owner installation, open Settings > appearance, choose High contrast, and observe
+the next terminal paint. Background and relaunch; verify the selected theme and the
+receiving `yebisu-settings.json` agree while Start: Drag / Copy: Manual, font and
+other settings remain unchanged. Choose Owner default and compare original colors.
+Simulator evidence does not prove physical IME, keyboard, suspension or trust.
+
+Change the selected host while the sheet is open, then disconnect. The host label
+and unavailable/disconnected state must follow current selection; no remote values
+or guessed path may appear. The current provider cannot supply retained read
+authority, so no remote read is dispatched. This check does not satisfy two-host
+SSH read or R01-R16 receiving acceptance; those require separately reviewed APIs.

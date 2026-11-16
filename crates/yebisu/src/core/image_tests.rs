@@ -73,6 +73,48 @@ fn connect(
 fn start(view: &Entity<Smoke>, cx: &mut TestAppContext, image_only: bool) {
     view.update(cx, |this, cx| this.start_paste(image_only, cx));
 }
+/// Starts a paste only once start_paste can admit it. Its admission check reads
+/// two states other threads settle after the peer has already recorded the
+/// previous input: the SDK writer marks the path's write gate Written after the
+/// write returns, and the core worker holds the inbox while it publishes the
+/// echo, which start_paste only try_locks. Wait for the gate, park the worker
+/// between commands, then start, and fail at once if the gesture is refused.
+fn admit(view: &Entity<Smoke>, cx: &mut TestAppContext, image_only: bool) {
+    wait(view, cx, |this| {
+        this.handoff
+            .core_ticket
+            .as_ref()
+            .is_none_or(|ticket| ticket.is_finished())
+    });
+    let (entered, arrived) = std::sync::mpsc::sync_channel(1);
+    let (release, resume) = std::sync::mpsc::sync_channel(1);
+    view.update(cx, |this, _| {
+        this.terminal
+            .core
+            .as_ref()
+            .unwrap_or_else(|| panic!("core"))
+            .send(crate::core::Command::PauseInput(
+                crate::handoff::PublicationGate {
+                    entered,
+                    release: resume,
+                },
+            ))
+            .unwrap_or_else(|e| panic!("pause: {e}"));
+    });
+    arrived
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|e| panic!("park: {e}"));
+    let (reads, status) = view.update(cx, |this, cx| {
+        let before = this.handoff.clipboard_reads;
+        this.start_paste(image_only, cx);
+        (
+            this.handoff.clipboard_reads - before,
+            this.terminal.live.status.clone(),
+        )
+    });
+    release.send(()).unwrap_or_else(|e| panic!("resume: {e}"));
+    assert_eq!(reads, 1, "paste not admitted, status={status}");
+}
 fn key(view: &Entity<Smoke>, cx: &mut TestAppContext, text: &str) {
     view.update(cx, |this, _| {
         let destination = this
@@ -113,19 +155,20 @@ fn image_clipboard_uses_put_then_one_path_and_text_has_priority(cx: &mut TestApp
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let probe = Probe::default();
     connect(&view, cx, probe.clone(), Control::default(), "image-host");
-    for (both, image_only, expected) in [
-        (false, true, 1),
-        (false, false, 2),
-        (true, false, 2),
-        (true, true, 3),
+    // Cumulative puts and peer-recorded inputs after each paste. The peer thread
+    // records an input after the paste completes, so wait for the exact count.
+    for (both, image_only, puts, inputs) in [
+        (false, true, 1, 1),
+        (false, false, 2, 2),
+        (true, false, 2, 3),
+        (true, true, 3, 4),
     ] {
         clipboard(cx, both);
-        start(&view, cx, image_only);
+        admit(&view, cx, image_only);
         wait(&view, cx, |this| {
-            this.handoff.workers == 0
-                && probe.lock().inputs.len() >= if both && !image_only { 3 } else { expected }
+            this.handoff.workers == 0 && probe.lock().inputs.len() >= inputs
         });
-        assert_eq!(probe.lock().puts.len(), expected);
+        assert_eq!(probe.lock().puts.len(), puts);
     }
     let state = probe.lock();
     assert_eq!(state.inputs.len(), 4);

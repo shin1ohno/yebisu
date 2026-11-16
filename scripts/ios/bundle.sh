@@ -192,8 +192,26 @@ ios_export_deployment_target
 
 # Entitlements are derived per build and never kept: a stale file could sign
 # a bundle with another app's identifiers.
-work=$(mktemp -d "${TMPDIR:-/tmp}/herdr-ios-bundle.XXXXXX")
-trap 'rm -rf -- "$work"' EXIT
+# Opt-in evidence paths are for the task-owned Simulator runner only.
+provenance=${YEBISU_BUNDLE_PROVENANCE_DIR:-}
+if [[ -n $provenance ]]; then
+  if [[ $platform != iPhoneSimulator || $package != yebisu || $kind != bin || $name != yebisu ]]; then
+    echo "error: provenance mode requires the yebisu Simulator binary" >&2
+    exit 2
+  fi
+  python3 -I -B scripts/ios/bundle-provenance.py init --directory "$provenance" --source "$root"
+  # Force the actual build's manifest; do not rely on inherited Cargo cwd/config.
+  if ((${#manifest_args[@]} > 0)) && [[ ${manifest_args[1]} != "$root/Cargo.toml" ]]; then
+    echo "error: provenance mode requires this checkout's manifest" >&2
+    exit 2
+  fi
+  manifest_args=(--manifest-path "$root/Cargo.toml")
+  work=$(mktemp -d "$provenance/bundle-temp.XXXXXX")
+  printf '%s\n' "$work" > "$provenance/temporary-path.txt"
+else
+  work=$(mktemp -d "${YEBISU_BUNDLE_TEMP_ROOT:-${TMPDIR:-/tmp}}/herdr-ios-bundle.XXXXXX")
+fi
+if [[ -z $provenance ]]; then trap 'rm -rf -- "$work"' EXIT; fi
 signing=false
 if [[ $platform == iPhoneOS && (-n $team || -n $signing_profile) ]]; then
   signing=true
@@ -236,11 +254,21 @@ elif [[ $signing == true ]]; then
   identity=$(python3 -I scripts/ios/profile.py identity --profile "$signing_profile" \
     --identities "$work/identities.txt")
 fi
-messages=$(cargo "$cargo_subcommand" --locked --package "$package" --target "$target" \
-  ${manifest_args[@]+"${manifest_args[@]}"} \
-  "--$kind" "$name" ${profile_args[@]+"${profile_args[@]}"} \
-  ${feature_args[@]+"${feature_args[@]}"} --message-format=json-render-diagnostics \
+# Keep JSON from the very build that supplies the bundled executable, including
+# a failing build. No second build is substituted for this transcript.
+cargo_messages=$work/cargo.jsonl
+if [[ -n $provenance ]]; then cargo_messages=$provenance/cargo.jsonl; fi
+cargo_command=(cargo "$cargo_subcommand" --locked --package "$package" --target "$target"
+  ${manifest_args[@]+"${manifest_args[@]}"}
+  "--$kind" "$name" ${profile_args[@]+"${profile_args[@]}"}
+  ${feature_args[@]+"${feature_args[@]}"} --message-format=json-render-diagnostics
   ${link_args[@]+"${link_args[@]}"})
+if [[ -n $provenance ]]; then
+  python3 -I -B scripts/ios/compiler_inputs.py cargo-run "$provenance" "${cargo_command[@]}"
+else
+  "${cargo_command[@]}" >"$cargo_messages"
+fi
+messages=$(cat "$cargo_messages")
 # Optional QA evidence sink. Never overwrite an earlier compiler transcript.
 if [[ -n ${YEBISU_P12_BUILD_MESSAGES:-} ]]; then
   (set -C; printf '%s\n' "$messages" > "$YEBISU_P12_BUILD_MESSAGES")
@@ -271,10 +299,21 @@ print(*found, sep="\n")
 executable=${artifact%$'\n'*}
 version=${artifact##*$'\n'}
 
+if [[ -n $provenance ]]; then
+  python3 -I -B scripts/ios/bundle-provenance.py artifact --directory "$provenance" --executable "$executable"
+fi
 app="${executable%/*}/$name.app"
-# Optional collector boundary must run BEFORE removing or creating a bundle.
-if [[ -n ${HERDR_IOS_ARTIFACT_ROOT:-} ]]; then
-  python3 -I -c '
+if [[ -n $provenance ]]; then
+  app="$provenance/$name.app"
+  if [[ -e $app ]]; then echo 'error: refuse run bundle reuse' >&2; exit 2; fi
+fi
+# Keep P11's default collector guard BEFORE any bundle deletion/creation.
+# Owned provenance has a separate run app root; never widen the artifact root.
+if [[ -n $provenance ]]; then
+  python3 -I -B scripts/ios/bundle-provenance.py output --directory "$provenance" \
+    --executable "$executable" --app "$app"
+elif [[ -n ${HERDR_IOS_ARTIFACT_ROOT:-} ]]; then
+  python3 -I -B -c '
 import pathlib, sys
 root, executable, app = [pathlib.Path(p).resolve() for p in sys.argv[1:]]
 if not root.is_dir() or not executable.is_file() or any(not p.is_relative_to(root) or p == root for p in (executable, app)):
@@ -286,6 +325,9 @@ fi
 rm -rf "$app"
 mkdir -p "$app"
 cp "$executable" "$app/$name"
+if [[ -n $provenance ]]; then
+  python3 -I -B scripts/ios/bundle-provenance.py copy --directory "$provenance" --app "$app"
+fi
 
 plist="$app/Info.plist"
 cp scripts/ios/Info.plist "$plist"
@@ -333,5 +375,8 @@ fi
 # to the signature, as the simulator's installer expects.
 codesign --force --sign - --timestamp=none "$app" >&2
 codesign --verify --strict "$app" >&2
+if [[ -n $provenance ]]; then
+  python3 -I -B scripts/ios/bundle-provenance.py signed --directory "$provenance" --app "$app"
+fi
 echo "Bundled $bundle_id ($version) for the simulator" >&2
 printf '%s\n' "$app"

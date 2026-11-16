@@ -624,3 +624,65 @@ fn uikit_unmark_commits_remaining_composition_once_after_partial_edit() {
     assert!(input.composition.marked.is_none());
     assert!(input.composition.text.is_empty());
 }
+
+fn drops(input: &TerminalInput) -> Vec<String> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(8);
+    let observation = crate::observation::Observation::injected(sender);
+    input.report_drop(&observation);
+    input.report_drop(&observation);
+    receiver
+        .try_iter()
+        .map(|value| {
+            format!(
+                "{}:{}",
+                value["kind"].as_str().unwrap_or("?"),
+                value["reason"].as_str().unwrap_or("?")
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn text_without_a_destination_records_each_reason_once() {
+    let mut disconnected = live();
+    disconnected.connected = false;
+    let mut state = TerminalInput::default();
+    state.sync(&disconnected, 1, None);
+    assert_eq!(drops(&state), ["input-dropped:not-connected"]);
+
+    let mut empty = Live::default();
+    empty.connected = true;
+    let mut state = TerminalInput::default();
+    state.sync(&empty, 1, None);
+    assert_eq!(drops(&state), ["input-dropped:no-destination"]);
+
+    let mut incoherent = live();
+    let mut frame = mock_peer::surface(7);
+    frame.projection_revision = 9;
+    incoherent.surface = Some(Arc::new(frame));
+    let mut state = TerminalInput::default();
+    state.sync(&incoherent, 1, None);
+    assert_eq!(drops(&state), ["input-dropped:incoherent"]);
+}
+
+#[test]
+fn a_fenced_input_records_fenced_and_a_ready_input_records_nothing() {
+    let mut state = marked();
+    state.discard();
+    assert!(state.requires_gesture());
+    assert_eq!(drops(&state), ["input-dropped:fenced"]);
+    assert!(drops(&ready()).is_empty());
+}
+
+#[test]
+fn a_reason_is_reported_again_after_the_destination_returned() {
+    let mut disconnected = live();
+    disconnected.connected = false;
+    let mut state = TerminalInput::default();
+    state.sync(&disconnected, 1, None);
+    assert_eq!(drops(&state), ["input-dropped:not-connected"]);
+    state.sync(&live(), 1, None);
+    assert!(drops(&state).is_empty());
+    state.sync(&disconnected, 1, None);
+    assert_eq!(drops(&state), ["input-dropped:not-connected"]);
+}

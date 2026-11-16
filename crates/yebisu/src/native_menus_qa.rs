@@ -48,6 +48,7 @@ impl Smoke {
                 .children(
                     [
                         ("P12 Remote", "remote"),
+                        ("P12 Rearm", "rearm"),
                         ("P12 Sidebar", "sidebar"),
                         ("P12 Palette", "palette"),
                         ("P12 Release", "release"),
@@ -118,10 +119,12 @@ impl Smoke {
                 "state":self.p12_state(window)}),
             );
         } else if case == "release" {
+            // Each remote case's split is held for one local case only, so the
+            // sender stays: Remote and Rearm are each released by their own control.
             let released = self
                 .p12_qa
                 .gate
-                .take()
+                .as_ref()
                 .is_some_and(|gate| gate.try_send(()).is_ok());
             self.observation
                 .record(serde_json::json!({"kind":"p12-release","released":released}));

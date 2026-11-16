@@ -9,7 +9,7 @@ spec.loader.exec_module(p10)
 
 class P10Oracle(unittest.TestCase):
     def test_valid_and_negative_receiving_shapes(self):
-        saved = dict(version=1, language="en-US", compact=True, terminal_priority=True, board_hidden=False, drag_select=True, copy_on_select=False, terminal_font_size=None, terminal_font_family="SauceCodePro Nerd Font Mono")
+        saved = dict(version=1, language="en-US", theme="owner-default", compact=True, terminal_priority=True, board_hidden=False, drag_select=True, copy_on_select=False, terminal_font_size=None, terminal_font_family="SauceCodePro Nerd Font Mono")
         loaded = [dict(kind="settings-loaded", compact=False, terminal_priority=False),
                   dict(kind="settings-loaded", compact=True, terminal_priority=True)]
         lifecycle = [dict(kind="settings-lifecycle", phase=p) for p in ["Inactive", "Background", "Active"]]
@@ -20,3 +20,11 @@ class P10Oracle(unittest.TestCase):
             p10.validate(loaded, saved)
         with self.assertRaisesRegex(ValueError, "fresh process"):
             p10.validate(loaded[:1] + lifecycle, saved)
+
+        for theme in ["high-contrast", "future-theme", None]:
+            with self.assertRaisesRegex(ValueError, "file differs"):
+                p10.validate(loaded + lifecycle, dict(saved, theme=theme))
+        missing = dict(saved)
+        del missing["theme"]
+        with self.assertRaisesRegex(ValueError, "file differs"):
+            p10.validate(loaded + lifecycle, missing)

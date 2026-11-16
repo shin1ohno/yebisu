@@ -15,4 +15,6 @@
 - Run fetch/build through `just guarded`; stop below 6 GiB. One build at a time.
 - Keep bundle identifier com.shin1ohno.yebisu constant and Keychain access isolated.
 - Simulator checks do not prove real IME or hardware keyboard behavior.
+- In XCUITest, locate OCR controls once before any held request (docs/ci-simulator.md).
+- Merge PRs touching SmokeQA.swift or settings UI one at a time.
 - Run just check, just lint-ios, just test before a PR. Record actual device QA.
