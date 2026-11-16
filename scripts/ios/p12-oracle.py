@@ -6,6 +6,10 @@ LABELS = {"remote": "Split Right", "rearm": "Split Right", "sidebar": "Toggle Si
 HOLDS = [("remote", "sidebar"), ("rearm", "palette")]
 # sheprd-client limits.rs COMMAND_TIMEOUT: a held request this old fails the link.
 COMMAND_TIMEOUT = 60
+# One swipe reveal and one menu close per choose() call, in the order P12QA runs them.
+CHOOSES = [*CASES[:CASES.index("focus") + 1], "focus-current", *CASES[CASES.index("focus") + 1:]]
+# A menu build this close to a tap is reported next to a lost tap.
+BUILD_MARGIN = 1.0
 
 
 def require(condition, message):
@@ -28,6 +32,7 @@ def validate(records, messages, ui, screenshots):
     require([r.get("case") for r in prepares] == CASES, "app prepare cases missing/duplicated")
     receivers = [r for r in records if r.get("kind") == "p12-menu-receiver"]
     require(all(r.get("case") in CASES for r in receivers), "unexpected native callback")
+    validate_gui_preconditions(records, ui, picks, prepares)
     validate_observation(records, messages, ui, picks, prepares, receivers)
     negative_routes = {}
     for case, pick, prepare in zip(CASES, picks, prepares):
@@ -85,6 +90,50 @@ def validate(records, messages, ui, screenshots):
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes}
+
+
+def builds_near(records, time):
+    """The p12-menu-build records within BUILD_MARGIN of a tap, for the failure text."""
+    near = [r for r in records if r.get("kind") == "p12-menu-build" and isinstance(r.get("time"), (float, int))
+            and isinstance(time, (float, int)) and abs(r["time"] - time) <= BUILD_MARGIN]
+    return "; ".join(f"{r.get('source')} build at {r['time'] - time:+.2f} s (changed={r.get('changed')})" for r in near) or \
+        f"no p12-menu-build within {BUILD_MARGIN} s"
+
+
+def validate_gui_preconditions(records, ui, picks, prepares):
+    """Name the missing precondition of a failed reveal (class B) or a lost tap (class A).
+
+    These run before the setup-callback checks, whose generic 'missing/duplicated'
+    would otherwise be the first symptom of a tap that never reached the app."""
+    pre = [r for r in ui if r.get("kind") == "reveal-precondition"]
+    require([r.get("case") for r in pre] == CHOOSES, "reveal precondition records missing/duplicated")
+    for record in pre:
+        require(isinstance(record.get("windowControlsPresent"), bool) and isinstance(record.get("appWindowFocused"), bool)
+                and isinstance(record.get("appState"), str), "reveal precondition record incomplete")
+    results = [r for r in ui if r.get("kind") == "reveal-result"]
+    require([r.get("case") for r in results] == CHOOSES, "reveal result records missing/duplicated")
+    for record, before in zip(results, pre):
+        require(record.get("revealed") is True,
+                f"menu bar not revealed (class B) in case {record.get('case')}: before the swipe Springboard Window Controls "
+                f"present={before['windowControlsPresent']}, app state={before['appState']}, app window focused="
+                f"{before['appWindowFocused']}, {before.get('secondsSinceMenuClosed')} s since the last menu closed")
+    closes = [r for r in ui if r.get("kind") == "menu-close"]
+    require([r.get("case") for r in closes] == CHOOSES, "menu close records missing/duplicated")
+    for record in closes:
+        require(record.get("closed") is True,
+                f"OS menu still open after the {record.get('step')} tap in case {record.get('case')}: tap lost (class A); "
+                f"{builds_near(records, record.get('tapTime'))}")
+    require([r.get("case") for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "prepare"] == CASES,
+            "menu build record missing for a prepared case")
+    require(len([r for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "current"]) == 1,
+            "menu build record missing for the current focus menu")
+    entries = [r for r in records if r.get("kind") == "p12-menu-entry"]
+    for pick in picks:
+        require(pick.get("menuClosed") is True, f"OS menu not closed after the pick in case {pick.get('case')}: tap lost (class A)")
+        if pick.get("tapped"):
+            require(any(entry.get("case") == pick.get("case") for entry in entries),
+                    f"tap lost (class A) in case {pick.get('case')}: the pick reached no native menu callback; "
+                    f"{builds_near(records, pick['started'])}")
 
 
 def inside(record, window):

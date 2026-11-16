@@ -9,6 +9,11 @@ final class P12QA: XCTestCase {
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     /// Tap points of the fixture controls, found by OCR before any RPC is held.
     private var fixturePoints: [String: CGVector] = [:]
+    /// When the previous OS menu was last observed closed; the time between a close
+    /// and the next swipe is one suspected reveal precondition.
+    private var lastMenuClosed: Date?
+    /// The reveal-precondition record of the swipe in progress, quoted by its failures.
+    private var preReveal: [String: Any] = [:]
     private static let fixtureControls = ["Remote", "Rearm", "Sidebar", "Palette", "Release", "Host", "Pane",
                                           "Boot", "Focus", "Current", "Capability", "Reset", "Finish"]
                                           .map { "P12 " + $0 }
@@ -63,6 +68,9 @@ final class P12QA: XCTestCase {
     }
 
     private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
+        // Recorded before the swipe so a reveal that fails can say which
+        // precondition was missing (L17 class B), not only that the bar is absent.
+        recordRevealPrecondition(caseName)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
         // The pinned herdr-uikit (see Cargo.toml) menu::placement maps GPUI position 0
@@ -75,10 +83,13 @@ final class P12QA: XCTestCase {
         // reveal that never happens still leaves a hierarchy and screenshot.
         let revealed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND hittable == true"), object: applicationMenu)
+        let revealStart = Date()
         let reveal = XCTWaiter().wait(for: [revealed], timeout: 10)
+        events.append(["kind": "reveal-result", "case": caseName, "revealed": reveal == .completed,
+                       "waited": Date().timeIntervalSince(revealStart), "time": Date().timeIntervalSince1970])
         hierarchy("p12-revealed-" + caseName)
         screenshot("p12-revealed-" + caseName)
-        XCTAssertEqual(reveal, .completed, "Installed OS application menu must be revealed and reachable")
+        XCTAssertEqual(reveal, .completed, "OS menu bar not revealed (class B) in case \(caseName): " + preRevealSummary())
         XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
@@ -94,7 +105,9 @@ final class P12QA: XCTestCase {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
                            "owner": "com.apple.springboard", "buttonLabel": item.label,
                            "time": Date().timeIntervalSince1970])
+            let dismissTime = Date().timeIntervalSince1970
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
         if negative { sleep(7) } // App injects the current-context fault after 6 seconds.
@@ -108,12 +121,77 @@ final class P12QA: XCTestCase {
         let buttonLabel = item.label
         if tapped { item.tap() }
         else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap() }
+        // A pick or dismiss tap that was lost leaves the menu open, and the next
+        // fixture tap would then only close it (L17 class A). Fail here, by name.
+        let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
+                                              step: tapped ? "pick" : "dismiss", tapTime: pickStart)
         sleep(1)
         events.append(["kind": "os-menu-pick", "case": caseName, "command": title,
                        "owner": owner === springboard ? "com.apple.springboard" : "com.shin1ohno.yebisu", "buttonLabel": buttonLabel,
                        "started": pickStart, "ended": Date().timeIntervalSince1970,
-                       "enabled": enabled, "tapped": tapped, "negative": negative])
+                       "enabled": enabled, "tapped": tapped, "negative": negative, "menuClosed": menuClosed])
         screenshot("p12-after-" + caseName)
+    }
+
+    /// Records what Springboard and the app window looked like just before a
+    /// swipe reveal: whether the Window Controls button exists, the app's
+    /// process state, whether its window has focus, and the time since the last
+    /// menu closed. The whole hierarchy is saved as an attachment as well.
+    private func recordRevealPrecondition(_ caseName: String) {
+        let time = Date().timeIntervalSince1970
+        let board = springboard.debugDescription
+        let appTree = app.debugDescription
+        let window = app.windows.firstMatch
+        let attachment = XCTAttachment(string: "APP\n\(appTree)\nSPRINGBOARD\n\(board)")
+        attachment.name = "p12-pre-reveal-" + caseName + "-hierarchy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        preReveal = [
+            "kind": "reveal-precondition", "case": caseName, "time": time,
+            "windowControlsPresent": board.contains("Window Controls"),
+            "appState": Self.stateName(app.state),
+            "appWindowExists": window.exists, "appWindowFocused": window.hasFocus,
+            "secondsSinceMenuClosed": lastMenuClosed.map { Date().timeIntervalSince($0) } ?? -1,
+        ]
+        events.append(preReveal)
+    }
+
+    private func preRevealSummary() -> String {
+        "before the swipe Springboard Window Controls present=\(preReveal["windowControlsPresent"] ?? "?"), "
+            + "app state=\(preReveal["appState"] ?? "?"), app window focused=\(preReveal["appWindowFocused"] ?? "?"), "
+            + "\(preReveal["secondsSinceMenuClosed"] ?? "?") s since the last menu closed "
+            + "(saved as p12-pre-reveal-\(preReveal["case"] ?? "?")-hierarchy)"
+    }
+
+    private static func stateName(_ state: XCUIApplication.State) -> String {
+        switch state {
+        case .notRunning: return "notRunning"
+        case .runningBackgroundSuspended: return "runningBackgroundSuspended"
+        case .runningBackground: return "runningBackground"
+        case .runningForeground: return "runningForeground"
+        default: return "unknown"
+        }
+    }
+
+    /// Waits on the observable condition (the picked or dismissed menu item is gone).
+    /// `tapTime` is the instant of the tap, so the oracle can match it to a menu build.
+    @discardableResult
+    private func assertMenuClosed(_ item: XCUIElement, title: String, caseName: String, step: String,
+                                  tapTime: TimeInterval) -> Bool {
+        let waitStart = Date()
+        let closed = item.waitForNonExistence(timeout: 5)
+        events.append(["kind": "menu-close", "case": caseName, "step": step, "closed": closed,
+                       "tapTime": tapTime, "waited": Date().timeIntervalSince(waitStart),
+                       "time": Date().timeIntervalSince1970])
+        if closed {
+            lastMenuClosed = Date()
+        } else {
+            screenshot("p12-menu-still-open-" + caseName)
+            hierarchy("p12-menu-still-open-" + caseName)
+        }
+        XCTAssertTrue(closed, "OS menu still open 5 s after the \(step) tap of '\(title)' in case \(caseName): "
+                      + "the tap was lost (class A); compare tapTime with the p12-menu-build records")
+        return closed
     }
 
     /// Finds every fixture control on screen. The panel is absolutely positioned

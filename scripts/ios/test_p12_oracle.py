@@ -25,6 +25,14 @@ def fixture():
                         dict(kind="p12-setup-end", step=step, time=clock+.2, state=copy.deepcopy(state), before=before, after=before)])
         clock += 2
 
+    def choose(case, tap_time, tapped=True):
+        """The GUI records one choose() writes: reveal precondition and result, menu close."""
+        ui.append(dict(kind="reveal-precondition", case=case, time=tap_time-.5, windowControlsPresent=True,
+                       appState="runningForeground", appWindowExists=True, appWindowFocused=True, secondsSinceMenuClosed=3.0))
+        ui.append(dict(kind="reveal-result", case=case, revealed=True, waited=.4, time=tap_time-.2))
+        ui.append(dict(kind="menu-close", case=case, step="pick" if tapped else "dismiss", closed=True, tapTime=tap_time,
+                       waited=.3, time=tap_time+.4))
+
     messages = [dict(kind="p12-peer-start", transport=1, time=0)]
     remotes = dict(p12.HOLDS)
     sequence = 0
@@ -33,6 +41,8 @@ def fixture():
         prepared = copy.deepcopy(state)
         name = {"sidebar":"toggle_sidebar", "palette":"command_palette"}.get(case, "split_right")
         label = p12.LABELS.get(case, "Split Right")
+        records.append(dict(kind="p12-menu-build", source="prepare", case=case, time=clock-1.9, changed=True,
+                            focused=True, availability=[True]))
         records.append(dict(kind="p12-prepare", case=case, time=clock-1.8, state=prepared,
                             sidebar=state["sidebar"], palette=state["palette"], pending=state["pending"],
                             catalog=[dict(name=name, label=label, enabled=True)]))
@@ -58,7 +68,9 @@ def fixture():
         records.append(dict(entry, kind="p12-menu-receiver", time=clock+.4, guard="command_gate",
                             accepted=not negative, pending=state["pending"], after=[state["sidebar"], state["palette"]]))
         ui.append(dict(kind="os-menu-pick", case=case, started=clock, ended=clock+1,
-                       owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True))
+                       owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True,
+                       menuClosed=True))
+        choose(case, clock)
         clock += 2
         if case in remotes.values():
             setup("release")
@@ -67,9 +79,12 @@ def fixture():
             state["pending"] = False
         if case == "focus":
             setup("current")
+            records.append(dict(kind="p12-menu-build", source="current", case=case, time=clock-1.6, changed=True,
+                                focused=True, availability=[True]))
             records.append(dict(kind="p12-current", case=case, time=clock-1.5, state=copy.deepcopy(state)))
             ui.append(dict(kind="current-native-menu", case=case, time=clock, enabled=True,
                            owner="com.apple.springboard", buttonLabel="Split Right　⌘D"))
+            choose("focus-current", clock)
             clock += 2
         if negative:
             records.append(dict(kind="p12-reset", case=case, sidebar=state["sidebar"], palette=state["palette"], mutated=True))
@@ -255,6 +270,58 @@ class P12OracleTests(unittest.TestCase):
         def edit(r,m,u,s):
             select(r,"p12-menu-entry","remote")["time"] = -1
         self.rejected(edit, "callback outside actual OS pick")
+
+    # Negative controls for the two L17 failure classes: each must be named at its
+    # own step, not by the later generic "setup callbacks missing/duplicated".
+    def test_failed_reveal_names_the_missing_precondition(self):
+        def edit(r,m,u,s):
+            select(u,"reveal-precondition","palette").update(windowControlsPresent=False, appWindowFocused=False)
+            select(u,"reveal-result","palette").update(revealed=False)
+        self.rejected(edit, r"menu bar not revealed \(class B\) in case palette.*Window Controls present=False.*"
+                            r"app state=runningForeground.*app window focused=False")
+
+    def lose_tap(self, case):
+        """What PR 55 run a3 recorded: the tap was synthesized and the app saw nothing,
+        and the next fixture tap only closed the still-open menu."""
+        def edit(r,m,u,s):
+            for kind in ("p12-menu-entry", "p12-menu-receiver"):
+                r.remove(select(r,kind,case))
+            pick = select(u,"os-menu-pick",case)
+            r.append(dict(kind="p12-menu-build", source="render", case=case, time=pick["started"]+.3, changed=True,
+                          focused=True, availability=[True]))
+            for kind in ("p12-setup-begin", "p12-setup-end"):
+                r.remove(next(x for x in r if x.get("kind") == kind and x.get("step") == "reset" and x["time"] > pick["ended"]))
+            u.remove(next(x for x in u if x.get("kind") == "fixture-control" and x.get("step") == "reset" and x["started"] > pick["ended"]))
+        return edit
+
+    def test_lost_tap_without_gui_close_record_is_named_with_nearby_build(self):
+        # An older artifact has no menu-close failure; the oracle itself still names the lost tap.
+        self.rejected(self.lose_tap("host"), r"tap lost \(class A\) in case host: the pick reached no native menu callback; "
+                                             r"render build at \+0\.30 s")
+
+    def test_menu_still_open_after_pick_is_named(self):
+        def edit(r,m,u,s):
+            self.lose_tap("host")(r,m,u,s)
+            close = select(u,"menu-close","host")
+            close.update(closed=False)
+        self.rejected(edit, r"OS menu still open after the pick tap in case host: tap lost \(class A\); render build at \+0\.30 s")
+
+    def test_gui_checks_come_before_the_setup_callback_symptom(self):
+        data = fixture()
+        self.lose_tap("host")(*data)
+        with self.assertRaises(ValueError) as caught:
+            p12.validate(*data)
+        self.assertNotIn("setup callbacks", str(caught.exception))
+
+    def test_pick_must_record_the_menu_closed(self):
+        self.rejected(lambda r,m,u,s: select(u,"os-menu-pick","boot").update(menuClosed=False), "not closed after the pick in case boot")
+
+    def test_reveal_precondition_is_required_for_every_choose(self):
+        self.rejected(lambda r,m,u,s: u.remove(select(u,"reveal-precondition","focus-current")), "reveal precondition records missing")
+        self.rejected(lambda r,m,u,s: select(u,"reveal-precondition","host").pop("windowControlsPresent"), "precondition record incomplete")
+
+    def test_every_prepared_menu_records_its_build(self):
+        self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-menu-build","pane")), "menu build record missing")
 
 
 if __name__ == "__main__":
