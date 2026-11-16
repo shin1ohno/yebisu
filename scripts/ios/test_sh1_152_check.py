@@ -107,5 +107,18 @@ class MenuOracleTests(unittest.TestCase):
         self.assertEqual(oracle.view_kind("UITextField"), "UITextField")
 
 
+class DriverTests(unittest.TestCase):
+    def test_test_runner_reads_the_receipt_directory_the_driver_passes(self):
+        driver_spec = importlib.util.spec_from_file_location("sh1_152_check", Path(__file__).with_name("sh1-152-check.py"))
+        driver = importlib.util.module_from_spec(driver_spec)
+        driver_spec.loader.exec_module(driver)
+        env = driver.xctest_env(Path("/sim/data/Documents"))
+        self.assertEqual(env["TEST_RUNNER_SH1_152_DOCUMENTS"], "/sim/data/Documents")
+        # xcodebuild strips TEST_RUNNER_; EditMenuQA must read the stripped name.
+        swift = (Path(__file__).parent / "smoke-qa/Tests/EditMenuQA.swift").read_text()
+        self.assertIn('environment["SH1_152_DOCUMENTS"]', swift)
+        self.assertNotIn('environment["TEST_RUNNER_SH1_152_DOCUMENTS"]', swift)
+
+
 if __name__ == "__main__":
     unittest.main()
