@@ -90,9 +90,10 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
    class: do not rerun it, report it.
 3. Area the PR touches. Run `gh pr diff <number> --name-only` and compare it with
    the failing class's area below. A PR owns the failure when a changed path is a
-   shared input or is in that class's area. A path in neither does not touch the
-   class. Narrowing source: the `followups` entry of
-   `/home/shin1ohno/.local/state/chief-of-staff/codex-controller-2026-11-12/known-class-merge-rule-decision.json`
+   shared input or is in that class's area. The lists are a minimum: a path in
+   neither is outside the class only if it cannot reach the failing test's screen
+   or input path; otherwise the last paragraph of this step applies. Narrowing
+   source: the `followups` entry of `known-class-merge-rule-decision.json`
    (2026-11-16T03:13:58+00:00, "narrow per class"). Areas were drafted from the L17
    causes; each path is justified by `file:line` on origin/main 673715d, so
    re-read the named function when a PR moves the lines.
@@ -117,6 +118,13 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
        heads whose source has the Settings button (11/41 jobs, 0/49 without; L17
        diagnosis, "L15" measured facts), and the diagnosis attributes the missed
        `Paste` label to that extra toolbar row.
+     - `testSH154CoreImage` starts with `YEBISU_CORE_QA=1` (`SmokeQA.swift:415`),
+       so the screen is in core mode and the core controls row (`Split (2
+       panes)`, `Pane 1`, `Pane 2`, `Toggle split direction`, `Detach`) sits
+       above the strip, like the toolbar row: `crates/yebisu/src/core_view.rs`
+       (`connect_core` :46 sets `core_mode`; `render_core_controls` :121-172),
+       `crates/yebisu/src/terminal_view.rs` (:379-381 draws it) and
+       `crates/yebisu/src/app.rs` (:394-400 calls `connect_core`).
      - `crates/yebisu/src/handoff_view.rs` (`handoff_controls`, :299-359: the
        `Paste` and `Paste image` buttons the OCR has to tell apart),
        `crates/yebisu/src/terminal_view.rs` (:386-387, where the strip and the QA
@@ -126,9 +134,11 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
      - The paste data path that `p9-check.py` `validate_images` (:41-74) counts as
        `puts`, `paths` and `text`, because L16 is `text=0` (all under
        `crates/yebisu/src/`): `core/paste.rs`, `core/paste_path.rs`,
-       `core_paste_view.rs`, `handoff_clipboard.rs` and `core_mock/paste.rs`.
+       `core_paste_view.rs`, `handoff_clipboard.rs` and `core_mock/paste.rs`, plus
+       `core_mock.rs`, which writes the `p9-core-wire.jsonl` receipt it counts
+       (:144, :188, :309-318).
      - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (`testSH154CoreImage`
-       :412-444, `locateText` :446-484, `recognize` :510, `tapText` :529-549) and
+       :412-439, `locateText` :446-484, `recognize` :510, `tapText` :529-549) and
        `scripts/ios/smoke-qa/project.yml`.
    - **C-snapshot** (P0 `testInputAndLifecycleReceipts`: Home :14, `activate()`
      :16, `typeText("-returned")` :18 in `SmokeQA.swift`):
@@ -137,6 +147,11 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
        `on_app_lifecycle`), `crates/yebisu/src/reconnect.rs` (`lifecycle` :35-120,
        Background suspends :45-62, Active resumes :85) and
        `crates/yebisu/src/settings_view.rs` (`settings_lifecycle` :83-96).
+     - What `lifecycle` calls on the main thread: `crates/yebisu/src/diagnostics.rs`
+       (`record` :36, called at `reconnect.rs:37`; the subscriber uses `try_send`
+       at :97), `crates/yebisu/src/handoff.rs` (`cancel` :64, called at
+       `reconnect.rs:49`) and `crates/yebisu/src/link.rs` (`pause` :57, called at
+       `reconnect.rs:71`).
      - The input that fails to arrive: `crates/yebisu/src/input.rs`
        (`replace_text_in_range` :159-194, which logs `input committed`) and
        `crates/yebisu/src/observation.rs` (:38-73, the `p0-smoke.jsonl` receipts
@@ -151,6 +166,15 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
        `upstream/terminal_painter/`, the P9 mock backend `core_mock.rs` (:286,
        `connect`) with `core_view.rs` (:13, :58) and `app.rs` (:394-400), which
        select it under `YEBISU_CORE_QA`, and `observation.rs`.
+     - The `QA mark`, `QA delete` and `QA commit` taps that follow the input
+       (`SmokeQA.swift:390-392`) and the key and edit-menu code that runs between
+       the input and the idle wait: `crates/yebisu/src/terminal_controls.rs`
+       (`publish_native_edits` :8, called every render; `terminal_key_down` :119;
+       `terminal_key_up` :249; `input_qa_controls` :359, the `QA` row) and
+       `crates/yebisu/src/edit_menu.rs` (:87-100 set availability and present or
+       dismiss the UIKit edit menu; `edit_menu_check` :165). `handoff_view.rs`
+       (:321-323, the `Start: Drag` and `Start: Select / double tap` labels the
+       test taps at `SmokeQA.swift:386-387` before it types) is in this area too.
      - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (`testP9Core`
        :377-410) and `scripts/ios/smoke-qa/project.yml`.
    - **A and B** (P12 `testInstalledTerminalMenu`; the reveal wait is
