@@ -87,9 +87,11 @@ impl Smoke {
             return;
         }
         self.p12_qa.rebuilds += 1;
-        self.observation.record(serde_json::json!({"kind":"p12-menu-build","source":"rebuild",
+        self.observation.record(
+            serde_json::json!({"kind":"p12-menu-build","source":"rebuild",
             "case":self.p12_qa.case,"changed":true,"rebuilds":self.p12_qa.rebuilds,
-            "build":self.native_menus.p12_build_record()}));
+            "build":self.native_menus.p12_build_record()}),
+        );
     }
     /// Records the menu state at a setup step. `changed` is true when at least
     /// one rebuild (see `p12_note_menu_rebuild`) happened since the previous
