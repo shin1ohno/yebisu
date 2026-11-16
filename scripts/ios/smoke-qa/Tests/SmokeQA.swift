@@ -2,24 +2,43 @@ import XCTest
 import Vision
 
 final class SmokeQA: XCTestCase {
+    // P9 normally takes about 60 s. A hang inside it (the app never reports idle, so
+    // every XCUITest query waits its 60 s animation timeout) must fail the test here
+    // instead of running into the 40-minute job timeout. p9-check.py passes
+    // -test-timeouts-enabled YES; XCTest rounds the allowance up to whole minutes.
+    override func setUpWithError() throws {
+        if name.contains("testP9Core") {
+            executionTimeAllowance = 150
+        }
+    }
+
     func testInputAndLifecycleReceipts() throws {
+        // A failed state wait below must stop the test at once under its own name,
+        // not turn into three 30 s snapshot timeouts on whatever comes next.
+        continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         XCUIDevice.shared.orientation = .portrait
         app.activate()
-        sleep(2)
+        try requireState(app, [.runningForeground], "initial activate()")
+        try waitForRenderedText("Async counter", what: "first paint after launch")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.425)).tap()
         app.typeText("P0-input")
-        sleep(2)
+        try waitForRenderedText("input", what: "typed 'P0-input' received")
         save("initial")
         XCUIDevice.shared.press(.home)
-        sleep(2)
+        // activate() issued while the Home press is still being handled leaves the app
+        // suspended in the background (class C of the L17 diagnosis).
+        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")
         app.activate()
-        sleep(2)
+        try requireState(app, [.runningForeground], "activate() after press(.home)")
+        try waitForRenderedText("input", what: "repaint of 'P0-input' after returning")
         app.typeText("-returned")
-        sleep(2)
+        try waitForRenderedText("returned", what: "typed '-returned' received")
         save("returned")
         XCUIDevice.shared.orientation = .landscapeLeft
         sleep(2)
+        // The native keyboard covers the input field in landscape, so no screen text
+        // shows this value. smoke_oracle.py still requires its receipt in app.jsonl.
         app.typeText("-rotated")
         sleep(2)
         save("rotated")
@@ -28,7 +47,7 @@ final class SmokeQA: XCTestCase {
         save("idle-before")
         sleep(60)
         app.typeText("-idle")
-        sleep(2)
+        try waitForRenderedText("idle", what: "typed '-idle' received")
         save("idle")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.96)).tap()
         sleep(2)
@@ -36,6 +55,67 @@ final class SmokeQA: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
         // regions and app-written receipt state for every saved stage.
+    }
+
+    private func stateName(_ state: XCUIApplication.State) -> String {
+        switch state {
+        case .notRunning: return "notRunning"
+        case .runningBackgroundSuspended: return "runningBackgroundSuspended"
+        case .runningBackground: return "runningBackground"
+        case .runningForeground: return "runningForeground"
+        default: return "unknown"
+        }
+    }
+
+    /// Waits for the app to reach one of `states`; fails at once, naming `what`, if it does not.
+    /// `app.state` alone is not refreshed while it is polled (run 43770292492: Home pressed at
+    /// t=61 s, state still runningForeground at t=92 s), so each pass asks XCTest to wait for a state.
+    private func requireState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
+                              timeout: TimeInterval = 30) throws {
+        let start = Date()
+        while true {
+            for state in states where app.wait(for: state, timeout: 0.5) {
+                print(String(format: "WAIT ok %@: app.state=%@ after %.2f s", what, stateName(state), Date().timeIntervalSince(start)))
+                return
+            }
+            if Date().timeIntervalSince(start) >= timeout {
+                // Read the state once: the verdict and the message must come from the same
+                // observation, and `save()` takes seconds, long enough for the state to change.
+                let observed = app.state
+                if states.contains(observed) {
+                    print(String(format: "WAIT ok %@: app.state=%@ after %.2f s (late)", what, stateName(observed), Date().timeIntervalSince(start)))
+                    return
+                }
+                save("state-wait-failed")
+                XCTFail("\(what): app.state is \(stateName(observed)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
+                throw NSError(domain: "SmokeQA.StateWait", code: 1)
+            }
+        }
+    }
+
+    /// Waits until a Vision pass over the screen reads `word` (case-insensitive). P0 paints only
+    /// fixed source strings, so on a miss the recognized strings are printed for diagnosis.
+    private func waitForRenderedText(_ word: String, what: String, timeout: TimeInterval = 20) throws {
+        let start = Date()
+        while true {
+            let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.customWords = [word]
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            let strings = (request.results ?? []).flatMap { $0.topCandidates(5).map { $0.string } }
+            if strings.contains(where: { $0.localizedCaseInsensitiveContains(word) }) {
+                print(String(format: "WAIT ok %@: read '%@' on screen after %.2f s", what, word, Date().timeIntervalSince(start)))
+                return
+            }
+            if Date().timeIntervalSince(start) >= timeout {
+                save("text-wait-failed")
+                print("WAIT failed \(what): recognized \(strings)")
+                XCTFail("\(what): '\(word)' not on screen after \(Int(timeout)) s")
+                throw NSError(domain: "SmokeQA.TextWait", code: 1)
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
     }
     // The settings sheet shows PageId::id() as is ("appearance"), and tapText matches
     // case-sensitively. test_p15_check.py ties this value to settings_pages/mod.rs.
