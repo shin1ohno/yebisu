@@ -88,18 +88,27 @@ final class P12QA: XCTestCase {
         events.append(["kind": "reveal-result", "case": caseName, "revealed": reveal == .completed,
                        "waited": Date().timeIntervalSince(revealStart), "time": Date().timeIntervalSince1970])
         hierarchy("p12-revealed-" + caseName)
-        screenshot("p12-revealed-" + caseName)
+        // Screenshots taken while the OS menu is open are failure evidence only: on a
+        // hosted runner one of them can stall for the 30 s XCTest limit while the
+        // Simulator is not drawing. Success is proved by the Springboard hierarchy.
+        screenshotOnFailure("p12-revealed-" + caseName,
+                            reveal == .completed && applicationMenu.exists && applicationMenu.isHittable
+                                && applicationMenu.frame.maxY <= 64)
         XCTAssertEqual(reveal, .completed, "OS menu bar not revealed (class B) in case \(caseName): " + preRevealSummary())
         XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
         applicationMenu.tap()
         sleep(1)
-        screenshot("p12-menu-" + caseName)
+        // The current-focus menu stays a screenshot: it is the only visual proof of
+        // the rebuilt menu after the stale rejection.
+        if observeOnly { screenshot("p12-menu-" + caseName) }
         hierarchy("p12-menu-" + caseName)
         // Do not fall back to GPUI toolbar text or an app helper action.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 3), "Native command missing: \(title)")
+        let listed = item.waitForExistence(timeout: 3)
+        if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, listed && item.isEnabled) }
+        XCTAssertTrue(listed, "Native command missing: \(title)")
         XCTAssertTrue(item.isEnabled, "Captured native command must start enabled")
         if observeOnly {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
@@ -111,12 +120,14 @@ final class P12QA: XCTestCase {
             return
         }
         if negative { sleep(7) } // App injects the current-context fault after 6 seconds.
-        XCTAssertTrue(item.exists, "Native menu disappeared; this is not refusal evidence")
-        let enabled = item.isEnabled
+        let present = item.exists
+        let enabled = present && item.isEnabled
         let tapped = enabled && item.isHittable
-        if !negative || caseName == "focus" { XCTAssertTrue(tapped, "Positive native command must be actionable") }
-        if enabled { XCTAssertTrue(item.isHittable, "Enabled item must remain hittable") }
-        screenshot("p12-before-" + caseName)
+        let mustTap = !negative || caseName == "focus"
+        screenshotOnFailure("p12-before-" + caseName, present && (!mustTap || tapped) && (!enabled || tapped))
+        XCTAssertTrue(present, "Native menu disappeared; this is not refusal evidence")
+        if mustTap { XCTAssertTrue(tapped, "Positive native command must be actionable") }
+        if enabled { XCTAssertTrue(tapped, "Enabled item must remain hittable") }
         let pickStart = Date().timeIntervalSince1970
         let buttonLabel = item.label
         if tapped { item.tap() }
@@ -257,6 +268,11 @@ final class P12QA: XCTestCase {
             }
         }
         return found
+    }
+    /// Takes the screenshot only when the check that the assertions after it make
+    /// failed, so the failure keeps its picture and a pass takes none.
+    private func screenshotOnFailure(_ name: String, _ passed: Bool) {
+        if !passed { screenshot(name) }
     }
     private func screenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
