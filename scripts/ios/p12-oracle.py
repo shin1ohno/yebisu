@@ -1,7 +1,15 @@
 """Joint installed-GUI, consumer and private-peer oracle. No model-only UI pass."""
-CASES = ["remote", "sidebar", "palette", "host", "pane", "boot", "focus", "capability"]
-NEGATIVE = CASES[3:]
-LABELS = {"remote": "Split Right", "sidebar": "Toggle Sidebar", "palette": "Command Palette"}
+CASES = ["remote", "sidebar", "rearm", "palette", "host", "pane", "boot", "focus", "capability"]
+NEGATIVE = CASES[4:]
+LABELS = {"remote": "Split Right", "rearm": "Split Right", "sidebar": "Toggle Sidebar", "palette": "Command Palette"}
+# Each remote pick's split is held for exactly one local case, then released.
+HOLDS = [("remote", "sidebar"), ("rearm", "palette")]
+# sheprd-client limits.rs COMMAND_TIMEOUT: a held request this old fails the link.
+COMMAND_TIMEOUT = 60
+# One swipe reveal and one menu close per choose() call, in the order P12QA runs them.
+CHOOSES = [*CASES[:CASES.index("focus") + 1], "focus-current", *CASES[CASES.index("focus") + 1:]]
+# A menu build this close to a tap is reported next to a lost tap.
+BUILD_MARGIN = 1.0
 
 
 def require(condition, message):
@@ -24,6 +32,7 @@ def validate(records, messages, ui, screenshots):
     require([r.get("case") for r in prepares] == CASES, "app prepare cases missing/duplicated")
     receivers = [r for r in records if r.get("kind") == "p12-menu-receiver"]
     require(all(r.get("case") in CASES for r in receivers), "unexpected native callback")
+    validate_gui_preconditions(records, ui, picks, prepares)
     validate_observation(records, messages, ui, picks, prepares, receivers)
     negative_routes = {}
     for case, pick, prepare in zip(CASES, picks, prepares):
@@ -39,7 +48,7 @@ def validate(records, messages, ui, screenshots):
             require(len(received) == 1 and received[0].get("accepted") is True, "positive dispatch not exactly once")
             result = received[0]
             require(result["name"] == matches[0]["name"] and result["pending"], "wrong action or pending gate lost")
-            require(prepare["pending"] == (case != "remote"), "local case was not tested during pending RPC")
+            require(prepare["pending"] == (case not in dict(HOLDS)), "local case was not tested during pending RPC")
             before = [prepare["sidebar"], prepare["palette"]]
             expected = list(before)
             if case in ["sidebar", "palette"]:
@@ -76,11 +85,65 @@ def validate(records, messages, ui, screenshots):
             else:
                 require(pick.get("enabled") is False and not received, "untapped item is not native disabled evidence")
                 negative_routes[case] = "native_gui_disabled_no_consumer_dispatch"
-    require([r.get("released") for r in records if r.get("kind") == "p12-release"] == [True], "peer gate not explicitly released")
+    require([r.get("released") for r in records if r.get("kind") == "p12-release"] == [True] * len(HOLDS), "peer gate not explicitly released")
     require([r.get("enqueued") for r in records if r.get("kind") == "p12-finish"] == [True], "fixture fence not queued")
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes}
+
+
+def scope_text(record):
+    """What a `rebuild` record says the menu was rebuilt from: a Scope-only rebuild differs here, not in rows or focus."""
+    build = record.get("build")
+    if not isinstance(build, dict):
+        return ""
+    return ", " + ", ".join(f"{key}={build.get(key)}" for key in ("host", "boot", "pane", "epoch"))
+
+
+def builds_near(records, time):
+    """The p12-menu-build records within BUILD_MARGIN of a tap, for the failure text.
+    A `rebuild` record is written for every OS menu rebuild; prepare/current are setup-step records."""
+    near = [r for r in records if r.get("kind") == "p12-menu-build" and isinstance(r.get("time"), (float, int))
+            and isinstance(time, (float, int)) and abs(r["time"] - time) <= BUILD_MARGIN]
+    return "; ".join(f"{r.get('source')} build at {r['time'] - time:+.2f} s (changed={r.get('changed')}"
+                     f"{scope_text(r)})" for r in near) or \
+        f"no p12-menu-build within {BUILD_MARGIN} s"
+
+
+def validate_gui_preconditions(records, ui, picks, prepares):
+    """Name the missing precondition of a failed reveal (class B) or a lost tap (class A).
+
+    These run before the setup-callback checks, whose generic 'missing/duplicated'
+    would otherwise be the first symptom of a tap that never reached the app."""
+    pre = [r for r in ui if r.get("kind") == "reveal-precondition"]
+    require([r.get("case") for r in pre] == CHOOSES, "reveal precondition records missing/duplicated")
+    for record in pre:
+        require(isinstance(record.get("windowControlsPresent"), bool) and isinstance(record.get("appWindowFocused"), bool)
+                and isinstance(record.get("appState"), str), "reveal precondition record incomplete")
+    results = [r for r in ui if r.get("kind") == "reveal-result"]
+    require([r.get("case") for r in results] == CHOOSES, "reveal result records missing/duplicated")
+    for record, before in zip(results, pre):
+        require(record.get("revealed") is True,
+                f"menu bar not revealed (class B) in case {record.get('case')}: before the swipe Springboard Window Controls "
+                f"present={before['windowControlsPresent']}, app state={before['appState']}, app window focused="
+                f"{before['appWindowFocused']}, {before.get('secondsSinceMenuClosed')} s since the last menu closed")
+    closes = [r for r in ui if r.get("kind") == "menu-close"]
+    require([r.get("case") for r in closes] == CHOOSES, "menu close records missing/duplicated")
+    for record in closes:
+        require(record.get("closed") is True,
+                f"OS menu still open after the {record.get('step')} tap in case {record.get('case')}: tap lost (class A); "
+                f"{builds_near(records, record.get('tapTime'))}")
+    require([r.get("case") for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "prepare"] == CASES,
+            "menu build record missing for a prepared case")
+    require(len([r for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "current"]) == 1,
+            "menu build record missing for the current focus menu")
+    entries = [r for r in records if r.get("kind") == "p12-menu-entry"]
+    for pick in picks:
+        require(pick.get("menuClosed") is True, f"OS menu not closed after the pick in case {pick.get('case')}: tap lost (class A)")
+        if pick.get("tapped"):
+            require(any(entry.get("case") == pick.get("case") for entry in entries),
+                    f"tap lost (class A) in case {pick.get('case')}: the pick reached no native menu callback; "
+                    f"{builds_near(records, pick['started'])}")
 
 
 def inside(record, window):
@@ -92,7 +155,7 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
     # Strict joint ordering: callbacks must belong to the actual OS pick, and
     # every fixture click must have zero command effect. Wall clocks must be
     # the same Simulator clock; missing/ambiguous observations fail closed.
-    steps = ["remote", "sidebar", "palette", "release",
+    steps = [*[s for hold in HOLDS for s in (*hold, "release")],
              *[s for case in NEGATIVE for s in ((case, "current", "reset") if case == "focus" else (case, "reset"))], "finish"]
     controls = [r for r in ui if r.get("kind") == "fixture-control"]
     begins = [r for r in records if r.get("kind") == "p12-setup-begin"]
@@ -140,8 +203,10 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
             field = {"host":"original_host", "pane":"original_pane", "boot":"original_boot", "focus":"original_pane", "capability":"split_capability"}[case]
             expected[field] = False
             require(actual == expected, "wrong actual negative state")
+    remote_picks = [picks[CASES.index(remote)] for remote, _ in HOLDS]
     actions = [r for r in records if r.get("kind") == "action"]
-    require(len(actions) == 1 and actions[0].get("method") == "pane.split" and inside(actions[0], picks[0]), "action outside sole remote pick")
+    require(len(actions) == len(HOLDS) and all(a.get("method") == "pane.split" and inside(a, pick) for a, pick in zip(actions, remote_picks)),
+            "action outside the remote picks")
     starts = [m for m in messages if m.get("kind") == "p12-peer-start"]
     require(len(starts) == 1, "peer reconnected or start missing")
     transport = starts[0]["transport"]
@@ -161,14 +226,20 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
         else:
             require(all(m["message"] == {"input":["fifo_fence"]} for m in during), "finish emitted non-fence wire")
     requests = [m for m in ingress if "request_method" in m["message"]]
-    require([m["message"]["request_method"] for m in requests] == ["pane.split"], "remote RPC not exactly once")
-    require(inside(requests[0], picks[0]), "wire request outside remote pick")
+    require([m["message"]["request_method"] for m in requests] == ["pane.split"] * len(HOLDS), "remote RPC not exactly once per hold")
+    require(all(inside(request, pick) for request, pick in zip(requests, remote_picks)), "wire request outside remote pick")
     gates = [m for m in messages if m.get("kind") == "p12-peer-gate"]
-    require(len(gates) == 1 and gates[0]["reason"] == "released" and gates[0]["sequence"] == requests[0]["sequence"], "one-shot gate not released")
-    require(requests[0]["time"] < gates[0]["time"] and inside(gates[0], controls[3]), "gate release not correlated")
+    require(len(gates) == len(HOLDS) and all(g["reason"] == "released" and g["sequence"] == r["sequence"] for g, r in zip(gates, requests)),
+            "one-shot gate per hold not released")
+    releases = [c for c in controls if c["step"] == "release"]
+    for (_, local), request, gate, release in zip(HOLDS, requests, gates, releases):
+        require(gate["time"] - request["time"] < COMMAND_TIMEOUT, "held request reached the client's 60 s COMMAND_TIMEOUT")
+        pick = picks[CASES.index(local)]
+        require(request["time"] < pick["started"] and pick["ended"] < gate["time"], "local case outside its own hold")
+        require(inside(gate, release), "gate release not correlated")
     inputs = [m for m in ingress if "input" in m["message"]]
     require([m["message"]["input"] for m in inputs] == [["fifo_fence"]], "extra terminal input or missing FIFO fence")
     require(not any(m["message"].get("other_message") for m in ingress), "unexpected peer message")
     fence = inputs[0]
-    require(inside(fence, controls[-1]) and fence["time"] > picks[-1]["ended"] and fence["sequence"] > requests[0]["sequence"], "final receiving FIFO fence ordering")
+    require(inside(fence, controls[-1]) and fence["time"] > picks[-1]["ended"] and fence["sequence"] > requests[-1]["sequence"], "final receiving FIFO fence ordering")
     require(not any(m["sequence"] > fence["sequence"] and ("request_method" in m["message"] or "input" in m["message"]) for m in ingress), "wire after final FIFO fence")

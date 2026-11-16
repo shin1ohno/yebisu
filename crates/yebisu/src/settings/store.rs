@@ -34,6 +34,7 @@ pub(super) fn load(root: &Path) -> Result<Values> {
             .ok_or_else(|| Error::Settings(format!("invalid {key}"))),
     };
     Ok(Values {
+        notifications: crate::notifications::Policy::decode(value.get("notifications"))?,
         theme: crate::theme_picker::read_local(&value)
             .map_err(|_| Error::Settings("unsupported local theme".into()))?,
         font: super::font::TerminalFont::from_json(&value)?,
@@ -67,6 +68,7 @@ pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
             .map_err(|_| Error::Settings("invalid local settings".into()))?;
         let mut file = fs::File::create(&pending)?;
         let fields = serde_json::json!({"version":1,"language":"en-US",
+            "notifications": values.notifications.encode(),
             "terminal_font_size":values.font.size,"terminal_font_family":values.font.family,
             "compact":values.compact,"terminal_priority":values.terminal_priority,
             "board_hidden":values.board_hidden,

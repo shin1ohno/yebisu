@@ -1,4 +1,5 @@
 mod view;
+pub(crate) use view::button;
 // Modal adapter shared by production sheet and nested confirmation.
 use crate::app::Smoke;
 use gpui::{Context, Window};

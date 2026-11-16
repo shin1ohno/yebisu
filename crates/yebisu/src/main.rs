@@ -28,6 +28,12 @@ mod link;
 #[cfg(any(target_os = "ios", test))]
 mod live;
 #[cfg(any(target_os = "ios", test))]
+mod notification_settings;
+#[cfg(any(target_os = "ios", test))]
+mod notification_view;
+#[cfg(any(target_os = "ios", test))]
+mod notifications;
+#[cfg(any(target_os = "ios", test))]
 #[allow(dead_code, unused_imports)]
 mod upstream;
 #[cfg(any(target_os = "ios", test))]
@@ -118,6 +124,9 @@ mod i18n;
 
 #[cfg(any(target_os = "ios", test))]
 mod settings_spike;
+
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod mock_notifications;
 
 #[cfg(any(target_os = "ios", test))]
 mod edit_menu;

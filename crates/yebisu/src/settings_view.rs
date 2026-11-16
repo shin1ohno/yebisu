@@ -31,6 +31,12 @@ impl Smoke {
                 } else {
                     root
                 };
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_P14_QA").is_some() {
+                    root.join("p14-qa")
+                } else {
+                    root
+                };
                 crate::settings::SettingsHost::open(root)
             }) {
             Ok(host) => {
@@ -42,6 +48,7 @@ impl Smoke {
     }
     pub(crate) fn settings_values(&self) -> Values {
         Values {
+            notifications: self.notifications.policy.clone(),
             theme: self.local_theme,
             font: self.terminal.font.clone(),
             compact: self.terminal.compact,
@@ -65,6 +72,7 @@ impl Smoke {
             self.local_theme = host.draft.theme;
             self.terminal.font = host.draft.font.clone();
             self.terminal.compact = host.draft.compact;
+            self.notifications.policy = host.draft.notifications.clone();
             self.actions.terminal_priority = host.draft.terminal_priority;
             self.actions.board_hidden = host.draft.board_hidden;
             self.handoff.drag_select = host.draft.drag_select;

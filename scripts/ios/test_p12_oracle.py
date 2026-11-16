@@ -25,17 +25,24 @@ def fixture():
                         dict(kind="p12-setup-end", step=step, time=clock+.2, state=copy.deepcopy(state), before=before, after=before)])
         clock += 2
 
+    def choose(case, tap_time, tapped=True):
+        """The GUI records one choose() writes: reveal precondition and result, menu close."""
+        ui.append(dict(kind="reveal-precondition", case=case, time=tap_time-.5, windowControlsPresent=True,
+                       appState="runningForeground", appWindowExists=True, appWindowFocused=True, secondsSinceMenuClosed=3.0))
+        ui.append(dict(kind="reveal-result", case=case, revealed=True, waited=.4, time=tap_time-.2))
+        ui.append(dict(kind="menu-close", case=case, step="pick" if tapped else "dismiss", closed=True, tapTime=tap_time,
+                       waited=.3, time=tap_time+.4))
+
     messages = [dict(kind="p12-peer-start", transport=1, time=0)]
+    remotes = dict(p12.HOLDS)
+    sequence = 0
     for case in p12.CASES:
-        if case == "host":
-            setup("release")
-            records.append(dict(kind="p12-release", released=True, time=clock-1.5))
-            messages.append(dict(kind="p12-peer-gate", transport=1, sequence=1, reason="released", time=clock-1.5))
-            state["pending"] = False
         setup(case)
         prepared = copy.deepcopy(state)
         name = {"sidebar":"toggle_sidebar", "palette":"command_palette"}.get(case, "split_right")
         label = p12.LABELS.get(case, "Split Right")
+        records.append(dict(kind="p12-menu-build", source="prepare", case=case, time=clock-1.9, changed=True,
+                            focused=True, availability=[True]))
         records.append(dict(kind="p12-prepare", case=case, time=clock-1.8, state=prepared,
                             sidebar=state["sidebar"], palette=state["palette"], pending=state["pending"],
                             catalog=[dict(name=name, label=label, enabled=True)]))
@@ -50,23 +57,38 @@ def fixture():
                      origin="native_action",
                      state=copy.deepcopy(state), before=before, mutated=negative)
         records.append(entry)
-        if case == "remote":
+        if case in remotes:
             state["pending"] = True
+            sequence += 1
             records.append(dict(kind="action", method="pane.split", time=clock+.2))
-            messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=1,
+            messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=sequence,
                                  message=dict(request_method="pane.split"), time=clock+.3))
         elif case in ("sidebar", "palette"):
             state[case] = not state[case]
         records.append(dict(entry, kind="p12-menu-receiver", time=clock+.4, guard="command_gate",
                             accepted=not negative, pending=state["pending"], after=[state["sidebar"], state["palette"]]))
         ui.append(dict(kind="os-menu-pick", case=case, started=clock, ended=clock+1,
-                       owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True))
+                       owner="com.apple.springboard", command=label, buttonLabel=label+"　⌘D", enabled=True, tapped=True,
+                       menuClosed=True))
+        choose(case, clock)
         clock += 2
+        if case in remotes.values():
+            setup("release")
+            records.append(dict(kind="p12-release", released=True, time=clock-1.5))
+            messages.append(dict(kind="p12-peer-gate", transport=1, sequence=sequence, reason="released", time=clock-1.5))
+            state["pending"] = False
         if case == "focus":
+            # The unfrozen menu follows the mutated pane: rows and focus are the same
+            # as at prepare, so only the Scope differs. The hook records it regardless.
+            records.append(dict(kind="p12-menu-build", source="rebuild", case=case, time=clock-1.7, changed=True,
+                                rebuilds=2, build=dict(host="h", boot="b", pane="w1:p3", epoch=0, availability=[True], focused=True)))
             setup("current")
+            records.append(dict(kind="p12-menu-build", source="current", case=case, time=clock-1.6, changed=True,
+                                focused=True, availability=[True]))
             records.append(dict(kind="p12-current", case=case, time=clock-1.5, state=copy.deepcopy(state)))
             ui.append(dict(kind="current-native-menu", case=case, time=clock, enabled=True,
                            owner="com.apple.springboard", buttonLabel="Split Right　⌘D"))
+            choose("focus-current", clock)
             clock += 2
         if negative:
             records.append(dict(kind="p12-reset", case=case, sidebar=state["sidebar"], palette=state["palette"], mutated=True))
@@ -74,7 +96,7 @@ def fixture():
             setup("reset")
     setup("finish")
     records.append(dict(kind="p12-finish", enqueued=True, time=clock-1.5))
-    messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=2,
+    messages.append(dict(kind="p12-peer-ingress", transport=1, sequence=sequence+1,
                          message=dict(input=["fifo_fence"]), time=clock-1.5))
     shots = {"p12-finished", "p12-menu-focus-current", *[f"p12-{stage}-{case}" for stage in ("menu", "before", "after") for case in p12.CASES]}
     return records, messages, ui, shots
@@ -82,6 +104,13 @@ def fixture():
 
 def select(rows, kind, case=None):
     return next(r for r in rows if r.get("kind") == kind and (case is None or r.get("case") == case))
+
+
+def insert_ingress(messages, time, message):
+    """Insert wire before the final fence, keeping ingress sequences contiguous."""
+    fence = messages[-1]
+    messages.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=fence["sequence"], time=time, message=message))
+    fence["sequence"] += 1
 
 
 class P12OracleTests(unittest.TestCase):
@@ -101,8 +130,7 @@ class P12OracleTests(unittest.TestCase):
 
     def test_duplicate_ingress_request(self):
         def edit(r,m,u,s):
-            m.insert(-1, dict(m[1], sequence=2))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, m[1]["time"], dict(m[1]["message"]))
         self.rejected(edit, "RPC not exactly once")
 
     def test_key_or_text_leakage(self):
@@ -185,17 +213,13 @@ class P12OracleTests(unittest.TestCase):
     def test_setup_geometry_is_wire_too(self):
         def edit(r,m,u,s):
             host = next(c for c in u if c.get("step") == "host")
-            m.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=2,
-                             time=host["started"]+.5, message=dict(geometry=True)))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, host["started"]+.5, dict(geometry=True))
         self.rejected(edit, "setup emitted wire")
 
     def release_wire(self, message):
         def edit(r,m,u,s):
             release = next(c for c in u if c.get("step") == "release")
-            m.insert(-1, dict(kind="p12-peer-ingress", transport=1, sequence=2,
-                              time=release["started"]+.5, message=message))
-            m[-1]["sequence"] = 3
+            insert_ingress(m, release["started"]+.5, message)
         return edit
 
     def test_release_relayout_geometry_is_allowed(self):
@@ -220,6 +244,26 @@ class P12OracleTests(unittest.TestCase):
     def test_one_shot_gate_not_replayed(self):
         self.rejected(lambda r,m,u,s: m.append(copy.deepcopy(select(m,"p12-peer-gate"))), "one-shot gate")
 
+    def test_each_hold_is_released_by_its_own_control(self):
+        r, m, u, s = fixture()
+        steps = [c["step"] for c in u if c.get("kind") == "fixture-control"]
+        self.assertEqual(steps[:6], ["remote", "sidebar", "release", "rearm", "palette", "release"])
+        self.assertEqual([g["sequence"] for g in m if g.get("kind") == "p12-peer-gate"], [1, 2])
+        p12.validate(r, m, u, s)
+
+    def test_hold_reaching_command_timeout(self):
+        # Hosted runs that held one split across Sidebar and Palette reached 60 s
+        # and the client failed the link; the oracle names that, not a later symptom.
+        def edit(r,m,u,s):
+            request = next(x for x in m if "request_method" in x.get("message", {}))
+            select(m,"p12-peer-gate")["time"] = request["time"] + p12.COMMAND_TIMEOUT
+        self.rejected(edit, "60 s COMMAND_TIMEOUT")
+
+    def test_local_case_outside_its_own_hold(self):
+        def edit(r,m,u,s):
+            select(m,"p12-peer-gate")["time"] = select(u,"os-menu-pick","sidebar")["started"] - .05
+        self.rejected(edit, "local case outside its own hold")
+
     def test_reconnect_cannot_rescue_fence(self):
         self.rejected(lambda r,m,u,s: m[-1].update(transport=2), "mixed peer transports")
 
@@ -230,6 +274,71 @@ class P12OracleTests(unittest.TestCase):
         def edit(r,m,u,s):
             select(r,"p12-menu-entry","remote")["time"] = -1
         self.rejected(edit, "callback outside actual OS pick")
+
+    # Negative controls for the two L17 failure classes: each must be named at its
+    # own step, not by the later generic "setup callbacks missing/duplicated".
+    def test_failed_reveal_names_the_missing_precondition(self):
+        def edit(r,m,u,s):
+            select(u,"reveal-precondition","palette").update(windowControlsPresent=False, appWindowFocused=False)
+            select(u,"reveal-result","palette").update(revealed=False)
+        self.rejected(edit, r"menu bar not revealed \(class B\) in case palette.*Window Controls present=False.*"
+                            r"app state=runningForeground.*app window focused=False")
+
+    def lose_tap(self, case):
+        """What PR 55 run a3 recorded: the tap was synthesized and the app saw nothing,
+        and the next fixture tap only closed the still-open menu."""
+        def edit(r,m,u,s):
+            for kind in ("p12-menu-entry", "p12-menu-receiver"):
+                r.remove(select(r,kind,case))
+            pick = select(u,"os-menu-pick",case)
+            r.append(dict(kind="p12-menu-build", source="rebuild", case=case, time=pick["started"]+.3, changed=True,
+                          rebuilds=3, build=dict(host="h", boot="b", pane="w1:p3", epoch=0, availability=[True], focused=True)))
+            for kind in ("p12-setup-begin", "p12-setup-end"):
+                r.remove(next(x for x in r if x.get("kind") == kind and x.get("step") == "reset" and x["time"] > pick["ended"]))
+            u.remove(next(x for x in u if x.get("kind") == "fixture-control" and x.get("step") == "reset" and x["started"] > pick["ended"]))
+        return edit
+
+    def test_lost_tap_without_gui_close_record_is_named_with_nearby_build(self):
+        # An older artifact has no menu-close failure; the oracle itself still names the lost tap.
+        self.rejected(self.lose_tap("host"), r"tap lost \(class A\) in case host: the pick reached no native menu callback; "
+                                             r"rebuild build at \+0\.30 s \(changed=True, host=h, boot=b, pane=w1:p3, epoch=0\)")
+
+    def test_menu_still_open_after_pick_is_named(self):
+        def edit(r,m,u,s):
+            self.lose_tap("host")(r,m,u,s)
+            close = select(u,"menu-close","host")
+            close.update(closed=False)
+        self.rejected(edit, r"OS menu still open after the pick tap in case host: tap lost \(class A\); rebuild build at \+0\.30 s")
+
+    def test_gui_checks_come_before_the_setup_callback_symptom(self):
+        data = fixture()
+        self.lose_tap("host")(*data)
+        with self.assertRaises(ValueError) as caught:
+            p12.validate(*data)
+        self.assertNotIn("setup callbacks", str(caught.exception))
+
+    def test_pick_must_record_the_menu_closed(self):
+        self.rejected(lambda r,m,u,s: select(u,"os-menu-pick","boot").update(menuClosed=False), "not closed after the pick in case boot")
+
+    def test_reveal_precondition_is_required_for_every_choose(self):
+        self.rejected(lambda r,m,u,s: u.remove(select(u,"reveal-precondition","focus-current")), "reveal precondition records missing")
+        self.rejected(lambda r,m,u,s: select(u,"reveal-precondition","host").pop("windowControlsPresent"), "precondition record incomplete")
+
+    def test_scope_only_rebuild_is_recorded_and_named(self):
+        """F1: a rebuild whose rows and focus equal the prepare step's, but whose Scope (pane) differs, is
+        a p12-menu-build record and is what a lost tap near it is matched against."""
+        records, _, ui, _ = fixture()
+        prepare = select(records, "p12-menu-build", "focus")
+        rebuild = next(r for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "rebuild")
+        self.assertEqual((rebuild["build"]["availability"], rebuild["build"]["focused"]), (prepare["availability"], prepare["focused"]))
+        self.assertEqual(rebuild["build"]["pane"], "w1:p3")
+        self.assertIs(rebuild["changed"], True)
+        self.assertEqual(p12.builds_near(records, rebuild["time"] + .3),
+                         "rebuild build at -0.30 s (changed=True, host=h, boot=b, pane=w1:p3, epoch=0)")
+        self.assertIn("no p12-menu-build within", p12.builds_near([], 0))
+
+    def test_every_prepared_menu_records_its_build(self):
+        self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-menu-build","pane")), "menu build record missing")
 
 
 if __name__ == "__main__":
