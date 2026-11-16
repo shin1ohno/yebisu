@@ -448,6 +448,8 @@ final class SmokeQA: XCTestCase {
     }
 
     func testP9Core() throws {
+        // TEMPORARY negative control for the P9 time allowance; reverted by the next commit.
+        sleep(400)
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
         app.launchEnvironment["YEBISU_CORE_QA"] = "1"
