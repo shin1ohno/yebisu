@@ -211,6 +211,7 @@ fn query_step(
                         let _ = weak.update(cx, |this, cx| {
                             this.p13_native_barrier("query-fresh-after-close");
                             q["paused"] = json!(this.find_handoff.paused);
+                            q["reason"] = json!(this.find_handoff.reason);
                             this.observation.record(q);
                             cx.notify();
                         });

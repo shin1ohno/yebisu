@@ -261,8 +261,8 @@ impl Smoke {
             self.terminal_focus.focus(window, cx);
             self.terminal.needs_focus = false;
         }
-        // Submit once when an invalidated search hands focus back. Refusals
-        // remain fenced; rendering never retries a native retirement request.
+        // Submit once when an invalidated search hands focus back, or again
+        // after a NativeCallbackInFlight refusal; other refusals stay fenced.
         if self.find_handoff.needs_request && self.find.is_none() {
             self.refresh_terminal_input();
             self.request_find_retirement(window, cx);

@@ -61,6 +61,7 @@ impl Smoke {
                             "kind":"p13-native-close-probe","old":ids.0,"new":ids.1,
                             "ready":[ready.0,ready.1,ready.2],"paused":this.find_handoff.paused,
                             "receipt":this.find_handoff.receipt.as_ref().map(|r|format!("{:?}",r.status())),
+                            "reason":this.find_handoff.reason,
                             "physical_ime":"unverified","os_retarget_loss":"unverified"
                         }));
                         cx.notify();

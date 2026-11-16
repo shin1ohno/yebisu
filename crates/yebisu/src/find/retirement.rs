@@ -68,7 +68,9 @@ impl Smoke {
             || self.terminal.reconnect.suspended
             || self.terminal.navigating.is_some()
             || self.actions.palette
-            || self.settings.is_some()
+            // The settings sheet, not the settings store: `settings` holds the
+            // SettingsHost loaded at startup and is Some for the app's lifetime.
+            || self.settings_modal
         {
             return None;
         }
@@ -143,10 +145,15 @@ impl Smoke {
         let handle = window.window_handle();
         let Some(state) = herdr_uikit::text_input_session_state(handle) else {
             self.find_handoff.reason = Some("Text input paused · keyboard unavailable");
+            self.observation.record(
+                serde_json::json!({"kind":"p13-retirement-unrequested", "reason":"session-state"}),
+            );
             return;
         };
         let Some(ticket) = self.begin_find_retirement(state.client) else {
             self.find_handoff.reason = Some("Text input paused · destination unavailable");
+            self.observation
+                .record(serde_json::json!({"kind":"p13-retirement-unrequested", "reason":"owner"}));
             return;
         };
         let mut context = window.to_async(cx);
@@ -176,6 +183,10 @@ impl Smoke {
             Ok(receipt) => self.find_handoff.receipt = Some(receipt),
             Err(error) => {
                 self.find_handoff.pending = None;
+                // A close from inside a UIKit callback (the field's Escape) is
+                // refused only until that callback returns: submit once more
+                // from the next render. Other refusals stay fenced.
+                self.find_handoff.needs_request = error == Error::NativeCallbackInFlight;
                 self.find_handoff.reason = Some(match error {
                     Error::NativeCallbackInFlight => {
                         "Text input paused · keyboard callback still active"
