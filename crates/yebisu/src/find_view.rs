@@ -153,7 +153,10 @@ impl Smoke {
         let Some(mut bar) = self.find.take() else {
             return false;
         };
-        bar.field.update(cx, |field, _| field.retire());
+        let successor = cx.entity().downgrade();
+        let frame = self.find_handoff.frames;
+        bar.field
+            .update(cx, |field, _| field.retire(successor, frame));
         bar.search.close();
         // Invalidation is also enforced by dropped owner and identity checks;
         // a busy reader cannot hold UI teardown hostage.
@@ -477,3 +480,7 @@ mod edit_policy_tests;
 #[cfg(test)]
 #[path = "find/retirement_owner_tests.rs"]
 mod retirement_owner_tests;
+
+#[cfg(test)]
+#[path = "find/retired_forward_tests.rs"]
+mod retired_forward_tests;

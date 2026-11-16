@@ -1,5 +1,8 @@
-//! A dedicated native input entity: its callbacks cannot enqueue terminal input.
-use crate::{input::Input, terminal_painter::TerminalPainter};
+//! A dedicated native input entity: its callbacks cannot enqueue terminal input
+//! while it is the search field. Once retired it stays GPUI's platform input
+//! handler until the next draw; only then, behind the terminal's own guards,
+//! does it hand callbacks to the terminal input path.
+use crate::{app::Smoke, input::Input, terminal_painter::TerminalPainter};
 use gpui::{prelude::*, *};
 use sheprd_client::scrollback::MAX_SEARCH_QUERY_BYTES;
 use std::ops::Range;
@@ -17,6 +20,7 @@ pub(crate) struct Field {
     bounds: Option<Bounds<Pixels>>,
     painter: TerminalPainter,
     oversized: bool,
+    successor: Option<(WeakEntity<Smoke>, u64)>,
 }
 impl EventEmitter<Event> for Field {}
 impl Field {
@@ -30,11 +34,36 @@ impl Field {
             bounds: None,
             painter,
             oversized: false,
+            successor: None,
         }
     }
-    pub fn retire(&mut self) {
+    /// `frame` is the owner's render count when search closed.
+    pub fn retire(&mut self, successor: WeakEntity<Smoke>, frame: u64) {
         self.retired = true;
         self.input = Input::default();
+        self.successor = Some((successor, frame));
+    }
+    /// Runs `f` on the terminal input path for a retired field's native
+    /// callback, or returns None and the field keeps its inert retired reply.
+    ///
+    /// GPUI swaps the platform input handler only in `Window::draw` (gpui-pre
+    /// 0.3.12 window.rs:3685-3727), so the live UIKit client created at close
+    /// still calls this field until the first post-close frame. The SDK never
+    /// routes a retired client here (herdr-uikit 33e288d
+    /// src/window/input_target.rs:63-68, 205). `Smoke` is never leased on
+    /// this path: GPUI's platform handler enters through
+    /// `AsyncWindowContext::update`, which refuses a borrowed app, and the
+    /// owner drops its last handle to this field when it retires it.
+    fn forward<R>(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Smoke, &mut Context<Smoke>) -> R,
+    ) -> Option<R> {
+        let (successor, frame) = self.successor.as_ref()?;
+        let smoke = successor.upgrade()?;
+        smoke.update(cx, |smoke, cx| {
+            smoke.inherits_retired_field(*frame).then(|| f(smoke, cx))
+        })
     }
     fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.notify_text_input_changed(&self.focus);
@@ -263,17 +292,27 @@ impl Render for Field {
             )
     }
 }
+// Each callback first offers itself to the terminal input path (`forward`);
+// a refused or unretired callback keeps this field's own reply unchanged.
 impl EntityInputHandler for Field {
-    fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
+    fn accepts_text_input(&self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if let Some(accepted) = self.forward(cx, |s, cx| s.accepts_text_input(window, cx)) {
+            return accepted;
+        }
         !self.retired && self.focus.is_focused(window)
     }
     fn text_for_range(
         &mut self,
         range: Range<usize>,
         actual: &mut Option<Range<usize>>,
-        _: &mut Window,
-        _: &mut Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> Option<String> {
+        if let Some(text) = self.forward(cx, |s, cx| {
+            s.text_for_range(range.clone(), actual, window, cx)
+        }) {
+            return text;
+        }
         let start = self.input.byte(range.start);
         let end = self.input.byte(range.end.max(range.start));
         *actual = Some(
@@ -284,22 +323,43 @@ impl EntityInputHandler for Field {
     }
     fn selected_text_range(
         &mut self,
-        _: bool,
-        _: &mut Window,
-        _: &mut Context<Self>,
+        ignore_disabled_input: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if let Some(selection) = self.forward(cx, |s, cx| {
+            s.selected_text_range(ignore_disabled_input, window, cx)
+        }) {
+            return selection;
+        }
         Some(UTF16Selection {
             range: self.input.selected.clone(),
             reversed: false,
         })
     }
-    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+    fn marked_text_range(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Range<usize>> {
+        if let Some(marked) = self.forward(cx, |s, cx| s.marked_text_range(window, cx)) {
+            return marked;
+        }
         self.input.marked.clone()
     }
-    fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+    fn text_length_utf16(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<usize> {
+        if let Some(length) = self.forward(cx, |s, cx| s.text_length_utf16(window, cx)) {
+            return length;
+        }
         Some(self.input.text.encode_utf16().count())
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .forward(cx, |s, cx| s.unmark_text(window, cx))
+            .is_some()
+        {
+            return;
+        }
         if !self.retired {
             self.input.marked = None;
             self.changed(window, cx);
@@ -312,6 +372,14 @@ impl EntityInputHandler for Field {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .forward(cx, |s, cx| {
+                s.replace_text_in_range(range.clone(), text, window, cx)
+            })
+            .is_some()
+        {
+            return;
+        }
         self.replace(range, text, false, None, window, cx);
     }
     fn replace_and_mark_text_in_range(
@@ -322,15 +390,28 @@ impl EntityInputHandler for Field {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .forward(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(range.clone(), text, selected.clone(), window, cx)
+            })
+            .is_some()
+        {
+            return;
+        }
         self.replace(range, text, true, selected, window, cx);
     }
     fn bounds_for_range(
         &mut self,
         range: Range<usize>,
-        _: Bounds<Pixels>,
+        element: Bounds<Pixels>,
         window: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
+        if let Some(bounds) = self.forward(cx, |s, cx| {
+            s.bounds_for_range(range.clone(), element, window, cx)
+        }) {
+            return bounds;
+        }
         Some(self.painter.composition_bounds(
             &self.input.text,
             range,
@@ -344,8 +425,13 @@ impl EntityInputHandler for Field {
         &mut self,
         point: Point<Pixels>,
         window: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<usize> {
+        if let Some(index) =
+            self.forward(cx, |s, cx| s.character_index_for_point(point, window, cx))
+        {
+            return index;
+        }
         self.painter.composition_index(
             &self.input.text,
             point,
@@ -361,6 +447,14 @@ impl EntityInputHandler for Field {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .forward(cx, |s, cx| {
+                s.set_selected_text_range(range.clone(), window, cx)
+            })
+            .is_some()
+        {
+            return;
+        }
         if self.retired {
             return;
         }
