@@ -124,7 +124,7 @@ final class P12QA: XCTestCase {
         // A pick or dismiss tap that was lost leaves the menu open, and the next
         // fixture tap would then only close it (L17 class A). Fail here, by name.
         let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
-                                              step: tapped ? "pick" : "dismiss", tapTime: pickStart)
+                                          step: tapped ? "pick" : "dismiss", tapTime: pickStart)
         sleep(1)
         events.append(["kind": "os-menu-pick", "case": caseName, "command": title,
                        "owner": owner === springboard ? "com.apple.springboard" : "com.shin1ohno.yebisu", "buttonLabel": buttonLabel,
@@ -142,6 +142,7 @@ final class P12QA: XCTestCase {
         let board = springboard.debugDescription
         let appTree = app.debugDescription
         let window = app.windows.firstMatch
+        let sinceClose: Double = lastMenuClosed.map { Date().timeIntervalSince($0) } ?? -1
         let attachment = XCTAttachment(string: "APP\n\(appTree)\nSPRINGBOARD\n\(board)")
         attachment.name = "p12-pre-reveal-" + caseName + "-hierarchy"
         attachment.lifetime = .keepAlways
@@ -151,16 +152,18 @@ final class P12QA: XCTestCase {
             "windowControlsPresent": board.contains("Window Controls"),
             "appState": Self.stateName(app.state),
             "appWindowExists": window.exists, "appWindowFocused": window.hasFocus,
-            "secondsSinceMenuClosed": lastMenuClosed.map { Date().timeIntervalSince($0) } ?? -1,
+            "secondsSinceMenuClosed": sinceClose,
         ]
         events.append(preReveal)
     }
 
     private func preRevealSummary() -> String {
-        "before the swipe Springboard Window Controls present=\(preReveal["windowControlsPresent"] ?? "?"), "
-            + "app state=\(preReveal["appState"] ?? "?"), app window focused=\(preReveal["appWindowFocused"] ?? "?"), "
-            + "\(preReveal["secondsSinceMenuClosed"] ?? "?") s since the last menu closed "
-            + "(saved as p12-pre-reveal-\(preReveal["case"] ?? "?")-hierarchy)"
+        func field(_ key: String) -> String { String(describing: preReveal[key] ?? "?") }
+        let controls = "Springboard Window Controls present=" + field("windowControlsPresent")
+        let appPart = "app state=" + field("appState") + ", app window focused=" + field("appWindowFocused")
+        let closed = field("secondsSinceMenuClosed") + " s since the last menu closed"
+        return "before the swipe " + controls + ", " + appPart + ", " + closed
+            + " (saved as p12-pre-reveal-" + field("case") + "-hierarchy)"
     }
 
     private static func stateName(_ state: XCUIApplication.State) -> String {
