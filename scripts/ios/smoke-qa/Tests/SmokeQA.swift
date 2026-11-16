@@ -79,8 +79,15 @@ final class SmokeQA: XCTestCase {
                 return
             }
             if Date().timeIntervalSince(start) >= timeout {
+                // Read the state once: the verdict and the message must come from the same
+                // observation, and `save()` takes seconds, long enough for the state to change.
+                let observed = app.state
+                if states.contains(observed) {
+                    print(String(format: "WAIT ok %@: app.state=%@ after %.2f s (late)", what, stateName(observed), Date().timeIntervalSince(start)))
+                    return
+                }
                 save("state-wait-failed")
-                XCTFail("\(what): app.state is \(stateName(app.state)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
+                XCTFail("\(what): app.state is \(stateName(observed)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
                 throw NSError(domain: "SmokeQA.StateWait", code: 1)
             }
         }
