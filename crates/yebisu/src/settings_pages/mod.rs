@@ -18,15 +18,17 @@ pub(crate) enum Page {
     Keyboard,
     DeviceKey,
     General,
+    Notifications,
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Fonts,
         Self::Appearance,
         Self::Keyboard,
         Self::DeviceKey,
         Self::General,
+        Self::Notifications,
     ];
 
     pub(crate) const fn id(self) -> &'static str {
@@ -36,6 +38,7 @@ impl Page {
             Self::Keyboard => "keyboard",
             Self::DeviceKey => "ipad-key",
             Self::General => "general",
+            Self::Notifications => "notifications",
         }
     }
 }

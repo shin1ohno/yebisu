@@ -14,6 +14,7 @@ use worker::{Completion, Request};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Values {
+    pub notifications: crate::notifications::Policy,
     pub theme: crate::theme_picker::Palette,
     pub font: font::TerminalFont,
     pub compact: bool,
@@ -26,6 +27,7 @@ pub(crate) struct Values {
 impl Default for Values {
     fn default() -> Self {
         Self {
+            notifications: Default::default(),
             font: font::TerminalFont::default(),
             theme: crate::theme_picker::Palette::default(),
             compact: false,
@@ -40,6 +42,7 @@ impl Default for Values {
 // Edit tracking is independent of setting defaults (Drag defaults to true).
 #[derive(Default)]
 struct Edited {
+    notifications: crate::notifications::Edits,
     theme: bool,
     font_size: bool,
     font_family: bool,
@@ -145,6 +148,9 @@ impl SettingsHost {
         }
         if self.draft != values || pending_intent {
             if !self.loaded {
+                self.edited_before_load
+                    .notifications
+                    .track(&self.draft.notifications, &values.notifications);
                 self.edited_before_load.theme |= self.draft.theme != values.theme;
                 self.edited_before_load.font_size |= self.draft.font.size != values.font.size;
                 self.edited_before_load.font_family |= self.draft.font.family != values.font.family;
@@ -175,6 +181,9 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
+                            self.edited_before_load
+                                .notifications
+                                .merge(&mut self.draft.notifications, values.notifications);
                             if !self.edited_before_load.theme {
                                 self.draft.theme = values.theme;
                             }
@@ -317,6 +326,9 @@ mod font_tests;
 
 #[cfg(test)]
 mod family_tests;
+
+#[cfg(test)]
+mod notification_tests;
 
 #[cfg(test)]
 mod theme_tests;

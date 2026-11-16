@@ -132,6 +132,11 @@ class Chain(unittest.TestCase):
             (font / ('SauceCodeProNerdFontMono-' + name + '.ttf')).write_text('font fixture')
         for name in ('LICENSE.txt', 'README.md', 'PROVENANCE.md', 'NERD-FONTS-LICENSE.txt'):
             (font / name).write_text('resource fixture')
+        # bundle.sh ships the notification sound and decoder license texts with the app.
+        licenses = self.source / 'assets/licenses'; licenses.mkdir(parents=True)
+        for name in ('NOTICE.md', 'Rodio-MIT.txt', 'Symphonia-MPL-2.0.txt'):
+            (licenses / name).write_text('license fixture')
+        (self.source / 'LICENSE').write_text('license fixture')
         self.main = self.source / 'crates/yebisu/src/main.rs'; self.main.parent.mkdir(parents=True)
         self.main.write_text('fn main() {}'); self.manifest = self.main.parent.parent / 'Cargo.toml'
         self.manifest.write_text('[package]\nname="yebisu"\nversion="0.1.0"\n')
