@@ -6,9 +6,104 @@ use sheprd_client::{
     scrollback::{CopySearchParams, CopySearchResult, SearchDirection, TextPoint, TextRange},
 };
 use std::{
-    sync::mpsc::{Receiver, sync_channel},
-    time::Duration,
+    net::Shutdown,
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, sync_channel},
+    },
+    time::{Duration, Instant},
 };
+/// The peer drops the link after this long without a client message.
+const IDLE: Duration = Duration::from_secs(30);
+
+/// Idle bound of one controlled peer link. It starts at `arm`, not at launch:
+/// before its first tap XCUITest may leave the app idle for longer than the
+/// bound (34.5 s after launch in P13 attempt 8), and a launch-anchored read
+/// timeout dropped the link before the fixture began.
+pub(crate) struct Idle {
+    limit: Duration,
+    state: Mutex<IdleState>,
+}
+#[derive(Default)]
+struct IdleState {
+    armed: Option<Instant>,
+    heard: Option<Instant>,
+    closed: bool,
+}
+impl Idle {
+    fn new(limit: Duration, armed: bool) -> Arc<Self> {
+        Arc::new(Self {
+            limit,
+            state: Mutex::new(IdleState {
+                armed: armed.then(Instant::now),
+                ..IdleState::default()
+            }),
+        })
+    }
+    /// Starts the bound. Later calls keep the first start.
+    pub(crate) fn arm(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.armed.get_or_insert_with(Instant::now);
+        }
+    }
+    fn heard(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.heard = Some(Instant::now());
+        }
+    }
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+        }
+    }
+    /// `None` once the link ended; `Some(true)` when an armed bound expired.
+    fn expired(&self, now: Instant) -> Option<bool> {
+        let state = self.state.lock().ok()?;
+        if state.closed {
+            return None;
+        }
+        Some(state.armed.is_some_and(|armed| {
+            let since = state.heard.map_or(armed, |heard| heard.max(armed));
+            now.saturating_duration_since(since) >= self.limit
+        }))
+    }
+}
+/// Ends a link idle past its armed bound by shutting the peer's socket; the
+/// blocked read then fails and the peer thread exits.
+fn watch(idle: Arc<Idle>, stream: Stream) {
+    let tick = (idle.limit / 10).clamp(Duration::from_millis(5), Duration::from_secs(1));
+    loop {
+        std::thread::sleep(tick);
+        match idle.expired(Instant::now()) {
+            None => return,
+            Some(false) => {}
+            Some(true) => {
+                let _ = stream.shutdown(Shutdown::Both);
+                return;
+            }
+        }
+    }
+}
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+static FIXTURE: Mutex<Option<Arc<Idle>>> = Mutex::new(None);
+/// The Simulator fixture's link. Its idle bound waits for `arm_fixture`.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) fn connect_fixture() -> crate::Result<Client> {
+    let idle = Idle::new(IDLE, false);
+    if let Ok(mut slot) = FIXTURE.lock() {
+        *slot = Some(idle.clone());
+    }
+    connect_mode(None, false, idle).map(|(client, _)| client)
+}
+/// Called by every fixture tap; only the first one starts the bound.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) fn arm_fixture() {
+    if let Ok(slot) = FIXTURE.lock()
+        && let Some(idle) = slot.as_ref()
+    {
+        idle.arm();
+    }
+}
 const LINES: [(u32, &str); 3] = [
     (0, "ASCII needle needle"),
     (1, "日本語 日本語"),
@@ -118,8 +213,18 @@ fn search(params: &CopySearchParams) -> CopySearchResult {
         current_global: current.map(u64::from),
     }
 }
+/// Host fixtures: the bound starts at connect.
+#[cfg(test)]
 pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
-    connect_mode(None, false)
+    connect_mode(None, false, Idle::new(IDLE, true))
+}
+/// An unarmed link with a short bound, for the bound's own host test.
+#[cfg(test)]
+pub(crate) fn connect_idle(
+    limit: Duration,
+) -> crate::Result<(Client, Receiver<ClientMessage>, Arc<Idle>)> {
+    let idle = Idle::new(limit, false);
+    connect_mode(None, false, idle.clone()).map(|(client, received)| (client, received, idle))
 }
 #[cfg(test)]
 pub(crate) fn connect_delayed(
@@ -130,14 +235,21 @@ pub(crate) fn connect_delayed(
     std::sync::mpsc::SyncSender<()>,
 )> {
     let (release, gate) = sync_channel(1);
-    connect_mode(Some(gate), wrong_boot).map(|(client, received)| (client, received, release))
+    connect_mode(Some(gate), wrong_boot, Idle::new(IDLE, true))
+        .map(|(client, received)| (client, received, release))
 }
 fn connect_mode(
     mut gate: Option<Receiver<()>>,
     mut wrong_boot: bool,
+    idle: Arc<Idle>,
 ) -> crate::Result<(Client, Receiver<ClientMessage>)> {
     let (local, mut server) = Stream::pair()?;
     let (receipts, receiver) = sync_channel(64);
+    let watched = server.try_clone()?;
+    let watcher = idle.clone();
+    std::thread::Builder::new()
+        .name("yebisu-p13-peer-idle".into())
+        .spawn(move || watch(watcher, watched))?;
     std::thread::Builder::new()
         .name("yebisu-p13-peer".into())
         .spawn(move || {
@@ -149,8 +261,8 @@ fn connect_mode(
                         "",
                     )?;
                 }
-                server.set_read_timeout(Some(Duration::from_secs(30)))?;
                 let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
+                idle.heard();
                 let mut welcome: serde_json::Value =
                     serde_json::from_str(include_str!("../../fixtures/endpoint-welcome-v1.json"))?;
                 welcome["server_version"] = sheprd_client::MIN_HERDR_VERSION.into();
@@ -186,6 +298,7 @@ fn connect_mode(
                 let (mut cols, mut rows, mut offset) = (80, 24, 100);
                 loop {
                     let message: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
+                    idle.heard();
                     let _ = receipts.try_send(message.clone());
                     #[cfg(all(target_os = "ios", target_abi = "sim"))]
                     record(&message);
@@ -256,6 +369,7 @@ fn connect_mode(
                 }
             };
             let _ = serve();
+            idle.close();
         })?;
     sheprd_client::connect_with_connector(
         ConnectTarget::Local,

@@ -12,6 +12,8 @@ impl Smoke {
         }
         Some(div().id("p13-next").px_4().py_2().child("P13 Next")
             .on_click(cx.listener(|this,_,window,cx| {
+                // The peer's idle bound counts from this first fixture tap.
+                crate::find::peer::arm_fixture();
                 let step=STEP.fetch_add(1,Ordering::Relaxed);
                 if step==0 { this.open_find(window,cx); }
                 else if step==13 {

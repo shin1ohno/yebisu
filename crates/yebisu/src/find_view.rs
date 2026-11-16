@@ -484,3 +484,7 @@ mod retirement_owner_tests;
 #[cfg(test)]
 #[path = "find/retired_forward_tests.rs"]
 mod retired_forward_tests;
+
+#[cfg(test)]
+#[path = "find/settle_tests.rs"]
+mod settle_tests;

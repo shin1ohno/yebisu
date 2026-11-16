@@ -37,6 +37,11 @@ pub(crate) struct Handoff {
     /// inside that draw. A retired field stamped with this count is still the
     /// platform handler until the count moves.
     pub frames: u64,
+    /// `frames` when an accepted acknowledgement reopened the fence. GPUI
+    /// re-evaluates text input focus only at the end of `Window::draw`
+    /// (gpui-pre 0.3.12 window.rs:3733-3740), so readiness is settled once a
+    /// draw has started after this value.
+    acked_frame: Option<u64>,
     serial: u64,
     pending: Option<Ticket>,
     #[cfg(target_os = "ios")]
@@ -71,8 +76,21 @@ impl Smoke {
             && self.terminal.open
             && self.find_handoff.frames == frame
     }
+    /// Whether GPUI has drawn since the accepted retirement acknowledgement.
+    /// A draw while the fence was closed reported FocusLost
+    /// (`accepts_text_input`, input.rs:98); the native client's third
+    /// readiness value (herdr-uikit 33e288d text_input/probe.rs:54-60) holds
+    /// that until the next draw re-evaluates focus.
+    pub(crate) fn find_input_settled(&self) -> bool {
+        !self.find_handoff.paused
+            && self
+                .find_handoff
+                .acked_frame
+                .is_some_and(|frame| frame != self.find_handoff.frames)
+    }
     pub(crate) fn fence_find_handoff(&mut self) {
         self.find_handoff.paused = true;
+        self.find_handoff.acked_frame = None;
         self.find_handoff.needs_request = true;
         self.find_handoff.pending = None;
         self.find_handoff.reason = Some("Text input paused · retiring search keyboard");
@@ -148,6 +166,7 @@ impl Smoke {
             return false;
         }
         self.find_handoff.paused = false;
+        self.find_handoff.acked_frame = Some(self.find_handoff.frames);
         self.find_handoff.reason = None;
         true
     }
@@ -268,6 +287,12 @@ fn acknowledge_find_retirement(
     let _ = weak.update(cx, |this, cx| {
         let accepted = window.window_handle() == handle
             && this.complete_find_retirement(ticket, retired, replacement, window);
+        if accepted {
+            // Request one frame now. An ack that lands after the first
+            // post-close draw would otherwise leave GPUI reporting no text
+            // input focus until some unrelated invalidation draws again.
+            window.refresh();
+        }
         this.observation.record(serde_json::json!({
             "kind":"p13-native-retirement", "accepted":accepted, "deferred":deferred,
             "serial":ticket.serial, "retired":retired, "replacement":replacement

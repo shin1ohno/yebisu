@@ -156,6 +156,9 @@ def validate(records, messages):
     observation(current, old + 1, {'start': 6, 'end': 6}, 6)
     # A real current length6 positive precedes the retained old pair check.
     observation(current.get('old', {}), old, None, 0, 'p13-q05-retained-client-not-current')
+    # Readiness is read on the first native turn after GPUI drew past the accepted ack.
+    if current.get('settled') is not True:
+        raise ValueError('p13-query-current-not-settled')
     if current.get('ready') != [True, True, True] or current.get('paused') is not False:
         raise ValueError('p13-query-current-not-ready')
     if not any(r.get('kind') == 'p13-native-retirement' and r.get('accepted') is True

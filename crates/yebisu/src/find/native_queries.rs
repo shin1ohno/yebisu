@@ -110,6 +110,8 @@ impl Smoke {
             .py_2()
             .child("P13 Next")
             .on_click(cx.listener(|this, _, window, cx| {
+                // The peer's idle bound counts from this first fixture tap.
+                crate::find::peer::arm_fixture();
                 // One tap runs every step; later taps would move UIKit focus
                 // off the field and detach its native session mid-sequence.
                 if STEP.fetch_add(1, Ordering::Relaxed) != 0 {
@@ -186,38 +188,44 @@ fn query_step(
                         cx.notify();
                     });
                 });
-                next_native_turn(move || {
-                    let Some(current) = capture(handle) else {
-                        return;
-                    };
-                    client.mark("Q05-fresh");
-                    client.insert("Q05-fresh");
-                    client.unmark();
-                    client.delete();
-                    client.edit_actions();
-                    let _ = context.update(|_, cx| {
-                        let _ = weak.update(cx, |this, _| {
-                            this.p13_native_barrier("query-old-after-close")
+                super::native_probe::after_input_settles(
+                    context,
+                    weak,
+                    move |mut context, weak, settled, turns| {
+                        let Some(current) = capture(handle) else {
+                            return;
+                        };
+                        client.mark("Q05-fresh");
+                        client.insert("Q05-fresh");
+                        client.unmark();
+                        client.delete();
+                        client.edit_actions();
+                        let _ = context.update(|_, cx| {
+                            let _ = weak.update(cx, |this, _| {
+                                this.p13_native_barrier("query-old-after-close")
+                            });
                         });
-                    });
-                    current.mark("abcdef");
-                    let ready = current.text_readiness();
-                    let mut q = observe(&current, "Q05-current", 0, 6);
-                    // Query the retained old endpoint, never recapture it.
-                    q["old"] = observe(&client, "Q05-old", 0, 0);
-                    q["ready"] = json!([ready.0, ready.1, ready.2]);
-                    current.insert("Q05-fresh");
-                    let _ = context.update(|_, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.p13_native_barrier("query-fresh-after-close");
-                            q["paused"] = json!(this.find_handoff.paused);
-                            q["reason"] = json!(this.find_handoff.reason);
-                            this.observation.record(q);
-                            cx.notify();
+                        current.mark("abcdef");
+                        let ready = current.text_readiness();
+                        let mut q = observe(&current, "Q05-current", 0, 6);
+                        // Query the retained old endpoint, never recapture it.
+                        q["old"] = observe(&client, "Q05-old", 0, 0);
+                        q["ready"] = json!([ready.0, ready.1, ready.2]);
+                        q["settled"] = json!(settled);
+                        q["settle_turns"] = json!(turns);
+                        current.insert("Q05-fresh");
+                        let _ = context.update(|_, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.p13_native_barrier("query-fresh-after-close");
+                                q["paused"] = json!(this.find_handoff.paused);
+                                q["reason"] = json!(this.find_handoff.reason);
+                                this.observation.record(q);
+                                cx.notify();
+                            });
                         });
-                    });
-                    query_step(5, handle, context, weak);
-                });
+                        query_step(5, handle, context, weak);
+                    },
+                );
                 return;
             }
             5 => json!({"kind":"p13-query-done","captured":client.identity()}),

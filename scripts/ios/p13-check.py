@@ -129,7 +129,7 @@ def validate(records, messages):
     if terminal != [{"TextCommit": "P13-fresh"}, {"TextCommit": "P13-fresh"}]:
         raise ValueError("search leaked terminal bytes or fresh commit count differs: " + repr(terminal))
     probes = [r for r in records if r.get("kind") == "p13-native-close-probe"]
-    if len(probes) != 1 or probes[0].get("ready") != [True, True, True] or probes[0].get("paused") is not False or probes[0].get("new") != probes[0].get("old", -2) + 1:
+    if len(probes) != 1 or probes[0].get("settled") is not True or probes[0].get("ready") != [True, True, True] or probes[0].get("paused") is not False or probes[0].get("new") != probes[0].get("old", -2) + 1:
         raise ValueError("D5 actual native replacement/readiness missing")
     if not any(r.get("kind") == "p13-native-retirement" and r.get("accepted") is True and (r.get("retired"), r.get("replacement")) == (probes[0]["old"], probes[0]["new"]) for r in records):
         raise ValueError("D5 correlated native acknowledgement missing")

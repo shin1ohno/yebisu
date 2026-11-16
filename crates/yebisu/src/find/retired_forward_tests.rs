@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn install(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Receiver<ClientMessage> {
+pub(super) fn install(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Receiver<ClientMessage> {
     let (client, receipts) = crate::find::peer::connect().unwrap();
     view.update(cx, |this, _| {
         this.select_host("p13-forward");
@@ -100,7 +100,11 @@ fn platform(field: &Entity<Field>) -> ElementInputHandler<Field> {
 
 /// Opens search, closes it, and returns the retired field. The fence stays
 /// paused; the next draw has not happened yet.
-fn close(view: &Entity<Smoke>, window: &mut Window, cx: &mut gpui::App) -> Entity<Field> {
+pub(super) fn close(
+    view: &Entity<Smoke>,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> Entity<Field> {
     view.update(cx, |this, cx| {
         this.terminal_focus.focus(window, cx);
         this.open_find(window, cx);

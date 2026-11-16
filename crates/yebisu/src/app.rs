@@ -396,10 +396,9 @@ pub(crate) fn run() {
                             Err(error) => this.terminal.link.install(generation, Err(error)),
                         }
                     } else if std::env::var_os("YEBISU_P13_QA").is_some() {
-                        this.terminal.link.install(
-                            generation,
-                            crate::find::peer::connect().map(|(client, _)| client),
-                        );
+                        this.terminal
+                            .link
+                            .install(generation, crate::find::peer::connect_fixture());
                         this.actions.board_hidden = true;
                     } else {
                         this.terminal
