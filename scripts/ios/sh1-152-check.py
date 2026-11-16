@@ -29,6 +29,12 @@ def run(*args, **kwargs):
     return result
 
 
+def xctest_env(documents):
+    """xcodebuild hands TEST_RUNNER_-prefixed variables to the UI test runner
+    without the prefix, so EditMenuQA can wait on the receipts the app writes."""
+    return {**os.environ, "TEST_RUNNER_SH1_152_DOCUMENTS": str(documents)}
+
+
 def main():
     directory = ROOT / "target/ios-sh1-152" / time.strftime("%Y%m%d-%H%M%S")
     directory.mkdir(parents=True)
@@ -46,7 +52,7 @@ def main():
         print("SH1-152 COMMAND xcodebuild test", flush=True)
         result = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
                                  "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
-                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, text=True, capture_output=True)
+                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, env=xctest_env(container), text=True, capture_output=True)
         print(result.stdout, flush=True)
         print(result.stderr, flush=True)
         (directory / "xctest.log").write_text(result.stdout + result.stderr)

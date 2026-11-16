@@ -93,6 +93,16 @@ def collect_evidence(directory, result, paints_path, wire_path):
         print(f"P9 attachment export failed: {error}", flush=True)
 
 
+def xcodebuild_test_command(project, device, derived_data, result):
+    # -test-timeouts-enabled makes XCTest enforce executionTimeAllowance (SmokeQA sets one
+    # for testP9Core), so a hang fails that test in minutes instead of the 40-minute job limit.
+    return ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
+            "-test-timeouts-enabled", "YES",
+            "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()",
+            "-destination", "id=" + device, "-derivedDataPath", str(derived_data),
+            "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO"]
+
+
 def main():
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
@@ -113,9 +123,7 @@ def main():
     result = directory / "result.xcresult"
     try:
         try:
-            run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
-                "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()", "-destination", "id=" + device,
-                "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
+            run(*xcodebuild_test_command(project, device, root / "target/ios-smoke/build", result))
         finally:
             collect_evidence(directory, result, paints_path, wire_path)
         if not (directory / "screenshot.png").is_file():

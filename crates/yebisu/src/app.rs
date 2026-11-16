@@ -64,6 +64,8 @@ impl Smoke {
                 if weak
                     .update(cx, |this, cx| {
                         this.ticks += 1;
+                        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                        crate::animation_qa::sample(&this.observation);
                         if this.smoke_mode {
                             cx.notify();
                         }
