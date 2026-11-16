@@ -23,6 +23,59 @@ def body(source, signature):
     raise AssertionError("unbalanced function body: " + signature)
 
 
+def whole_word_range(label, text, next_word=None):
+    """Python mirror of SmokeQA.wholeWordRange (SmokeQA.swift), line for line.
+
+    Swift cannot run on the Linux host, so this models the algorithm and
+    WholeWordMatch pins its behaviour; test_locate_text_matches_whole_words ties the
+    Swift source to the same tokens."""
+    start = 0
+    while start < len(text):
+        at = text.find(label, start)
+        if at < 0:
+            return None
+        end = at + len(label)
+        start = at + 1
+        if at > 0 and text[at - 1].isalnum():
+            continue
+        if end < len(text) and text[end].isalnum():
+            continue
+        if next_word is not None:
+            following = re.match(r"\s*([A-Za-z0-9]*)", text[end:]).group(1)
+            if following.lower() == next_word.lower():
+                continue
+        return (at, end)
+    return None
+
+
+class WholeWordMatch(unittest.TestCase):
+    def paste(self, text):
+        return whole_word_range("Paste", text, "image")
+
+    def test_paste_image_is_not_paste(self):
+        self.assertIsNone(self.paste("Paste image"))
+
+    def test_capitalised_image_is_not_paste(self):
+        self.assertIsNone(self.paste("Paste Image"))
+
+    def test_first_paste_before_paste_image_matches(self):
+        self.assertEqual(self.paste("Paste Paste image"), (0, 5))
+
+    def test_paste_after_another_word_matches(self):
+        self.assertEqual(self.paste("Copy Paste"), (5, 10))
+
+    def test_other_cases(self):
+        self.assertEqual(self.paste("Paste"), (0, 5))
+        self.assertEqual(self.paste("Select Copy Paste Paste image Start"), (12, 17))
+        self.assertIsNone(self.paste("Pasted"))
+        self.assertIsNone(self.paste("Repaste"))
+        self.assertIsNone(self.paste("Copy Paste  image"))
+        self.assertEqual(whole_word_range("Paste image", "Paste image"), (0, 11))
+        self.assertEqual(whole_word_range("QA Image", "QA Image QA Image only", "only"), (0, 8))
+        self.assertIsNone(whole_word_range("QA Image", "QA Image only", "only"))
+        self.assertIsNone(whole_word_range("QA Image", "QA image ready", "only"))
+
+
 class ObserverPollProbe(unittest.TestCase):
     def setUp(self):
         self.source = SWIFT.read_text()
@@ -50,17 +103,42 @@ class ObserverPollProbe(unittest.TestCase):
         self.assertIn("XCTFail(", function)
         self.assertIn("locateText(", function)
 
-    def test_sh154_text_paste_reuses_the_located_control(self):
-        # 2ed2beb: after "QA Image", Vision missed the "Paste" label and a truncated
-        # reading of "Paste image" passed the suffix filter, so the second text-priority
-        # tap started an image paste and the peer never received P8-shadow.
+    def test_sh154_locates_every_strip_control_once_at_the_start(self):
+        # 2ed2beb / L15 / L16: a later OCR of the strip can miss "Paste" or read a
+        # truncated "Paste image", and the tap then starts the wrong paste. Every
+        # strip control is located once, before the first tap, and tapped by point.
         test = body(self.source, "func testSH154CoreImage(")
-        self.assertEqual(test.count('tapText("Paste", in: app, excludingSuffix: " image")'), 1)
-        located = test.index('let paste = try tapText("Paste", in: app, excludingSuffix: " image").box')
-        reused = test.index("CGVector(dx: paste.midX, dy: 1 - paste.midY)).tap()")
-        self.assertLess(located, test.index('tapText("QA Image", in: app, excludingSuffix: " only")'))
-        self.assertGreater(reused, test.index('tapText("QA image ready", in: app, tap: false, attempts: 30)', located))
-        self.assertLess(reused, test.rindex('tapText("Paste image", in: app)'))
+        calls = re.findall(r'tapText\("([^"]+)"([^)]*)\)', test)
+        located = [(label, rest) for label, rest in calls if "tap: false" in rest and "attempts" not in rest]
+        self.assertEqual([label for label, _ in located], ["QA Image", "Paste", "Paste image"])
+        self.assertEqual([label for label, rest in calls if "attempts: 15" in rest], ["QA Image only"])
+        # A tapText call that taps (no `tap: false`) would be a fresh OCR of the strip.
+        self.assertEqual([label for label, rest in calls if "tap: false" not in rest], [])
+        self.assertIn('excludingNextWord: "only"', test)
+        self.assertIn('excludingNextWord: "image"', test)
+        first_tap = test.index("tapRecorded(")
+        for label in ("QA Image only", "QA Image", "Paste", "Paste image"):
+            self.assertLess(test.index('tapText("%s"' % label), first_tap, label)
+        taps = re.findall(r"tapRecorded\((\w+),", test)
+        self.assertEqual(taps, ["qaImageOnly", "pasteImage", "paste", "qaImage", "paste", "pasteImage"])
+        # Waits stay as they were: every tap is followed by the state it must produce.
+        waits = re.findall(r'tapText\("(paste-\d\.png|QA image ready)", in: app, tap: false, attempts: 30\)', test)
+        self.assertEqual(waits, ["QA image ready", "paste-0.png", "paste-1.png", "QA image ready", "paste-2.png"])
+        # A misread box is rejected at the start, not only by the final put/path/text counts.
+        self.assertIn("left.minX < right.minX", test)
+        self.assertLess(test.index("left.minX < right.minX"), first_tap)
+
+    def test_locate_text_matches_whole_words(self):
+        self.assertNotIn("range(of: label)", body(self.source, "private func locateText("))
+        self.assertIn("SmokeQA.wholeWordRange(", body(self.source, "private func locateText("))
+        self.assertNotIn("excludingSuffix", self.source)
+        function = body(self.source, "static func wholeWordRange(")
+        for token in ("isLetter", "isNumber", "isWhitespace", "lowercased()", "while from < text.endIndex"):
+            self.assertIn(token, function)
+
+    def test_oracle_images_check_is_unchanged(self):
+        checker = (Path(__file__).with_name("p9-check.py")).read_text()
+        self.assertIn("(3, 3, 1, None)", checker)
 
     def test_oracle_conditions_are_unchanged(self):
         # The fix is test-side only: the completion labels the app paints stay exact.
