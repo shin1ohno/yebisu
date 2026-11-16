@@ -17,7 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SDK = '33e288d762e158888b8edcd9f2b9eb9ed862e1b2'
 FIELD = 'crates/yebisu/src/find/field.rs'
 QUERIES = 'crates/yebisu/src/find/native_queries.rs'
-LENGTH = '''    fn text_length_utf16(&mut self, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+LENGTH = '''    fn text_length_utf16(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<usize> {
+        if let Some(length) = self.forward(cx, |s, cx| s.text_length_utf16(window, cx)) {
+            return length;
+        }
         Some(self.input.text.encode_utf16().count())
     }
 '''
