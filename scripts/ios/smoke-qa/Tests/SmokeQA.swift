@@ -67,19 +67,23 @@ final class SmokeQA: XCTestCase {
         }
     }
 
-    /// Waits for `app.state` to be one of `states`; fails at once, naming `what`, if it is not.
+    /// Waits for the app to reach one of `states`; fails at once, naming `what`, if it does not.
+    /// `app.state` alone is not refreshed while it is polled (run 43770292492: Home pressed at
+    /// t=61 s, state still runningForeground at t=92 s), so each pass asks XCTest to wait for a state.
     private func requireState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
                               timeout: TimeInterval = 30) throws {
         let start = Date()
-        while !states.contains(app.state) {
+        while true {
+            for state in states where app.wait(for: state, timeout: 0.5) {
+                print(String(format: "WAIT ok %@: app.state=%@ after %.2f s", what, stateName(state), Date().timeIntervalSince(start)))
+                return
+            }
             if Date().timeIntervalSince(start) >= timeout {
                 save("state-wait-failed")
                 XCTFail("\(what): app.state is \(stateName(app.state)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
                 throw NSError(domain: "SmokeQA.StateWait", code: 1)
             }
-            Thread.sleep(forTimeInterval: 0.25)
         }
-        print(String(format: "WAIT ok %@: app.state=%@ after %.2f s", what, stateName(app.state), Date().timeIntervalSince(start)))
     }
 
     /// Waits until a Vision pass over the screen reads `word` (case-insensitive). P0 paints only
