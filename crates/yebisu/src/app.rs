@@ -146,6 +146,9 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A draw has begun: a retired search field is no longer GPUI's input
+        // handler, so it stops forwarding (find/field.rs).
+        self.find_handoff.frames = self.find_handoff.frames.wrapping_add(1);
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_tick(window, cx);
         self.front_layers.clear();

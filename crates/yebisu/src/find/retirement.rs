@@ -31,6 +31,12 @@ pub(crate) struct Handoff {
     pub paused: bool,
     pub needs_request: bool,
     pub reason: Option<&'static str>,
+    /// Counts `Smoke` renders. GPUI takes the platform input handler at the
+    /// start of every `Window::draw` and installs only handlers registered in
+    /// that frame (gpui-pre 0.3.12 window.rs:3685-3727); the root view renders
+    /// inside that draw. A retired field stamped with this count is still the
+    /// platform handler until the count moves.
+    pub frames: u64,
     serial: u64,
     pending: Option<Ticket>,
     #[cfg(target_os = "ios")]
@@ -55,6 +61,15 @@ impl Smoke {
             };
         }
         None
+    }
+    /// Whether a retired search field stamped at `frame` may hand its native
+    /// callbacks to the terminal input path: search closed, the retirement
+    /// fence open, the terminal shown, and no draw since the field retired.
+    pub(crate) fn inherits_retired_field(&self, frame: u64) -> bool {
+        self.find.is_none()
+            && !self.find_handoff.paused
+            && self.terminal.open
+            && self.find_handoff.frames == frame
     }
     pub(crate) fn fence_find_handoff(&mut self) {
         self.find_handoff.paused = true;
