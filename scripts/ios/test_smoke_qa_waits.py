@@ -66,6 +66,17 @@ class LifecycleWaits(unittest.TestCase):
                 self.assertIn("throw NSError(", function)
                 self.assertIn("timeout", function)
 
+    def test_state_wait_asks_xctest_to_refresh_the_state(self):
+        # Run 43770292492: polling `app.state` alone kept reporting runningForeground for 30 s
+        # after press(.home) and the wait failed although Home had been handled. The wait
+        # must go through app.wait(for:timeout:), return as soon as a wanted state is reached,
+        # and only fail after its timeout (run 43790640783 shows it passing, 5.29 s after Home).
+        function = body(self.source, "private func requireState(")
+        wait = function.index("app.wait(for: state")
+        self.assertLess(wait, function.index("return"))
+        self.assertLess(function.index("return"), function.index("XCTFail("))
+        self.assertNotRegex(function, r"while\s+!states\.contains\(app\.state\)")
+
     def test_oracle_stages_and_idle_interval_are_unchanged(self):
         stages = [line for line in self.test if line.startswith("save(")]
         self.assertEqual(stages, ['save("initial")', 'save("returned")', 'save("rotated")',
