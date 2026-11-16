@@ -115,7 +115,7 @@ final class SmokeQA: XCTestCase {
     /// Taps the Appearance page button and records how many OCR lines carried the label.
     /// More than one line means the tap could land on another text (e.g. terminal output).
     private func tapAppearance(in app: XCUIApplication, ui: inout [[String: Any]]) throws {
-        let lines = try tapText(appearancePage, in: app)
+        let lines = try tapText(appearancePage, in: app).matching
         ui.append(["kind": "ocr-match", "label": appearancePage, "count": lines,
                    "time": Date().timeIntervalSince1970])
         XCTAssertEqual(lines, 1, "OCR lines containing \(appearancePage)")
@@ -460,11 +460,17 @@ final class SmokeQA: XCTestCase {
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
         try tapText("Paste image", in: app)
         try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        try tapText("Paste", in: app, excludingSuffix: " image")
+        let paste = try tapText("Paste", in: app, excludingSuffix: " image").box
         try tapText("paste-1.png", in: app, tap: false, attempts: 30)
         try tapText("QA Image", in: app, excludingSuffix: " only")
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try tapText("Paste", in: app, excludingSuffix: " image")
+        // Tap the text-priority Paste where it was found above instead of reading the
+        // label again. In this frame Vision can miss the "Paste" label, and then a
+        // truncated reading of "Paste image" passes the suffix filter: the tap starts
+        // an image paste and P8-shadow never reaches the peer (main 2ed2beb, job
+        // 132955457568). Nothing in the handoff row changes between the two taps; the
+        // receiving checker (p9-check validate_images) proves the text paste arrived.
+        app.coordinate(withNormalizedOffset: CGVector(dx: paste.midX, dy: 1 - paste.midY)).tap()
         sleep(1)
         try tapText("Paste image", in: app)
         try tapText("paste-2.png", in: app, tap: false, attempts: 30)
@@ -568,7 +574,7 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> Int {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // The whole screenshot is tried on every attempt, as before; the horizontal
@@ -580,7 +586,7 @@ final class SmokeQA: XCTestCase {
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
                 }
-                return found.matching
+                return found
             }
             print("OCR attempt \(attempt) for \(label)")
             sleep(1)

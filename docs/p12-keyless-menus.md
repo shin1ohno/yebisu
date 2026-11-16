@@ -44,6 +44,11 @@ Native evidence records the compiler/bundle/installed binary UUID and hash.
 The Simulator fixture freezes menu installation only to test pre-render scope
 mismatch. Boot/host/pane/focus/capability negatives are injected independently.
 These do not prove SDK stale-tag generation handling or physical key delivery.
+Local commands are tested while a remote pane.split is held at the peer, and the
+pinned client fails the link when a request is 60 s old. Each hold therefore
+covers one local case (Remote holds for Sidebar, Rearm for Palette), each with
+its own Release control, and the XCTest finds every fixture control by OCR before
+the first hold. The oracle rejects a hold that reaches 60 s.
 
 The P11 Settings UI is unmerged and main's settings sheet is unmounted. This PR
 provides and tests the catalog API; mounted Settings/search modal behavior stays

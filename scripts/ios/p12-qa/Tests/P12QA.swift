@@ -7,6 +7,11 @@ final class P12QA: XCTestCase {
     private var events: [[String: Any]] = []
     private let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    /// Tap points of the fixture controls, found by OCR before any RPC is held.
+    private var fixturePoints: [String: CGVector] = [:]
+    private static let fixtureControls = ["Remote", "Rearm", "Sidebar", "Palette", "Release", "Host", "Pane",
+                                          "Boot", "Focus", "Current", "Capability", "Reset", "Finish"]
+                                          .map { "P12 " + $0 }
 
     func testInstalledTerminalMenu() throws {
         continueAfterFailure = false
@@ -25,12 +30,20 @@ final class P12QA: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(3)
-        for (label, name) in [("Remote", "Split Right"), ("Sidebar", "Toggle Sidebar"), ("Palette", "Command Palette")] {
-            try fixture("P12 " + label)
-            try choose(name, caseName: label.lowercased(), negative: false)
+        // A remote pick holds pane.split at the peer until "P12 Release", and the
+        // pinned sheprd-client fails the link once a request is 60 s old
+        // (limits.rs COMMAND_TIMEOUT). One native menu session took up to 44 s on
+        // hosted runners, so each hold covers exactly one local case, and no OCR
+        // search (3-31 s) runs inside a hold: every control is located first.
+        try locateFixtures()
+        for (remote, local, name) in [("Remote", "Sidebar", "Toggle Sidebar"), ("Rearm", "Palette", "Command Palette")] {
+            try fixture("P12 " + remote)
+            try choose("Split Right", caseName: remote.lowercased(), negative: false)
+            try fixture("P12 " + local)
+            try choose(name, caseName: local.lowercased(), negative: false)
+            try fixture("P12 Release")
+            try fixture("P12 Idle", tap: false)
         }
-        try fixture("P12 Release")
-        try fixture("P12 Idle", tap: false)
         for label in ["Host", "Pane", "Boot", "Focus", "Capability"] {
             try fixture("P12 " + label)
             try choose("Split Right", caseName: label.lowercased(), negative: true)
@@ -103,32 +116,66 @@ final class P12QA: XCTestCase {
         screenshot("p12-after-" + caseName)
     }
 
-    private func fixture(_ label: String, tap: Bool = true) throws {
+    /// Finds every fixture control on screen. The panel is absolutely positioned
+    /// and its rows never move, so the points stay valid for the whole test.
+    private func locateFixtures() throws {
+        let started = Date().timeIntervalSince1970
         for _ in 0..<8 {
-            let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.customWords = [label]
-            try VNImageRequestHandler(cgImage: image).perform([request])
-            for result in (request.results ?? []).sorted(by: { $0.boundingBox.maxY > $1.boundingBox.maxY }) {
-                for text in result.topCandidates(5) {
-                    guard let range = text.string.range(of: label),
-                          let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
-                    if tap {
-                        let setupStart = Date().timeIntervalSince1970
-                        app.coordinate(withNormalizedOffset: CGVector(dx: bounds.midX, dy: 1 - bounds.midY)).tap()
-                        sleep(1)
-                        events.append(["kind": "fixture-control", "step": String(label.dropFirst(4)).lowercased(),
-                                       "started": setupStart, "ended": Date().timeIntervalSince1970])
-                    }
-                    return
-                }
+            let missing = Self.fixtureControls.filter { fixturePoints[$0] == nil }
+            for (label, bounds) in try recognize(missing) {
+                fixturePoints[label] = CGVector(dx: bounds.midX, dy: 1 - bounds.midY)
             }
+            if fixturePoints.count == Self.fixtureControls.count {
+                events.append(["kind": "fixture-located", "count": fixturePoints.count,
+                               "started": started, "ended": Date().timeIntervalSince1970])
+                return
+            }
+            sleep(1)
+        }
+        let missing = Self.fixtureControls.filter { fixturePoints[$0] == nil }
+        screenshot("p12-missing-fixture")
+        XCTFail("Missing fixture controls: \(missing.joined(separator: ", "))")
+        throw NSError(domain: "P12.MissingFixture", code: 1)
+    }
+
+    private func fixture(_ label: String, tap: Bool = true) throws {
+        if tap {
+            // No OCR here: this may run while the Remote case holds pane.split.
+            let point = try XCTUnwrap(fixturePoints[label], "Fixture control not located: \(label)")
+            let setupStart = Date().timeIntervalSince1970
+            app.coordinate(withNormalizedOffset: point).tap()
+            sleep(1)
+            events.append(["kind": "fixture-control", "step": String(label.dropFirst(4)).lowercased(),
+                           "started": setupStart, "ended": Date().timeIntervalSince1970])
+            return
+        }
+        for _ in 0..<8 {
+            if try recognize([label])[label] != nil { return }
             sleep(1)
         }
         screenshot("p12-missing-fixture")
         XCTFail("Missing fixture control/state: \(label)")
         throw NSError(domain: "P12.MissingFixture", code: 1)
+    }
+
+    /// Normalized Vision bounds (origin bottom-left) of each label found in one screenshot.
+    private func recognize(_ labels: [String]) throws -> [String: CGRect] {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.customWords = labels
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        var found: [String: CGRect] = [:]
+        for result in (request.results ?? []).sorted(by: { $0.boundingBox.maxY > $1.boundingBox.maxY }) {
+            for text in result.topCandidates(5) {
+                for label in labels where found[label] == nil {
+                    guard let range = text.string.range(of: label),
+                          let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
+                    found[label] = bounds
+                }
+            }
+        }
+        return found
     }
     private func screenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
