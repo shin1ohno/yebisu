@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 /// update after it. Past it the probe reads readiness anyway; the oracle
 /// rejects `settled: false` and any readiness that is not all true.
 const SETTLE: Duration = Duration::from_secs(2);
+/// Longest wait for held terminal input to leave before an after-close
+/// barrier. Past it the barrier goes out anyway, recorded `flushed: false`,
+/// which the oracles reject by name.
+const FLUSH: Duration = Duration::from_secs(5);
 
 /// What the probe waited for before its readiness read.
 #[derive(Clone, Copy)]
@@ -79,6 +83,70 @@ fn settle_turn(
     });
 }
 
+/// Sends after-close barrier `label` on the first native turn where the
+/// terminal input holds nothing and its last sync found the surface at the
+/// requested size (`TerminalInput::flushed`), or once `FLUSH` passed, then
+/// runs `then` on that same turn.
+///
+/// Close can resize the terminal. Until the surface matches the requested
+/// size, production holds generated input (terminal_input.rs:104-110, tested
+/// contract terminal_input_tests.rs:181-212) and flushes it when the matching
+/// surface arrives (terminal_view.rs:201-207). A barrier request goes straight
+/// to the ordered writer, so one sent earlier overtakes the held input and
+/// breaks the oracle's FIFO phases although the input itself is correct.
+/// Probe scheduling only: each turn reads state; flushing stays with
+/// production. The gate read and the barrier share one update, so nothing
+/// runs between them. The `p13-barrier` record carries `flushed`; the oracles
+/// reject `false` by name and still check the wire order on their own.
+pub(super) fn barrier_after_flush(
+    context: AsyncWindowContext,
+    weak: WeakEntity<Smoke>,
+    label: &'static str,
+    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>) + 'static,
+) {
+    flush_turn(context, weak, label, Instant::now() + FLUSH, 1, then);
+}
+fn flush_turn(
+    mut context: AsyncWindowContext,
+    weak: WeakEntity<Smoke>,
+    label: &'static str,
+    deadline: Instant,
+    turns: u32,
+    then: impl FnOnce(AsyncWindowContext, WeakEntity<Smoke>) + 'static,
+) {
+    next_native_turn(move || {
+        let sent = context
+            .update(|_, cx| {
+                weak.update(cx, |this, _| {
+                    let flushed = this.terminal.input.flushed();
+                    if !flushed && Instant::now() < deadline {
+                        return false;
+                    }
+                    this.observation.record(serde_json::json!({
+                        "kind":"p13-barrier","label":label,"flushed":flushed,
+                        "ready":this.terminal.input.ready,"turns":turns
+                    }));
+                    this.p13_native_barrier(label);
+                    true
+                })
+                .unwrap_or(true)
+            })
+            .unwrap_or(true);
+        if sent {
+            then(context, weak);
+        } else {
+            flush_turn(
+                context,
+                weak,
+                label,
+                deadline,
+                turns.saturating_add(1),
+                then,
+            );
+        }
+    });
+}
+
 impl Smoke {
     pub(crate) fn p13_native_close_probe(&mut self, window: &Window, cx: &Context<Self>) {
         let handle = window.window_handle();
@@ -110,7 +178,7 @@ impl Smoke {
                 });
             });
             // Probe scheduling only: never retries production retirement or input.
-            after_input_settles(handle, context, weak, move |mut context, weak, settle| {
+            after_input_settles(handle, context, weak, move |context, weak, settle| {
                 let Some(new) = capture(handle) else {
                     return;
                 };
@@ -121,28 +189,31 @@ impl Smoke {
                 old.unmark();
                 old.delete();
                 old.edit_actions();
-                let _ = context.update(|_, cx| {
-                    let _ = weak.update(cx, |this, _| {
-                        this.p13_native_barrier("old-after-close");
-                    });
-                });
-                // No GPUI KeyDown or terminal tap precedes these selectors.
-                new.insert("P13-fresh");
-                new.mark("P13-fresh");
-                new.insert("P13-fresh");
-                let _ = context.update(|_, cx| {
-                    let _ = weak.update(cx, |this, cx| {
-                        this.p13_native_barrier("fresh-after-close");
-                        this.observation.record(serde_json::json!({
-                            "kind":"p13-native-close-probe","old":ids.0,"new":ids.1,
-                            "ready":[ready.0,ready.1,ready.2],"paused":this.find_handoff.paused,
-                            "settled":settle.drawn,"responder":settle.responder,"settle_turns":settle.turns,
-                            "receipt":this.find_handoff.receipt.as_ref().map(|r|format!("{:?}",r.status())),
-                            "reason":this.find_handoff.reason,
-                            "physical_ime":"unverified","os_retarget_loss":"unverified"
-                        }));
-                        cx.notify();
-                    });
+                barrier_after_flush(context, weak, "old-after-close", move |context, weak| {
+                    // No GPUI KeyDown or terminal tap precedes these selectors.
+                    new.insert("P13-fresh");
+                    new.mark("P13-fresh");
+                    new.insert("P13-fresh");
+                    barrier_after_flush(
+                        context,
+                        weak,
+                        "fresh-after-close",
+                        move |mut context, weak| {
+                            let _ = context.update(|_, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.observation.record(serde_json::json!({
+                                    "kind":"p13-native-close-probe","old":ids.0,"new":ids.1,
+                                    "ready":[ready.0,ready.1,ready.2],"paused":this.find_handoff.paused,
+                                    "settled":settle.drawn,"responder":settle.responder,"settle_turns":settle.turns,
+                                    "receipt":this.find_handoff.receipt.as_ref().map(|r|format!("{:?}",r.status())),
+                                    "reason":this.find_handoff.reason,
+                                    "physical_ime":"unverified","os_retarget_loss":"unverified"
+                                }));
+                                cx.notify();
+                            });
+                        });
+                        },
+                    );
                 });
             });
         });

@@ -1,4 +1,5 @@
 //! Opt-in receiving query probe on captured real native clients. No OS oracle.
+use super::native_probe::barrier_after_flush;
 use crate::app::Smoke;
 use gpui::{
     AnyElement, AnyWindowHandle, AsyncWindowContext, ClipboardItem, Context, WeakEntity, div,
@@ -192,7 +193,7 @@ fn query_step(
                     handle,
                     context,
                     weak,
-                    move |mut context, weak, settle| {
+                    move |context, weak, settle| {
                         let Some(current) = capture(handle) else {
                             return;
                         };
@@ -201,31 +202,39 @@ fn query_step(
                         client.unmark();
                         client.delete();
                         client.edit_actions();
-                        let _ = context.update(|_, cx| {
-                            let _ = weak.update(cx, |this, _| {
-                                this.p13_native_barrier("query-old-after-close")
-                            });
-                        });
-                        current.mark("abcdef");
-                        let ready = current.text_readiness();
-                        let mut q = observe(&current, "Q05-current", 0, 6);
-                        // Query the retained old endpoint, never recapture it.
-                        q["old"] = observe(&client, "Q05-old", 0, 0);
-                        q["ready"] = json!([ready.0, ready.1, ready.2]);
-                        q["settled"] = json!(settle.drawn);
-                        q["responder"] = json!(settle.responder);
-                        q["settle_turns"] = json!(settle.turns);
-                        current.insert("Q05-fresh");
-                        let _ = context.update(|_, cx| {
-                            let _ = weak.update(cx, |this, cx| {
-                                this.p13_native_barrier("query-fresh-after-close");
-                                q["paused"] = json!(this.find_handoff.paused);
-                                q["reason"] = json!(this.find_handoff.reason);
-                                this.observation.record(q);
-                                cx.notify();
-                            });
-                        });
-                        query_step(5, handle, context, weak);
+                        barrier_after_flush(
+                            context,
+                            weak,
+                            "query-old-after-close",
+                            move |context, weak| {
+                                current.mark("abcdef");
+                                let ready = current.text_readiness();
+                                let mut q = observe(&current, "Q05-current", 0, 6);
+                                // Query the retained old endpoint, never recapture it.
+                                q["old"] = observe(&client, "Q05-old", 0, 0);
+                                q["ready"] = json!([ready.0, ready.1, ready.2]);
+                                q["settled"] = json!(settle.drawn);
+                                q["responder"] = json!(settle.responder);
+                                q["settle_turns"] = json!(settle.turns);
+                                current.insert("Q05-fresh");
+                                barrier_after_flush(
+                                    context,
+                                    weak,
+                                    "query-fresh-after-close",
+                                    move |mut context, weak| {
+                                        let _ = context.update(|_, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                q["paused"] = json!(this.find_handoff.paused);
+                                                q["reason"] = json!(this.find_handoff.reason);
+                                                this.observation.record(q);
+                                                cx.notify();
+                                            });
+                                        });
+                                        query_step(5, handle, context, weak);
+                                    },
+                                );
+                            },
+                        );
                     },
                 );
                 return;

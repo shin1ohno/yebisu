@@ -245,6 +245,16 @@ impl TerminalInput {
         let target = self.destination.as_ref()?;
         self.pending.as_mut()?.pop(&target.boot, &target.target)
     }
+    /// Read-only gate for the P13 probe's after-close barriers: nothing is
+    /// held and the last sync found the surface at the requested size, so
+    /// input generated so far has already left through `next`.
+    #[cfg(any(
+        test,
+        all(target_os = "ios", target_abi = "sim", feature = "p13-native-probe")
+    ))]
+    pub fn flushed(&self) -> bool {
+        self.ready && self.pending.as_ref().is_none_or(HeldInput::is_empty)
+    }
 }
 
 #[cfg(test)]

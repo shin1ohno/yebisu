@@ -46,6 +46,17 @@ native IDs/readiness and renderer receipts are checked. Probe scheduling is
 test-only and never retries production retirement or input. This probe is
 prepared source, not a record that it has run.
 
+Close can resize the terminal, and production holds generated input until the
+surface matches the requested size (`terminal_input.rs` `sync`). A barrier
+request goes straight to the ordered writer, so a barrier sent during that hold
+overtakes the fresh input. Both probes therefore send each after-close barrier
+only once `TerminalInput::flushed` reads true (nothing held, last sync at the
+requested size), waiting at most 5 s, and record `p13-barrier` with `flushed`.
+Both oracles reject a missing or `flushed: false` record by name
+(`p13-barrier-before-flush`, `p13-query-barrier-before-flush`) and still check
+the receiving-wire order on their own, so an early barrier fails either way
+(`scripts/ios/test_p13_barrier.py`). The hold itself is unchanged.
+
 The admitted helper adds nonmutating selection/document/position observations
 on the same retained native object. Setup setters are used only before Q01/Q02.
 The separate query mode invokes actual native insert/mark and Cut. In the same

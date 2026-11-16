@@ -170,6 +170,8 @@ def validate(records, messages):
     done = [r for r in records if r.get('kind') == 'p13-query-done']
     if len(done) != 1 or done[0].get('captured') != old:
         raise ValueError('p13-query-done')
+    load_base().barriers(records, ('query-old-after-close', 'query-fresh-after-close'),
+                         'p13-query-barrier-before-flush')
     phase = 'search'
     seen, wire = [], []
     for message in messages:

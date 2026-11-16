@@ -203,6 +203,9 @@ impl HeldInput {
         self.fifo.push_back(event);
         true
     }
+    pub fn is_empty(&self) -> bool {
+        self.fifo.is_empty()
+    }
     pub fn pop(
         &mut self,
         boot: &str,

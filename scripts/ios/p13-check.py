@@ -87,6 +87,41 @@ schemes:
 '''
 
 
+def barriers(records, labels, reason):
+    """Each after-close barrier went out only once held input had left.
+
+    The probe records `flushed` when it sends the barrier (native_probe.rs
+    barrier_after_flush). A barrier sent while input was still held behind a
+    resize can overtake that input; this names the cause. It does not replace
+    the receiving-wire FIFO check, which still fails an early barrier whatever
+    the record says.
+    """
+    for label in labels:
+        rows = [r for r in records if r.get("kind") == "p13-barrier" and r.get("label") == label]
+        if len(rows) != 1 or rows[0].get("flushed") is not True:
+            raise ValueError(reason + ": " + label + " " + json.dumps(rows))
+
+
+def fifo_phases(messages, terminal):
+    """Receiving-wire order: all fresh input lands between the two after-close barriers."""
+    phase = "search"
+    phase_events = {name: [] for name in ("search", "old-before-close", "old-after-close", "fresh-after-close")}
+    seen = []
+    for message in messages:
+        if "ClientShellEndpointRequest" in message:
+            request = json.loads(message["ClientShellEndpointRequest"]["request"])
+            label = request.get("params", {}).get("p13_barrier")
+            if label:
+                seen.append(label)
+                phase = label
+        if "ClientShellPaneInput" in message:
+            if message["ClientShellPaneInput"].get("pane_id") != "w1:p1":
+                raise ValueError("D5 native callbacks used wrong target")
+            phase_events[phase].extend(message["ClientShellPaneInput"]["events"])
+    if seen != ["old-before-close", "old-after-close", "fresh-after-close"] or any(phase_events[p] for p in ("search", "old-before-close", "fresh-after-close")) or phase_events["old-after-close"] != terminal:
+        raise ValueError("D5 receiving FIFO phases contain stale callbacks or lost fresh input")
+
+
 def validate(records, messages):
     requests = [json.loads(m["ClientShellEndpointRequest"]["request"])
                 for m in messages if "ClientShellEndpointRequest" in m]
@@ -133,22 +168,8 @@ def validate(records, messages):
         raise ValueError("D5 actual native replacement/readiness missing")
     if not any(r.get("kind") == "p13-native-retirement" and r.get("accepted") is True and (r.get("retired"), r.get("replacement")) == (probes[0]["old"], probes[0]["new"]) for r in records):
         raise ValueError("D5 correlated native acknowledgement missing")
-    phase = "search"
-    phase_events = {name: [] for name in ("search", "old-before-close", "old-after-close", "fresh-after-close")}
-    seen = []
-    for message in messages:
-        if "ClientShellEndpointRequest" in message:
-            request = json.loads(message["ClientShellEndpointRequest"]["request"])
-            label = request.get("params", {}).get("p13_barrier")
-            if label:
-                seen.append(label)
-                phase = label
-        if "ClientShellPaneInput" in message:
-            if message["ClientShellPaneInput"].get("pane_id") != "w1:p1":
-                raise ValueError("D5 native callbacks used wrong target")
-            phase_events[phase].extend(message["ClientShellPaneInput"]["events"])
-    if seen != ["old-before-close", "old-after-close", "fresh-after-close"] or any(phase_events[p] for p in ("search", "old-before-close", "fresh-after-close")) or phase_events["old-after-close"] != terminal:
-        raise ValueError("D5 receiving FIFO phases contain stale callbacks or lost fresh input")
+    barriers(records, ("old-after-close", "fresh-after-close"), "p13-barrier-before-flush")
+    fifo_phases(messages, terminal)
     if any("ClientShellPopupInput" in m for m in messages):
         raise ValueError("search leaked popup input")
     paints = [r for r in records if r.get("kind") == "terminal" and r.get("p13_search")]
