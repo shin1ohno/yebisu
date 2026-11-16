@@ -1,6 +1,7 @@
 {
   "version": 1,
   "language": "en-US",
+  "theme": "owner-default",
   "compact": false,
   "terminal_priority": false,
   "board_hidden": false,

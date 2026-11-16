@@ -27,7 +27,11 @@ class SelectionSettingsOracle(unittest.TestCase):
         for key, value in [("route", "system"), ("sound", False), ("volume", 51), ("muted", True), ("quiet", [0, 1])]:
             with self.subTest(notification_field=key), self.assertRaisesRegex(ValueError, "receiving file"):
                 oracle.validate(records, dict(saved, notifications=dict(saved["notifications"], **{key: value})))
-        missing = dict(saved)
-        del missing["notifications"]
-        with self.assertRaisesRegex(ValueError, "receiving file"):
-            oracle.validate(records, missing)
+        for theme in ["high-contrast", "future-theme", None]:
+            with self.assertRaisesRegex(ValueError, "receiving file"):
+                oracle.validate(records, dict(saved, theme=theme))
+        for field in ["notifications", "theme"]:
+            missing = dict(saved)
+            del missing[field]
+            with self.subTest(missing=field), self.assertRaisesRegex(ValueError, "receiving file"):
+                oracle.validate(records, missing)

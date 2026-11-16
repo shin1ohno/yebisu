@@ -18,6 +18,7 @@ pub(crate) struct Smoke {
     pub(crate) settings_fonts: Vec<String>,
     pub(crate) settings_fonts_loading: bool,
     pub(crate) key_ticket: Option<crate::settings::key_ops::Ticket>,
+    pub(crate) local_theme: crate::theme_picker::Palette,
     pub(crate) settings_error: Option<String>,
     pub(crate) focus: FocusHandle,
     pub(crate) terminal_focus: FocusHandle,
@@ -108,6 +109,7 @@ impl Smoke {
             settings_fonts_loading: false,
             key_ticket: None,
             settings_error: None,
+            local_theme: crate::theme_picker::Palette::default(),
             focus,
             terminal_focus: cx.focus_handle(),
             input: Input::default(),
@@ -392,6 +394,15 @@ pub(crate) fn run() {
                     }
                     this.terminal.open = true;
                     this.terminal.needs_focus = true;
+                    if std::env::var_os("YEBISU_BOARD_QA").is_some() {
+                        this.terminal.link.reset();
+                        this.terminal.reconnect.begin("qa-alpha".into());
+                        let generation = this.terminal.link.generation;
+                        this.terminal
+                            .link
+                            .install(generation, crate::mock_peer::connect_board());
+                        this.start_host_connection("qa-beta".into(), cx);
+                    }
                     cx.notify();
                 });
             }

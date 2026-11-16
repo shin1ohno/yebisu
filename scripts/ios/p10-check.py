@@ -14,7 +14,7 @@ def run(*args, **kwargs):
 
 
 def validate(paints, saved):
-    expected = {"version": 1, "language": "en-US", "compact": True,
+    expected = {"version": 1, "language": "en-US", "theme": "owner-default", "compact": True,
                 "terminal_priority": True, "board_hidden": False, "drag_select": True, "copy_on_select": False, "terminal_font_size": None, "terminal_font_family": "SauceCodePro Nerd Font Mono"}
     # settings/store.rs::save always writes Policy::encode, including defaults.
     expected["notifications"] = dict(route="off", sound=True, volume=50, muted=False, quiet=None)
