@@ -78,6 +78,10 @@ def fixture():
             messages.append(dict(kind="p12-peer-gate", transport=1, sequence=sequence, reason="released", time=clock-1.5))
             state["pending"] = False
         if case == "focus":
+            # The unfrozen menu follows the mutated pane: rows and focus are the same
+            # as at prepare, so only the Scope differs. The hook records it regardless.
+            records.append(dict(kind="p12-menu-build", source="rebuild", case=case, time=clock-1.7, changed=True,
+                                rebuilds=2, build=dict(host="h", boot="b", pane="w1:p3", epoch=0, availability=[True], focused=True)))
             setup("current")
             records.append(dict(kind="p12-menu-build", source="current", case=case, time=clock-1.6, changed=True,
                                 focused=True, availability=[True]))
@@ -287,8 +291,8 @@ class P12OracleTests(unittest.TestCase):
             for kind in ("p12-menu-entry", "p12-menu-receiver"):
                 r.remove(select(r,kind,case))
             pick = select(u,"os-menu-pick",case)
-            r.append(dict(kind="p12-menu-build", source="render", case=case, time=pick["started"]+.3, changed=True,
-                          focused=True, availability=[True]))
+            r.append(dict(kind="p12-menu-build", source="rebuild", case=case, time=pick["started"]+.3, changed=True,
+                          rebuilds=3, build=dict(host="h", boot="b", pane="w1:p3", epoch=0, availability=[True], focused=True)))
             for kind in ("p12-setup-begin", "p12-setup-end"):
                 r.remove(next(x for x in r if x.get("kind") == kind and x.get("step") == "reset" and x["time"] > pick["ended"]))
             u.remove(next(x for x in u if x.get("kind") == "fixture-control" and x.get("step") == "reset" and x["started"] > pick["ended"]))
@@ -297,14 +301,14 @@ class P12OracleTests(unittest.TestCase):
     def test_lost_tap_without_gui_close_record_is_named_with_nearby_build(self):
         # An older artifact has no menu-close failure; the oracle itself still names the lost tap.
         self.rejected(self.lose_tap("host"), r"tap lost \(class A\) in case host: the pick reached no native menu callback; "
-                                             r"render build at \+0\.30 s")
+                                             r"rebuild build at \+0\.30 s \(changed=True, host=h, boot=b, pane=w1:p3, epoch=0\)")
 
     def test_menu_still_open_after_pick_is_named(self):
         def edit(r,m,u,s):
             self.lose_tap("host")(r,m,u,s)
             close = select(u,"menu-close","host")
             close.update(closed=False)
-        self.rejected(edit, r"OS menu still open after the pick tap in case host: tap lost \(class A\); render build at \+0\.30 s")
+        self.rejected(edit, r"OS menu still open after the pick tap in case host: tap lost \(class A\); rebuild build at \+0\.30 s")
 
     def test_gui_checks_come_before_the_setup_callback_symptom(self):
         data = fixture()
@@ -319,6 +323,19 @@ class P12OracleTests(unittest.TestCase):
     def test_reveal_precondition_is_required_for_every_choose(self):
         self.rejected(lambda r,m,u,s: u.remove(select(u,"reveal-precondition","focus-current")), "reveal precondition records missing")
         self.rejected(lambda r,m,u,s: select(u,"reveal-precondition","host").pop("windowControlsPresent"), "precondition record incomplete")
+
+    def test_scope_only_rebuild_is_recorded_and_named(self):
+        """F1: a rebuild whose rows and focus equal the prepare step's, but whose Scope (pane) differs, is
+        a p12-menu-build record and is what a lost tap near it is matched against."""
+        records, _, ui, _ = fixture()
+        prepare = select(records, "p12-menu-build", "focus")
+        rebuild = next(r for r in records if r.get("kind") == "p12-menu-build" and r.get("source") == "rebuild")
+        self.assertEqual((rebuild["build"]["availability"], rebuild["build"]["focused"]), (prepare["availability"], prepare["focused"]))
+        self.assertEqual(rebuild["build"]["pane"], "w1:p3")
+        self.assertIs(rebuild["changed"], True)
+        self.assertEqual(p12.builds_near(records, rebuild["time"] + .3),
+                         "rebuild build at -0.30 s (changed=True, host=h, boot=b, pane=w1:p3, epoch=0)")
+        self.assertIn("no p12-menu-build within", p12.builds_near([], 0))
 
     def test_every_prepared_menu_records_its_build(self):
         self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-menu-build","pane")), "menu build record missing")

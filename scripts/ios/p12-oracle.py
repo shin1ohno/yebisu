@@ -92,11 +92,21 @@ def validate(records, messages, ui, screenshots):
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes}
 
 
+def scope_text(record):
+    """What a `rebuild` record says the menu was rebuilt from: a Scope-only rebuild differs here, not in rows or focus."""
+    build = record.get("build")
+    if not isinstance(build, dict):
+        return ""
+    return ", " + ", ".join(f"{key}={build.get(key)}" for key in ("host", "boot", "pane", "epoch"))
+
+
 def builds_near(records, time):
-    """The p12-menu-build records within BUILD_MARGIN of a tap, for the failure text."""
+    """The p12-menu-build records within BUILD_MARGIN of a tap, for the failure text.
+    A `rebuild` record is written for every OS menu rebuild; prepare/current are setup-step records."""
     near = [r for r in records if r.get("kind") == "p12-menu-build" and isinstance(r.get("time"), (float, int))
             and isinstance(time, (float, int)) and abs(r["time"] - time) <= BUILD_MARGIN]
-    return "; ".join(f"{r.get('source')} build at {r['time'] - time:+.2f} s (changed={r.get('changed')})" for r in near) or \
+    return "; ".join(f"{r.get('source')} build at {r['time'] - time:+.2f} s (changed={r.get('changed')}"
+                     f"{scope_text(r)})" for r in near) or \
         f"no p12-menu-build within {BUILD_MARGIN} s"
 
 
