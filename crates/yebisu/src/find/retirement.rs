@@ -131,7 +131,15 @@ impl Smoke {
         if !self.find_handoff.paused {
             return None;
         }
-        let owner = self.find_input_owner()?;
+        let Some(owner) = self.find_input_owner() else {
+            // A reader publication holding the inbox, or a destination not yet
+            // re-synced after close detached it, clears without any search
+            // event. Submit again from the next render (terminal_view.rs gate)
+            // instead of keeping the fence closed until search reopens (F1).
+            // No native call runs until the owner is whole again.
+            self.find_handoff.needs_request = true;
+            return None;
+        };
         let Some(serial) = self.find_handoff.serial.checked_add(1) else {
             self.find_handoff.reason = Some("Text input paused · keyboard identity exhausted");
             return None;
@@ -157,10 +165,17 @@ impl Smoke {
         }
         self.find_handoff.pending = None;
         if !self.terminal_focus.is_focused(window)
-            || self.find_input_owner().as_ref() != Some(&ticket.owner)
             || retired != ticket.retired
             || retired.checked_add(1) != Some(replacement)
         {
+            self.find_handoff.reason = Some("Text input paused · keyboard owner changed");
+            return false;
+        }
+        if self.find_input_owner().as_ref() != Some(&ticket.owner) {
+            // Busy inbox or a moved owner: never release this ticket, but
+            // request a fresh retirement for whatever owner the next render
+            // finds, so the fence reopens once the contention clears (F1).
+            self.find_handoff.needs_request = true;
             self.find_handoff.reason = Some("Text input paused · keyboard owner changed");
             return false;
         }
@@ -192,9 +207,14 @@ impl Smoke {
             return;
         };
         let Some(ticket) = self.begin_find_retirement(state.client) else {
-            self.find_handoff.reason = Some("Text input paused · destination unavailable");
-            self.observation
-                .record(serde_json::json!({"kind":"p13-retirement-unrequested", "reason":"owner"}));
+            const UNAVAILABLE: &str = "Text input paused · destination unavailable";
+            // begin_find_retirement re-armed the request; record once per wait.
+            if self.find_handoff.reason != Some(UNAVAILABLE) {
+                self.observation.record(
+                    serde_json::json!({"kind":"p13-retirement-unrequested", "reason":"owner"}),
+                );
+            }
+            self.find_handoff.reason = Some(UNAVAILABLE);
             return;
         };
         let context = window.to_async(cx);

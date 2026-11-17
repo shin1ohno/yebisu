@@ -265,6 +265,55 @@ fn d5_retirement_ack_rejects_changed_owners_and_native_identities(cx: &mut TestA
         });
     }
 }
+/// Review F1: inbox contention right after close (request side) or when the
+/// ack lands (ack side) must not leave the fence closed until search reopens.
+/// The render gate (terminal_view.rs) re-runs refresh + request while
+/// `needs_request` holds; on host the native request is a stub, so the test
+/// performs that render step itself.
+#[gpui::test]
+fn f1_busy_inbox_at_close_or_ack_rearms_retirement_until_input_returns(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "f1", client);
+    open(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let inbox = this.terminal.link.inbox.clone();
+            let busy = inbox.lock().unwrap();
+            this.close_find(window, cx);
+            this.refresh_terminal_input();
+            assert!(this.begin_find_retirement(40).is_none());
+            assert!(
+                this.find_handoff.needs_request,
+                "F1 busy close left the fence closed until search reopens"
+            );
+            drop(busy);
+            this.terminal.size = None;
+            this.replace_text_in_range(None, "fenced", window, cx);
+            assert!(this.find_handoff.paused, "F1 contention opened the fence");
+            this.refresh_terminal_input();
+            let ticket = this.begin_find_retirement(40).unwrap();
+            let busy = inbox.lock().unwrap();
+            assert!(!this.complete_find_retirement(&ticket, 40, 41, window));
+            assert!(this.find_handoff.paused, "F1 busy ack opened the fence");
+            assert!(
+                this.find_handoff.needs_request,
+                "F1 busy ack left the fence closed until search reopens"
+            );
+            drop(busy);
+            this.refresh_terminal_input();
+            let ticket = this.begin_find_retirement(41).unwrap();
+            assert!(this.complete_find_retirement(&ticket, 41, 42, window));
+            this.terminal.size = None;
+            this.replace_text_in_range(None, "fresh", window, cx);
+        })
+    });
+    assert_eq!(
+        barrier(&view, cx, &receipts, "f1-after"),
+        vec![ClientPaneInputEvent::TextCommit("fresh".into())],
+        "F1 terminal input did not return to the current target exactly once"
+    );
+}
 #[gpui::test]
 fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestAppContext) {
     for report_all in [false, true] {

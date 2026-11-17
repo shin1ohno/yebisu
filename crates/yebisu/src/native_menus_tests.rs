@@ -29,7 +29,7 @@ fn terminal() -> TerminalView {
 fn menu_catalog(terminal: &TerminalView, menus: &NativeMenus) -> Vec<actions::Action> {
     let rows: Vec<_> = actions::catalog(terminal)
         .into_iter()
-        .filter(|row| row.info.command != Command::Find)
+        .filter(in_os_menu)
         .collect();
     assert_eq!(
         rows.len(),

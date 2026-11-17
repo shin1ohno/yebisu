@@ -10,7 +10,12 @@ request captures the final terminal owner: host, board selection, connection
 mailbox, generation, boot, target, input epoch, cancellation revision and window.
 Only a matching native-client pair can acknowledge that revision. A changed
 owner, newer close, focus change, unavailable destination or saturated identity
-keeps input paused. Neither terminal taps nor GPUI key events can release this
+keeps input paused. An owner that is unavailable at request time, or that no
+longer matches when the acknowledgement lands (a reader publication holding the
+inbox, a destination not yet re-synced), re-arms the request: the next render
+requests a fresh retirement for the owner it then finds, so input returns once
+the contention clears. A focus change or native identity mismatch is not
+re-armed. Neither terminal taps nor GPUI key events can release this
 P13 fence. No input is buffered or replayed for recovery.
 
 The SDK is pinned to the unmerged herdr-uikit PR 14 frozen handoff head

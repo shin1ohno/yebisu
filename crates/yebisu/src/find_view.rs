@@ -255,14 +255,12 @@ impl Smoke {
                         .row
                         .saturating_sub(u32::from(pane.inner_rect.height) / 2);
                     let offset = scroll.max_offset_from_bottom.saturating_sub(u64::from(top));
-                    if handle
-                        .request(
-                            &scope.boot,
-                            Method::PaneScroll,
-                            serde_json::json!({"pane_id":scope.pane,"offset_from_bottom":offset}),
-                        )
-                        .is_err()
-                    {
+                    if let Err(error) = handle.request(
+                        &scope.boot,
+                        Method::PaneScroll,
+                        serde_json::json!({"pane_id":scope.pane,"offset_from_bottom":offset}),
+                    ) {
+                        self.observation.record(serde_json::json!({"kind":"p13-search-send-failed", "method":"PaneScroll", "error":format!("{error:?}")}));
                         bar.search.state = State::SendFailed;
                     }
                 }
@@ -290,7 +288,10 @@ impl Smoke {
                     live.search.answer = None;
                     bar.search.sent(id, &params, now);
                 }
-                Err(_) => bar.search.send_failed(),
+                Err(error) => {
+                    self.observation.record(serde_json::json!({"kind":"p13-search-send-failed", "method":"CopySearch", "error":format!("{error:?}")}));
+                    bar.search.send_failed();
+                }
             }
             cx.notify();
         }
