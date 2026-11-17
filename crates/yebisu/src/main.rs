@@ -5,6 +5,7 @@ mod error;
 mod hosts;
 #[cfg(any(target_os = "ios", test))]
 mod keys;
+mod layout;
 #[cfg(any(target_os = "ios", test))]
 mod setup;
 pub use error::{Error, Result};
