@@ -81,6 +81,15 @@
 
 - P11 F19 A/B0 test-only reproducers are authored but unrun (same final attempt3). Reason: the controller admitted only source/static validation; the comparison-to-publication race remains in production. First step: independently review docs/p11-publication-reproducers.md and the task-local bounded pre-modal plan, then obtain an explicit exact-head host-test lease and run both ignored entrypoints with source/build binding. Close condition: actual failure receipts are distinguished from setup errors, an independently admitted remedy satisfies original F19 across all required boundaries, and receiving evidence passes; delete only in that resolving commit. Normal test success excludes the ignored reproducers and cannot close this item.
 
+- SH1-156 native recovery without a tap awaits exact-head device evidence.
+  Reason: at herdr-uikit 99d7928 (held-press ledger, PR 16) the consumer
+  submits native edit retirement from a foreground task and again after a key
+  release; host tests cannot run the UIKit path, and queued OS retarget/no-loss
+  remains unproven. First step: on the owner's device, discard a composition,
+  release every key, type letters without touching the screen, and record
+  whether text resumes and the status line. Close condition: Z1-Z7 have
+  receiving-system evidence, physical IME steps recorded separately; delete this
+  item in the resolving commit.
 - SH1-154 physical Herdr 2 image-paste acceptance awaits the owner. Reason: Simulator and mock peers do not prove input-device, suspension, mobile-network, shell/agent path parsing or storage retention behavior. First step: follow the SH1-154 checklist in docs/device-check.md on the physical iPad and disposable hosts, recording returned paths, bytes, timings and lifecycle observations. Close condition: the consumer PR records device/iPadOS and all available SH1-154 device checks with evidence, identifying any unavailable machine/t7 environment; delete in the resolving commit.
 
 - P15/P11 shared provenance native admission remains pending (attempt 3). Reason: the frozen helper fixes same-UUID code substitution in structural fixtures, but actual Apple ad-hoc Mach-O layout and Cargo metadata/depfile execution are unverified. First step: controller obtains a bounded existing linker/ad-hoc byte pair, independently reviews helper commit 8081481, then leases one exact-head compiler-to-installed run with fresh owned workspace/SDK artifacts. Close condition: independent negatives and actual source-to-installed chain pass, P11 adopts the same helper, and native gates are recorded separately; delete in the resolving commit.

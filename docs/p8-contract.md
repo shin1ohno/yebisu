@@ -79,10 +79,12 @@ selection, waiting frame and paused text input. Paused text is not evidence that
 all hardware keys are refused. A successful semantic key does not hide a still
 active text-input refusal.
 
-Full SH1-156 remains blocked: hardware printable keys can go to UIKit before GPUI
-KeyDown, and new software compositions are still rejected while cancelled. At the
-pinned SDK, insertText/direct text/IME commit share the replacement callback.
-Notification and responder APIs have not established native session retirement.
+Full SH1-156 without a gesture depends on native retirement: hardware printable
+keys can go to UIKit before GPUI KeyDown, and new software compositions are still
+rejected while cancelled. At herdr-uikit 99d7928 the SDK refuses a request only
+while a key is held (held-press ledger, PR 16), not for hardware history. The app
+submits the request from a foreground task, never from inside the touch, button
+or key entry the SDK refuses, and again after a key release.
 Injected old callbacks test the consumer fence; they do not show that physical
 UIKit delivers those callbacks after cancellation. No blanket impossibility or
 mandatory SDK change follows from injection alone. The ignored new-composition

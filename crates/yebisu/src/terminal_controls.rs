@@ -359,6 +359,12 @@ impl Smoke {
             },
             "up",
         );
+        // SH1-156: the SDK refuses a retirement request while a key is held
+        // (held-press ledger, herdr-uikit PR 16) and admits it again after the
+        // release, so a release submits the pending request once more.
+        if self.terminal.input.requires_gesture() && !self.settings_modal && self.find.is_none() {
+            self.request_text_retirement();
+        }
         if self.settings_modal {
             self.actions.consumed.remove(&event.keystroke.key);
             cx.stop_propagation();

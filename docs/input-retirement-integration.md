@@ -1,4 +1,17 @@
-# Current consumer adoption at SDK 1ec8df9
+# Consumer adoption at SDK 99d7928 (held-press ledger)
+
+herdr-uikit PR 16 (in the 99d7928 pin) replaced the sticky hardware history with a
+held-press ledger: `UnsupportedHardwareContext` now means a key is held, and a
+request after the release is admitted (herdr-uikit docs/native-edit-retirement.md
+"Held hardware input"). Requests from a touch, button or key entry are still
+refused, so the app submits from one foreground task (a DispatcherTask the SDK
+admits) and submits again after a key release. The Simulator retirement probe
+that asserted the old hardware refusal was not carried forward. A tap on the
+terminal, Select off and Paste keep the settled P8 resume boundary
+(p8-contract.md). The sections below describe the 1ec8df9 adoption and are kept
+as history where they disagree.
+
+# Previous consumer adoption at SDK 1ec8df9
 
 The sections below headed Historical preserve PR22's original investigation.
 This section supersedes their API/pin/status descriptions, not the acceptance

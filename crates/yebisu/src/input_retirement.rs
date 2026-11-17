@@ -78,7 +78,7 @@ impl Smoke {
     }
 
     #[cfg(not(target_os = "ios"))]
-    fn request_text_retirement(&mut self) {
+    pub(crate) fn request_text_retirement(&mut self) {
         if self.terminal.input.requires_gesture() {
             self.retirement.reason = Some("Text input paused · native retirement unavailable");
         }

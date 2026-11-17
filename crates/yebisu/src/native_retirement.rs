@@ -1,4 +1,5 @@
-//! Limited SDK Edit retirement. Unsupported input remains fenced; never replay.
+//! SDK native edit retirement of a discarded composition, submitted from a
+//! foreground task. Unsupported input remains fenced; never replay.
 use crate::{app::Smoke, input_retirement::Ticket};
 use gpui::{AsyncWindowContext, Context, WeakEntity, Window};
 use herdr_uikit::{
@@ -53,6 +54,38 @@ impl Smoke {
                 self.cancel_text_retirement();
                 let _ = receipt.mark_owner_cancelled();
             }
+            return;
+        }
+        if !self.terminal.input.requires_gesture() {
+            return;
+        }
+        let Some(binding) = self.retirement.native.clone() else {
+            self.retirement.reason = Some("Text input paused · native window unavailable");
+            return;
+        };
+        // Every caller runs inside a native entry: a touch, a button, a key
+        // press or release. The SDK refuses requests there (press frames as
+        // UnsupportedHardwareContext, other entries as UnsupportedNativeEntry;
+        // herdr-uikit 99d7928 src/native_operation/state.rs:167-201) and admits
+        // a main-thread DispatcherTask (src/dispatcher.rs:97-103). Submit from
+        // one foreground task, as docs/native-edit-retirement.md:143-149 asks:
+        // no timer, polling or replay. A later transition submits again.
+        let mut task = binding.clone();
+        binding
+            .context
+            .spawn(async move |_| {
+                let _ = task.update(|this, _, cx| {
+                    this.submit_text_retirement();
+                    cx.notify();
+                });
+            })
+            .detach();
+    }
+
+    fn submit_text_retirement(&mut self) {
+        if let Some(receipt) = self.retirement.receipt.as_ref()
+            && matches!(receipt.status(), Status::Queued { .. } | Status::Preparing)
+        {
             return;
         }
         if !self.terminal.input.requires_gesture() {
@@ -149,8 +182,10 @@ impl Smoke {
                 self.refuse_text_retirement(
                     &ticket,
                     match error {
+                        // Held keys refuse; the key release submits again
+                        // (terminal_key_up).
                         Error::UnsupportedHardwareContext => {
-                            "Text input paused · hardware recovery unsupported by SDK"
+                            "Text input paused · release keys to resume text"
                         }
                         Error::UnsupportedNativeEntry
                         | Error::UnsupportedReentrancy
