@@ -18,6 +18,9 @@ transition_spec.loader.exec_module(transitions)
 scene_spec = importlib.util.spec_from_file_location("sh1_152_scenes", Path(__file__).with_name("sh1_152_scenes.py"))
 scenes = importlib.util.module_from_spec(scene_spec)
 scene_spec.loader.exec_module(scenes)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
@@ -60,7 +63,7 @@ def main():
         for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
             if path.exists():
                 shutil.copyfile(path, directory / path.name)
-    read = lambda path: [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    read = lambda path: live_jsonl.read_records(path) if path.exists() else []
     records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
     peer, core = read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl")
     verdicts, failures = {"xctest": {m: f"{m}]' passed" in result.stdout for m in methods}}, []

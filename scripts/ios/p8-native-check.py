@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Simulator input adapter + real private-peer receipts, not physical IME proof."""
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -7,6 +8,9 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
@@ -92,8 +96,8 @@ def main():
                 shutil.copyfile(export / attachment["exportedFileName"], directory / (stage + ".png"))
     for source, target in [("p0-smoke.jsonl", "app.jsonl"), ("p4-peer.jsonl", "peer.jsonl")]:
         shutil.copyfile(container / "Documents" / source, directory / target)
-    records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]
-    messages = [json.loads(line) for line in (directory / "peer.jsonl").read_text().splitlines()]
+    records = live_jsonl.read_records(directory / "app.jsonl")
+    messages = live_jsonl.read_records(directory / "peer.jsonl")
     validate(records, messages)
     print("NATIVE receiving-system evidence", directory, flush=True)
 

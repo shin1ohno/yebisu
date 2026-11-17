@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("p12_oracle", Path(__file__).with_name("p12-oracle.py"))
 oracle = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(oracle)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def main():
@@ -117,8 +120,8 @@ def main():
             screenshots.update(oracle.screenshot_names(name, data))
     tested.check_returncode()
     oracle.require(ui is not None, "actual XCTest UI event attachment missing")
-    records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]
-    messages = [json.loads(line) for line in (directory / "peer.jsonl").read_text().splitlines()]
+    records = live_jsonl.read_records(directory / "app.jsonl")
+    messages = live_jsonl.read_records(directory / "peer.jsonl")
     verdict = oracle.validate(records, messages, ui, screenshots)
     verdict.update(head=head, device=device, screenshot_count=len(screenshots))
     (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")

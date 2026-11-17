@@ -200,7 +200,10 @@ final class EditMenuQA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
         XCUIDevice.shared.orientation = .portrait
+        // Observation only (E-launch in docs/ci-simulator.md): no retry, no wait or assertion changes.
+        let launchStarted = Date()
         app.launch()
+        print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(launchStarted)))")
         // A Begin marker needs an input destination, which the app records
         // with the first terminal frame that names its pane.
         let ready = waitFor("launch \(name) input destination", seconds: 30) {
