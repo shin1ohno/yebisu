@@ -55,6 +55,40 @@ impl Smoke {
         }
     }
     pub(crate) fn settings_values(&self) -> Values {
+        // Until the selected view received the stored Input options and
+        // Return (`sync_input_settings`), its copy may be a new view's
+        // defaults: every reader (lifecycle, toolbar, sheet, selection strip)
+        // takes the stored values instead (review S2 of 7ffde18).
+        let input = self
+            .settings
+            .as_ref()
+            .filter(|host| host.synced_target.as_ref() != Some(&self.terminal.reconnect.target))
+            .map_or_else(
+                || {
+                    let options = &self.terminal.input.options;
+                    [
+                        options.option_alt,
+                        options.command_control,
+                        options.caret_anchor,
+                        self.terminal.reconnect.automatic,
+                    ]
+                },
+                |host| {
+                    let draft = &host.draft;
+                    [
+                        draft.option_alt,
+                        draft.command_control,
+                        draft.caret_anchor,
+                        draft.reconnect_automatic,
+                    ]
+                },
+            );
+        let [
+            option_alt,
+            command_control,
+            caret_anchor,
+            reconnect_automatic,
+        ] = input;
         Values {
             notifications: self.notifications.policy.clone(),
             theme: self.local_theme,
@@ -64,41 +98,43 @@ impl Smoke {
             board_hidden: self.actions.board_hidden,
             drag_select: self.handoff.drag_select,
             copy_on_select: self.handoff.copy_on_select,
-            option_alt: self.terminal.input.options.option_alt,
-            command_control: self.terminal.input.options.command_control,
-            caret_anchor: self.terminal.input.options.caret_anchor,
-            reconnect_automatic: self.terminal.reconnect.automatic,
+            option_alt,
+            command_control,
+            caret_anchor,
+            reconnect_automatic,
         }
     }
     /// The Input options and Return read by the key encoder, the toolbar
-    /// and reconnect (SH1-157 L1): the same fields the sheet edits. They are
-    /// app settings, but every terminal view carries a copy, so the hidden
-    /// hosts' views (which reconnect on return, reconnect.rs) take them too.
+    /// and reconnect (SH1-157 L1) in the selected view: the same fields the
+    /// sheet edits. Hidden views take them in `sync_input_settings`.
     fn adopt_input_settings(&mut self, values: &Values) {
-        let terminals = std::iter::once(&mut self.terminal).chain(self.board.hidden.values_mut());
-        for terminal in terminals {
-            let options = &mut terminal.input.options;
-            options.option_alt = values.option_alt;
-            options.command_control = values.command_control;
-            options.caret_anchor = values.caret_anchor;
-            terminal.reconnect.automatic = values.reconnect_automatic;
-        }
+        adopt_view_settings(&mut self.terminal, values);
     }
-    /// A host switch (board.rs `select_host`) swaps in another terminal view
-    /// with its own, possibly default, copy of the Input options and Return.
-    /// Before anything reads the live values back into the draft (the next
-    /// poll) or encodes a key (`refresh_terminal_input`), give the newly
-    /// selected view the stored values. Runs once per selected host change.
+    /// The Input options and Return are app settings, but every terminal
+    /// view carries a copy, and views appear with defaults: a host switch
+    /// (board.rs `select_host`) swaps in another view, and connecting creates
+    /// hidden views (terminal_view.rs `start_host_connection_inner`).
+    ///
+    /// Hidden views are never edited by the user, so they take the stored
+    /// values on every call; each decides its own reconnect on return
+    /// (reconnect.rs). The selected view takes them once per host change,
+    /// because the toolbar and QA edit it and the next poll reads it back.
+    /// Called before the live values are read (`poll_settings`,
+    /// `settings_lifecycle`) and before a key is encoded
+    /// (`refresh_terminal_input`).
     pub(crate) fn sync_input_settings(&mut self) {
         let Some(host) = &mut self.settings else {
             return;
         };
+        let values = host.draft.clone();
+        for terminal in self.board.hidden.values_mut() {
+            adopt_view_settings(terminal, &values);
+        }
         let target = &self.terminal.reconnect.target;
         if host.synced_target.as_ref() == Some(target) {
             return;
         }
         host.synced_target = Some(target.clone());
-        let values = host.draft.clone();
         self.adopt_input_settings(&values);
     }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
@@ -135,6 +171,8 @@ impl Smoke {
         }
     }
     pub(crate) fn settings_lifecycle(&mut self, phase: gpui::AppLifecyclePhase) {
+        // reconnect.rs calls this first, before it reads every view's Return.
+        self.sync_input_settings();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if phase == gpui::AppLifecyclePhase::Inactive
             && std::env::var_os("YEBISU_SETTINGS_QA").is_some()
@@ -272,4 +310,12 @@ impl Smoke {
         }
         cx.notify();
     }
+}
+
+fn adopt_view_settings(terminal: &mut crate::terminal_view::TerminalView, values: &Values) {
+    let options = &mut terminal.input.options;
+    options.option_alt = values.option_alt;
+    options.command_control = values.command_control;
+    options.caret_anchor = values.caret_anchor;
+    terminal.reconnect.automatic = values.reconnect_automatic;
 }

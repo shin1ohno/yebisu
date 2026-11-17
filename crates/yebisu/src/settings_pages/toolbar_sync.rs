@@ -20,6 +20,14 @@ impl Smoke {
         setting: ToolbarSetting,
         cx: &mut Context<Self>,
     ) {
+        // The legacy Return toggle (terminal_view.rs) flips the selected
+        // view before calling here; if that view had not received the stored
+        // values yet, keep the flip and give it the stored rest.
+        let flipped_return = self.terminal.reconnect.automatic;
+        self.sync_input_settings();
+        if setting == ToolbarSetting::ReturnPolicy {
+            self.terminal.reconnect.automatic = flipped_return;
+        }
         let values = self.settings_values();
         let Some(host) = &mut self.settings else {
             return;
