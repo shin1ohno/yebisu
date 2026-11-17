@@ -174,6 +174,13 @@ impl Smoke {
         if self.find.is_some() {
             return;
         }
+        // Every KeyDown of the press that closed search, held or not, stays
+        // with the UI until that press ends (find/closing_press.rs).
+        if self.closing_press_owns(&event.keystroke.key) {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         if self.find_handoff.paused {
             if self.terminal_focus.is_focused(window) {
                 cx.stop_propagation();
@@ -305,6 +312,10 @@ impl Smoke {
             },
             "up",
         );
+        if self.end_closing_press(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
         if self.settings_modal {
             self.actions.consumed.remove(&event.keystroke.key);
             cx.stop_propagation();

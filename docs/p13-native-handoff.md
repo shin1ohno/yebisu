@@ -35,10 +35,23 @@ from a timer, clear cancellation, replay input or claim keyboard-close recovery.
 Whole-operation-tail support remains an SDK-owned dependency. Queued OS input
 retarget/loss and physical IME/hardware behavior remain separate obligations.
 
+The Escape press that closes search stays with the UI until it ends
+(`find/closing_press.rs`). The replacement native view carries no press or
+repeat state and a `KeyDownEvent` has no press identity (the SDK press ledger
+is crate-private; `native_hardware_hold` exposes counts only), so a KeyDown of
+the still-held press can arrive with `is_held == false`. On device (step 18 of
+the 2026-11-17 check) one did, and reached zsh. Every KeyDown and the KeyUp of
+that key are now swallowed until a KeyUp of it, or until the window's press
+ledger holds nothing (iOS, polled every 33 ms). A release the ledger never sees
+costs at most the next press of that key; no part reaches the terminal. The
+keyboard-focus status samples the live responder, since the receipt records it
+only once, when the view is replaced.
+
 Under an exclusive Mac lease, first run exact-head `just check`, `just lint-ios`
 and `just test`, preserving the prior macro-import repair. Then run
 `just guarded python3 scripts/ios/p13-mutate.py <new-evidence-dir> --expected-head <head>`.
-This requires each named D1–D6 host assertion to fail for its own reason and pass
+This requires each named D1–D6 host assertion, and the device-D1 closing-press
+assertion, to fail for its own reason and pass
 after restoration; compilation failure cannot count. D6's host mutation does not
 replace a real UIKit document-query mutation.
 

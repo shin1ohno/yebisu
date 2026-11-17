@@ -17,14 +17,19 @@ use std::{
     sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
-fn key(name: &'static str, held: bool) -> KeyDownEvent {
+pub(super) fn key(name: &'static str, held: bool) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke::parse(name).unwrap_or_else(|e| panic!("key: {e}")),
         is_held: held,
         prefer_character_input: false,
     }
 }
-fn install(view: &Entity<Smoke>, cx: &mut VisualTestContext, host: &str, client: Client) {
+pub(super) fn install(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    host: &str,
+    client: Client,
+) {
     view.update(cx, |this, _| {
         this.select_host(host);
         let generation = this.terminal.link.reset();
@@ -42,7 +47,7 @@ fn install(view: &Entity<Smoke>, cx: &mut VisualTestContext, host: &str, client:
         std::thread::sleep(Duration::from_millis(5));
     }
 }
-fn open(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Entity<Field> {
+pub(super) fn open(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Entity<Field> {
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.open_find(window, cx);
@@ -83,7 +88,7 @@ fn terminal(receipts: &Receiver<ClientMessage>) -> Vec<ClientPaneInputEvent> {
         })
         .collect()
 }
-fn barrier(
+pub(super) fn barrier(
     view: &Entity<Smoke>,
     cx: &mut VisualTestContext,
     receipts: &Receiver<ClientMessage>,

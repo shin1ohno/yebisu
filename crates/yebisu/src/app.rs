@@ -91,6 +91,8 @@ impl Smoke {
                             cx.notify();
                         }
                         this.poll_settings(cx);
+                        #[cfg(target_os = "ios")]
+                        this.poll_closing_press();
                         this.poll_find(cx);
                         this.poll_terminal(cx);
                         this.collect_notifications(cx);
