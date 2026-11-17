@@ -60,40 +60,32 @@ impl Smoke {
         })
     }
 
-    /// Render the active refusal reason, not a historical composition event.
+    /// The status sits in the toolbar's wrapping row (terminal_view.rs): a
+    /// longer text moves onto a second row and shrinks the terminal, and that
+    /// resize clears a selection. PR 40's "Selection active · press a terminal
+    /// key or turn Select off to type" did so the moment a selection began
+    /// (SH1-152 Simulator check, CI run 44048410658: 407 to 373 px). Keep the
+    /// P13 texts; an active discard fence shows its reason, not a historical
+    /// composition event.
     pub(crate) fn terminal_status(&self) -> String {
-        if !self.terminal.live.connected {
-            return if self.terminal.live.status.is_empty() {
-                "Connecting… · input paused".into()
-            } else {
-                self.terminal.live.status.clone()
-            };
-        }
         if self.terminal.navigating.is_some() {
-            return "Navigating… · wait for the terminal, then type again".into();
+            return "Navigating… · input paused".into();
         }
         if let Some(reason) = self.find_keyboard_status() {
             return reason.into();
         }
-        if self.actions.palette {
-            return "Commands open · close Commands to type".into();
+        if self.terminal.live.connected && self.terminal.input.requires_gesture() {
+            if let Some(reason) = self.retirement.reason {
+                return reason.into();
+            }
+            #[cfg(target_os = "ios")]
+            if let Some(status) = self.native_retirement_status() {
+                return status.into();
+            }
+            return "Text input paused · tap terminal to type".into();
         }
-        if self.handoff.blocks_input() {
-            return "Selection active · press a terminal key or turn Select off to type".into();
-        }
-        if self.terminal.input.destination.is_none() || !self.terminal.input.ready {
-            return "Waiting for terminal frame · input paused".into();
-        }
-        if self.terminal.input.requires_gesture() {
-            return self
-                .retirement
-                .reason
-                .unwrap_or("Text input paused · tap terminal to type")
-                .into();
-        }
-        #[cfg(target_os = "ios")]
-        if let Some(status) = self.native_retirement_status() {
-            return status.into();
+        if self.terminal.live.status.is_empty() {
+            return "Connecting…".into();
         }
         self.terminal.live.status.clone()
     }

@@ -85,8 +85,10 @@ highlight**. The latter retains a copyable, passive highlight until the frame or
 destination changes; it does not block keys or weaken the IME fence. New selection
 begins an active input block again. This preference is session-local.
 
-Status distinguishes disconnected/Detached, command barrier, Commands palette,
-selection, waiting frame and paused text input. Paused text is not evidence that
+Status keeps the P13 texts (the line sits in the toolbar's wrapping row, and a
+longer text shrank the terminal and cleared a selection in the SH1-152 Simulator
+check, CI run 44048410658); only an active discard fence shows its reason, for
+example "Text input paused · tap terminal to type". Paused text is not evidence that
 all hardware keys are refused. A successful semantic key does not hide a still
 active text-input refusal.
 

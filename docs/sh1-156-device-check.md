@@ -54,8 +54,8 @@ never put the password in a command or send it to a worker.
    and Japanese layouts. Record GPUI focus, native first responder, select mode,
    cancellation state, connection generation and peer receipt when tracing is
    available. A passing Ctrl-A check alone does not pass steps 1-4.
-9. While selecting, expect “Selection active”. During a command, expect
-   “Navigating…”. After Detach, expect “Detached · tap Reconnect to reattach”.
+9. While selecting, the status keeps its previous text (Select: On shows the
+   selection). During a command, expect “Navigating…”. After Detach, expect “Detached · tap Reconnect to reattach”.
    After a semantic key resumes, “Text input paused” may remain because the IME
    fence is still active; report this as unresolved full recovery. A healthy new
    session with no refusal must not retain a “tap terminal” warning.

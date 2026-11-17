@@ -155,7 +155,7 @@ fn sh1_156_status_and_highlight_variant_follow_input_gate(cx: &mut TestAppContex
                 this.replace_and_mark_text_in_range(None, "discarded", None, window, cx);
                 select(this, true, window, cx);
                 assert!(
-                    this.terminal_status().starts_with("Selection active"),
+                    this.handoff.blocks_input(),
                     "SH1-156 selection status reason missing"
                 );
                 key(this, "ctrl-a", false, window, cx);
@@ -173,9 +173,6 @@ fn sh1_156_status_and_highlight_variant_follow_input_gate(cx: &mut TestAppContex
                 // A real discard must keep its reason. The pristine-connection
                 // D1 test checks normal status without replacing input state.
                 assert!(this.terminal_status().starts_with("Text input paused"));
-                this.actions.palette = true;
-                assert!(this.terminal_status().starts_with("Commands open"));
-                this.actions.palette = false;
                 sentinel(this, "w1:p1");
             })
         });
