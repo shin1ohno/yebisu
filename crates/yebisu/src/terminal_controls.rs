@@ -60,6 +60,14 @@ impl Smoke {
         })
     }
 
+    /// Ask UIKit for the terminal's text responder, as a tap on the terminal
+    /// does; with a hardware keyboard no software keyboard appears. Recorded
+    /// so host tests and the Simulator checks see the request.
+    pub(crate) fn request_terminal_keyboard(&self, window: &Window, reason: &'static str) {
+        window.request_virtual_keyboard();
+        self.observation
+            .record(serde_json::json!({"kind": "keyboard-request", "reason": reason}));
+    }
     /// The status sits in the toolbar's wrapping row (terminal_view.rs): a
     /// longer text moves onto a second row and shrinks the terminal, and that
     /// resize clears a selection. PR 40's "Selection active · press a terminal

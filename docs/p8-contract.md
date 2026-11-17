@@ -78,6 +78,12 @@ the key, so the first letter after the sheet closes arrives. A held key from the
 sheet does not release it, and a real discard fence is unchanged (SH1-156 review
 F1, `sh1_156_first_letter_after_settings_sheet_reaches_the_terminal`).
 
+Closing Settings onto the terminal also asks UIKit for the text responder, as a
+tap does, and asks the SDK to retire the sheet-time text session. On the owner's
+device (153c583, R7) keys typed after Settings closed were lost until a tap; the
+retirement releases the sheet's fence for a software keyboard, which sends no
+key press (`sh1_156_settings_close_returns_keyboard_focus_to_the_terminal`).
+
 A token-bearing native Edit command on an unfocused terminal is refused, as on
 the P12 route: `native_menu_action` dismisses the menu ticket when the terminal
 lost focus (`edit_menu_check`), so no edit runs (SH1-156 review F2,

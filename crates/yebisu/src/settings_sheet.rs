@@ -83,6 +83,15 @@ impl Smoke {
         self.refresh_terminal_input();
         if self.terminal.open && self.terminal.input.ready {
             self.terminal_focus.focus(window, cx);
+            // GPUI focus alone did not give the native text responder back:
+            // after Settings closed, keys typed without touching the terminal
+            // were lost until a tap (owner device check of 153c583, R7/R8).
+            // Ask for it as a tap does (handoff_view.rs).
+            self.request_terminal_keyboard(window, "settings-close");
+            // The sheet's fence waits for a fresh key press, which a software
+            // keyboard never sends; native retirement releases it without a
+            // tap (TerminalInput::fence, native_retirement.rs).
+            self.request_text_retirement();
         } else {
             self.focus.focus(window, cx);
         }

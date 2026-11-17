@@ -26,7 +26,8 @@ Run these first; they repeat the P13 owner check steps 7-13 and 21-25.
 XCTest `testSH1156PointerClickAfterDiscard` leaves a discarded composition with a
 Simulator-only fixture (`sh1_156_qa.rs`: the setMarkedText adapter, then the
 production discard), clicks the terminal row with `XCUICoordinate.click`, types,
-turns Select on and off with the button, and types again. The check requires
+turns Select on and off with the button, and types again; then it opens and
+closes Settings and types without touching the terminal (R7). The check requires
 exactly the typed letters in the private peer's receipts. It shows UIKit's
 Simulator pointer and keyboard delivery, not a physical trackpad, hardware
 keyboard or IME; steps 1-3 above still need the device.

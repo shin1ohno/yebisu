@@ -477,7 +477,8 @@ final class SmokeQA: XCTestCase {
 
     // SH1-156: the owner's device failure, driven with the pointer. After a
     // discarded composition, a trackpad click on the terminal must let letters
-    // reach the terminal, and so must Select on then off. sh1-156-check.py
+    // reach the terminal, and so must Select on then off, and closing Settings
+    // without touching the terminal (R7). sh1-156-check.py
     // asserts the private peer's receipts; this test only drives UIKit.
     func testSH1156PointerClickAfterDiscard() throws {
         continueAfterFailure = false
@@ -511,6 +512,14 @@ final class SmokeQA: XCTestCase {
         sleep(2)
         save("sh1-156-typed")
         XCTAssertFalse(textVisible("Select: On"), "Select stayed on")
+        // R7: after Settings closes, typing without touching the terminal.
+        try tapText("Settings", in: app)
+        sleep(2)
+        try tapText("Close", in: app)
+        sleep(2)
+        app.typeText("settings")
+        sleep(2)
+        save("sh1-156-after-settings")
         XCTAssertEqual(app.state, .runningForeground)
     }
 

@@ -9,8 +9,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST = "testSH1156PointerClickAfterDiscard"
-# Typed by the XCTest: after the click, then after Select on and off.
-EXPECTED = "clicked" + "released"
+# Typed by the XCTest: after the click, after Select on and off, and after
+# Settings closed with no touch on the terminal (R7).
+EXPECTED = "clicked" + "released" + "settings"
 DISCARDED = "てすと"
 
 
@@ -45,12 +46,15 @@ def validate(records, messages):
         raise ValueError(f"the fixture did not leave a discarded composition: {fixture}")
     if fixture.get("drag_select") is not True or fixture.get("select_mode") is not False:
         raise ValueError(f"expected Start: Drag with Select off before the click: {fixture}")
+    reasons = [r.get("reason") for r in records if r.get("kind") == "keyboard-request"]
+    if "settings-close" not in reasons:
+        raise ValueError(f"closing Settings did not ask for the keyboard: {reasons}")
     text = typed(messages)
     if DISCARDED in text:
         raise ValueError(f"the discarded composition reached the terminal: {text!r}")
     if text != EXPECTED:
-        raise ValueError(f"letters after the click and Select off: expected {EXPECTED!r}, received {text!r}")
-    print("SH1-156 PASS: letters after a pointer click and after Select on/off reached the peer", flush=True)
+        raise ValueError(f"letters after the click, Select off and Settings: expected {EXPECTED!r}, received {text!r}")
+    print("SH1-156 PASS: letters after a pointer click, Select on/off and Settings close reached the peer", flush=True)
 
 
 def main():

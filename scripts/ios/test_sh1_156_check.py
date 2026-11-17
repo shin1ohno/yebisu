@@ -13,8 +13,9 @@ def commits(text):
 class SH1156OracleTests(unittest.TestCase):
     def fixture(self):
         records = [{"kind": "sh1-156-discarded", "marked": "てすと", "fenced": True,
-                    "drag_select": True, "select_mode": False}]
-        return records, [commits("clicked"), commits("released")]
+                    "drag_select": True, "select_mode": False},
+                   {"kind": "keyboard-request", "reason": "settings-close"}]
+        return records, [commits("clicked"), commits("released"), commits("settings")]
 
     def test_expected(self):
         check.validate(*self.fixture())
@@ -22,7 +23,7 @@ class SH1156OracleTests(unittest.TestCase):
     def test_plain_keys_count_as_letters(self):
         records, _ = self.fixture()
         keys = [{"Key": {"code": {"Char": c}, "modifiers": 0, "kind": kind}}
-                for c in "clickedreleased" for kind in ["Press", "Release"]]
+                for c in "clickedreleasedsettings" for kind in ["Press", "Release"]]
         check.validate(records, [{"ClientShellPaneInput": {"pane_id": "w1:p1", "events": keys}}])
 
     def test_letters_dropped_after_click(self):
@@ -35,6 +36,17 @@ class SH1156OracleTests(unittest.TestCase):
         records, messages = self.fixture()
         with self.assertRaisesRegex(ValueError, "letters after the click"):
             check.validate(records, messages[:1])
+
+    def test_letters_dropped_after_settings(self):
+        # R7: after Settings closed, letters typed without a touch were lost.
+        records, messages = self.fixture()
+        with self.assertRaisesRegex(ValueError, "letters after the click"):
+            check.validate(records, messages[:2])
+
+    def test_settings_close_must_request_keyboard(self):
+        records, messages = self.fixture()
+        with self.assertRaisesRegex(ValueError, "did not ask for the keyboard"):
+            check.validate(records[:1], messages)
 
     def test_discarded_commit_leak(self):
         records, messages = self.fixture()

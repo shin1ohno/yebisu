@@ -365,3 +365,35 @@ fn sh1_156_letters_after_discard_resume_on_retirement_without_tap(cx: &mut TestA
     );
     view.update(cx, |this, _| this.terminal.link.pause());
 }
+
+/// R7 (owner device check of 153c583): after Settings closed, keys typed
+/// without touching the terminal were lost until a tap, which asks UIKit for
+/// the text responder. Closing the sheet now asks for it too, and the first
+/// letter then reaches the terminal. The host sees the request, not UIKit's
+/// responder change.
+#[gpui::test]
+fn sh1_156_settings_close_returns_keyboard_focus_to_the_terminal(cx: &mut TestAppContext) {
+    let (view, cx, wire) = connected(cx);
+    let (records, recorded) = mpsc::sync_channel(256);
+    view.update(cx, |this, _| {
+        this.observation = crate::observation::Observation::injected(records);
+    });
+    settings_sheet_round_trip(&view, cx);
+    let requests: Vec<String> = recorded
+        .try_iter()
+        .filter(|record| record["kind"] == "keyboard-request")
+        .map(|record| record["reason"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        requests,
+        ["settings-close"],
+        "closing Settings did not ask for the keyboard"
+    );
+    typed(&view, cx, "k");
+    assert_eq!(
+        text(&received(&view, cx, &wire)),
+        ["k"],
+        "letter after Settings"
+    );
+    view.update(cx, |this, _| this.terminal.link.pause());
+}
