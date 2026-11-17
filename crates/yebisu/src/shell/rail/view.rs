@@ -136,6 +136,8 @@ impl Smoke {
         } else {
             HerdrKind::Herdr1
         };
+        let expand_reason =
+            super::expand_unavailable(self.sidebar_user_mode(), self.shell.frame.sidebar_collapsed);
         let new_space = new_space_unavailable(kind, self.terminal.live.connected).is_none();
         div()
             .id("rail")
@@ -162,13 +164,16 @@ impl Smoke {
                     .items_center()
                     .gap(px(ITEM_GAP))
                     .child(
-                        footer_button("rail-new-space", "New space", new_space).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                if let Err(e) = this.run_action(Command::Workspace) {
-                                    this.terminal.live.status = e.to_string();
-                                }
-                                cx.notify();
-                            }),
+                        footer_button("rail-new-space", "New space", new_space).when(
+                            new_space,
+                            |button| {
+                                button.on_click(cx.listener(|this, _, _, cx| {
+                                    if let Err(e) = this.run_action(Command::Workspace) {
+                                        this.terminal.live.status = e.to_string();
+                                    }
+                                    cx.notify();
+                                }))
+                            },
                         ),
                     )
                     .child(
@@ -183,12 +188,17 @@ impl Smoke {
                         cx.listener(|this, _, window, cx| this.begin_settings_modal(window, cx)),
                     ))
                     .child(
-                        footer_button("rail-expand", "»", true)
-                            .aria_label("Expand sidebar")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_sidebar();
-                                cx.notify();
-                            })),
+                        footer_button("rail-expand", "»", expand_reason.is_none())
+                            .aria_label(match expand_reason {
+                                Some(reason) => format!("Expand sidebar, {reason}"),
+                                None => "Expand sidebar".to_owned(),
+                            })
+                            .when(expand_reason.is_none(), |button| {
+                                button.on_click(cx.listener(|this, _, _, cx| {
+                                    this.expand_sidebar();
+                                    cx.notify();
+                                }))
+                            }),
                     ),
             )
             .into_any_element()

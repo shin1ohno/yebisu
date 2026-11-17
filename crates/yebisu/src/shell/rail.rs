@@ -158,12 +158,38 @@ pub(crate) fn rail_sections(available: f32, content: f32) -> RailSections {
     }
 }
 
+/// Why the rail's expand button is off: the user wants 300 but the window is
+/// too narrow for it, so expanding would change nothing (S1 of review 1).
+pub(crate) fn expand_unavailable(user: SidebarMode, collapsed: bool) -> Option<&'static str> {
+    (user == SidebarMode::Full && collapsed).then_some("Window too narrow")
+}
+
 impl Smoke {
+    /// The window, not the user, holds the sidebar at 72: the user's choice is
+    /// 300 and the last frame was collapsed anyway.
+    pub(crate) fn sidebar_forced_rail(&self) -> bool {
+        expand_unavailable(self.sidebar_user_mode(), self.shell.frame.sidebar_collapsed).is_some()
+    }
+
     /// `Command::ToggleSidebar` (stays a local command, PR 44's oracle).
-    /// Command-B and the sidebar button switch between 300 and the rail by
-    /// flipping the saved `board_hidden` choice.
+    /// Command-B and the header button switch between 300 and the rail by
+    /// flipping the saved `board_hidden` choice. While the window forces the
+    /// rail nothing can change, so the saved choice is left alone.
     pub(crate) fn toggle_sidebar(&mut self) {
+        if self.sidebar_forced_rail() {
+            return;
+        }
         self.actions.board_hidden ^= true;
+    }
+
+    /// The rail's expand button: sets the choice to 300, never flips it.
+    /// Returns false while the window forces the rail.
+    pub(crate) fn expand_sidebar(&mut self) -> bool {
+        if self.sidebar_forced_rail() {
+            return false;
+        }
+        self.actions.board_hidden = false;
+        true
     }
 
     /// The user's saved choice of mode; the window may still force the rail.
