@@ -271,6 +271,10 @@ jobs:
         run: just lint-ios
       - name: Test
         run: just test
+      # Every text SmokeQA taps or reads off the screen is tied to the app source
+      # that paints it (S-12), so a renamed control fails here, not on a Simulator.
+      - name: SmokeQA labels
+        run: python3 scripts/ios/smokeqa-labels-check.py
       - name: Native menu source mutations
         run: python3 scripts/ios/p12-mutations.py
       - name: Upload mutation evidence
