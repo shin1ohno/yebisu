@@ -3,6 +3,7 @@ use crate::{
     app::Smoke,
     find::{
         Search, State, adapter,
+        closing_press::ClosingPress,
         field::{Event, Field},
     },
     live::Live,
@@ -107,6 +108,8 @@ impl Smoke {
                 Event::Close => {
                     // The closing press belongs to the UI through its release.
                     this.actions.consumed.insert("escape".into());
+                    this.find_handoff.closing_press =
+                        Some(ClosingPress::new("escape", window.window_handle()));
                     this.close_find(window, cx);
                     return;
                 }
@@ -489,3 +492,7 @@ mod retired_forward_tests;
 #[cfg(test)]
 #[path = "find/settle_tests.rs"]
 mod settle_tests;
+
+#[cfg(test)]
+#[path = "find/closing_press_tests.rs"]
+mod closing_press_tests;

@@ -21,6 +21,7 @@ CASES = [
     ("D4-commandX", "crates/yebisu/src/find/field.rs", '"x" => self.cut(window, cx),', '"x" => { self.copy(cx); self.replace(None, "", false, None, window, cx); }', "d4_command_x_preserves_unselected_mark_then_escape", "D4 Cut deleted unselected marked text"),
     ("D5", "crates/yebisu/src/terminal_input.rs", 'self.composition = Input::default();\n        self.cancelled = false;\n        true', 'self.composition = Input::default();\n        self.cancelled = true;\n        true', "d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down", "D5 fresh native mark rejected"),
     ("D6", "crates/yebisu/src/find/field.rs", 'Some(self.input.text.encode_utf16().count())', 'Some(self.input.selected.end.max(self.input.marked.as_ref().map_or(0, |r| r.end)))', "d6_document_length_includes_suffix_after_caret_and_partial_emoji_cut", "D6 document end omitted suffix after caret"),
+    ("D1-device-closingPress", "crates/yebisu/src/terminal_controls.rs", "if self.closing_press_owns(&event.keystroke.key) {", "if self.closing_press_owns(&event.keystroke.key) && false {", "p13_device_d1_closing_escape_press_never_reaches_terminal_in_both_report_modes", "D1 closing Escape press reached terminal input"),
 ]
 
 

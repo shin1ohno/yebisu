@@ -1,6 +1,7 @@
 //! Connection-scoped terminal search. Modeled on the pinned fork's find.rs.
 //! The caller serializes send/registration with the connection reader mailbox.
 pub(crate) mod adapter;
+pub(crate) mod closing_press;
 pub(crate) mod field;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "p13-native-probe"))]
 mod native_probe;

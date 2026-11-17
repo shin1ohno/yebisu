@@ -31,6 +31,8 @@ pub(crate) struct Handoff {
     pub paused: bool,
     pub needs_request: bool,
     pub reason: Option<&'static str>,
+    /// The Escape press that closed search, owned by the UI until it ends.
+    pub closing_press: Option<super::closing_press::ClosingPress>,
     /// Counts `Smoke` renders. GPUI takes the platform input handler at the
     /// start of every `Window::draw` and installs only handlers registered in
     /// that frame (gpui-pre 0.3.12 window.rs:3685-3727); the root view renders
@@ -46,6 +48,9 @@ pub(crate) struct Handoff {
     pending: Option<Ticket>,
     #[cfg(target_os = "ios")]
     pub receipt: Option<herdr_uikit::TextInputRetirement>,
+    /// The window `receipt` belongs to, for sampling its live responder.
+    #[cfg(target_os = "ios")]
+    receipt_window: Option<gpui::AnyWindowHandle>,
 }
 impl Smoke {
     pub(crate) fn find_keyboard_status(&self) -> Option<&'static str> {
@@ -58,10 +63,21 @@ impl Smoke {
             return match receipt.status() {
                 Status::Pending => Some("Text input paused · keyboard replacement pending"),
                 Status::WindowClosed => Some("Text input paused · keyboard window closed"),
+                // The receipt samples the responder once, when the view is
+                // replaced (herdr-uikit 99d7928 text_input/retirement.rs:91-95).
+                // Read the live state so a view that acquires the responder
+                // later (after a scene resize) no longer shows this status.
                 Status::Replaced {
                     first_responder: false,
                     responder_requested: true,
-                } => Some("Text input paused · keyboard focus unavailable"),
+                } if !self
+                    .find_handoff
+                    .receipt_window
+                    .and_then(herdr_uikit::text_input_session_state)
+                    .is_some_and(|state| state.first_responder) =>
+                {
+                    Some("Text input paused · keyboard focus unavailable")
+                }
                 Status::Replaced { .. } => None,
             };
         }
@@ -231,7 +247,10 @@ impl Smoke {
             );
         });
         match result {
-            Ok(receipt) => self.find_handoff.receipt = Some(receipt),
+            Ok(receipt) => {
+                self.find_handoff.receipt = Some(receipt);
+                self.find_handoff.receipt_window = Some(handle);
+            }
             Err(error) => {
                 self.find_handoff.pending = None;
                 // A close from inside a UIKit callback (the field's Escape) is
