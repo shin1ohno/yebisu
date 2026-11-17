@@ -201,7 +201,7 @@ impl Smoke {
         }
         // Every KeyDown of the press that closed search, held or not, stays
         // with the UI until that press ends (find/closing_press.rs).
-        if self.closing_press_owns(&event.keystroke.key) {
+        if self.closing_press_owns(event) {
             cx.stop_propagation();
             window.prevent_default();
             return;

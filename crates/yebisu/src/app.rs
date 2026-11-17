@@ -92,8 +92,6 @@ impl Smoke {
                             cx.notify();
                         }
                         this.poll_settings(cx);
-                        #[cfg(target_os = "ios")]
-                        this.poll_closing_press();
                         this.poll_find(cx);
                         this.poll_terminal(cx);
                         this.collect_notifications(cx);
@@ -164,6 +162,7 @@ impl Render for Smoke {
             self.edit_menu.activation =
                 Some(cx.observe_window_activation(window, |this, window, _| {
                     if !window.is_window_active() {
+                        this.drop_closing_press();
                         this.dismiss_edit_menu(window);
                     }
                 }));
