@@ -4,11 +4,12 @@ use gpui::{AnyElement, Context, div, prelude::*, rgb};
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::collections::BTreeMap;
 
+/// The board keeps one height; the Dense / Roomy toggle is gone (q7).
+pub(crate) const BOARD_HEIGHT: f32 = 180.;
 #[derive(Default)]
 pub(crate) struct Board {
     pub hidden: BTreeMap<String, TerminalView>,
     pub selection: u64,
-    pub roomy: bool,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Target {
@@ -143,7 +144,7 @@ impl Smoke {
     pub(crate) fn select_host(&mut self, host: &str) {
         self.input_transition(|this| this.select_host_inner(host))
     }
-    fn select_host_inner(&mut self, host: &str) {
+    pub(crate) fn select_host_inner(&mut self, host: &str) {
         if !self.terminal.open {
             let marked = if self.smoke_mode {
                 self.input.marked.is_some()
@@ -217,7 +218,7 @@ impl Smoke {
     ) -> crate::Result<()> {
         self.input_transition(|this| this.navigate_board_inner(host, target, boot, generation))
     }
-    fn navigate_board_inner(
+    pub(crate) fn navigate_board_inner(
         &mut self,
         host: &str,
         target: Target,
@@ -284,24 +285,15 @@ impl Smoke {
             .w_full()
             .child(
                 div()
-                    .id("board-density")
                     .px_4()
                     .py_2()
                     .bg(rgb(0x434c5e))
-                    .child(if self.board.roomy {
-                        "Board: Roomy"
-                    } else {
-                        "Board: Dense"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.board.roomy ^= true;
-                        cx.notify();
-                    })),
+                    .child(crate::shell::sidebar::view::HOSTS_HEADING),
             )
             .child(
                 div()
                     .id("status-board")
-                    .h(gpui::px(if self.board.roomy { 260. } else { 180. }))
+                    .h(gpui::px(BOARD_HEIGHT))
                     .overflow_y_scroll()
                     .children(hosts.into_iter().enumerate().map(
                         |(i, (host, live, generation))| {
@@ -335,7 +327,7 @@ impl Smoke {
                                     let (label, color) = status(row.status);
                                     div()
                                         .id(("board-row", i * 65536 + j))
-                                        .py(gpui::px(if self.board.roomy { 12. } else { 4. }))
+                                        .py(gpui::px(4.))
                                         .text_color(rgb(color))
                                         .child(format!("● {} · {}", row.label, label))
                                         .on_click(cx.listener(move |this, _, window, cx| {

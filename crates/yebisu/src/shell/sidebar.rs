@@ -1,10 +1,109 @@
 //! L3: hosts > spaces > AGENTS. Owner: L3.
+//!
+//! This file holds the contract items (docs/layout-contracts.md section 5)
+//! and the receive-order memory. `model` builds host, space and agent rows
+//! from daemon snapshots; `target` resolves notification targets by
+//! identity; `view` draws the rows and routes taps.
 use super::{HerdrKind, sidebar_status::SidebarStatus};
-use crate::app::Smoke;
-use gpui::{AnyElement, Context};
+use std::{cmp::Ordering, collections::BTreeMap};
 
+pub(crate) mod model;
+pub(crate) mod target;
+pub(crate) mod view;
+
+/// AGENTS row height in points (SidebarSpec 5).
+pub(crate) const AGENT_ROW_HEIGHT: f32 = 44.;
+/// Host row height in points (SidebarSpec 2).
+pub(crate) const HOST_ROW_HEIGHT: f32 = 64.;
+/// Space row height in points (SidebarSpec 3).
+pub(crate) const SPACE_ROW_HEIGHT: f32 = 56.;
+
+/// Sidebar memory that outlives one frame: the saved Hosts order and the
+/// order in which this iPad received each agent's status changes.
 #[derive(Debug, Default)]
-pub(crate) struct SidebarState {}
+pub(crate) struct SidebarState {
+    /// Saved Hosts order (L7's Hosts list); hosts not in it follow by name.
+    pub(crate) host_order: Vec<String>,
+    received: BTreeMap<AgentIdentity, Seen>,
+    /// Boot of the batch already taken for each connection.
+    batches: BTreeMap<(String, HerdrKind), String>,
+    counter: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Seen {
+    status: SidebarStatus,
+    seq: u64,
+    stamp: u64,
+}
+
+/// One agent as a daemon reported it: pane id (Herdr 2: terminal address),
+/// status, and that daemon's own change sequence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Observed {
+    pub(crate) pane: String,
+    pub(crate) status: SidebarStatus,
+    pub(crate) seq: u64,
+}
+
+impl SidebarState {
+    /// Records one snapshot of a connection. The first batch after a
+    /// connection (or a daemon restart) is stamped 0, so it orders by host
+    /// and name; later changes get this iPad's next receive number. A
+    /// daemon's `seq` is compared only with the same agent's previous `seq`,
+    /// never with another daemon's.
+    pub(crate) fn observe(&mut self, host: &str, kind: HerdrKind, boot: &str, agents: &[Observed]) {
+        let key = (host.to_owned(), kind);
+        let initial = self.batches.get(&key).is_none_or(|seen| seen != boot);
+        if initial {
+            self.forget(host, kind);
+            self.batches.insert(key, boot.to_owned());
+        }
+        self.received.retain(|id, _| {
+            id.host != host || id.kind != kind || agents.iter().any(|a| a.pane == id.pane)
+        });
+        for agent in agents {
+            let id = AgentIdentity {
+                host: host.to_owned(),
+                kind,
+                pane: agent.pane.clone(),
+            };
+            let changed = self
+                .received
+                .get(&id)
+                .is_none_or(|seen| seen.status != agent.status || seen.seq != agent.seq);
+            if !changed {
+                continue;
+            }
+            let stamp = if initial {
+                0
+            } else {
+                self.counter = self.counter.saturating_add(1);
+                self.counter
+            };
+            self.received.insert(
+                id,
+                Seen {
+                    status: agent.status,
+                    seq: agent.seq,
+                    stamp,
+                },
+            );
+        }
+    }
+
+    /// Drops a connection's memory; the next snapshot is a first batch.
+    pub(crate) fn forget(&mut self, host: &str, kind: HerdrKind) {
+        self.received
+            .retain(|id, _| id.host != host || id.kind != kind);
+        self.batches.remove(&(host.to_owned(), kind));
+    }
+
+    /// This iPad's receive number for an agent (0 = first batch or unseen).
+    pub(crate) fn received(&self, id: &AgentIdentity) -> u64 {
+        self.received.get(id).map_or(0, |seen| seen.stamp)
+    }
+}
 
 /// (host, kind, pane id or address), D8.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -23,27 +122,70 @@ pub(crate) struct AgentRow {
     pub(crate) received: u64,
 }
 
-/// Q5 order, newest received first within one status.
-pub(crate) fn order_agents(_rows: &mut [AgentRow]) {}
+/// AGENTS order: status (Q5), then newest received first; a first batch
+/// (equal receive numbers) by host, then name.
+pub(crate) fn agent_order(a: &AgentRow, b: &AgentRow) -> Ordering {
+    a.status
+        .rank()
+        .cmp(&b.status.rank())
+        .then_with(|| b.received.cmp(&a.received))
+        .then_with(|| a.identity.host.cmp(&b.identity.host))
+        .then_with(|| a.name.cmp(&b.name))
+        .then_with(|| a.identity.kind.cmp(&b.identity.kind))
+        .then_with(|| a.tab.cmp(&b.tab))
+        .then_with(|| a.identity.pane.cmp(&b.identity.pane))
+}
 
-/// Shown name: a tab/pane suffix only when names collide.
-pub(crate) fn display_name(row: &AgentRow, _all: &[AgentRow]) -> String {
-    row.name.clone()
+/// Q5 order, newest received first within one status.
+pub(crate) fn order_agents(rows: &mut [AgentRow]) {
+    rows.sort_by(agent_order);
+}
+
+/// Shown name: a tab/pane suffix only when names collide. `all` is the
+/// rows of the same space; only rows of the same connection can collide.
+pub(crate) fn display_name(row: &AgentRow, all: &[AgentRow]) -> String {
+    let collides = all.iter().any(|other| {
+        other.identity != row.identity
+            && other.name == row.name
+            && other.identity.host == row.identity.host
+            && other.identity.kind == row.identity.kind
+    });
+    if collides {
+        format!(
+            "{} · tab {} · pane {}",
+            row.name, row.tab, row.identity.pane
+        )
+    } else {
+        row.name.clone()
+    }
 }
 
 /// Spoken name: always includes tab and pane (S-8).
 pub(crate) fn accessibility_name(row: &AgentRow) -> String {
-    row.name.clone()
+    let kind = match row.identity.kind {
+        HerdrKind::Herdr1 => "",
+        HerdrKind::Herdr2 => ", Herdr 2",
+    };
+    format!(
+        "{}, {}, tab {}, pane {}, {}{kind}",
+        row.name,
+        row.status.label(),
+        row.tab,
+        row.identity.pane,
+        row.identity.host
+    )
 }
 
-/// Row height for a text scale (1.0 = default), S-11.
-pub(crate) fn row_height(base: f32, _text_scale: f32) -> f32 {
-    base
-}
-
-impl Smoke {
-    /// The sidebar list; `None` keeps the legacy board in the column.
-    pub(crate) fn render_sidebar_list(&mut self, _cx: &mut Context<Self>) -> Option<AnyElement> {
-        None
+/// Row height for a text scale (1.0 = default), S-11. A row never gets
+/// shorter than its base touch height.
+pub(crate) fn row_height(base: f32, text_scale: f32) -> f32 {
+    if text_scale.is_finite() && text_scale > 1. {
+        base * text_scale
+    } else {
+        base
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_tests.rs"]
+mod tests;
