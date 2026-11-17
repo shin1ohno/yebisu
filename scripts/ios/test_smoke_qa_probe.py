@@ -1,6 +1,6 @@
 """Static guard: the observer poll must not record XCTest failures while waiting.
 
-Swift cannot be compiled on the Linux CI host. This reads SmokeQA.swift as text so
+Swift cannot be compiled on the Linux CI host. This reads the SmokeQA*.swift files as text so
 the P11 collector's Text case cannot regress to using the asserting tapText helper
 as a presence probe (5749747: 49 XCTFail records, case aborted although the app
 had completed all 24 native cases)."""
@@ -8,7 +8,12 @@ from pathlib import Path
 import re
 import unittest
 
-SWIFT = Path(__file__).with_name("smoke-qa") / "Tests" / "SmokeQA.swift"
+TESTS = Path(__file__).with_name("smoke-qa") / "Tests"
+
+
+def swift_source():
+    """SmokeQA.swift and every SmokeQA+<unit>.swift extension, as one text."""
+    return "\n".join(path.read_text() for path in sorted(TESTS.glob("SmokeQA*.swift")))
 
 
 def body(source, signature):
@@ -78,7 +83,7 @@ class WholeWordMatch(unittest.TestCase):
 
 class ObserverPollProbe(unittest.TestCase):
     def setUp(self):
-        self.source = SWIFT.read_text()
+        self.source = swift_source()
 
     def test_completion_poll_uses_non_asserting_probe(self):
         loop = body(self.source, "private func observerProbe(")
@@ -91,7 +96,7 @@ class ObserverPollProbe(unittest.TestCase):
         self.assertIn("textVisible(done)", check.group(0))
 
     def test_probe_never_records_a_failure(self):
-        for signature in ("private func textVisible(", "private func locateText("):
+        for signature in ("func textVisible(", "private func locateText("):
             with self.subTest(signature=signature):
                 function = body(self.source, signature)
                 self.assertNotIn("XCTFail", function)
@@ -99,7 +104,7 @@ class ObserverPollProbe(unittest.TestCase):
                 self.assertNotIn("save(", function)
 
     def test_missing_control_still_fails_in_tap_text(self):
-        function = body(self.source, "private func tapText(")
+        function = body(self.source, "func tapText(")
         self.assertIn("XCTFail(", function)
         self.assertIn("locateText(", function)
 

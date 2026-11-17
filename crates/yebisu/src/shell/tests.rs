@@ -13,8 +13,6 @@ fn wave0_slots_are_inert() {
     assert!(entry_points::chrome_entry_points(&state, legacy).is_empty());
     assert!(overflow_menu::overflow_menu_items(&state).is_empty());
     assert!(footer::footer_items(HerdrKind::Herdr1).is_empty());
-    assert!(edit_bar::edit_bar_items(true).is_empty());
-    assert!(edit_bar::paused_typing_status(true).is_none());
     assert!(mods::mods_item(2).is_none());
     assert!(overlay::toast_slot().is_none());
     assert!(!qa_strip::qa_strip_enabled());

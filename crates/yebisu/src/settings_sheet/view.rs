@@ -1,8 +1,15 @@
 //! Production shell: SH1-157 accepted sheet clamp; no proposed terminal floor.
 use crate::{
     app::Smoke,
-    settings::Values,
-    settings_pages::{Page, fonts::Density, general::Document},
+    settings::{SaveStatus, Values},
+    settings_pages::{
+        Page,
+        choices::{self, Choice},
+        fonts::Density,
+        general::Document,
+        sections::{self, Section},
+        sheet_layout::sheet_frame,
+    },
 };
 use gpui::{prelude::*, *};
 
@@ -58,34 +65,43 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let available = window.fully_visible_bounds();
-        let width = (f32::from(available.size.width) - 32.).clamp(0., 1000.);
-        let height = (f32::from(available.size.height) - 32.).clamp(0., 760.);
+        let frame = sheet_frame(
+            f32::from(available.size.width),
+            f32::from(available.size.height),
+        );
         let values = self.settings_values();
         let can_edit = self.settings.is_some();
+        let selected = sections::section_for_page(self.settings_page);
         let mut pages = div()
             .id("settings-categories")
             .flex()
             .flex_wrap()
             .gap_2()
             .overflow_y_scroll();
-        for page in Page::ALL {
-            pages = pages.child(
-                button(format!("settings-page-{}", page.id()), page.id(), true).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        this.key_ticket = None;
-                        if let Some(host) = &mut this.settings {
-                            host.keys.view_open();
-                        }
-                        this.settings_page = page;
-                        cx.notify();
-                    }),
-                ),
-            );
+        for (group, members) in sections::GROUPS {
+            pages = pages.child(div().w_full().text_xs().child(group));
+            for &section in members {
+                pages = pages.child(self.settings_section_button(section, selected, cx));
+            }
         }
         let content = match self.settings_page {
             Page::Fonts => self.settings_fonts(&values, can_edit, cx),
             Page::Appearance => self.render_p15_settings(cx),
-            Page::Keyboard => self.settings_keyboard(&values, can_edit, cx),
+            Page::Keyboard => self.settings_keyboard(cx),
+            Page::Input => self.settings_choices(
+                "How keys, Japanese input and selection reach the terminal. Changes apply at once.",
+                &choices::INPUT,
+                &values,
+                can_edit,
+                cx,
+            ),
+            Page::Connection => self.settings_choices(
+                "How the app reconnects when it returns to the foreground.",
+                &choices::CONNECTION,
+                &values,
+                can_edit,
+                cx,
+            ),
             Page::DeviceKey => self.settings_keys(cx),
             Page::Notifications => self.render_notification_settings(cx),
             Page::General => div()
@@ -96,21 +112,14 @@ impl Smoke {
                 .child(Document::License.text())
                 .into_any_element(),
         };
-        let status = self
-            .settings
-            .as_ref()
-            .map_or("Settings unavailable".into(), |host| {
-                host.error.as_ref().map_or_else(
-                    || {
-                        if host.ready() {
-                            "Saved".into()
-                        } else {
-                            "Saving…".into()
-                        }
-                    },
-                    |e| format!("Not saved: {e}"),
-                )
-            });
+        let status = self.settings.as_ref().map(|host| host.save_status());
+        let retry = matches!(status, Some(SaveStatus::Failed { retry: true, .. }));
+        let status = match status {
+            None => "Settings unavailable".to_owned(),
+            Some(SaveStatus::Saving) => "Saving…".to_owned(),
+            Some(SaveStatus::Saved) => "Saved".to_owned(),
+            Some(SaveStatus::Failed { reason, .. }) => format!("Not saved: {reason}"),
+        };
         let header =
             div()
                 .flex()
@@ -120,16 +129,18 @@ impl Smoke {
                 .child("Settings")
                 .child(status)
                 .child(self.notifications.status.clone())
-                .child(
-                    button("settings-retry", "Retry save", can_edit).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            if let Some(host) = &mut this.settings {
-                                host.retry();
-                            }
-                            cx.notify();
-                        },
-                    )),
-                )
+                .when(retry, |header| {
+                    header.child(
+                        button("settings-retry", "Retry", true).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                if let Some(host) = &mut this.settings {
+                                    host.retry();
+                                }
+                                cx.notify();
+                            },
+                        )),
+                    )
+                })
                 .child(button("settings-close", "Close", true).on_click(
                     cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
                 ));
@@ -139,8 +150,10 @@ impl Smoke {
             .flex()
             .min_h_0()
             .flex_1()
-            .when(width < 760., |d| d.flex_col())
-            .child(pages.when(width >= 760., |d| d.w(px(240.)).flex_col().flex_shrink_0()))
+            .when(frame.stacked, |d| d.flex_col())
+            .child(pages.when(!frame.stacked, |d| {
+                d.w(px(240.)).flex_col().flex_nowrap().flex_shrink_0()
+            }))
             .child(
                 div()
                     .id("settings-content")
@@ -182,10 +195,10 @@ impl Smoke {
                     .id("settings-panel")
                     .debug_selector(|| "settings-panel".into())
                     .absolute()
-                    .left(available.origin.x + px((f32::from(available.size.width) - width) / 2.))
-                    .top(available.origin.y + px(16.))
-                    .w(px(width))
-                    .h(px(height))
+                    .left(available.origin.x + px(frame.left))
+                    .top(available.origin.y + px(frame.top))
+                    .w(px(frame.width))
+                    .h(px(frame.height))
                     .bg(rgb(0x101419))
                     .text_color(rgb(0xd8dee9))
                     .border_1()
@@ -195,7 +208,6 @@ impl Smoke {
                     .flex_col()
                     .p_3()
                     .gap_2()
-                    .overflow_y_scroll()
                     .child(header)
                     .child(body),
             )
@@ -243,6 +255,18 @@ impl Smoke {
             values.font.family,
             crate::settings_pages::fonts::TERMINAL_FAMILY
         ));
+        let board = if values.board_hidden {
+            "Board: Hidden"
+        } else {
+            "Board: Shown"
+        };
+        view = view.child(
+            button("settings-board", board, enabled).on_click(cx.listener(|this, _, _, cx| {
+                let mut v = this.settings_values();
+                v.board_hidden = !v.board_hidden;
+                this.apply_settings(v, cx);
+            })),
+        );
         // The design hides the family picker until a supported installed-font picker is
         // proven: proportional faces break the cell grid. Size stays adjustable.
         if FAMILY_PICKER {
@@ -259,39 +283,10 @@ impl Smoke {
         }
         view.into_any_element()
     }
-    fn settings_keyboard(&self, v: &Values, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
+    /// The Shortcuts section: the read-only shortcut list. Its priority
+    /// toggle is the Input page's Shortcut priority row (plan v2 7.4).
+    fn settings_keyboard(&self, _cx: &mut Context<Self>) -> AnyElement {
         let mut view = div().flex().flex_col().gap_2();
-        for (id, label, value) in [
-            (
-                "priority",
-                "Terminal shortcut priority",
-                crate::settings_pages::keyboard::terminal_priority(v),
-            ),
-            ("board", "Hide board", v.board_hidden),
-            ("drag", "Start: Drag", v.drag_select),
-            ("copy", "Copy automatically", v.copy_on_select),
-        ] {
-            view = view.child(
-                button(
-                    format!("settings-{id}"),
-                    format!("{label}: {value}"),
-                    enabled,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let mut v = this.settings_values();
-                    match id {
-                        "priority" => {
-                            let value = !v.terminal_priority;
-                            crate::settings_pages::keyboard::set_terminal_priority(&mut v, value)
-                        }
-                        "board" => v.board_hidden = !v.board_hidden,
-                        "drag" => v.drag_select = !v.drag_select,
-                        _ => v.copy_on_select = !v.copy_on_select,
-                    };
-                    this.apply_settings(v, cx);
-                })),
-            );
-        }
         for row in crate::settings_pages::keyboard::shortcut_rows(&self.terminal) {
             view = view.child(format!(
                 "{} · {}{}",
@@ -299,6 +294,76 @@ impl Smoke {
                 row.shortcuts.join(", "),
                 if row.available { "" } else { " (unavailable)" }
             ));
+        }
+        view.into_any_element()
+    }
+    fn settings_section_button(
+        &self,
+        section: Section,
+        selected: Option<Section>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let page = section.page();
+        button(
+            format!("settings-page-{}", page.id()),
+            section.title(),
+            true,
+        )
+        .when(selected == Some(section), |b| b.bg(rgb(0x2e3440)))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.key_ticket = None;
+            if let Some(host) = &mut this.settings {
+                host.keys.view_open();
+            }
+            this.settings_page = page;
+            cx.notify();
+        }))
+    }
+    /// Radio rows: one title, its explanation and two choices each.
+    fn settings_choices(
+        &self,
+        intro: &'static str,
+        rows: &[Choice],
+        values: &Values,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut view = div().flex().flex_col().gap_3().child(intro);
+        for &choice in rows {
+            let current = choice.get(values);
+            let mut options = div().flex().flex_wrap().gap_2();
+            for (value, label) in [(false, choice.labels()[0]), (true, choice.labels()[1])] {
+                let id = format!("settings-{}-{}", choice.id(), u8::from(value));
+                options = options.child(
+                    button(id, label, enabled)
+                        .when(current == value, |b| {
+                            b.bg(rgb(0x2e3440)).border_color(rgb(0x88c0d0))
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_settings_choice(choice, value, cx);
+                        })),
+                );
+            }
+            // Canvas row: title and explanation left, the two choices right;
+            // a narrow page wraps the choices under the text.
+            view = view.child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(220.))
+                            .child(choice.title())
+                            .child(div().text_sm().child(choice.detail())),
+                    )
+                    .child(options),
+            );
         }
         view.into_any_element()
     }

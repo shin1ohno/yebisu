@@ -270,7 +270,9 @@ fn until_ready(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
         std::thread::sleep(Duration::from_millis(2));
     }
 }
-fn press(cx: &mut VisualTestContext, id: &'static str) {
+fn press(cx: &mut VisualTestContext, id: &str) {
+    // debug_bounds takes a static selector; the radio ids are formatted.
+    let id: &'static str = Box::leak(id.to_owned().into_boxed_str());
     let bounds = cx
         .debug_bounds(id)
         .unwrap_or_else(|| panic!("missing control {id}"));
@@ -280,7 +282,7 @@ fn press(cx: &mut VisualTestContext, id: &'static str) {
 
 #[gpui::test]
 fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut TestAppContext) {
-    use crate::settings_pages::keyboard::{set_terminal_priority, terminal_priority};
+    use crate::{settings::Values, settings_pages::choices};
     let root = directory("sheet-controls");
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1100.), px(900.)));
@@ -300,34 +302,46 @@ fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut 
         view.read_with(cx, |this, _| this.terminal.font.size),
         Some(14.)
     );
-    press(cx, "settings-page-keyboard");
-    for id in [
-        "settings-priority",
-        "settings-board",
-        "settings-drag",
-        "settings-copy",
+    // SH1-157 L1: the toggles moved to the Input and Connection radio rows;
+    // Board stays a toggle on Display. Each press flips only its own field.
+    press(cx, "settings-page-fonts");
+    let before = view.read_with(cx, |this, _| this.settings_values());
+    press(cx, "settings-board");
+    let after = view.read_with(cx, |this, _| this.settings_values());
+    assert_eq!(
+        after,
+        Values {
+            board_hidden: !before.board_hidden,
+            ..before.clone()
+        },
+        "settings-board must flip only its own value"
+    );
+    for (page, rows) in [
+        ("settings-page-input", &choices::INPUT[..]),
+        ("settings-page-connection", &choices::CONNECTION[..]),
     ] {
-        let before = view.read_with(cx, |this, _| this.settings_values());
-        let mut expected = before.clone();
-        match id {
-            "settings-priority" => {
-                let flipped = !terminal_priority(&expected);
-                set_terminal_priority(&mut expected, flipped);
-            }
-            "settings-board" => expected.board_hidden = !expected.board_hidden,
-            "settings-drag" => expected.drag_select = !expected.drag_select,
-            _ => expected.copy_on_select = !expected.copy_on_select,
+        press(cx, page);
+        for &choice in rows {
+            let before = view.read_with(cx, |this, _| this.settings_values());
+            let target = !choice.get(&before);
+            let mut expected = before.clone();
+            choice.set(&mut expected, target);
+            press(
+                cx,
+                &format!("settings-{}-{}", choice.id(), u8::from(target)),
+            );
+            let after = view.read_with(cx, |this, _| this.settings_values());
+            assert_eq!(after, expected, "{choice:?} must flip only its own value");
+            assert_ne!(after, before, "{choice:?} must change a value");
         }
-        press(cx, id);
-        let after = view.read_with(cx, |this, _| this.settings_values());
-        assert_eq!(after, expected, "{id} must flip only its own value");
-        assert_ne!(after, before, "{id} must change a value");
     }
+    press(cx, "settings-page-input");
     // A failed write stays unsaved until Retry save is pressed.
     until_ready(&view, cx);
     let pending = root.join("yebisu-settings.pending");
     std::fs::create_dir(&pending).unwrap_or_else(|e| panic!("{e}"));
-    press(cx, "settings-copy");
+    let copy = view.read_with(cx, |this, _| this.settings_values().copy_on_select);
+    press(cx, &format!("settings-copy-{}", u8::from(!copy)));
     let until = Instant::now() + Duration::from_secs(5);
     while !view.update(cx, |this, cx| {
         this.poll_settings(cx);

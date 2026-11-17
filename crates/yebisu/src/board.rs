@@ -170,6 +170,11 @@ impl Smoke {
         if self.settings.is_some() {
             next.compact = self.terminal.compact;
             next.font = self.terminal.font.clone();
+            // SH1-157 L1: app-wide Input options and Return (settings_view.rs).
+            next.input.options.option_alt = self.terminal.input.options.option_alt;
+            next.input.options.command_control = self.terminal.input.options.command_control;
+            next.input.options.caret_anchor = self.terminal.input.options.caret_anchor;
+            next.reconnect.automatic = self.terminal.reconnect.automatic;
         }
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();

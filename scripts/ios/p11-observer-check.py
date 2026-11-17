@@ -104,10 +104,11 @@ def main():
     project=paths['project']
     shutil.copy2(ROOT/'scripts/ios/smoke-qa/project.yml',project/'project.yml')
     shutil.copytree(ROOT/'scripts/ios/smoke-qa/Tests',project/'Tests')
-    swift=project/'Tests/SmokeQA.swift'
-    original=swift.read_text()
-    if original.count('P11_BINDING_UNSET')!=1:raise RuntimeError('missing unique XCTest binding seam')
-    swift.write_text(original.replace('P11_BINDING_UNSET',binding_sha))
+    # The seam lives in one of the SmokeQA*.swift files; across all of them it must appear exactly once.
+    seams=[(f,f.read_text()) for f in sorted((project/'Tests').glob('SmokeQA*.swift'))]
+    holders=[(f,text) for f,text in seams if 'P11_BINDING_UNSET' in text]
+    if sum(text.count('P11_BINDING_UNSET') for _,text in seams)!=1:raise RuntimeError('missing unique XCTest binding seam')
+    holders[0][0].write_text(holders[0][1].replace('P11_BINDING_UNSET',binding_sha))
     run('xcodegen','generate','--spec',str(project/'project.yml'),'--project',str(project))
     xctest_inputs=provenance.tree_manifest(project)
     xctest_path=out/'xctest-inputs.json';xctest_path.write_bytes(provenance.encoded(xctest_inputs))

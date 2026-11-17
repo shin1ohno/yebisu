@@ -18,6 +18,9 @@ def validate(paints, saved):
                 "terminal_priority": True, "board_hidden": False, "drag_select": True, "copy_on_select": False, "terminal_font_size": None, "terminal_font_family": "SauceCodePro Nerd Font Mono"}
     # settings/store.rs::save always writes Policy::encode, including defaults.
     expected["notifications"] = dict(route="off", sound=True, volume=50, muted=False, quiet=None)
+    # SH1-157 L1 (settings/input_options.rs): the QA edit sets the three Input
+    # options and Return: Tap; defaults are not written, so these keys appear.
+    expected.update(option_key="alt", command_key="ctrl", japanese_candidates="caret", return_policy="tap")
     if saved != expected:
         raise ValueError("settings file differs from source-defined QA edit")
     phases = {p["phase"] for p in paints if p.get("kind") == "settings-lifecycle"}
@@ -26,6 +29,9 @@ def validate(paints, saved):
     loaded = [p for p in paints if p.get("kind") == "settings-loaded"]
     if len(loaded) < 2 or loaded[0]["compact"] or not loaded[-1]["compact"] or not loaded[-1]["terminal_priority"]:
         raise ValueError("fresh process did not restore settings from disk")
+    restored = [loaded[-1].get(k) for k in ("option_alt", "command_control", "caret_anchor", "reconnect_automatic")]
+    if restored != [True, True, True, False]:
+        raise ValueError("fresh process did not restore the Input options and Return from disk")
 
 
 def main():

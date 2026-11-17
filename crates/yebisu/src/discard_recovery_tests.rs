@@ -11,6 +11,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The first frame has arrived: snapshot and surface give an input
+/// destination. `live.connected` alone can precede them, and a test that then
+/// asserts input readiness raced the frame (check job 134168722774).
+pub(crate) fn has_destination(this: &Smoke) -> bool {
+    crate::terminal_input::destination(&this.terminal.live, this.terminal.link.generation).is_some()
+}
 pub(crate) fn wait_frame(
     view: &Entity<Smoke>,
     cx: &mut TestAppContext,
