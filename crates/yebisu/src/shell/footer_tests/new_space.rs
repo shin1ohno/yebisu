@@ -1,4 +1,5 @@
 use super::*;
+use crate::observation::Observation;
 use sheprd_commands::Command;
 
 /// Plan v2 7.6: New space on Herdr 1 sends `Command::Workspace`
@@ -27,11 +28,27 @@ fn new_space_sends_workspace_on_herdr1(cx: &mut TestAppContext) {
         );
         assert!(this.terminal.navigating.is_none());
     });
+    // The method the command put on the client, from the action record
+    // `run_action` writes (actions.rs), not from the issued-request flag only.
+    let (sender, records) = mpsc::sync_channel(64);
+    view.update(cx, |this, _| {
+        this.observation = Observation::injected(sender);
+    });
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.footer_tap(FooterItem::NewSpace, window, cx)
         })
     });
+    let methods: Vec<String> = records
+        .try_iter()
+        .filter(|r| r["kind"] == "action")
+        .filter_map(|r| r["method"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        methods,
+        ["workspace.create"],
+        "New space sent another command"
+    );
     view.update(cx, |this, _| {
         let issued = this
             .terminal

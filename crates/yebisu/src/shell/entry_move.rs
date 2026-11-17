@@ -58,8 +58,22 @@ impl LegacyBands {
 }
 
 impl Smoke {
+    /// The retired bands, except one: while the command palette is open
+    /// (the ... menu's "Command palette", review ab783fbc2a944abc B1) the
+    /// actions band slot draws the palette list (`render_actions`), so
+    /// `actions.palette` is never true without a list on screen. L6's
+    /// Shortcuts popover takes the list over.
     pub(crate) fn legacy_bands(&self) -> LegacyBands {
-        LegacyBands::current()
+        LegacyBands {
+            actions: self.palette_list_shown(),
+            ..LegacyBands::current()
+        }
+    }
+
+    /// `render_terminal` draws the palette list now (Herdr 1 only: the
+    /// palette is a Herdr 1 command, `actions::catalog_context_available`).
+    pub(crate) fn palette_list_shown(&self) -> bool {
+        self.actions.palette && !self.terminal.core_mode
     }
 }
 

@@ -17,6 +17,8 @@ mod items;
 mod keys;
 #[path = "footer_tests/new_space.rs"]
 mod new_space;
+#[path = "footer_tests/palette.rs"]
+mod palette;
 #[path = "footer_tests/status.rs"]
 mod status;
 

@@ -126,3 +126,27 @@ fn hosts_sheet_open_clears_terminal_input_state(cx: &mut TestAppContext) {
         })
     });
 }
+
+/// A6 item 1 (review ab783fbc2a944abc S2): every input guard patch 02 moves
+/// off `settings_modal` reads this one helper, so one truth table covers
+/// them: Settings or a Hosts sheet over a terminal owns the input; a Hosts
+/// sheet without a terminal (the first-run frame) does not.
+#[gpui::test]
+fn input_modal_covers_settings_and_hosts_sheet(cx: &mut TestAppContext) {
+    let (view, cx) = window(cx);
+    view.update(cx, |this, _| {
+        this.terminal.open = true;
+        assert!(!this.input_modal(), "nothing open");
+        this.settings_modal = true;
+        assert!(this.input_modal(), "Settings");
+        assert_eq!(this.key_owner(), KeyOwner::SettingsSheet);
+        this.settings_modal = false;
+        this.shell.hosts_sheet.open_list();
+        assert!(this.input_modal(), "Hosts sheet over a terminal");
+        assert!(!this.terminal_owns_text_input());
+        this.terminal.open = false;
+        assert!(!this.input_modal(), "first-run sheet with no terminal");
+        this.shell.hosts_sheet.close();
+        assert!(!this.input_modal());
+    });
+}
