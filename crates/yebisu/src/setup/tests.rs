@@ -68,3 +68,36 @@ fn authentication_reply_adds_host_to_setup_list_without_reload() {
     setup.apply(Err(Error::Storage(std::io::Error::other("save failed"))));
     assert_eq!(setup.hosts, ["existing@host", "authenticated@host"]);
 }
+
+#[test]
+fn first_reply_of_the_startup_load_marks_hosts_loaded() {
+    let mut setup = Setup {
+        busy: true,
+        loading: true,
+        ..Setup::default()
+    };
+    assert!(!setup.loaded);
+    setup.apply(Err(Error::InvalidKeyLine));
+    assert!(setup.loaded, "a failed load still ends the waiting");
+    assert!(!setup.loading);
+    // Later replies are not loads.
+    let mut later = Setup::default();
+    later.apply(Ok(Reply::Saved(saved_hosts("a@host"), "pin".into())));
+    assert!(!later.loaded);
+}
+
+#[test]
+fn mismatch_reply_clears_the_pending_key_and_trusts_nothing() {
+    let mut setup = Setup {
+        fingerprints: "stale".into(),
+        ..Setup::default()
+    };
+    setup.apply(Ok(Reply::Mismatch {
+        target: "a@host".into(),
+        expected: "ED25519 SHA256:A".into(),
+        seen: "ED25519 SHA256:B".into(),
+    }));
+    assert!(setup.pending.is_none());
+    assert!(setup.fingerprints.is_empty());
+    assert!(setup.status.contains("Refused"));
+}
