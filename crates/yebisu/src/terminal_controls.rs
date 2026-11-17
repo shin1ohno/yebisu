@@ -101,6 +101,8 @@ impl Smoke {
     }
 
     pub(crate) fn refresh_terminal_input(&mut self) {
+        // A host switch must not encode keys with the new view's defaults.
+        self.sync_input_settings();
         let terminal = &mut self.terminal;
         if self.settings_modal
             || self.find.is_some()

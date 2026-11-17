@@ -1,4 +1,5 @@
 // SH1-157 L1 topic files (plan v2 7.4), in settings_pages/tests/.
+mod host_switch;
 mod persistence;
 mod save_status;
 mod sections;

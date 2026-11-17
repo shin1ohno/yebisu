@@ -71,15 +71,38 @@ impl Smoke {
         }
     }
     /// The Input options and Return read by the key encoder, the toolbar
-    /// and reconnect (SH1-157 L1): the same fields the sheet edits.
+    /// and reconnect (SH1-157 L1): the same fields the sheet edits. They are
+    /// app settings, but every terminal view carries a copy, so the hidden
+    /// hosts' views (which reconnect on return, reconnect.rs) take them too.
     fn adopt_input_settings(&mut self, values: &Values) {
-        let options = &mut self.terminal.input.options;
-        options.option_alt = values.option_alt;
-        options.command_control = values.command_control;
-        options.caret_anchor = values.caret_anchor;
-        self.terminal.reconnect.automatic = values.reconnect_automatic;
+        let terminals = std::iter::once(&mut self.terminal).chain(self.board.hidden.values_mut());
+        for terminal in terminals {
+            let options = &mut terminal.input.options;
+            options.option_alt = values.option_alt;
+            options.command_control = values.command_control;
+            options.caret_anchor = values.caret_anchor;
+            terminal.reconnect.automatic = values.reconnect_automatic;
+        }
+    }
+    /// A host switch (board.rs `select_host`) swaps in another terminal view
+    /// with its own, possibly default, copy of the Input options and Return.
+    /// Before anything reads the live values back into the draft (the next
+    /// poll) or encodes a key (`refresh_terminal_input`), give the newly
+    /// selected view the stored values. Runs once per selected host change.
+    pub(crate) fn sync_input_settings(&mut self) {
+        let Some(host) = &mut self.settings else {
+            return;
+        };
+        let target = &self.terminal.reconnect.target;
+        if host.synced_target.as_ref() == Some(target) {
+            return;
+        }
+        host.synced_target = Some(target.clone());
+        let values = host.draft.clone();
+        self.adopt_input_settings(&values);
     }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sync_input_settings();
         let values = self.settings_values();
         let Some(host) = &mut self.settings else {
             return;

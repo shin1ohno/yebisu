@@ -98,6 +98,9 @@ pub(crate) struct SettingsHost {
     background: Option<BackgroundTask>,
     // P11 owns the confirmation UI; no regeneration is executed in P10.
     regeneration_confirmed: bool,
+    // SH1-157 L1: the host whose terminal view last received the stored
+    // Input options and Return (settings_view.rs `sync_input_settings`).
+    pub(crate) synced_target: Option<String>,
 }
 impl SettingsHost {
     pub fn open(root: PathBuf) -> Result<Self> {
@@ -119,6 +122,7 @@ impl SettingsHost {
             #[cfg(any(target_os = "ios", test))]
             background: None,
             regeneration_confirmed: false,
+            synced_target: None,
         })
     }
 
