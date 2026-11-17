@@ -328,14 +328,19 @@ impl Smoke {
             window.prevent_default();
             return;
         }
-        if let Some(input) = self
+        let input = self
             .terminal
             .input
-            .key_down(event, self.terminal.input.report_all)
-        {
-            if !event.is_held {
-                self.handoff.resume_typing();
-            }
+            .key_down(event, self.terminal.input.report_all);
+        let modifiers = event.keystroke.modifiers;
+        let printable = !(modifiers.control || modifiers.platform || modifiers.function);
+        // A fresh key ends Select. GPUI declines a printable key and UIKit
+        // types it through insertText, so that text must not meet the
+        // selection gate either (SH1-156).
+        if !event.is_held && (input.is_some() || printable) {
+            self.handoff.resume_typing();
+        }
+        if let Some(input) = input {
             self.send_terminal(input);
             cx.stop_propagation();
             window.prevent_default();

@@ -59,7 +59,18 @@ The Command: Ctrl plus Terminal priority exclusion still applies to all physical
 clipboard chords. Native edit actions retain their independent SDK-origin route.
 
 
-## SH1-156 partial app repair
+## SH1-156 app repair
+
+A tap or pointer click on the terminal is a typing gesture under the contract
+above, also with **Start: Drag**: a press released on its own cell without Select
+does not leave a one-cell selection, resumes input and asks UIKit for the text
+responder again (`request_virtual_keyboard`). Turning Select off does the same.
+Before this, a tap with Start: Drag (the default) left a selection that dropped
+every key and commit, and its Select control read "Select" while input was
+blocked, so pressing it turned Select on (P13 owner device check, steps 7-13 and
+21-25). A hardware key press does not release a discard fence: the key reaches
+the terminal, and only text commits stay refused until a gesture above or the
+SDK native retirement.
 
 A destination/stamp change closes Select mode and removes the old highlight.
 A fresh terminal-owned semantic key (for example Ctrl-A or Left) ends selection

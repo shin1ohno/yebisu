@@ -785,6 +785,20 @@ fresh connection, back up and remove only the recorded old blob, confirm another
 fresh connection, and verify other app/device keys still work. No worker may
 perform these trust/keychain mutations. Record device/iPadOS, head and receipts.
 
+## SH1-156: tap and Select after composition discard
+
+Run these first; they repeat the P13 owner check steps 7-13 and 21-25.
+
+1. In a disposable terminal, leave a composition discarded (status "Text input
+   paused …"). With Start: Drag, tap the terminal once with a finger. Type `a`
+   on the hardware keyboard. `a` must arrive; Select must stay off and no cell
+   may stay highlighted.
+2. Repeat step 1 with a trackpad click.
+3. Press Select (it reads "Select: On"), type `b`: `b` arrives and Select turns
+   off. Press Select twice (on, then off), type `c`: `c` arrives.
+4. Without touching the screen, discard a composition, release every key, then
+   type `d`. Record whether `d` arrives and the status line text.
+
 ## SH1-156: hardware input after composition discard (partial repair)
 
 These are acceptance steps, not recorded passes. The partial selection/key repair

@@ -454,11 +454,11 @@ impl Smoke {
                     .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))
                     .on_mouse_up(
                         gpui::MouseButton::Left,
-                        cx.listener(|this, _, _, cx| this.selection_up(cx)),
+                        cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
                     .on_mouse_up_out(
                         gpui::MouseButton::Left,
-                        cx.listener(|this, _, _, cx| this.selection_up(cx)),
+                        cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
                     .child(self.edit_menu_canvas(cx)),
             )

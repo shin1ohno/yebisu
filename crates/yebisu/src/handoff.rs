@@ -40,6 +40,8 @@ pub(crate) struct Handoff {
     pub select_mode: bool,
     pub passive_highlight: bool,
     pub keep_highlight_on_key: bool,
+    /// The last terminal press may be a plain tap (no Select, one click).
+    pub tap_to_type: bool,
     pub drag_select: bool,
     pub copy_on_select: bool,
     pub serial: u64,

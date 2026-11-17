@@ -175,3 +175,6 @@ mod direct_text_recovery_tests;
 mod input_retirement;
 #[cfg(target_os = "ios")]
 mod native_retirement;
+
+#[cfg(test)]
+mod sh1_156_tap_tests;

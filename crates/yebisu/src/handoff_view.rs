@@ -238,6 +238,10 @@ impl Smoke {
         if self.handoff.stamp.is_some()
             && (self.handoff.select_mode || self.handoff.drag_select || event.click_count >= 2)
         {
+            // With Start: Drag (the default) every press starts a selection.
+            // A press released on its own cell without Select is a tap, which
+            // the status line asks for: selection_up turns it into typing.
+            self.handoff.tap_to_type = !self.handoff.select_mode && event.click_count < 2;
             self.handoff.cancel();
             self.terminal.input.detach();
             let Some(surface) = &self.terminal.live.surface else {
@@ -306,7 +310,8 @@ impl Smoke {
             cx.notify();
         }
     }
-    pub(crate) fn selection_up(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn selection_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let tap = std::mem::take(&mut self.handoff.tap_to_type);
         let Some(selection) = &mut self.handoff.selection else {
             return;
         };
@@ -314,6 +319,18 @@ impl Smoke {
             return;
         }
         selection.dragging = false;
+        let single = selection.anchor == selection.end;
+        if tap && single && !self.handoff.select_mode {
+            // SH1-156: a tap must not leave a selection that blocks typing.
+            // Its one cell stays as a passive, copyable highlight (the "Keep
+            // highlight" state); input resumes as after a tap with Start:
+            // Select, and UIKit is asked for the text responder again.
+            self.handoff.passive_highlight = true;
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
+            window.request_virtual_keyboard();
+        }
         if self.handoff.copy_on_select {
             self.copy_selection(cx);
         }
@@ -370,10 +387,16 @@ impl Smoke {
                         .p_2()
                         .bg(rgb(0x3b4252))
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             match id {
                                 "select" => {
                                     this.toggle_selection();
+                                    if !this.handoff.select_mode {
+                                        // Typing resumes in the terminal, as
+                                        // after a tap (SH1-156).
+                                        this.terminal_focus.focus(window, cx);
+                                        window.request_virtual_keyboard();
+                                    }
                                 }
                                 "typing-highlight" => {
                                     this.handoff.keep_highlight_on_key ^= true;

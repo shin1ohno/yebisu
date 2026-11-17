@@ -74,6 +74,10 @@ MUTATIONS = [
     ("completion-owner", "input_retirement.rs",
      "&& ticket.owner == self.retirement_owner()", "&& true",
      "sh1_156_retirement_unprepared_cancelled_and_changed_completion_remain_fenced"),
+    ("tap-to-type", "handoff_view.rs",
+     "if tap && single && !self.handoff.select_mode {",
+     "if false {",
+     "sh1_156_tap_after_discard_lets_letters_reach_the_terminal"),
 ]
 
 
@@ -97,6 +101,7 @@ FAILURE_REASONS = {
     "barrier-mark": "D1: barrier must preserve real discard without inventing one",
     "writer-discard": "D1: writer failure changed the real discard fence",
     "setup-discard": "D1: setup composition lost its discard fence",
+    "tap-to-type": "tap left a selection that blocks typing",
 }
 
 
