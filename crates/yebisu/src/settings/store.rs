@@ -33,7 +33,7 @@ pub(super) fn load(root: &Path) -> Result<Values> {
             .as_bool()
             .ok_or_else(|| Error::Settings(format!("invalid {key}"))),
     };
-    Ok(Values {
+    let mut values = Values {
         notifications: crate::notifications::Policy::decode(value.get("notifications"))?,
         theme: crate::theme_picker::read_local(&value)
             .map_err(|_| Error::Settings("unsupported local theme".into()))?,
@@ -43,7 +43,10 @@ pub(super) fn load(root: &Path) -> Result<Values> {
         board_hidden: boolean("board_hidden")?,
         drag_select: optional_boolean("drag_select", true)?,
         copy_on_select: optional_boolean("copy_on_select", false)?,
-    })
+        ..Values::default()
+    };
+    super::input_options::load(&value, &mut values);
+    Ok(values)
 }
 
 pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
@@ -75,6 +78,9 @@ pub(super) fn save(root: &Path, values: &Values) -> Result<()> {
             "drag_select":values.drag_select,"copy_on_select":values.copy_on_select});
         if let (Some(document), Some(fields)) = (document.as_object_mut(), fields.as_object()) {
             document.extend(fields.clone());
+        }
+        if let Some(document) = document.as_object_mut() {
+            super::input_options::save(document, values);
         }
         let bytes = serde_json::to_vec(&document)
             .map_err(|_| Error::Settings("invalid local settings".into()))?;

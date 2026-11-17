@@ -1,3 +1,11 @@
+// SH1-157 L1 topic files (plan v2 7.4), in settings_pages/tests/.
+mod persistence;
+mod save_status;
+mod sections;
+mod sheet_layout;
+mod support;
+mod toolbar_sync;
+
 use super::{Page, device_key::KeyView, fonts::Density, general::Document};
 use crate::settings::Values;
 
@@ -11,7 +19,9 @@ fn pages_are_the_supported_allowlist() {
             "keyboard",
             "ipad-key",
             "general",
-            "notifications"
+            "notifications",
+            "input",
+            "connection"
         ]
     );
 }

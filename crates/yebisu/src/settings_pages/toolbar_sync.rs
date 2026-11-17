@@ -11,12 +11,25 @@ pub(crate) enum ToolbarSetting {
 }
 
 impl Smoke {
-    /// Called by the legacy toolbar after it changed `setting` in memory.
-    /// Wave 0: no-op (nothing is persisted from the toolbar yet).
+    /// Called by the legacy toolbar after it changed `setting` in memory:
+    /// the sheet's draft takes the new value at once and the store writes
+    /// it, the same path as a change made in the sheet. Every setting is
+    /// read from the live state, so `setting` names the trigger only.
     pub(crate) fn toolbar_setting_changed(
         &mut self,
-        _setting: ToolbarSetting,
-        _cx: &mut Context<Self>,
+        setting: ToolbarSetting,
+        cx: &mut Context<Self>,
     ) {
+        let values = self.settings_values();
+        let Some(host) = &mut self.settings else {
+            return;
+        };
+        if setting == ToolbarSetting::Density {
+            host.edit_density(values);
+        } else {
+            host.edit(values);
+        }
+        host.flush();
+        cx.notify();
     }
 }

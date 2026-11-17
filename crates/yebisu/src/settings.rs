@@ -1,5 +1,6 @@
 //! Container-local draft ownership. Disk work is serialized off the UI thread.
 pub(crate) mod font;
+pub(crate) mod input_options;
 pub(crate) mod key_ops;
 mod store;
 mod worker;
@@ -22,6 +23,11 @@ pub(crate) struct Values {
     pub board_hidden: bool,
     pub drag_select: bool,
     pub copy_on_select: bool,
+    // SH1-157 L1 (Q7, q7): Input options and Return, see input_options.rs.
+    pub option_alt: bool,
+    pub command_control: bool,
+    pub caret_anchor: bool,
+    pub reconnect_automatic: bool,
 }
 
 impl Default for Values {
@@ -35,6 +41,10 @@ impl Default for Values {
             board_hidden: false,
             drag_select: true,
             copy_on_select: false,
+            option_alt: false,
+            command_control: false,
+            caret_anchor: false,
+            reconnect_automatic: true,
         }
     }
 }
@@ -51,12 +61,22 @@ struct Edited {
     board_hidden: bool,
     drag_select: bool,
     copy_on_select: bool,
+    // One flag per input_options::FIELDS entry, in that order.
+    choices: [bool; 4],
 }
 
 enum EditIntent {
     Snapshot,
     Density,
     FontFamily,
+}
+
+/// What the settings sheet shows next to its title.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SaveStatus {
+    Saving,
+    Saved,
+    Failed { reason: String, retry: bool },
 }
 
 pub(crate) struct SettingsHost {
@@ -164,6 +184,14 @@ impl SettingsHost {
                 self.edited_before_load.drag_select |= self.draft.drag_select != values.drag_select;
                 self.edited_before_load.copy_on_select |=
                     self.draft.copy_on_select != values.copy_on_select;
+                for (edited, field) in self
+                    .edited_before_load
+                    .choices
+                    .iter_mut()
+                    .zip(input_options::FIELDS)
+                {
+                    *edited |= (field.get)(&self.draft) != (field.get)(&values);
+                }
             }
             self.write_failed = false;
             self.retry_requested = true;
@@ -181,6 +209,16 @@ impl SettingsHost {
                     self.loaded = true;
                     match result {
                         Ok(values) => {
+                            for (edited, field) in self
+                                .edited_before_load
+                                .choices
+                                .iter()
+                                .zip(input_options::FIELDS)
+                            {
+                                if !edited {
+                                    (field.set)(&mut self.draft, (field.get)(&values));
+                                }
+                            }
                             self.edited_before_load
                                 .notifications
                                 .merge(&mut self.draft.notifications, values.notifications);
@@ -297,6 +335,20 @@ impl SettingsHost {
 
     pub fn ready(&self) -> bool {
         self.loaded && !self.blocked && self.saved == self.revision
+    }
+
+    /// The sheet's state line (D7): "Saved" only after the worker reported
+    /// the write of the current draft; a failure keeps the draft and offers
+    /// Retry unless the store itself could not be read.
+    pub(crate) fn save_status(&self) -> SaveStatus {
+        match &self.error {
+            Some(reason) => SaveStatus::Failed {
+                reason: reason.clone(),
+                retry: !self.blocked,
+            },
+            None if self.ready() => SaveStatus::Saved,
+            None => SaveStatus::Saving,
+        }
     }
 
     #[allow(dead_code, reason = "P11 confirmation UI consumes this foundation")]

@@ -1,4 +1,6 @@
-use crate::{app::Smoke, terminal_input::GeneratedInput};
+use crate::{
+    app::Smoke, settings_pages::toolbar_sync::ToolbarSetting, terminal_input::GeneratedInput,
+};
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
@@ -425,6 +427,7 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal.input.options.option_alt ^= true;
+                        this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
                     })),
             )
@@ -440,6 +443,7 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal.input.options.command_control ^= true;
+                        this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
                     })),
             )
@@ -455,6 +459,7 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.actions.terminal_priority ^= true;
+                        this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
                     })),
             )
@@ -470,6 +475,7 @@ impl Smoke {
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal.input.options.caret_anchor ^= true;
+                        this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
                     })),
             )
