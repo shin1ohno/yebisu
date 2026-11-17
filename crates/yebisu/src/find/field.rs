@@ -49,8 +49,8 @@ impl Field {
     /// GPUI swaps the platform input handler only in `Window::draw` (gpui-pre
     /// 0.3.12 window.rs:3685-3727), so the live UIKit client created at close
     /// still calls this field until the first post-close frame. The SDK never
-    /// routes a retired client here (herdr-uikit 33e288d
-    /// src/window/input_target.rs:63-68, 205). `Smoke` is never leased on
+    /// routes a retired client here (herdr-uikit 99d7928
+    /// src/window/input_target.rs:75-80, 217). `Smoke` is never leased on
     /// this path: GPUI's platform handler enters through
     /// `AsyncWindowContext::update`, which refuses a borrowed app, and the
     /// owner drops its last handle to this field when it retires it.

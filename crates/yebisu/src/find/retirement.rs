@@ -79,7 +79,7 @@ impl Smoke {
     /// Whether GPUI has drawn since the accepted retirement acknowledgement.
     /// A draw while the fence was closed reported FocusLost
     /// (`accepts_text_input`, input.rs:98); the native client's third
-    /// readiness value (herdr-uikit 33e288d text_input/probe.rs:54-60) holds
+    /// readiness value (herdr-uikit 99d7928 text_input/probe.rs:54-60) holds
     /// that until the next draw re-evaluates focus. Read by the P13 probes.
     #[cfg_attr(
         not(any(test, feature = "p13-native-probe")),

@@ -32,7 +32,7 @@ pub(super) struct Settle {
 /// (gpui-pre 0.3.12 window.rs:3733-3740). The SDK applies a focus change to
 /// UIKit's first responder two asynchronous hops later: `set_text_input_focused`
 /// defers `update_first_responder` to a later main-queue turn (herdr-uikit
-/// 33e288d window/lifecycle.rs:370-383, 424-475), whose `activate` schedules a
+/// 99d7928 window/lifecycle.rs:370-383, 424-475), whose `activate` schedules a
 /// run-loop flush (text_input/sync.rs:25-37, run_loop.rs:18-26) that calls
 /// `becomeFirstResponder` (text_input/sync.rs:92-122).
 /// `text_readiness` only reads; it never requests focus or retries acquisition
