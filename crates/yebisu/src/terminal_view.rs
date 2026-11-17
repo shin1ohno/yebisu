@@ -15,6 +15,8 @@ pub(crate) struct TerminalView {
     pub core_mode: bool,
     #[cfg(test)]
     pub core_test_backend: Option<sheprd_core_client::CoreBackend>,
+    #[cfg(test)]
+    pub test_client: Option<sheprd_client::Client>,
     pub reconnect: crate::reconnect::Reconnect,
     pub live: Live,
     pub painter: TerminalPainter,
@@ -61,6 +63,9 @@ impl TerminalView {
 }
 impl Smoke {
     pub(crate) fn connect_terminal(&mut self, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.connect_terminal_inner(cx))
+    }
+    fn connect_terminal_inner(&mut self, cx: &mut Context<Self>) {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
@@ -83,6 +88,9 @@ impl Smoke {
         }
     }
     pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_host_connection_inner(target, cx))
+    }
+    fn start_host_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
         if self.terminal.core_mode && self.terminal.reconnect.target == target {
             self.connect_core(cx);
             return;
@@ -119,7 +127,13 @@ impl Smoke {
         terminal.size = None;
         terminal.open = true;
         terminal.needs_focus = true;
+        #[cfg(test)]
+        let test_client = terminal.test_client.take();
         let work = cx.background_executor().spawn(async move {
+            #[cfg(test)]
+            if let Some(client) = test_client {
+                return Ok(client);
+            }
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
                 return if std::env::var_os("YEBISU_BOARD_QA").is_some() {
@@ -250,7 +264,7 @@ impl Smoke {
                             terminal.painter.paint_composition(&terminal.input.composition.text,
                                 terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
                         });
-                        this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
+                        this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"select_mode":this.handoff.select_mode,"selection_blocks_input":this.handoff.blocks_input(),"text_input_paused":terminal.input.requires_gesture(),"input_ready":terminal.input.ready,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
                 });
@@ -289,17 +303,7 @@ impl Smoke {
             "{} {font_size}/{line_height}",
             if compact { "Compact" } else { "Standard" }
         );
-        let status = if self.terminal.navigating.is_some() {
-            "Navigating… · input paused".to_owned()
-        } else if let Some(reason) = self.find_keyboard_status() {
-            reason.to_owned()
-        } else if self.terminal.live.connected && self.terminal.input.requires_gesture() {
-            "Composition discarded · tap terminal to type".to_owned()
-        } else if self.terminal.live.status.is_empty() {
-            "Connecting…".to_owned()
-        } else {
-            self.terminal.live.status.clone()
-        };
+        let status = self.terminal_status();
         div()
             .size_full()
             .pt(insets.top)

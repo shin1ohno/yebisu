@@ -161,3 +161,17 @@ mod native_menus_qa;
 mod p15_settings_view;
 #[cfg(any(target_os = "ios", test))]
 mod theme_picker;
+
+#[cfg(test)]
+mod discard_recovery_tests;
+
+#[cfg(test)]
+mod discard_connection_tests;
+
+#[cfg(test)]
+mod direct_text_recovery_tests;
+
+#[cfg(any(target_os = "ios", test))]
+mod input_retirement;
+#[cfg(target_os = "ios")]
+mod native_retirement;

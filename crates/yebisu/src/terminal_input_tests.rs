@@ -712,3 +712,24 @@ fn p13_barrier_gate_waits_for_held_input_and_the_matching_surface() {
     input.sync(&live(), 1, Some(resized()));
     assert!(!input.flushed(), "empty but resized again");
 }
+#[test]
+fn retirement_revision_survives_detach_and_rejects_stale_or_exhausted_receipt() {
+    let mut input = marked();
+    input.discard();
+    let first = input.retirement_revision();
+    input.detach();
+    input.detach();
+    assert!(input.requires_gesture(), "a real discard survives detach");
+    // Each detach invalidates an earlier owner ticket (P13 compares it too).
+    assert!(!input.acknowledge_retirement(first));
+    let detached = input.retirement_revision();
+    input.reject_mark("new native mark");
+    assert!(!input.acknowledge_retirement(detached));
+    assert!(input.requires_gesture());
+    assert!(input.acknowledge_retirement(input.retirement_revision()));
+    assert!(!input.requires_gesture());
+    input.retirement_revision = u64::MAX;
+    input.reject_mark("exhausted");
+    assert!(!input.acknowledge_retirement(u64::MAX));
+    assert!(input.requires_gesture());
+}

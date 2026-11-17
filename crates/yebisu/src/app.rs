@@ -40,6 +40,7 @@ pub(crate) struct Smoke {
     pub(crate) native_menus: crate::native_menus::NativeMenus,
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     pub(crate) p12_qa: crate::native_menus_qa::MenuQa,
+    pub(crate) retirement: crate::input_retirement::Retirement,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -128,6 +129,7 @@ impl Smoke {
             board: Default::default(),
             actions: Default::default(),
             native_menus: Default::default(),
+            retirement: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -148,6 +150,8 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "ios")]
+        self.bind_text_retirement(window, cx);
         // A draw has begun: a retired search field is no longer GPUI's input
         // handler, so it stops forwarding (find/field.rs).
         self.find_handoff.frames = self.find_handoff.frames.wrapping_add(1);

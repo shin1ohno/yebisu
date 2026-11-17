@@ -46,6 +46,10 @@ impl Smoke {
         self.actions.palette = false;
         self.actions.consumed.clear();
         self.terminal.input.detach();
+        // The sheet takes text input away from the terminal; a late UIKit
+        // commit after it closes stays fenced (settings_sheet/tests.rs). A
+        // detach alone no longer invents a discard (SH1-156 D1).
+        self.terminal.input.fence();
         self.handoff.sync(None);
         self.handoff.cancel();
         self.handoff.select_mode = false;
