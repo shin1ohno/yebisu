@@ -195,12 +195,10 @@ per case, and the delegate-level item counts of S2c and E3i are unaffected.
 
 ## SH1-156: highlight after a new terminal key
 
-PR 40 offered **Typing: Clear highlight** / **Typing: Keep highlight** in the
-terminal handoff strip. The button is not shown: its extra strip row shrank the
-terminal (viewport 407 to 373 px), and the late resize cleared the selection of
-the SH1-152 Simulator checks (CI run 44041334941, edit-menu job 133896424514).
-Clear is the behavior; Keep remains in code (`Handoff::keep_highlight_on_key`)
-and is what a tap with Start: Drag leaves on its one cell.
+In the terminal handoff strip, tap **Typing: Clear highlight** to switch to
+**Typing: Keep highlight**, and tap again to return. No rebuild or reconnect is
+needed; restarting the app restores Clear. This does not change saved Drag/Copy
+preferences or any other input options.
 
 - **Clear** (default): a fresh terminal-owned semantic key ends Select and removes
   its highlight before delivery.

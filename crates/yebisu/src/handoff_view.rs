@@ -352,6 +352,14 @@ impl Smoke {
                             "Select"
                         },
                     ),
+                    (
+                        "typing-highlight",
+                        if self.handoff.keep_highlight_on_key {
+                            "Typing: Keep highlight"
+                        } else {
+                            "Typing: Clear highlight"
+                        },
+                    ),
                     ("copy", "Copy"),
                     ("paste", "Paste"),
                     ("paste-image", "Paste image"),
@@ -389,6 +397,9 @@ impl Smoke {
                                         this.terminal_focus.focus(window, cx);
                                         window.request_virtual_keyboard();
                                     }
+                                }
+                                "typing-highlight" => {
+                                    this.handoff.keep_highlight_on_key ^= true;
                                 }
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),
