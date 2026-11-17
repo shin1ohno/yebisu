@@ -20,6 +20,17 @@ Run these first; they repeat the P13 owner check steps 7-13 and 21-25.
 5. Open Settings and close it without touching the terminal. Type `e`: `e` must
    arrive (the first letter after the sheet).
 
+## SH1-156: Simulator pointer check (hosted CI)
+
+`scripts/ios/sh1-156-check.py` runs in the edit-menu job (`ci-sh1-152.py`). Its
+XCTest `testSH1156PointerClickAfterDiscard` leaves a discarded composition with a
+Simulator-only fixture (`sh1_156_qa.rs`: the setMarkedText adapter, then the
+production discard), clicks the terminal row with `XCUICoordinate.click`, types,
+turns Select on and off with the button, and types again. The check requires
+exactly the typed letters in the private peer's receipts. It shows UIKit's
+Simulator pointer and keyboard delivery, not a physical trackpad, hardware
+keyboard or IME; steps 1-3 above still need the device.
+
 ## SH1-156: hardware input after composition discard (partial repair)
 
 These are acceptance steps, not recorded passes. The partial selection/key repair
