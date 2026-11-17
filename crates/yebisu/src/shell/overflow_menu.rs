@@ -6,7 +6,7 @@
 //! Detach, New tab (disabled with its reason, q4). Plan v2 7.5.
 use super::{ChromeState, HerdrKind};
 use crate::app::Smoke;
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +108,16 @@ impl Smoke {
         Some(
             div()
                 .id("shell-overflow-menu")
+                .debug_selector(|| "shell-overflow-menu".into())
+                // A press on an item must not also reach the terminal under
+                // it (selection_down), as the edit bar and the Hosts sheet
+                // already occlude (review SF-2).
+                .occlude()
+                // A press outside the terminal column (the sidebar) closes it.
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.shell.frame.overflow_open = false;
+                    cx.notify();
+                }))
                 .absolute()
                 .top(px(crate::layout::TAB_ROW_HEIGHT))
                 .right_0()
@@ -136,6 +146,37 @@ impl Smoke {
                             }))
                         })
                 }))
+                .into_any_element(),
+        )
+    }
+
+    /// While the menu is open, a transparent layer over the terminal column
+    /// takes the press that closes it, so that press neither starts a
+    /// selection in the terminal nor reopens the menu from the ... button.
+    pub(crate) fn render_overflow_backdrop(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !self.shell.frame.overflow_open {
+            return None;
+        }
+        Some(
+            div()
+                .id("shell-overflow-backdrop")
+                .debug_selector(|| "shell-overflow-backdrop".into())
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .occlude()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.shell.frame.overflow_open = false;
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
+                )
                 .into_any_element(),
         )
     }

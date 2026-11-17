@@ -194,8 +194,7 @@ impl Smoke {
         }
         let available = window.fully_visible_bounds();
         let width = sheet_width(f32::from(available.size.width));
-        let keyboard = f32::from(window.insets().ime.bottom);
-        let height = sheet_height(f32::from(available.size.height), keyboard);
+        let height = sheet_height(f32::from(available.size.height));
         let body = if self.shell.hosts_sheet.add.is_some() {
             self.add_host_sheet(cx)
         } else {

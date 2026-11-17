@@ -14,9 +14,11 @@ pub(crate) fn sheet_width(window_width: f32) -> f32 {
     (window_width - OVERLAY_MARGIN).clamp(0.0, SHEET_WIDTH)
 }
 
-/// Sheet height that stays above the software keyboard.
-pub(crate) fn sheet_height(window_height: f32, keyboard_height: f32) -> f32 {
-    (window_height - keyboard_height - OVERLAY_MARGIN).max(0.0)
+/// Sheet height that stays above the software keyboard. `available_height`
+/// is `Window::fully_visible_bounds`, which already excludes the keyboard
+/// (frame.rs derives the keyboard from it), so it is not subtracted again.
+pub(crate) fn sheet_height(available_height: f32) -> f32 {
+    (available_height - OVERLAY_MARGIN).max(0.0)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -8,6 +8,8 @@ measurement of the job's 60-minute budget:
     the driver still exits non-zero if any check failed;
   * each check's wall time is printed (LAYOUT-SMOKE DURATION) and written to
     target/ios-layout-smoke/durations.json, which the job uploads.
+A check in KNOWN_RED still runs and uploads its evidence; its failure is logged as KNOWN RED
+and does not fail the job, and its pass does fail the job until the entry is removed.
 """
 import importlib.util
 import json
@@ -20,6 +22,12 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CHECKS = ["p2-check.py", "p3-check.py", "p10-check.py"]
+# Controller decision 2026-11-18 (SH1-157 Integration 1): the p3 landscape stage loses the
+# private-peer connection on main aed154e too, so it is a known red, not a layout regression.
+KNOWN_RED = {
+    "p3-check.py": "landscape rotation drops the private-peer connection; reproduces on main aed154e "
+                   "(task e115109b440f4304 report-1.md); the product fix is a separate task",
+}
 EVIDENCE = ROOT / "target/ios-layout-smoke"
 
 spec = importlib.util.spec_from_file_location("ci_smoke", HERE / "ci-smoke.py")
@@ -45,6 +53,20 @@ def run_checks(device):
     return results
 
 
+def verdict(results):
+    """Returns the checks that fail the job: real failures, and known reds that now pass."""
+    failed = [r["check"] for r in results if r["exit"] != 0 and r["check"] not in KNOWN_RED]
+    fixed = [r["check"] for r in results if r["exit"] == 0 and r["check"] in KNOWN_RED]
+    for r in results:
+        if r["check"] in KNOWN_RED and r["exit"] != 0:
+            print("layout-smoke KNOWN RED:", r["check"], "-", KNOWN_RED[r["check"]], flush=True)
+    if fixed:
+        print("layout-smoke: a known-red check now passes, remove it from KNOWN_RED:", ", ".join(fixed), flush=True)
+    if len(results) != len(CHECKS):
+        return failed + fixed + ["a check did not run"]
+    return failed + fixed
+
+
 def main():
     devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "--json", "devices", "available"], text=True))["devices"]
     device_type, runtime = smoke.select_template(devices)
@@ -63,9 +85,9 @@ def main():
         EVIDENCE.mkdir(parents=True, exist_ok=True)
         (EVIDENCE / "durations.json").write_text(json.dumps({"runtime": runtime, "total_seconds": total, "checks": results}, indent=2) + "\n")
         print("LAYOUT-SMOKE DURATION total", total, "s", flush=True)
-    failed = [r["check"] for r in results if r["exit"] != 0]
-    if failed or len(results) != len(CHECKS):
-        print("layout-smoke FAILED:", ", ".join(failed) or "a check did not run", flush=True)
+    failed = verdict(results)
+    if failed:
+        print("layout-smoke FAILED:", ", ".join(failed), flush=True)
         sys.exit(1)
 
 

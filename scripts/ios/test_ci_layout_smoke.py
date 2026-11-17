@@ -70,9 +70,35 @@ class JobTests(unittest.TestCase):
     def test_the_driver_runs_the_three_checks_in_order(self):
         self.assertEqual(driver.CHECKS, CHECKS)
         text = (HERE / "ci-layout-smoke.py").read_text()
-        self.assertEqual(re.findall(r'"([a-z0-9_-]+-check\.py)"', text), CHECKS)
+        line = re.search(r"^CHECKS = \[(.*)\]$", text, re.M).group(1)
+        self.assertEqual(re.findall(r'"([a-z0-9_-]+-check\.py)"', line), CHECKS)
         for name in CHECKS:
             self.assertTrue((HERE / name).is_file(), name)
+
+    def test_known_red_is_only_p3_and_every_entry_is_a_check_the_driver_runs(self):
+        self.assertEqual(list(driver.KNOWN_RED), ["p3-check.py"])
+        self.assertIn("aed154e", driver.KNOWN_RED["p3-check.py"])
+
+    def results(self, p2=0, p3=1, p10=0):
+        return [{"check": "p2-check.py", "exit": p2}, {"check": "p3-check.py", "exit": p3}, {"check": "p10-check.py", "exit": p10}]
+
+    def test_a_known_red_failure_is_logged_and_does_not_fail_the_job(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(driver.verdict(self.results()), [])
+        self.assertIn("layout-smoke KNOWN RED: p3-check.py", out.getvalue())
+
+    def test_negative_other_failures_still_fail_the_job(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(driver.verdict(self.results(p2=1)), ["p2-check.py"])
+            self.assertEqual(driver.verdict(self.results(p10=65)), ["p10-check.py"])
+            self.assertEqual(driver.verdict(self.results()[:2]), ["a check did not run"])
+
+    def test_negative_a_known_red_that_passes_fails_the_job_until_removed(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(driver.verdict(self.results(p3=0)), ["p3-check.py"])
+        self.assertIn("remove it from KNOWN_RED", out.getvalue())
 
     def test_every_check_the_driver_runs_takes_its_device_from_the_environment(self):
         for name in CHECKS:
@@ -299,20 +325,25 @@ class DriverTests(unittest.TestCase):
         return [Path(c[1]).name for c in calls if c[:1] == [driver.sys.executable]]
 
     def test_all_three_checks_run_in_order_on_one_simulator_that_is_deleted(self):
-        code, calls, durations = self.run_main([0, 0, 0])
+        # p3 is a known red (KNOWN_RED): its failure alone leaves the job green.
+        code, calls, durations = self.run_main([0, 1, 0])
         self.assertEqual(code, 0)
         self.assertEqual(self.scripts_run(calls), CHECKS)
         self.assertEqual(sum(1 for c in calls if c[:3] == ["xcrun", "simctl", "delete"]), 1)
         self.assertEqual([c["check"] for c in durations["checks"]], CHECKS)
-        self.assertEqual({c["exit"] for c in durations["checks"]}, {0})
+        self.assertEqual([c["exit"] for c in durations["checks"]], [0, 1, 0])
         self.assertIn("total_seconds", durations)
 
     def test_a_failing_check_does_not_stop_the_others_but_fails_the_job(self):
-        code, calls, durations = self.run_main([0, 1, 0])
+        code, calls, durations = self.run_main([1, 1, 0])
         self.assertEqual(code, 1)
         self.assertEqual(self.scripts_run(calls), CHECKS)
-        self.assertEqual([c["exit"] for c in durations["checks"]], [0, 1, 0])
+        self.assertEqual([c["exit"] for c in durations["checks"]], [1, 1, 0])
         self.assertEqual(sum(1 for c in calls if c[:3] == ["xcrun", "simctl", "delete"]), 1)
+
+    def test_a_known_red_that_passes_fails_the_job(self):
+        code, _, _ = self.run_main([0, 0, 0])
+        self.assertEqual(code, 1)
 
     def test_a_boot_failure_still_deletes_the_simulator(self):
         code, calls, durations = self.run_main([], boot_fails=True)

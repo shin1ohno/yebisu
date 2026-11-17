@@ -202,6 +202,7 @@ impl Smoke {
         };
         let mut bar = div()
             .id("edit-bar")
+            .debug_selector(|| "edit-bar".into())
             .absolute()
             .left(px(BAR_MARGIN))
             .top(px(4.0))

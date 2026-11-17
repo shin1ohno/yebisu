@@ -16,9 +16,12 @@ fn sheet_is_620_wide_or_the_window_minus_32() {
 
 #[test]
 fn sheet_height_stays_above_the_keyboard() {
-    assert_eq!(sheet_height(834.0, 0.0), 802.0);
-    assert_eq!(sheet_height(834.0, 320.0), 482.0);
-    assert_eq!(sheet_height(300.0, 400.0), 0.0);
+    // The input is the visible height, keyboard already excluded
+    // (Window::fully_visible_bounds): 834 pt with no keyboard, then with a
+    // 320 pt keyboard up.
+    assert_eq!(sheet_height(834.0), 802.0);
+    assert_eq!(sheet_height(834.0 - 320.0), 482.0);
+    assert_eq!(sheet_height(20.0), 0.0, "never negative");
 }
 
 #[test]
