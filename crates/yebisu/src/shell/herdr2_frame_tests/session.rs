@@ -118,3 +118,33 @@ fn herdr2_row_text_is_one_line() {
     let host = connected_host("pro-dev", &[status], &state);
     assert_eq!(host.agents[0].row.name, "evil title");
 }
+
+#[test]
+fn herdr2_list_only_when_l8_supplies_a_host() {
+    let state = SidebarState::default();
+    // Herdr 2 with no host: no list, so no column.
+    assert!(!rows::sidebar_list_ready(true, &[]));
+    let herdr1 = crate::shell::sidebar::model::HostEntry::new(
+        "mini",
+        HerdrKind::Herdr1,
+        HostLink::Connected,
+    );
+    assert!(!rows::sidebar_list_ready(
+        true,
+        std::slice::from_ref(&herdr1)
+    ));
+    // Herdr 2 with its host row from L8: a list, so the column is drawn,
+    // connected or not.
+    let host = connected_host("pro-dev", &[raw("t1", Some("working"))], &state);
+    assert!(rows::sidebar_list_ready(true, std::slice::from_ref(&host)));
+    let offline = rows::host_entry(
+        "pro-dev",
+        HostLink::Offline(crate::shell::sidebar::model::OfflineReason::NotConnected),
+        1,
+        &[],
+        &state,
+    );
+    assert!(rows::sidebar_list_ready(true, &[offline]));
+    // Herdr 1 keeps its list in every state.
+    assert!(rows::sidebar_list_ready(false, &[]));
+}

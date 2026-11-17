@@ -126,3 +126,11 @@ pub(crate) fn host_entry(
     let (spaces, agents) = session_content(host, generation, statuses, state);
     entry.with_content(spaces, agents)
 }
+
+/// Whether the sidebar has a list to draw. Herdr 1 always does. Herdr 2 has
+/// one only once L8 supplies a Herdr 2 host row; with no host the list is
+/// `None`, so the frame draws no column and gives the 300 pt back to the
+/// terminal (5ff25e7, Integration 1 review S3).
+pub(crate) fn sidebar_list_ready(core_mode: bool, hosts: &[HostEntry]) -> bool {
+    !core_mode || hosts.iter().any(|h| h.kind == HerdrKind::Herdr2)
+}
