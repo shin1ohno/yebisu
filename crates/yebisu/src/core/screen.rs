@@ -60,7 +60,15 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
 /// The size one terminal is given (plan v2 6.3, Herdr 2): the whole column
 /// while one pane is drawn, otherwise the column divided between the panes.
 pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
-    pane_size_for(size, count, vertical, column_metrics())
+    let sizes = pane_sizes(size, count, vertical, 0, column_metrics())?;
+    let sent = sizes
+        .into_iter()
+        .flatten()
+        .next()
+        .ok_or(crate::Error::CoreState)?;
+    #[cfg(test)]
+    probe::record(size, count, sent);
+    Ok(sent)
 }
 pub(super) fn pane_size_for(
     size: Size,
@@ -77,6 +85,23 @@ pub(super) fn pane_size_for(
     } else {
         Size::new((size.cols() / count).max(1), size.rows())?
     })
+}
+/// What to send each terminal. A pane hidden by the one-pane rule gets `None`:
+/// it keeps the size it last had (plan v2 6.3), so it does not reflow every
+/// time the column crosses 568 pt.
+pub(super) fn pane_sizes(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    active: usize,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Vec<Option<Size>>> {
+    let count = count.max(1);
+    let sent = pane_size_for(size, count, vertical, column)?;
+    let hidden = is_single(size, count, vertical, column);
+    Ok((0..count)
+        .map(|index| (!hidden || index == active).then_some(sent))
+        .collect())
 }
 pub(super) fn publish(
     screens: &[Screen],
@@ -232,3 +257,31 @@ pub(super) fn publish_for(
 #[cfg(test)]
 #[path = "screen_tests.rs"]
 mod tests;
+
+/// Test-only record of what the worker computed, keyed by the whole size so a
+/// test finds its own entries.
+#[cfg(test)]
+pub(super) mod probe {
+    use sheprd_backend::Size;
+    use std::sync::{Mutex, PoisonError};
+
+    static SIZES: Mutex<Vec<(Size, usize, Size)>> = Mutex::new(Vec::new());
+
+    pub(super) fn record(whole: Size, count: usize, sent: Size) {
+        SIZES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((whole, count, sent));
+    }
+
+    /// Every `pane_size` result for `whole` and `count`, oldest first.
+    pub(crate) fn sent_for(whole: Size, count: usize) -> Vec<Size> {
+        SIZES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(w, c, _)| *w == whole && *c == count)
+            .map(|(_, _, sent)| *sent)
+            .collect()
+    }
+}

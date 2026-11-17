@@ -78,3 +78,20 @@ fn one_pane_tab_is_drawn_the_same_in_any_column() -> crate::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
+    // 8 pt cells: 70 columns fit 560 pt and halve to 35 = 280 pt, so only the
+    // 568 pt line (not the cell minimum) makes this one pane.
+    let size = size(70, 10)?;
+    let screens = [screen("A", 35, 10), screen("B", 70, 10)];
+    for width in [560.0, 563.0, 567.0] {
+        let narrow = Some(column(width, 600.0, (8.0, 20.0)));
+        assert_eq!(pane_size_for(size, 2, false, narrow)?, size, "{width}");
+        let live = publish_for(&screens, &saved(1, false)?, size, (1, 1, 0), narrow);
+        assert!(symbols(&live).iter().all(|s| s == "B"), "{width}");
+    }
+    let wide = Some(column(568.0, 600.0, (8.0, 20.0)));
+    assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 35);
+    Ok(())
+}
