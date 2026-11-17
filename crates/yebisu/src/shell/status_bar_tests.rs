@@ -1,0 +1,54 @@
+use super::*;
+
+fn state(kind: HerdrKind, connected: bool) -> ChromeState {
+    ChromeState {
+        kind,
+        connected,
+        ..ChromeState::default()
+    }
+}
+
+#[test]
+fn status_bar_is_single_line() {
+    let model = status_bar_model(&state(HerdrKind::Herdr1, true), "pro-dev");
+    assert_eq!(status_line(&model), "pro-dev · Herdr 1 · Connected");
+    let model = status_bar_model(&state(HerdrKind::Herdr2, false), "pro-dev");
+    assert_eq!(status_line(&model), "pro-dev · Herdr 2 · Disconnected");
+    // A host name with control characters (untrusted) stays one line.
+    let model = status_bar_model(&state(HerdrKind::Herdr1, true), "evil\nhost\r\tname");
+    let line = status_line(&model);
+    assert!(!line.chars().any(char::is_control), "{line:?}");
+    assert!(!model.accessibility_label.chars().any(char::is_control));
+    assert_eq!(line.lines().count(), 1);
+}
+
+#[test]
+fn reconnect_shows_only_when_disconnected() {
+    for kind in [HerdrKind::Herdr1, HerdrKind::Herdr2] {
+        assert!(!status_bar_model(&state(kind, true), "h").show_reconnect);
+        assert!(status_bar_model(&state(kind, false), "h").show_reconnect);
+    }
+}
+
+#[test]
+fn status_bar_full_name_in_accessibility_label() {
+    let name = "a-very-long-connection-name-for-pro-dev-x"; // 41 characters
+    let model = status_bar_model(&state(HerdrKind::Herdr1, true), name);
+    assert_eq!(model.connection, name);
+    assert_eq!(
+        model.accessibility_label,
+        format!("{name}, Herdr 1, Connected")
+    );
+}
+
+#[test]
+fn hidden_sidebar_offers_show_in_status_bar() {
+    let shown = state(HerdrKind::Herdr1, true);
+    assert!(!status_bar_model(&shown, "h").show_sidebar_hint);
+    let hidden = ChromeState {
+        sidebar_hidden: true,
+        ..shown
+    };
+    assert!(status_bar_model(&hidden, "h").show_sidebar_hint);
+    assert_eq!(SHOW_SIDEBAR, "Show sidebar ⌘B");
+}

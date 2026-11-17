@@ -4,11 +4,12 @@ use gpui::{AnyElement, Context, div, prelude::*, rgb};
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::collections::BTreeMap;
 
+/// The board keeps one height; the Dense / Roomy toggle is gone (q7).
+pub(crate) const BOARD_HEIGHT: f32 = 180.;
 #[derive(Default)]
 pub(crate) struct Board {
     pub hidden: BTreeMap<String, TerminalView>,
     pub selection: u64,
-    pub roomy: bool,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Target {
@@ -143,7 +144,7 @@ impl Smoke {
     pub(crate) fn select_host(&mut self, host: &str) {
         self.input_transition(|this| this.select_host_inner(host))
     }
-    fn select_host_inner(&mut self, host: &str) {
+    pub(crate) fn select_host_inner(&mut self, host: &str) {
         if !self.terminal.open {
             let marked = if self.smoke_mode {
                 self.input.marked.is_some()
@@ -170,6 +171,11 @@ impl Smoke {
         if self.settings.is_some() {
             next.compact = self.terminal.compact;
             next.font = self.terminal.font.clone();
+            // SH1-157 L1: app-wide Input options and Return (settings_view.rs).
+            next.input.options.option_alt = self.terminal.input.options.option_alt;
+            next.input.options.command_control = self.terminal.input.options.command_control;
+            next.input.options.caret_anchor = self.terminal.input.options.caret_anchor;
+            next.reconnect.automatic = self.terminal.reconnect.automatic;
         }
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();
@@ -186,6 +192,19 @@ impl Smoke {
         self.board.selection = self.board.selection.wrapping_add(1);
     }
     pub(crate) fn record_board(&self, host: &str, live: &Live) {
+        // Every reader update reaches here, drawn or not: the sidebar's
+        // AGENTS receive order is recorded now, not when the list renders.
+        let core = if host == self.terminal.reconnect.target {
+            self.terminal.core_mode
+        } else {
+            self.board.hidden.get(host).is_some_and(|t| t.core_mode)
+        };
+        let kind = if core {
+            crate::shell::HerdrKind::Herdr2
+        } else {
+            crate::shell::HerdrKind::Herdr1
+        };
+        crate::shell::sidebar::model::record_live(&self.shell.sidebar, host, kind, live);
         self.observation.record(serde_json::json!({"kind":"board", "host":host, "selected":host == self.terminal.reconnect.target, "revision":snapshot(live).map(|s|s.revision), "rows":rows(live).iter().map(|r|r.label.clone()).collect::<Vec<_>>(), "states":rows(live).iter().map(|r|status(r.status).0).collect::<Vec<_>>() }));
     }
     pub(crate) fn poll_hidden(&mut self, cx: &mut Context<Self>) {
@@ -217,7 +236,7 @@ impl Smoke {
     ) -> crate::Result<()> {
         self.input_transition(|this| this.navigate_board_inner(host, target, boot, generation))
     }
-    fn navigate_board_inner(
+    pub(crate) fn navigate_board_inner(
         &mut self,
         host: &str,
         target: Target,
@@ -284,24 +303,15 @@ impl Smoke {
             .w_full()
             .child(
                 div()
-                    .id("board-density")
                     .px_4()
                     .py_2()
                     .bg(rgb(0x434c5e))
-                    .child(if self.board.roomy {
-                        "Board: Roomy"
-                    } else {
-                        "Board: Dense"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.board.roomy ^= true;
-                        cx.notify();
-                    })),
+                    .child(crate::shell::sidebar::view::HOSTS_HEADING),
             )
             .child(
                 div()
                     .id("status-board")
-                    .h(gpui::px(if self.board.roomy { 260. } else { 180. }))
+                    .h(gpui::px(BOARD_HEIGHT))
                     .overflow_y_scroll()
                     .children(hosts.into_iter().enumerate().map(
                         |(i, (host, live, generation))| {
@@ -335,7 +345,7 @@ impl Smoke {
                                     let (label, color) = status(row.status);
                                     div()
                                         .id(("board-row", i * 65536 + j))
-                                        .py(gpui::px(if self.board.roomy { 12. } else { 4. }))
+                                        .py(gpui::px(4.))
                                         .text_color(rgb(color))
                                         .child(format!("● {} · {}", row.label, label))
                                         .on_click(cx.listener(move |this, _, window, cx| {

@@ -171,7 +171,7 @@ impl Smoke {
         }
         match command {
             Command::ToggleSidebar => {
-                self.actions.board_hidden ^= true;
+                self.toggle_sidebar();
                 return Ok(());
             }
             Command::Palette => {

@@ -2,6 +2,7 @@ use crate::{
     app::Smoke,
     link::Link,
     live::Live,
+    settings_pages::toolbar_sync::ToolbarSetting,
     terminal_painter::{Ground, TerminalPainter},
     theme::Theme,
 };
@@ -295,8 +296,13 @@ impl Smoke {
             self.refresh_terminal_input();
             self.request_find_retirement(window, cx);
         }
-        let insets = window.insets().safe_area;
-        let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
+        self.enforce_pane_mode(window, cx);
+        if let Some(too_small) = self.render_too_small(window, cx) {
+            return too_small;
+        }
+        let legacy = self.legacy_bands();
+        let board_in_band = self.board_in_band();
+        let core_band = self.core_controls_in_band();
         let compact = self.terminal.compact;
         let (font_size, line_height) = self.terminal.font.metrics(compact);
         let label = format!(
@@ -304,12 +310,8 @@ impl Smoke {
             if compact { "Compact" } else { "Standard" }
         );
         let status = self.terminal_status();
-        div()
+        let body = div()
             .size_full()
-            .pt(insets.top)
-            .pb(insets.bottom.max(bottom))
-            .pl(insets.left)
-            .pr(insets.right)
             .flex()
             .flex_col()
             .bg(rgb(0x101419))
@@ -317,110 +319,120 @@ impl Smoke {
             .track_focus(&self.terminal_focus)
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .child(self.settings_button(cx))
-                    .px_4()
-                    .py_2()
-                    .child(
-                        div()
-                            .id("terminal-back")
-                            .px_4()
-                            .py_2()
-                            .bg(rgb(0x3b4252))
-                            .child("Hosts")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                window.blur(cx);
-                                this.terminal.input.detach();
-                                this.handoff.cancel();
-                                this.board.selection = this.board.selection.wrapping_add(1);
-                                this.terminal.open = false;
-                                this.smoke_mode = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("terminal-density")
-                            .px_4()
-                            .py_2()
-                            .bg(rgb(0x3b4252))
-                            .child(label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.terminal.compact = !this.terminal.compact;
-                                this.terminal.font.size = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("input-options")
-                            .px_2()
-                            .py_2()
-                            .bg(rgb(0x3b4252))
-                            .child("Input options")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.terminal.show_options ^= true;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("reconnect")
-                            .px_2()
-                            .py_2()
-                            .bg(rgb(0x3b4252))
-                            .child("Reconnect")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if !this.terminal.live.connected
-                                    && this.terminal.live.version_mismatch.get().is_none()
-                                {
-                                    this.connect_terminal(cx);
-                                }
-                            })),
-                    )
-                    .child(div().child(format!("P9 · {status}"))),
-            )
-            .child(
-                div()
-                    .id("reconnect-policy")
-                    .px_4()
-                    .py_2()
-                    .child(if self.terminal.reconnect.automatic {
-                        "Return: Automatic"
-                    } else {
-                        "Return: Tap reconnect"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.terminal.reconnect.automatic ^= true;
-                        cx.notify();
-                    })),
-            )
+            .when(legacy.toolbar, |view| {
+                view.child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .child(self.settings_button(cx))
+                        .px_4()
+                        .py_2()
+                        .child(
+                            div()
+                                .id("terminal-back")
+                                .px_4()
+                                .py_2()
+                                .bg(rgb(0x3b4252))
+                                .child("Hosts")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    window.blur(cx);
+                                    this.terminal.input.detach();
+                                    this.handoff.cancel();
+                                    this.board.selection = this.board.selection.wrapping_add(1);
+                                    this.terminal.open = false;
+                                    this.smoke_mode = false;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("terminal-density")
+                                .px_4()
+                                .py_2()
+                                .bg(rgb(0x3b4252))
+                                .child(label)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.terminal.compact = !this.terminal.compact;
+                                    this.terminal.font.size = None;
+                                    this.toolbar_setting_changed(ToolbarSetting::Density, cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("input-options")
+                                .px_2()
+                                .py_2()
+                                .bg(rgb(0x3b4252))
+                                .child("Input options")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.terminal.show_options ^= true;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("reconnect")
+                                .px_2()
+                                .py_2()
+                                .bg(rgb(0x3b4252))
+                                .child("Reconnect")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if !this.terminal.live.connected
+                                        && this.terminal.live.version_mismatch.get().is_none()
+                                    {
+                                        this.connect_terminal(cx);
+                                    }
+                                })),
+                        )
+                        .child(div().child(format!("P9 · {status}"))),
+                )
+            })
+            .when(legacy.return_policy, |view| {
+                view.child(
+                    div()
+                        .id("reconnect-policy")
+                        .px_4()
+                        .py_2()
+                        .child(if self.terminal.reconnect.automatic {
+                            "Return: Automatic"
+                        } else {
+                            "Return: Tap reconnect"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.terminal.reconnect.automatic ^= true;
+                            this.toolbar_setting_changed(ToolbarSetting::ReturnPolicy, cx);
+                            cx.notify();
+                        })),
+                )
+            })
             .when(
-                !self.terminal.core_mode && !self.actions.board_hidden,
+                board_in_band && !self.terminal.core_mode && !self.actions.board_hidden,
                 |view| view.child(self.render_board(cx)),
             )
-            .when(!self.terminal.core_mode, |view| {
+            .when(legacy.actions && !self.terminal.core_mode, |view| {
                 view.child(self.render_actions(cx))
             })
-            .when(self.terminal.core_mode, |view| {
+            .when(core_band && self.terminal.core_mode, |view| {
                 view.child(self.render_core_controls(cx))
             })
-            .when(self.terminal.show_options, |view| {
+            .when(legacy.input_options && self.terminal.show_options, |view| {
                 view.child(self.input_options(cx))
             })
-            .children(self.input_qa_controls(cx))
-            .child(self.handoff_controls(cx))
+            .when(legacy.qa_controls, |view| {
+                view.children(self.input_qa_controls(cx))
+            })
+            .when(legacy.handoff, |view| view.child(self.handoff_controls(cx)))
             .child(self.render_find(cx))
-            .children(self.p13_qa_controls(cx))
-            .children(self.handoff_qa_controls(cx))
-            .children(self.native_edit_qa_controls(cx))
-            .children(self.edit_menu_qa_controls(cx))
-            .children(self.sh1_156_qa_controls(cx))
-            .children(self.sh1_152_controls(cx))
+            .when(legacy.qa_controls, |view| {
+                view.children(self.p13_qa_controls(cx))
+                    .children(self.handoff_qa_controls(cx))
+                    .children(self.native_edit_qa_controls(cx))
+                    .children(self.edit_menu_qa_controls(cx))
+                    .children(self.sh1_156_qa_controls(cx))
+                    .children(self.sh1_152_controls(cx))
+            })
             .child(
                 div()
                     .id("terminal-input")
@@ -463,7 +475,8 @@ impl Smoke {
                     )
                     .child(self.edit_menu_canvas(cx)),
             )
-            .into_any_element()
+            .into_any_element();
+        self.shell_frame(body, window, cx)
     }
 }
 

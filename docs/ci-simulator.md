@@ -40,6 +40,46 @@ provided evidence was produced. The artifact excludes `build/` and the local
 files disappear when the job finishes. This checks Simulator
 rendering and lifecycle behavior, not physical IME or hardware keyboard behavior.
 
+## layout-smoke job and SmokeQA label check
+
+| Job | Runs | Limit | Selected by |
+|---|---|---|---|
+| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | the `layout=` pattern of the `changes` job: the harness scripts above, `scripts/ios/smoke-qa/`, and the app modules those three drive; pushes to main and manual runs always run it |
+| `check`, step `SmokeQA labels` | `scripts/ios/smokeqa-labels-check.py`: ties every text SmokeQA taps or OCR-matches to the app source that paints it, or to an allow-list entry with its reason | within the 40-minute `check` job | every pull request that selects `check` |
+
+These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
+the finished-phase checks P4 to P8, R3, R5, CJK and SH1-155, three remain that are neither in
+`edit-menu` nor in `simulator-smoke`: P2, P3 and P10. The `layout-smoke` job is built like
+`ci-sh1-152.py`, with two differences: a failing check does not stop the next one (every check is
+timed and judged in one run; the job still fails), and each check's wall time is printed as
+`LAYOUT-SMOKE DURATION <check> <seconds> s exit <code>` and written to
+`target/ios-layout-smoke/durations.json`, uploaded with the other receipts as the
+`layout-smoke-evidence` artifact.
+
+Measure the job on the first integration run: `gh run view <run-id> --json jobs` gives the job's
+`startedAt` and `completedAt` and each step's, and the `durations.json` artifact splits the
+"Layout smoke receiving-system checks" step by check. A total above 45 minutes is the signal to split the
+job into two (P2 and P3 in one, P10 and the next additions in the other) before the 60-minute
+limit is hit. First hosted runs (PR 72): run 44151000668 job 134279069207 took 16 min 41 s
+(checks 932.6 s: p2 580.8, p3 140.5, p10 102.1) and run 44155672313 job 134296175129 took
+24 min 42 s (checks 1284.8 s: p2 772.3, p3 237.4, p10 146.7).
+
+Two hosted findings are handled in the harness, not in the checks (task e115109b440f4304):
+- `simctl pbpaste` times out (exit 60) on GitHub-hosted runners. `p2-check.py` retries it
+  three times and, only when `GITHUB_ACTIONS=true`, skips the pasteboard read with the logged
+  reason `P2 SKIPPED the receiving pasteboard read`; the app's `Copied restricted public key.`
+  receipt is still required, and the Mac mini keeps the exact match. `p2-setup.jsonl` is read
+  with `live_jsonl.read_records`, so a partly written last line is not a parse error.
+- `p3-check.py` is in `KNOWN_RED` of `ci-layout-smoke.py`: the landscape stage loses the
+  private-peer connection on main aed154e too. p3 still runs and uploads its evidence; its
+  failure is logged as `layout-smoke KNOWN RED`, and a pass fails the job until the entry is
+  removed with the product fix.
+
+The tests moved from `SmokeQA.swift` into `SmokeQA+<unit>.swift` extensions of the same class
+(Terminal, Keys, Handoff, Settings, Theme, Observer, Notifications, Input, Core), each at most 300
+lines. `-only-testing:SmokeOracle/SmokeQA/<test>` names are unchanged. Line numbers such as
+`SmokeQA.swift:23` in the classes below refer to the file before that split.
+
 ## Known simulator-smoke failure classes
 
 Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
