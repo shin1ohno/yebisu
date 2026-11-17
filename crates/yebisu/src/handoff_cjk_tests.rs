@@ -84,7 +84,10 @@ fn sh1_150_vs16_preserves_real_space_and_covered_text() {
 fn sh1_150_real_selection_and_clipboard_adapter(cx: &mut TestAppContext) {
     for spacer in [" ", ""] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        cx.simulate_resize(size(px(1200.), px(1000.)));
+        // Wide enough that the legacy handoff band does not wrap beside the
+        // 300 pt sidebar (SH1-157 L2a); a wrap moves the terminal between the
+        // geometry read below and the first mouse event.
+        cx.simulate_resize(size(px(1500.), px(1000.)));
         view.update(cx, |this, cx| {
             this.terminal.open = true;
             this.terminal.live.apply(ClientEvent::Snapshot(Arc::new(

@@ -303,8 +303,6 @@ impl Smoke {
         let legacy = self.legacy_bands();
         let board_in_band = self.board_in_band();
         let core_band = self.core_controls_in_band();
-        let insets = window.insets().safe_area;
-        let bottom = window.viewport_size().height - window.fully_visible_bounds().bottom();
         let compact = self.terminal.compact;
         let (font_size, line_height) = self.terminal.font.metrics(compact);
         let label = format!(
@@ -314,10 +312,6 @@ impl Smoke {
         let status = self.terminal_status();
         let body = div()
             .size_full()
-            .pt(insets.top)
-            .pb(insets.bottom.max(bottom))
-            .pl(insets.left)
-            .pr(insets.right)
             .flex()
             .flex_col()
             .bg(rgb(0x101419))
