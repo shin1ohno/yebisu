@@ -71,7 +71,8 @@ def main():
     if len(screenshots) != 1:
         raise RuntimeError("missing P2 foreground screenshot before XCTest teardown")
     shutil.copyfile(attachments / screenshots[0]["exportedFileName"], destination / "screenshot.png")
-    run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "2e3440", "--min", "0.4")
+    # The first-run frame and sheet (SH1-157 L7) are #101419 and #1c1c22, not the old setup page color.
+    run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
     container = subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()
     text = (Path(container) / "Documents/p2-setup.jsonl").read_text()
     records = [v for line in text.splitlines() if (v := json.loads(line)).get("time", 0) >= start]
