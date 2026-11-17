@@ -1,7 +1,4 @@
-use crate::{
-    app::Smoke,
-    terminal_input::{GeneratedInput, TerminalInput},
-};
+use crate::{app::Smoke, terminal_input::GeneratedInput};
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
 impl Smoke {
@@ -19,7 +16,16 @@ impl Smoke {
     ) -> Option<crate::edit_menu::Availability> {
         self.refresh_terminal_input();
         self.sync_handoff();
-        if !self.terminal.open {
+        // While the search field holds focus, publish no window-wide policy:
+        // the terminal's explicit Edit policy (Cut only with a terminal
+        // selection) would otherwise refuse the field's own Cut, Copy and
+        // Paste, and the SDK's default text-input rules apply instead.
+        if !self.terminal.open
+            || self
+                .find
+                .as_ref()
+                .is_some_and(|bar| bar.owns_text_editing(window))
+        {
             return None;
         }
         Some({
@@ -54,24 +60,73 @@ impl Smoke {
         })
     }
 
+    /// Ask UIKit for the terminal's text responder, as a tap on the terminal
+    /// does; with a hardware keyboard no software keyboard appears. Recorded
+    /// so host tests and the Simulator checks see the request.
+    pub(crate) fn request_terminal_keyboard(&self, window: &Window, reason: &'static str) {
+        window.request_virtual_keyboard();
+        self.observation
+            .record(serde_json::json!({"kind": "keyboard-request", "reason": reason}));
+    }
+    /// The status sits in the toolbar's wrapping row (terminal_view.rs): a
+    /// longer text moves onto a second row and shrinks the terminal, and that
+    /// resize clears a selection. PR 40's "Selection active · press a terminal
+    /// key or turn Select off to type" did so the moment a selection began
+    /// (SH1-152 Simulator check, CI run 44048410658: 407 to 373 px). Keep the
+    /// P13 texts; an active discard fence shows its reason, not a historical
+    /// composition event.
+    pub(crate) fn terminal_status(&self) -> String {
+        if self.terminal.navigating.is_some() {
+            return "Navigating… · input paused".into();
+        }
+        if let Some(reason) = self.find_keyboard_status() {
+            return reason.into();
+        }
+        if self.terminal.live.connected && self.terminal.input.requires_gesture() {
+            if let Some(reason) = self.retirement.reason {
+                return reason.into();
+            }
+            #[cfg(target_os = "ios")]
+            if let Some(status) = self.native_retirement_status() {
+                return status.into();
+            }
+            return "Text input paused · tap terminal to type".into();
+        }
+        if self.terminal.live.status.is_empty() {
+            return "Connecting…".into();
+        }
+        self.terminal.live.status.clone()
+    }
+
     pub(crate) fn refresh_terminal_input(&mut self) {
         let terminal = &mut self.terminal;
-        if self.settings_modal || terminal.navigating.is_some() || self.actions.palette {
+        if self.settings_modal
+            || self.find.is_some()
+            || terminal.navigating.is_some()
+            || self.actions.palette
+        {
             terminal.input.detach();
             return;
         }
+        // A busy mailbox means the reader or the core worker is publishing.
+        // Keep the last observed state, as sync_handoff does: input generated
+        // now still leaves in order, and each send path rechecks the target
+        // (Link::send_verified, the core worker's destination check). Marking
+        // input unready here held it behind later requests (P13 D5) and made
+        // start_paste refuse a paste during a publication (L14).
         if let Ok(live) = terminal.link.inbox.try_lock() {
             terminal
                 .input
                 .sync(&live, terminal.link.generation, terminal.size);
-        } else {
-            terminal.input.ready = false;
         }
     }
     pub(crate) fn send_terminal(&mut self, event: GeneratedInput) {
+        if self.find.is_some() || self.find_handoff.paused {
+            return;
+        }
         self.refresh_terminal_input();
         self.sync_handoff();
-        if self.handoff.selection.is_some() || self.handoff.select_mode {
+        if self.handoff.blocks_input() {
             return;
         }
         if self.handoff.preparing {
@@ -94,6 +149,9 @@ impl Smoke {
         self.flush_terminal();
     }
     pub(crate) fn flush_terminal(&mut self) {
+        if self.find.is_some() || self.find_handoff.paused {
+            return;
+        }
         if self.settings_modal || self.terminal.navigating.is_some() || self.actions.palette {
             self.terminal.input.detach();
             return;
@@ -109,9 +167,7 @@ impl Smoke {
             };
             if let Err(error) = result {
                 self.terminal.live.status = error.to_string();
-                let options = std::mem::take(&mut self.terminal.input.options);
-                self.terminal.input = TerminalInput::default();
-                self.terminal.input.options = options;
+                self.terminal.input.detach(); // Preserve an actual discard on writer failure.
                 break;
             }
         }
@@ -146,6 +202,25 @@ impl Smoke {
             window.prevent_default();
             return;
         }
+        // Search owns input while open, and the retirement fence holds every
+        // terminal key, native Edit commands included, until it is released.
+        if self.find.is_some() {
+            return;
+        }
+        // Every KeyDown of the press that closed search, held or not, stays
+        // with the UI until that press ends (find/closing_press.rs).
+        if self.closing_press_owns(event) {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        if self.find_handoff.paused {
+            if self.terminal_focus.is_focused(window) {
+                cx.stop_propagation();
+                window.prevent_default();
+            }
+            return;
+        }
         // A held closing key is not a fresh gesture that can resume input.
         if self.terminal_focus.is_focused(window)
             && event.is_held
@@ -153,6 +228,17 @@ impl Smoke {
         {
             cx.stop_propagation();
             window.prevent_default();
+            return;
+        }
+        self.input_transition(|this| this.terminal_key_down_inner(event, window, cx))
+    }
+    fn terminal_key_down_inner(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.terminal_focus.is_focused(window) {
             return;
         }
         #[cfg(target_os = "ios")]
@@ -221,6 +307,14 @@ impl Smoke {
         if let Some(command) =
             crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
         {
+            if command == sheprd_commands::Command::Find {
+                if !event.is_held {
+                    self.open_find(window, cx);
+                }
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
             if !event.is_held
                 && let Err(e) = self.run_catalog_command(command, None, window.is_window_active())
             {
@@ -234,11 +328,26 @@ impl Smoke {
             return;
         }
         self.refresh_terminal_input();
-        if let Some(input) = self
+        self.sync_handoff();
+        // An old held key cannot end a new selection.
+        if event.is_held && self.handoff.blocks_input() {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        let input = self
             .terminal
             .input
-            .key_down(event, self.terminal.input.report_all)
-        {
+            .key_down(event, self.terminal.input.report_all);
+        let modifiers = event.keystroke.modifiers;
+        let printable = !(modifiers.control || modifiers.platform || modifiers.function);
+        // A fresh key ends Select. GPUI declines a printable key and UIKit
+        // types it through insertText, so that text must not meet the
+        // selection gate either (SH1-156).
+        if !event.is_held && (input.is_some() || printable) {
+            self.handoff.resume_typing();
+        }
+        if let Some(input) = input {
             self.send_terminal(input);
             cx.stop_propagation();
             window.prevent_default();
@@ -262,6 +371,16 @@ impl Smoke {
             },
             "up",
         );
+        if self.end_closing_press(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
+        // SH1-156: the SDK refuses a retirement request while a key is held
+        // (held-press ledger, herdr-uikit PR 16) and admits it again after the
+        // release, so a release submits the pending request once more.
+        if self.terminal.input.requires_gesture() && !self.settings_modal && self.find.is_none() {
+            self.request_text_retirement();
+        }
         if self.settings_modal {
             self.actions.consumed.remove(&event.keystroke.key);
             cx.stop_propagation();
@@ -273,6 +392,10 @@ impl Smoke {
             return;
         }
         if self.actions.consumed.remove(&event.keystroke.key) {
+            cx.stop_propagation();
+            return;
+        }
+        if self.find_handoff.paused {
             cx.stop_propagation();
             return;
         }
@@ -373,7 +496,6 @@ impl Smoke {
                             .child("QA mark")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.terminal_focus.focus(window, cx);
-                                this.terminal.input.fresh_gesture();
                                 this.replace_and_mark_text_in_range(
                                     None,
                                     "かな😀変換",
@@ -424,3 +546,7 @@ impl Smoke {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_controls_tests.rs"]
+mod tests;

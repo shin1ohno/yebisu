@@ -47,6 +47,11 @@ pub(crate) struct NativeCommand {
 }
 
 /// Shared Settings/menu presentation API. No platform keymap is modified.
+/// Search opens from its shortcut and the palette; the keyless OS menu keeps
+/// its pre-search command set.
+pub(crate) fn in_os_menu(row: &actions::Action) -> bool {
+    row.info.command != Command::Find
+}
 /// The Settings sheet supplies its intended terminal focus/scene context.
 pub(crate) fn catalog_rows(
     terminal: &TerminalView,
@@ -55,6 +60,7 @@ pub(crate) fn catalog_rows(
 ) -> Vec<actions::Action> {
     actions::catalog(terminal)
         .into_iter()
+        .filter(in_os_menu)
         .map(|mut row| {
             row.available &=
                 focused && !(actions.terminal_priority && terminal.input.options.command_control);

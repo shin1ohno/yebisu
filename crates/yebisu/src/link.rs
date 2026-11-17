@@ -2,8 +2,8 @@
 use crate::live::Live;
 use sheprd_client::{Client, ClientEvent, ClientHandle};
 use std::sync::{
-    Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock, TryLockError,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::thread::JoinHandle;
 
@@ -16,6 +16,8 @@ pub(crate) struct Link {
     #[cfg(test)]
     pub before_dial: Option<Box<dyn FnOnce()>>,
     pub inbox: Arc<Mutex<Live>>,
+    /// The inbox's `Live::published_epoch`; replaced with it on every pause.
+    published_epoch: Arc<AtomicU64>,
     pub drained: Arc<AtomicBool>,
     pub handle: Option<ClientHandle>,
 }
@@ -26,6 +28,7 @@ impl Default for Link {
             notification_active: Arc::new(AtomicBool::new(true)),
             generation: 0,
             stop_reason: live.version_mismatch.clone(),
+            published_epoch: live.published_epoch.clone(),
             reader: None,
             retired_readers: Vec::new(),
             #[cfg(test)]
@@ -68,6 +71,7 @@ impl Link {
         self.generation = self.generation.wrapping_add(1);
         let mut live = Live::default();
         live.version_mismatch = self.stop_reason.clone();
+        self.published_epoch = live.published_epoch.clone();
         live.status = "Connecting…".into();
         live.dirty = true;
         self.inbox = Arc::new(Mutex::new(live));
@@ -199,6 +203,9 @@ impl HeldInput {
         self.fifo.push_back(event);
         true
     }
+    pub fn is_empty(&self) -> bool {
+        self.fifo.is_empty()
+    }
     pub fn pop(
         &mut self,
         boot: &str,
@@ -214,21 +221,47 @@ impl HeldInput {
 
 impl Link {
     /// Recheck the reader's state at enqueue time, not only a UI polling copy.
+    ///
+    /// When the reader is publishing, the mailbox is busy. Input must not wait
+    /// for it: a request sent meanwhile goes straight to the ordered writer
+    /// and would overtake the input (P13 D5). `Live::apply` advances
+    /// `input_epoch` and publishes it whenever the destination changes, so an
+    /// equal published epoch means the newest completed publication still has
+    /// this destination. Sending then orders the input before the publication
+    /// in progress, exactly as winning the `try_lock` an instant earlier would.
     pub(crate) fn send_verified(
         &self,
         destination: &crate::terminal_input::Destination,
         event: sheprd_client::protocol::ClientPaneInputEvent,
     ) -> crate::Result<()> {
-        let live = self
-            .inbox
-            .try_lock()
-            .map_err(|_| crate::Error::Ssh("Input state busy; input discarded".into()))?;
-        if crate::terminal_input::destination(&live, self.generation).as_ref() != Some(destination)
-        {
-            return Err(crate::Error::Ssh(
+        let changed = || {
+            Err(crate::Error::Ssh(
                 "Input target changed; input discarded".into(),
-            ));
-        }
+            ))
+        };
+        let _live = match self.inbox.try_lock() {
+            Ok(live) => {
+                if crate::terminal_input::destination(&live, self.generation).as_ref()
+                    != Some(destination)
+                {
+                    return changed();
+                }
+                Some(live)
+            }
+            Err(TryLockError::WouldBlock) => {
+                if destination.generation != self.generation
+                    || self.published_epoch.load(Ordering::Acquire) != destination.epoch
+                {
+                    return changed();
+                }
+                None
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(crate::Error::Ssh(
+                    "Input state busy; input discarded".into(),
+                ));
+            }
+        };
         let handle = self
             .handle
             .as_ref()

@@ -26,7 +26,8 @@ fn supported(command: Command) -> bool {
     use Command::*;
     matches!(
         command,
-        Tab | SplitRight
+        Find | Tab
+            | SplitRight
             | SplitDown
             | NextTab
             | PreviousTab
@@ -66,17 +67,21 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
         .filter(|i| supported(i.command))
         .map(|info| {
             let label = crate::i18n::command(info);
-            let available = context_available
-                && (local(info.command)
-                    || (terminal.live.connected
-                        && !terminal.reconnect.suspended
-                        && terminal.live.version_mismatch.get().is_none()
-                        && terminal.navigating.is_none()
-                        && snapshot(&terminal.live)
-                            .and_then(|s| sheprd_commands::request(info.command, s))
-                            .is_some_and(|(method, _)| {
-                                terminal.live.methods.iter().any(|m| m == method.as_str())
-                            })));
+            let available = if info.command == Command::Find {
+                context_available && crate::find_view::available(terminal)
+            } else {
+                context_available
+                    && (local(info.command)
+                        || (terminal.live.connected
+                            && !terminal.reconnect.suspended
+                            && terminal.live.version_mismatch.get().is_none()
+                            && terminal.navigating.is_none()
+                            && snapshot(&terminal.live)
+                                .and_then(|s| sheprd_commands::request(info.command, s))
+                                .is_some_and(|(method, _)| {
+                                    terminal.live.methods.iter().any(|m| m == method.as_str())
+                                })))
+            };
             Action {
                 info,
                 label,
@@ -148,6 +153,9 @@ fn normalize_shortcut(binding: &mut Keystroke) {
 }
 impl Smoke {
     pub(crate) fn run_action(&mut self, command: Command) -> crate::Result<()> {
+        self.input_transition(|this| this.run_action_inner(command))
+    }
+    fn run_action_inner(&mut self, command: Command) -> crate::Result<()> {
         if self.settings_modal {
             return Err(crate::Error::Settings(
                 "terminal action blocked by settings".into(),

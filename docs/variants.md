@@ -27,9 +27,9 @@ no rebuild or reconnect is needed. Choices last until the process exits.
 | Candidate | Clause | Caret | Clause supplies the selected clause's rectangle; Caret supplies a cell-width rectangle at that clause's start. Both use the painted shaped line, including its right-edge shift. Compare a middle clause and a long line near the right edge. |
 
 All three switches are visible together; changing options does not itself commit
-marked text. A fresh tap or hardware key starts input again after a remote
-target change cancelled a composition. Target changes never carry old text
-into the next pane or popup. The Simulator-only QA mark/commit/delete/cancel buttons are
+marked text. After a remote target change, semantic hardware keys can resume without a tap.
+Text/IME resumption remains subject to the unresolved SH1-156 cancellation
+contract; the legacy tap resumption does not prove stale native commits impossible. The Simulator-only QA mark/commit/delete/cancel buttons are
 shown only under `YEBISU_INPUT_QA`; these exercise callbacks and do not emulate
 Japanese candidate selection. They are absent from device builds.
 
@@ -192,3 +192,20 @@ Paste for a current token (Copy carries the Disabled attribute when there is
 no selection); hosted iOS 26.5 Simulator runs showed Paste alone for that
 menu. `canPerformAction:withSender:` and availability are unchanged. The Simulator checks assert the visible list
 per case, and the delegate-level item counts of S2c and E3i are unaffected.
+
+## SH1-156: highlight after a new terminal key
+
+In the terminal handoff strip, tap **Typing: Clear highlight** to switch to
+**Typing: Keep highlight**, and tap again to return. No rebuild or reconnect is
+needed; restarting the app restores Clear. This does not change saved Drag/Copy
+preferences or any other input options.
+
+- **Clear** (default): a fresh terminal-owned semantic key ends Select and removes
+  its highlight before delivery.
+- **Keep**: the same key ends Select but leaves the highlight copyable and passive.
+  A later frame/destination change removes it. A new selection blocks input again.
+
+Compare Ctrl-A/Left after selection, followed by Copy, with finger and trackpad.
+Both choices preserve the discarded-text fence, paste FIFO and P7/P9 barriers.
+This switch does not release the discarded-text fence; a tap on the terminal,
+Select off, Paste, or the SDK native retirement does (docs/p8-contract.md).

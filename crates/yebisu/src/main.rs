@@ -102,6 +102,8 @@ mod edit_menu_qa;
 mod native_edit_qa;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 mod native_observer_qa;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod sh1_156_qa;
 
 #[cfg(any(target_os = "ios", test))]
 mod core;
@@ -130,6 +132,12 @@ mod settings_spike;
 mod mock_notifications;
 
 #[cfg(any(target_os = "ios", test))]
+mod find;
+
+#[cfg(any(target_os = "ios", test))]
+mod find_view;
+
+#[cfg(any(target_os = "ios", test))]
 mod edit_menu;
 #[cfg(any(target_os = "ios", test))]
 mod edit_menu_gestures;
@@ -156,3 +164,20 @@ mod native_menus_qa;
 mod p15_settings_view;
 #[cfg(any(target_os = "ios", test))]
 mod theme_picker;
+
+#[cfg(test)]
+mod discard_recovery_tests;
+
+#[cfg(test)]
+mod discard_connection_tests;
+
+#[cfg(test)]
+mod direct_text_recovery_tests;
+
+#[cfg(any(target_os = "ios", test))]
+mod input_retirement;
+#[cfg(target_os = "ios")]
+mod native_retirement;
+
+#[cfg(test)]
+mod sh1_156_tap_tests;

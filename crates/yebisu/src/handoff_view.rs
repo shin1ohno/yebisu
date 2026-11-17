@@ -7,6 +7,8 @@ use gpui::{AnyElement, ClipboardItem, Context, Window, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn sync_handoff(&mut self) {
         let stamp = if !self.settings_modal
+            && self.find.is_none()
+            && !self.find_handoff.paused
             && self.terminal.open
             && self.terminal.navigating.is_none()
             && !self.actions.palette
@@ -51,6 +53,9 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn start_paste(&mut self, image_only: bool, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_paste_inner(image_only, cx))
+    }
+    fn start_paste_inner(&mut self, image_only: bool, cx: &mut Context<Self>) {
         self.refresh_terminal_input();
         self.sync_handoff();
         let Some(stamp) = self.handoff.stamp.clone() else {
@@ -78,6 +83,7 @@ impl Smoke {
         self.handoff.selection = None;
         self.handoff.select_mode = false;
         self.terminal.input.discard();
+        // Explicit Paste resumes input (docs/p8-contract.md, settled P8).
         self.terminal.input.fresh_gesture();
         self.flush_terminal();
         if self.terminal.core_mode {
@@ -195,15 +201,29 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn toggle_selection(&mut self) {
+        self.input_transition(|this| this.toggle_selection_inner())
+    }
+    fn toggle_selection_inner(&mut self) {
+        self.handoff.passive_highlight = false;
         self.handoff.select_mode ^= true;
         self.handoff.cancel();
         self.terminal.input.detach();
         if !self.handoff.select_mode {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
         }
     }
     pub(crate) fn selection_down(
+        &mut self,
+        event: &gpui::MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input_transition(|this| this.selection_down_inner(event, window, cx))
+    }
+    fn selection_down_inner(
         &mut self,
         event: &gpui::MouseDownEvent,
         window: &mut Window,
@@ -214,9 +234,14 @@ impl Smoke {
             return;
         }
         self.terminal_focus.focus(window, cx);
+        self.handoff.passive_highlight = false;
         if self.handoff.stamp.is_some()
             && (self.handoff.select_mode || self.handoff.drag_select || event.click_count >= 2)
         {
+            // With Start: Drag (the default) every press starts a selection.
+            // A press released on its own cell without Select is a tap, which
+            // the status line asks for: selection_up turns it into typing.
+            self.handoff.tap_to_type = !self.handoff.select_mode && event.click_count < 2;
             self.handoff.cancel();
             self.terminal.input.detach();
             let Some(surface) = &self.terminal.live.surface else {
@@ -237,7 +262,9 @@ impl Smoke {
             }
         } else {
             self.handoff.selection = None;
-            self.terminal.input.fresh_gesture();
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
             window.request_virtual_keyboard();
         }
         cx.notify();
@@ -283,7 +310,8 @@ impl Smoke {
             cx.notify();
         }
     }
-    pub(crate) fn selection_up(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn selection_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let tap = std::mem::take(&mut self.handoff.tap_to_type);
         let Some(selection) = &mut self.handoff.selection else {
             return;
         };
@@ -291,6 +319,18 @@ impl Smoke {
             return;
         }
         selection.dragging = false;
+        let single = selection.anchor == selection.end;
+        if tap && single && !self.handoff.select_mode {
+            // SH1-156: a tap must not leave a selection that blocks typing.
+            // Its one cell stays as a passive, copyable highlight (the "Keep
+            // highlight" state); input resumes as after a tap with Start:
+            // Select, and UIKit is asked for the text responder again.
+            self.handoff.passive_highlight = true;
+            if !self.find_handoff.paused {
+                self.terminal.input.fresh_gesture();
+            }
+            window.request_virtual_keyboard();
+        }
         if self.handoff.copy_on_select {
             self.copy_selection(cx);
         }
@@ -310,6 +350,14 @@ impl Smoke {
                             "Select: On"
                         } else {
                             "Select"
+                        },
+                    ),
+                    (
+                        "typing-highlight",
+                        if self.handoff.keep_highlight_on_key {
+                            "Typing: Keep highlight"
+                        } else {
+                            "Typing: Clear highlight"
                         },
                     ),
                     ("copy", "Copy"),
@@ -339,10 +387,19 @@ impl Smoke {
                         .p_2()
                         .bg(rgb(0x3b4252))
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             match id {
                                 "select" => {
                                     this.toggle_selection();
+                                    if !this.handoff.select_mode {
+                                        // Typing resumes in the terminal, as
+                                        // after a tap (SH1-156).
+                                        this.terminal_focus.focus(window, cx);
+                                        window.request_virtual_keyboard();
+                                    }
+                                }
+                                "typing-highlight" => {
+                                    this.handoff.keep_highlight_on_key ^= true;
                                 }
                                 "copy" => this.copy_selection(cx),
                                 "paste" => this.start_paste(false, cx),
@@ -390,6 +447,9 @@ impl Smoke {
         None
     }
     pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
+    pub(crate) fn sh1_156_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
 }

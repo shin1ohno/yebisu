@@ -38,6 +38,10 @@ pub(crate) struct Handoff {
     pub stamp: Option<Stamp>,
     pub selection: Option<Selection>,
     pub select_mode: bool,
+    pub passive_highlight: bool,
+    pub keep_highlight_on_key: bool,
+    /// The last terminal press may be a plain tap (no Select, one click).
+    pub tap_to_type: bool,
     pub drag_select: bool,
     pub copy_on_select: bool,
     pub serial: u64,
@@ -58,7 +62,24 @@ impl Handoff {
         if self.stamp != stamp {
             self.cancel();
             self.selection = None;
+            self.select_mode = false; // A selection belongs to one destination.
+            self.passive_highlight = false;
             self.stamp = stamp;
+        }
+    }
+    pub fn blocks_input(&self) -> bool {
+        self.select_mode || (self.selection.is_some() && !self.passive_highlight)
+    }
+    /// Only a fresh terminal-owned key exits selection; paste FIFO is untouched.
+    pub fn resume_typing(&mut self) {
+        self.select_mode = false;
+        self.passive_highlight = self.keep_highlight_on_key;
+        if self.keep_highlight_on_key {
+            if let Some(selection) = &mut self.selection {
+                selection.dragging = false;
+            }
+        } else {
+            self.selection = None;
         }
     }
     pub fn cancel(&mut self) {

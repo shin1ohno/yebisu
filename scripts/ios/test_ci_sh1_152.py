@@ -22,7 +22,7 @@ class JobTests(unittest.TestCase):
         self.assertIn("run: just guarded python3 scripts/ios/ci-sh1-152.py\n", job)
         self.assertIn("timeout-minutes: 90\n", job)
         self.assertIn("name: edit-menu-evidence\n", job)
-        for evidence in ("ios-sh1-152", "ios-sh1-153", "ios-p8-native", "ios-selection-settings"):
+        for evidence in ("ios-sh1-152", "ios-sh1-153", "ios-p8-native", "ios-selection-settings", "ios-sh1-156"):
             self.assertIn(f"target/{evidence}/", job)
 
     def test_no_retry_or_continue_on_error(self):
@@ -33,7 +33,8 @@ class JobTests(unittest.TestCase):
     def test_the_driver_runs_the_four_scripts_in_order(self):
         driver = (HERE / "ci-sh1-152.py").read_text()
         names = re.findall(r'"([a-z0-9_-]+-check\.py)"', driver)
-        self.assertEqual(names, ["sh1-152-check.py", "sh1-153-check.py", "p8-native-check.py", "selection-settings-check.py"])
+        self.assertEqual(names, ["sh1-152-check.py", "sh1-153-check.py", "p8-native-check.py", "selection-settings-check.py",
+                                 "sh1-156-check.py"])
 
 
 def filter_script():
@@ -100,6 +101,9 @@ UNRELATED = {
     "app_setup": "unreferenced",
     "diagnostics": "outside the checks: diagnostics sheet and log export, called from app.rs",
     "error": "crate error type; a break here fails the compile in the check job",
+    "find": "P13 search; test_find_search_change_skips_it keeps search changes off edit-menu pull requests. Its closing-press "
+            "check runs on every terminal KeyDown (terminal_controls.rs) but owns no key unless search was open; push to main runs edit-menu",
+    "find_view": "P13 search bar and its open/close focus, which no edit-menu check opens (same decision as find)",
     "front_layer": "outside the checks: P12 front layer, called from app.rs",
     "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
@@ -190,6 +194,8 @@ class PathFilterTests(unittest.TestCase):
             "crates/yebisu/src/actions.rs", "crates/yebisu/src/settings_pages/fonts.rs", "crates/yebisu/src/settings_pages/keyboard.rs",
             "crates/yebisu/src/mock_commands.rs", "crates/yebisu/src/mock_notifications.rs",
             "crates/yebisu/src/link.rs", "crates/yebisu/src/theme.rs", "crates/yebisu/src/board.rs", "crates/yebisu/src/i18n.rs",
+            "scripts/ios/sh1-156-check.py", "crates/yebisu/src/sh1_156_qa.rs",
+            "crates/yebisu/src/input_retirement.rs", "crates/yebisu/src/native_retirement.rs",
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))

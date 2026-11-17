@@ -5,15 +5,19 @@ use sheprd_client::{
 };
 use std::{
     collections::VecDeque,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, atomic::AtomicU64},
 };
 
 #[derive(Clone, Default)]
 pub(crate) struct Live {
     pub notifications: crate::notifications::Inbox,
     pub connected: bool,
+    pub search: crate::find::adapter::Mailbox,
     /// Preserves target changes even when the latest-state mailbox skips a frame.
     pub input_epoch: u64,
+    /// `input_epoch` as of the last completed `apply`, readable without this
+    /// mailbox's lock. Shared with Link like `version_mismatch`.
+    pub published_epoch: Arc<AtomicU64>,
     pub snapshot: Option<Arc<ClientShellSnapshot>>,
     pub pending_snapshot: Option<Arc<ClientShellSnapshot>>,
     pub surface: Option<Arc<PaneSurfaceFrame>>,
@@ -86,6 +90,7 @@ impl Live {
                 request_id,
                 response,
             } => {
+                crate::find::adapter::receive(self, &request_id, &response);
                 if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
                     if let Some(error) = response.get("error") {
@@ -98,6 +103,14 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
+                if self
+                    .search
+                    .ticket
+                    .as_ref()
+                    .is_some_and(|(_, id)| Some(id) == request_id.as_ref())
+                {
+                    self.search.answer = Some(Err(crate::find::State::SendFailed));
+                }
                 crate::diagnostics::record("command_rejected");
                 if request_id == self.pending_request {
                     self.failed_request = request_id;
@@ -115,6 +128,7 @@ impl Live {
                 self.notifications.clear();
                 crate::diagnostics::record("disconnected");
                 self.connected = false;
+                self.search.clear();
                 if self.version_mismatch.get().is_none() {
                     self.status = format!("Disconnected: {reason}");
                 }
@@ -165,6 +179,11 @@ impl Live {
         }
         if before != crate::terminal_input::destination(self, 0) {
             self.input_epoch = self.input_epoch.wrapping_add(1);
+            // Stored while the reader still holds the mailbox, so a UI thread
+            // that finds the mailbox busy sees the epoch of the newest
+            // completed publication (Link::send_verified).
+            self.published_epoch
+                .store(self.input_epoch, std::sync::atomic::Ordering::Release);
         }
     }
 

@@ -57,3 +57,81 @@ image. Command-Shift-C is not a clipboard chord. Adding Option, Control or Funct
 to any chord bypasses clipboard access and follows the existing terminal path.
 The Command: Ctrl plus Terminal priority exclusion still applies to all physical
 clipboard chords. Native edit actions retain their independent SDK-origin route.
+
+
+## SH1-156 app repair
+
+A tap or pointer click on the terminal is a typing gesture under the contract
+above, also with **Start: Drag**: a press released on its own cell without Select
+does not leave a one-cell selection, resumes input and asks UIKit for the text
+responder again (`request_virtual_keyboard`). Turning Select off does the same.
+Before this, a tap with Start: Drag (the default) left a selection that dropped
+every key and commit, and its Select control read "Select" while input was
+blocked, so pressing it turned Select on (P13 owner device check, steps 7-13 and
+21-25). A hardware key press does not release a discard fence: the key reaches
+the terminal, and only text commits stay refused until a gesture above or the
+SDK native retirement.
+
+The settings sheet fences late native commits too, but that fence holds no
+discarded composition: the next fresh key press releases it before UIKit types
+the key, so the first letter after the sheet closes arrives. A held key from the
+sheet does not release it, and a real discard fence is unchanged (SH1-156 review
+F1, `sh1_156_first_letter_after_settings_sheet_reaches_the_terminal`).
+
+Closing Settings onto the terminal also asks UIKit for the text responder, as a
+tap does, and asks the SDK to retire the sheet-time text session. On the owner's
+device (153c583, R7) keys typed after Settings closed were lost until a tap; the
+retirement releases the sheet's fence for a software keyboard, which sends no
+key press (`sh1_156_settings_close_returns_keyboard_focus_to_the_terminal`).
+
+A token-bearing native Edit command on an unfocused terminal is refused, as on
+the P12 route: `native_menu_action` dismisses the menu ticket when the terminal
+lost focus (`edit_menu_check`), so no edit runs (SH1-156 review F2,
+`sh1_156_unfocused_terminal_refuses_token_edit_on_the_base_route`).
+
+A destination/stamp change closes Select mode and removes the old highlight.
+A fresh terminal-owned semantic key (for example Ctrl-A or Left) ends selection
+and is sent once. Copy/native edit/app shortcuts are resolved first; a repeat
+from an earlier press does not end selection. The key does not acknowledge native
+composition cancellation, so later injected discarded commits remain fenced.
+Pending paste is not cancelled by the key. P7 navigation and P9 destination
+checks remain in place; this repair adds no buffering, replay or text comparison.
+
+The handoff strip offers **Typing: Clear highlight** (default) and **Typing: Keep
+highlight**. The latter retains a copyable, passive highlight until the frame or
+destination changes; it does not block keys or weaken the IME fence. New selection
+begins an active input block again. This preference is session-local.
+
+Status keeps the P13 texts (the line sits in the toolbar's wrapping row, and a
+longer text shrank the terminal and cleared a selection in the SH1-152 Simulator
+check, CI run 44048410658); only an active discard fence shows its reason, for
+example "Text input paused · tap terminal to type". Paused text is not evidence that
+all hardware keys are refused. A successful semantic key does not hide a still
+active text-input refusal.
+
+Full SH1-156 without a gesture depends on native retirement: hardware printable
+keys can go to UIKit before GPUI KeyDown, and new software compositions are still
+rejected while cancelled. At herdr-uikit 99d7928 the SDK refuses a request only
+while a key is held (held-press ledger, PR 16), not for hardware history. The app
+submits the request from a foreground task, never from inside the touch, button
+or key entry the SDK refuses, and again after a key release.
+Injected old callbacks test the consumer fence; they do not show that physical
+UIKit delivers those callbacks after cancellation. No blanket impossibility or
+mandatory SDK change follows from injection alone. The ignored new-composition
+regression remains; original Z1-Z7 acceptance is unchanged.
+
+Run the new real-adapter suite with `cargo test --locked --workspace sh1_156_ --
+--nocapture --test-threads=1`. On an exclusively owned Mac checkout, use `just
+guarded python3 scripts/check-discard-mutations.py` for mutation negatives.
+Compile failures do not count as successful negatives. The script restores each
+source and reruns its test. These checks do not establish native UIKit delivery.
+
+### D1 clean-state correction
+
+A clean connect/detach/barrier no longer creates a fictitious composition discard.
+Ordinary direct text stays eligible when no actual discarded or rejected mark
+requires a fence. Actual discards survive repeated detach, writer failure and
+host changes, including marked setup text entering the terminal. Rejected marks
+while selected, blurred or behind a barrier also preserve the fence. This does
+not clear a real fence on a key and does not implement U1 native retirement.
+See [the consumer integration requirements](input-retirement-integration.md).

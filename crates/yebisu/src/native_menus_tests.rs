@@ -25,6 +25,20 @@ fn terminal() -> TerminalView {
     }
 }
 
+/// The catalog rows the OS menu lists (all but search), aligned with its rows.
+fn menu_catalog(terminal: &TerminalView, menus: &NativeMenus) -> Vec<actions::Action> {
+    let rows: Vec<_> = actions::catalog(terminal)
+        .into_iter()
+        .filter(in_os_menu)
+        .collect();
+    assert_eq!(
+        rows.len(),
+        menus.rows.len(),
+        "OS menu rows and catalog differ"
+    );
+    rows
+}
+
 /// First default shortcut of `command` on this host OS (`cmd-d` on macOS,
 /// `ctrl-shift-d` on Linux). Expectations come from the catalog, never a literal.
 fn default_shortcut(command: Command) -> &'static str {
@@ -318,7 +332,7 @@ fn terminal_priority_with_command_control_disables_menu_rows_and_rejects_selecti
             !masked,
             "priority={priority} command_control={control}"
         );
-        for (row, (_, _, enabled)) in actions::catalog(&t).iter().zip(&menus.rows) {
+        for (row, (_, _, enabled)) in menu_catalog(&t, &menus).iter().zip(&menus.rows) {
             assert_eq!(*enabled, row.available && !masked, "row {}", row.info.name);
         }
         for installed in [false, true] {
@@ -381,7 +395,7 @@ fn version_mismatch_disables_menu_rows_and_rejects_selection_and_key() {
     let _ = t.live.version_mismatch.set(mismatch());
     assert!(!available(&t, &a, Command::SplitRight));
     menus.refresh(&t, &a, true);
-    for (row, (_, _, enabled)) in actions::catalog(&t).iter().zip(&menus.rows) {
+    for (row, (_, _, enabled)) in menu_catalog(&t, &menus).iter().zip(&menus.rows) {
         if !matches!(row.info.command, Command::ToggleSidebar | Command::Palette) {
             assert!(!*enabled, "remote row {} stays enabled", row.info.name);
         }

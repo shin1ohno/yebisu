@@ -275,3 +275,38 @@ fn h14_ordinary_native_paste_counts_one_read(cx: &mut TestAppContext) {
         })
     });
 }
+
+/// SH1-156 review F2: a token-bearing native Edit command while the terminal is
+/// unfocused (Detach and Hosts blur the window). The base route (cfc3832
+/// terminal_controls.rs) handed it to `native_menu_action`, whose ticket check
+/// refuses it once the terminal lost focus; so the early unfocused return in
+/// `terminal_key_down_inner` loses no edit the base would have performed.
+#[gpui::test]
+fn sh1_156_unfocused_terminal_refuses_token_edit_on_the_base_route(cx: &mut TestAppContext) {
+    let (view, cx, calls) = fixture(cx);
+    let at = position(&view, cx);
+    hold(cx, at);
+    touch(cx, TouchPhase::Ended, at);
+    assert_eq!(calls.borrow().presented.len(), 1);
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("must-not-paste".into()));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            assert!(this.terminal_focus.is_focused(window), "the menu focuses");
+            assert!(this.edit_menu.ticket.is_some());
+            window.blur(cx);
+            for action in [EditAction::Paste, EditAction::Copy, EditAction::Cut] {
+                this.native_menu_action(action, Some(MenuToken::Recorded(1)), window, cx);
+            }
+            assert!(this.edit_menu.ticket.is_none());
+            assert_eq!(
+                (
+                    this.handoff.clipboard_reads,
+                    this.handoff.clipboard_writes,
+                    this.handoff.workers
+                ),
+                (0, 0, 0)
+            );
+        })
+    });
+    assert_eq!(calls.borrow().dismissed, vec![MenuToken::Recorded(1)]);
+}

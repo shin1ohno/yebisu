@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
 
 pub(crate) struct Smoke {
+    pub(crate) find: Option<crate::find_view::FindBar>,
+    pub(crate) find_handoff: crate::find::retirement::Handoff,
     pub(crate) notifications: crate::notification_view::State,
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
     pub(crate) observer: crate::p11_observer::Harness,
@@ -38,6 +40,7 @@ pub(crate) struct Smoke {
     pub(crate) native_menus: crate::native_menus::NativeMenus,
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     pub(crate) p12_qa: crate::native_menus_qa::MenuQa,
+    pub(crate) retirement: crate::input_retirement::Retirement,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -89,6 +92,7 @@ impl Smoke {
                             cx.notify();
                         }
                         this.poll_settings(cx);
+                        this.poll_find(cx);
                         this.poll_terminal(cx);
                         this.collect_notifications(cx);
                     })
@@ -100,6 +104,8 @@ impl Smoke {
         })
         .detach();
         Self {
+            find: None,
+            find_handoff: Default::default(),
             notifications: Default::default(),
             #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
             observer: Default::default(),
@@ -123,6 +129,7 @@ impl Smoke {
             board: Default::default(),
             actions: Default::default(),
             native_menus: Default::default(),
+            retirement: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -143,6 +150,11 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "ios")]
+        self.bind_text_retirement(window, cx);
+        // A draw has begun: a retired search field is no longer GPUI's input
+        // handler, so it stops forwarding (find/field.rs).
+        self.find_handoff.frames = self.find_handoff.frames.wrapping_add(1);
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_tick(window, cx);
         self.front_layers.clear();
@@ -150,6 +162,7 @@ impl Render for Smoke {
             self.edit_menu.activation =
                 Some(cx.observe_window_activation(window, |this, window, _| {
                     if !window.is_window_active() {
+                        this.drop_closing_press();
                         this.dismiss_edit_menu(window);
                     }
                 }));
@@ -389,6 +402,11 @@ pub(crate) fn run() {
                             }
                             Err(error) => this.terminal.link.install(generation, Err(error)),
                         }
+                    } else if std::env::var_os("YEBISU_P13_QA").is_some() {
+                        this.terminal
+                            .link
+                            .install(generation, crate::find::peer::connect_fixture());
+                        this.actions.board_hidden = true;
                     } else {
                         this.terminal
                             .link

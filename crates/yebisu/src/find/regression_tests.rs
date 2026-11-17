@@ -1,0 +1,686 @@
+//! D1-D5 regressions exercise production callbacks and actual receiving sockets.
+#![allow(clippy::unwrap_used)]
+use super::available;
+use crate::{
+    app::Smoke,
+    find::{State, field::Field},
+};
+use gpui::{
+    ClipboardItem, Entity, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext,
+    VisualTestContext,
+};
+use sheprd_client::{
+    Client,
+    protocol::{ClientKeyKind, ClientMessage, ClientPaneInputEvent},
+};
+use std::{
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
+};
+pub(super) fn key(name: &'static str, held: bool) -> KeyDownEvent {
+    KeyDownEvent {
+        keystroke: Keystroke::parse(name).unwrap_or_else(|e| panic!("key: {e}")),
+        is_held: held,
+        prefer_character_input: false,
+    }
+}
+pub(super) fn install(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    host: &str,
+    client: Client,
+) {
+    view.update(cx, |this, _| {
+        this.select_host(host);
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            available(&this.terminal)
+        }) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "P13 peer startup");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+pub(super) fn open(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Entity<Field> {
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_find(window, cx);
+            this.find.as_ref().unwrap().field.clone()
+        })
+    })
+}
+fn edit(field: &Entity<Field>, cx: &mut VisualTestContext, text: &str) {
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.selected = 0..field.input.text.encode_utf16().count();
+            field.replace_text_in_range(None, text, window, cx);
+        })
+    });
+}
+fn matched(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.poll_find(cx);
+            this.find
+                .as_ref()
+                .is_some_and(|b| b.search.state == State::Matches)
+        }) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "P13 actual socket result");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+fn terminal(receipts: &Receiver<ClientMessage>) -> Vec<ClientPaneInputEvent> {
+    receipts
+        .try_iter()
+        .flat_map(|m| match m {
+            ClientMessage::ClientShellPaneInput { events, .. } => events,
+            _ => Vec::new(),
+        })
+        .collect()
+}
+pub(super) fn barrier(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    receipts: &Receiver<ClientMessage>,
+    label: &str,
+) -> Vec<ClientPaneInputEvent> {
+    view.update(cx, |this, _| {
+        this.terminal
+            .link
+            .handle
+            .as_ref()
+            .unwrap()
+            .request(
+                "boot-v1",
+                sheprd_client::Method::PaneScroll,
+                serde_json::json!({"pane_id":"w1:p1","offset_from_bottom":100,"p13_barrier":label}),
+            )
+            .unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut events = Vec::new();
+    loop {
+        match receipts
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap()
+        {
+            ClientMessage::ClientShellPaneInput {
+                pane_id,
+                events: next,
+            } => {
+                assert_eq!(pane_id, "w1:p1");
+                events.extend(next);
+            }
+            ClientMessage::ClientShellEndpointRequest { request, .. } => {
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                if request["params"]["p13_barrier"] == label {
+                    return events;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[gpui::test]
+fn d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d5", client);
+    let old_field = open(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.close_find(window, cx);
+            this.terminal.size = None;
+            assert!(this.find_handoff.paused, "D5 close lost native fence");
+            this.replace_text_in_range(None, "same😀", window, cx);
+            this.replace_and_mark_text_in_range(None, "same😀", None, window, cx);
+            // A physical-key-shaped event must not bypass a pending native fence.
+            this.terminal_key_down(&key("f", false), window, cx);
+            assert!(
+                this.find_handoff.paused,
+                "D5 key bypassed native retirement"
+            );
+        })
+    });
+    assert!(
+        barrier(&view, cx, &receipts, "before-ack").is_empty(),
+        "D5 unretired callback reached wire"
+    );
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            // A draw since the first update re-sent the window size; without the
+            // peer's resized surface, production readiness holds fresh input.
+            this.terminal.size = None;
+            let ticket = this.begin_find_retirement(40).unwrap();
+            assert!(this.complete_find_retirement(&ticket, 40, 41, window));
+            assert!(
+                !this.complete_find_retirement(&ticket, 40, 41, window),
+                "D5 duplicate native ack accepted"
+            );
+            // No GPUI key or terminal tap precedes either fresh callback.
+            this.replace_text_in_range(None, "same😀", window, cx);
+            this.replace_and_mark_text_in_range(None, "same😀", Some(1..3), window, cx);
+            assert!(
+                this.terminal.input.composition.marked.is_some(),
+                "D5 fresh native mark rejected"
+            );
+            this.replace_text_in_range(None, "same😀", window, cx);
+        });
+        old_field.update(cx, |field, cx| {
+            field.replace_text_in_range(None, "same😀", window, cx);
+            field.replace_and_mark_text_in_range(None, "same😀", None, window, cx);
+            field.unmark_text(window, cx);
+        });
+    });
+    assert_eq!(
+        barrier(&view, cx, &receipts, "after-fresh"),
+        vec![
+            ClientPaneInputEvent::TextCommit("same😀".into()),
+            ClientPaneInputEvent::TextCommit("same😀".into())
+        ],
+        "D5 direct fresh callbacks did not reach current target exactly once"
+    );
+}
+
+#[gpui::test]
+fn d5_retirement_ack_rejects_changed_owners_and_native_identities(cx: &mut TestAppContext) {
+    for fault in [
+        "host",
+        "selection",
+        "generation",
+        "boot",
+        "pane",
+        "epoch",
+        "mailbox",
+        "disconnect",
+        "revision",
+        "focus",
+        "reopen",
+        "retired",
+        "replacement",
+    ] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, _receipts) = crate::find::peer::connect().unwrap();
+        install(&view, cx, "d5-owner", client);
+        open(&view, cx);
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.close_find(window, cx);
+                let ticket = this.begin_find_retirement(40).unwrap();
+                match fault {
+                    "host" => this.terminal.reconnect.target = "other".into(),
+                    "selection" => this.board.selection += 1,
+                    "generation" => this.terminal.link.generation += 1,
+                    "boot" | "pane" | "epoch" | "disconnect" => {
+                        let mut live = this.terminal.link.inbox.lock().unwrap();
+                        match fault {
+                            "boot" => {
+                                let mut snapshot = live.snapshot.as_deref().unwrap().clone();
+                                let mut surface = live.surface.as_deref().unwrap().clone();
+                                snapshot.boot_id = "new".into();
+                                surface.boot_id = "new".into();
+                                live.snapshot = Some(std::sync::Arc::new(snapshot));
+                                live.surface = Some(std::sync::Arc::new(surface));
+                            }
+                            "pane" => {
+                                let mut snapshot = live.snapshot.as_deref().unwrap().clone();
+                                snapshot.focused_pane_id = Some("other-pane".into());
+                                live.snapshot = Some(std::sync::Arc::new(snapshot));
+                            }
+                            "epoch" => live.input_epoch += 1,
+                            _ => live.connected = false,
+                        }
+                    }
+                    "mailbox" => {
+                        this.terminal.link.inbox =
+                            std::sync::Arc::new(std::sync::Mutex::new(this.terminal.live.clone()))
+                    }
+                    "revision" => {
+                        this.terminal.input.detach();
+                        this.refresh_terminal_input();
+                    }
+                    "focus" => this.focus.focus(window, cx),
+                    "reopen" => this.open_find(window, cx),
+                    _ => {}
+                }
+                assert!(
+                    !this.complete_find_retirement(
+                        &ticket,
+                        if fault == "retired" { 39 } else { 40 },
+                        if fault == "replacement" { 42 } else { 41 },
+                        window
+                    ),
+                    "D5 stale {fault} ack released native fence"
+                );
+                assert!(this.find_handoff.paused);
+            })
+        });
+    }
+}
+/// Review F1: inbox contention right after close (request side) or when the
+/// ack lands (ack side) must not leave the fence closed until search reopens.
+/// The render gate (terminal_view.rs) re-runs refresh + request while
+/// `needs_request` holds; on host the native request is a stub, so the test
+/// performs that render step itself.
+#[gpui::test]
+fn f1_busy_inbox_at_close_or_ack_rearms_retirement_until_input_returns(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "f1", client);
+    open(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let inbox = this.terminal.link.inbox.clone();
+            let busy = inbox.lock().unwrap();
+            this.close_find(window, cx);
+            this.refresh_terminal_input();
+            assert!(this.begin_find_retirement(40).is_none());
+            assert!(
+                this.find_handoff.needs_request,
+                "F1 busy close left the fence closed until search reopens"
+            );
+            drop(busy);
+            this.terminal.size = None;
+            this.replace_text_in_range(None, "fenced", window, cx);
+            assert!(this.find_handoff.paused, "F1 contention opened the fence");
+            this.refresh_terminal_input();
+            let ticket = this.begin_find_retirement(40).unwrap();
+            let busy = inbox.lock().unwrap();
+            assert!(!this.complete_find_retirement(&ticket, 40, 41, window));
+            assert!(this.find_handoff.paused, "F1 busy ack opened the fence");
+            assert!(
+                this.find_handoff.needs_request,
+                "F1 busy ack left the fence closed until search reopens"
+            );
+            drop(busy);
+            this.refresh_terminal_input();
+            let ticket = this.begin_find_retirement(41).unwrap();
+            assert!(this.complete_find_retirement(&ticket, 41, 42, window));
+            this.terminal.size = None;
+            this.replace_text_in_range(None, "fresh", window, cx);
+        })
+    });
+    assert_eq!(
+        barrier(&view, cx, &receipts, "f1-after"),
+        vec![ClientPaneInputEvent::TextCommit("fresh".into())],
+        "F1 terminal input did not return to the current target exactly once"
+    );
+}
+#[gpui::test]
+fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestAppContext) {
+    for report_all in [false, true] {
+        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        let (client, receipts) = crate::find::peer::connect().unwrap();
+        install(&view, cx, "d2", client);
+        view.update(cx, |this, _| {
+            this.terminal.link.inbox.lock().unwrap().keyboard_report_all = report_all;
+        });
+        let field = open(&view, cx);
+        cx.update(|window, cx| {
+            field.update(cx, |field, cx| field.key(&key("escape", false), window, cx))
+        });
+        view.update(cx, |this, _| {
+            assert!(this.find.is_none());
+            assert!(
+                this.actions.consumed.contains("escape"),
+                "D2 closing Escape lost press ownership"
+            );
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.terminal.size = None;
+                this.replace_text_in_range(None, "late native commit", window, cx);
+                this.terminal_key_down(&key("escape", true), window, cx);
+                this.terminal_key_down(&key("escape", true), window, cx);
+                this.terminal_key_up(
+                    &KeyUpEvent {
+                        keystroke: key("escape", false).keystroke,
+                    },
+                    window,
+                    cx,
+                );
+            })
+        });
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(
+            terminal(&receipts).is_empty(),
+            "D2 held/release/native callback leaked terminal bytes"
+        );
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                // Explicit host boundary after the old-callback negative above.
+                this.controlled_find_retirement(window);
+                this.terminal_key_down(&key("escape", false), window, cx);
+                this.terminal_key_up(
+                    &KeyUpEvent {
+                        keystroke: key("escape", false).keystroke,
+                    },
+                    window,
+                    cx,
+                );
+            })
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut events = Vec::new();
+        while events.len() < if report_all { 2 } else { 1 } {
+            let message = receipts
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if let ClientMessage::ClientShellPaneInput {
+                pane_id,
+                events: next,
+            } = message
+            {
+                assert_eq!(pane_id, "w1:p1");
+                events.extend(next);
+            }
+        }
+        assert!(
+            matches!(
+                &events[0],
+                ClientPaneInputEvent::Key {
+                    kind: ClientKeyKind::Press,
+                    ..
+                }
+            ),
+            "D2 fresh press did not reach current pane once"
+        );
+        if report_all {
+            assert!(matches!(
+                &events[1],
+                ClientPaneInputEvent::Key {
+                    kind: ClientKeyKind::Release,
+                    ..
+                }
+            ));
+        }
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            ClientPaneInputEvent::Key {
+                kind: ClientKeyKind::Repeat,
+                ..
+            }
+        )));
+    }
+}
+#[gpui::test]
+fn d3_native_partial_mark_delete_replace_then_escape_keeps_search_open(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d3", client);
+    let field = open(&view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.set_text("pre::post".into());
+            field.replace_and_mark_text_in_range(Some(4..4), "変😀中", Some(1..3), window, cx);
+            assert_eq!(field.input.marked, Some(4..8));
+            field.replace_text_in_range(Some(5..7), "", window, cx);
+            assert_eq!(field.input.text, "pre:変中:post");
+            assert_eq!(
+                field.input.marked,
+                Some(4..6),
+                "D3 native partial deletion committed remaining mark"
+            );
+            field.replace_text_in_range(Some(5..6), "😀", window, cx);
+            assert_eq!(
+                field.input.marked,
+                Some(4..7),
+                "D3 UTF16 replacement lost marked span"
+            );
+            field.key(&key("escape", false), window, cx);
+            assert!(field.input.marked.is_none());
+            assert_eq!(field.input.text, "pre::post");
+        })
+    });
+    view.update(cx, |this, _| {
+        assert!(
+            this.find.is_some(),
+            "D3 Escape after partial edit closed search"
+        )
+    });
+    assert!(terminal(&receipts).is_empty());
+}
+#[gpui::test]
+fn d4_native_cut_preserves_unselected_mark_then_escape(cx: &mut TestAppContext) {
+    cut_then_escape(cx, false);
+}
+#[gpui::test]
+fn d4_command_x_preserves_unselected_mark_then_escape(cx: &mut TestAppContext) {
+    cut_then_escape(cx, true);
+}
+fn cut_then_escape(cx: &mut TestAppContext, command: bool) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d4", client);
+    let field = open(&view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.set_text("pre::post".into());
+            field.replace_and_mark_text_in_range(Some(4..4), "変😀中", Some(1..3), window, cx);
+            assert_eq!(field.input.text, "pre:変😀中:post");
+            assert_eq!(field.input.marked, Some(4..8));
+            assert_eq!(field.input.selected, 5..7);
+            cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));
+            if command {
+                field.key(&key("cmd-x", false), window, cx);
+            } else {
+                // This is the production native Cut callback. The Simulator
+                // gate separately exercises UIKit's selector and origin guard.
+                field.cut(window, cx);
+            }
+            assert_eq!(
+                cx.read_from_clipboard()
+                    .and_then(|item| item.text())
+                    .as_deref(),
+                Some("😀"),
+                "D4 Cut copied outside the explicit UTF16 selection"
+            );
+            assert_eq!(
+                field.input.text, "pre:変中:post",
+                "D4 Cut deleted unselected marked text"
+            );
+            assert_eq!(
+                field.input.marked,
+                Some(4..6),
+                "D4 Cut committed remaining mark"
+            );
+            assert_eq!(field.input.selected, 5..5);
+            field.key(&key("escape", false), window, cx);
+            assert_eq!(field.input.text, "pre::post");
+            assert!(field.input.marked.is_none());
+        })
+    });
+    view.update(cx, |this, _| {
+        assert!(this.find.is_some(), "D4 Escape after Cut closed search");
+    });
+    // A later round-trip on the same FIFO socket is a receiving-side barrier.
+    edit(&field, cx, "needle");
+    matched(&view, cx);
+    assert!(
+        terminal(&receipts).is_empty(),
+        "D4 Cut/Escape leaked terminal bytes"
+    );
+}
+#[gpui::test]
+fn d4_ime_commit_none_still_replaces_whole_marked_clause(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "d4-commit", client);
+    let field = open(&view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| {
+            field.input.set_text("pre::post".into());
+            field.replace_and_mark_text_in_range(Some(4..4), "変😀中", Some(1..3), window, cx);
+            field.replace_text_in_range(None, "確定", window, cx);
+            assert_eq!(
+                field.input.text, "pre:確定:post",
+                "D4 IME None contract changed"
+            );
+            assert!(field.input.marked.is_none());
+            assert_eq!(field.input.selected, 6..6);
+        })
+    });
+    edit(&field, cx, "needle");
+    matched(&view, cx);
+    assert!(terminal(&receipts).is_empty());
+}
+#[gpui::test]
+fn offscreen_match_receives_scroll_and_paints_the_new_viewport(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "scroll", client);
+    let field = open(&view, cx);
+    edit(&field, cx, "beyond");
+    matched(&view, cx);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            !this.find_highlights().is_empty()
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "offscreen result was never scrolled into painter viewport"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The peer resizes its pane to each received window size, so the expected
+    // centring offset comes from the rows it last received, not its first frame.
+    let mut rows = u64::from(crate::find::peer::surface().frame.height);
+    let mut scrolled = None;
+    while let Ok(message) = receipts.try_recv() {
+        match message {
+            ClientMessage::ClientShellResize { surface_size, .. } => {
+                rows = u64::from(surface_size.rows);
+            }
+            ClientMessage::ClientShellEndpointRequest { request, .. } => {
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                if request["method"] == "pane.scroll" {
+                    assert_eq!(request["params"]["offset_from_bottom"], rows / 2);
+                    scrolled = Some(rows / 2);
+                }
+            }
+            _ => {}
+        }
+    }
+    let expected_offset = scrolled
+        .unwrap_or_else(|| panic!("offscreen search did not reach pane.scroll receiving peer"));
+    view.update(cx, |this, _| {
+        let surface = this.terminal.live.surface.as_ref().unwrap();
+        assert_eq!(
+            surface.panes[0].scroll.unwrap().offset_from_bottom,
+            expected_offset
+        );
+        assert_eq!(u64::from(this.find_highlights()[0].row), expected_offset);
+    });
+}
+#[gpui::test]
+fn delayed_wrong_boot_socket_reply_cannot_adopt_a_colliding_new_connection_id(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let (client, old_receipts, release) = crate::find::peer::connect_delayed(true).unwrap();
+    install(&view, cx, "old", client);
+    let field = open(&view, cx);
+    edit(&field, cx, "needle");
+    let request_id = |receipts: &Receiver<ClientMessage>| -> String {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let ClientMessage::ClientShellEndpointRequest { request, .. } = receipts
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap()
+            {
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                if request["method"] == "pane.copy_search" {
+                    return request["id"].as_str().unwrap().to_owned();
+                }
+            }
+        }
+    };
+    let old_id = request_id(&old_receipts);
+    cx.update(|window, cx| view.update(cx, |this, cx| this.close_find(window, cx)));
+    let (client, new_receipts) = crate::find::peer::connect().unwrap();
+    install(&view, cx, "new", client);
+    let fresh = open(&view, cx);
+    edit(&fresh, cx, "日本語");
+    matched(&view, cx);
+    assert_eq!(
+        request_id(&new_receipts),
+        old_id,
+        "controlled connections did not exercise colliding request IDs"
+    );
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let disconnected = view.update(cx, |this, cx| {
+            this.poll_hidden(cx);
+            !this.board.hidden["old"]
+                .link
+                .inbox
+                .lock()
+                .unwrap()
+                .connected
+        });
+        if disconnected {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "wrong-boot socket reply did not exercise SDK receiving reject"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    view.update(cx, |this, cx| {
+        this.poll_find(cx);
+        let bar = this.find.as_ref().unwrap();
+        assert_eq!(bar.search.scope.host, "new");
+        assert_eq!(bar.search.query, "日本語");
+        assert_eq!(bar.search.state, State::Matches);
+    });
+}
+
+#[test]
+fn d1_peer_resize_owns_a_monotonic_surface_serial() {
+    use sheprd_client::{ClientEvent, ConnectOptions};
+    let (client, _receipts) = crate::find::peer::connect().unwrap();
+    let surface = |client: &Client| {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let event = client
+                .events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_else(|_| {
+                    panic!("D1 resize did not produce an increasing surface revision")
+                });
+            if let ClientEvent::Surface(frame) = event {
+                return frame;
+            }
+        }
+    };
+    assert_eq!(surface(&client).surface_revision, 1);
+    for (cols, revision) in [(90, 2), (100, 3)] {
+        let mut options = ConnectOptions::default();
+        options.surface_size.cols = cols;
+        client.handle.resize("boot-v1", options).unwrap();
+        assert_eq!(
+            surface(&client).surface_revision,
+            revision,
+            "D1 resize serial was not initialized to the installed frame"
+        );
+    }
+}
