@@ -235,3 +235,133 @@ fn sh1_156_select_on_then_off_after_discard_releases_input(cx: &mut TestAppConte
     );
     view.update(cx, |this, _| this.terminal.link.pause());
 }
+
+/// One hardware letter in UIKit's order: GPUI's KeyDown (declined), UIKit
+/// typing the key (`insertText:`), then the KeyUp that ends the press.
+fn typed(view: &Entity<Smoke>, cx: &mut VisualTestContext, key: &'static str) {
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let keystroke = Keystroke::parse(key).unwrap_or_else(|e| panic!("key: {e}"));
+            this.terminal_key_down(
+                &KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                },
+                window,
+                cx,
+            );
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.replace_text_in_range(None, key, window, cx);
+            this.flush_terminal();
+            this.terminal_key_up(&KeyUpEvent { keystroke }, window, cx);
+        })
+    });
+    cx.run_until_parked();
+}
+
+fn settings_sheet_round_trip(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.begin_settings_modal(window, cx);
+            this.end_settings_modal(window, cx);
+            assert!(
+                this.terminal_focus.is_focused(window),
+                "the sheet closed onto the terminal"
+            );
+        })
+    });
+    cx.run_until_parked();
+}
+
+/// Review F1: the settings sheet fences late native commits, but that fence
+/// holds no discarded composition, so the first letter typed after the sheet
+/// closes must reach the terminal. A real discard stays fenced (PR 40).
+#[gpui::test]
+fn sh1_156_first_letter_after_settings_sheet_reaches_the_terminal(cx: &mut TestAppContext) {
+    let (view, cx, wire) = connected(cx);
+    settings_sheet_round_trip(&view, cx);
+    typed(&view, cx, "a");
+    typed(&view, cx, "b");
+    assert_eq!(
+        text(&received(&view, cx, &wire)),
+        ["a", "b"],
+        "first letters after the settings sheet"
+    );
+    discard_composition(&view, cx);
+    settings_sheet_round_trip(&view, cx);
+    typed(&view, cx, "x");
+    view.update(cx, |this, _| {
+        assert!(
+            this.terminal.input.requires_gesture(),
+            "a key released a discarded composition"
+        );
+    });
+    assert!(
+        received(&view, cx, &wire).is_empty(),
+        "discarded commit sent"
+    );
+    view.update(cx, |this, _| this.terminal.link.pause());
+}
+
+/// Review F3, as far as the host reaches: after a discard, letters typed with
+/// no tap and no Select stay fenced until the native retirement completes;
+/// then letters and a new composition reach the terminal. The host supplies
+/// the SDK completion through the ticket code native_retirement.rs drives
+/// (begin, prepare, acknowledge); the SDK request itself is iOS-only.
+#[gpui::test]
+fn sh1_156_letters_after_discard_resume_on_retirement_without_tap(cx: &mut TestAppContext) {
+    let (view, cx, wire) = connected(cx);
+    discard_composition(&view, cx);
+    // UIKit may commit the discarded text with this press; it stays fenced.
+    typed(&view, cx, "x");
+    let stale = view.update(cx, |this, _| {
+        assert!(
+            this.terminal.input.requires_gesture(),
+            "a key released the fence"
+        );
+        assert!(!this.handoff.select_mode);
+        assert!(this.terminal_status().starts_with("Text input paused"));
+        this.begin_text_retirement(40)
+            .unwrap_or_else(|| panic!("discarded active owner"))
+    });
+    // A composition started inside the fence is refused and moves the
+    // revision: the ticket issued before it can no longer release the fence.
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.replace_and_mark_text_in_range(None, "か", Some(0..1), window, cx);
+            assert!(this.terminal.input.composition.text.is_empty());
+        })
+    });
+    view.update(cx, |this, _| {
+        assert!(!this.complete_text_retirement(&stale, 40, 41));
+        assert!(
+            this.terminal.input.requires_gesture(),
+            "stale ticket released"
+        );
+        this.controlled_text_retirement();
+        assert!(!this.terminal.input.requires_gesture());
+        assert!(this.retirement.reason.is_none());
+    });
+    typed(&view, cx, "y");
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.replace_and_mark_text_in_range(None, "て", Some(0..1), window, cx);
+            assert_eq!(this.terminal.input.composition.text, "て");
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            this.replace_text_in_range(None, "て", window, cx);
+            this.flush_terminal();
+        })
+    });
+    assert_eq!(
+        text(&received(&view, cx, &wire)),
+        ["y", "て"],
+        "letters after the retirement, without a tap"
+    );
+    view.update(cx, |this, _| this.terminal.link.pause());
+}

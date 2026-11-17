@@ -17,6 +17,8 @@ Run these first; they repeat the P13 owner check steps 7-13 and 21-25.
    off. Press Select twice (on, then off), type `c`: `c` arrives.
 4. Without touching the screen, discard a composition, release every key, then
    type `d`. Record whether `d` arrives and the status line text.
+5. Open Settings and close it without touching the terminal. Type `e`: `e` must
+   arrive (the first letter after the sheet).
 
 ## SH1-156: hardware input after composition discard (partial repair)
 

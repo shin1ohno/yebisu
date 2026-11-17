@@ -72,6 +72,17 @@ blocked, so pressing it turned Select on (P13 owner device check, steps 7-13 and
 the terminal, and only text commits stay refused until a gesture above or the
 SDK native retirement.
 
+The settings sheet fences late native commits too, but that fence holds no
+discarded composition: the next fresh key press releases it before UIKit types
+the key, so the first letter after the sheet closes arrives. A held key from the
+sheet does not release it, and a real discard fence is unchanged (SH1-156 review
+F1, `sh1_156_first_letter_after_settings_sheet_reaches_the_terminal`).
+
+A token-bearing native Edit command on an unfocused terminal is refused, as on
+the P12 route: `native_menu_action` dismisses the menu ticket when the terminal
+lost focus (`edit_menu_check`), so no edit runs (SH1-156 review F2,
+`sh1_156_unfocused_terminal_refuses_token_edit_on_the_base_route`).
+
 A destination/stamp change closes Select mode and removes the old highlight.
 A fresh terminal-owned semantic key (for example Ctrl-A or Left) ends selection
 and is sent once. Copy/native edit/app shortcuts are resolved first; a repeat

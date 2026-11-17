@@ -80,6 +80,9 @@ pub(crate) struct TerminalInput {
     pub options: InputOptions,
     pending: Option<HeldInput>,
     cancelled: bool,
+    /// The fence holds no discarded composition (the settings sheet), so a
+    /// fresh key press may release it; a discard fence never sets this.
+    key_resumes: bool,
     retirement_revision: u64,
     pub ready: bool,
     pub report_all: bool,
@@ -119,10 +122,12 @@ impl TerminalInput {
         // P13 owners compare this revision: any detach invalidates their ticket.
         let revision = self.retirement_revision.saturating_add(1);
         let cancelled = self.cancelled;
+        let key_resumes = self.key_resumes;
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
         self.cancelled = cancelled;
+        self.key_resumes = key_resumes;
         self.retirement_revision = revision;
     }
     /// The native text client is shared across hosts, unlike terminal queues.
@@ -132,9 +137,14 @@ impl TerminalInput {
         }
     }
     /// A boundary that took text input away (the settings sheet) fences late
-    /// native commits as a discard does.
+    /// native commits until the next fresh key press. It holds no discarded
+    /// composition, so unlike a discard a new press releases it before UIKit
+    /// types the key (SH1-156 review F1); a held key from the sheet does not.
     pub fn fence(&mut self) {
-        self.record_discard();
+        if !self.cancelled {
+            self.record_discard();
+            self.key_resumes = true;
+        }
     }
     /// A rejected marked callback can still have a later native commit.
     pub fn reject_mark(&mut self, text: &str) {
@@ -175,6 +185,7 @@ impl TerminalInput {
     }
     fn record_discard(&mut self) {
         self.cancelled = true;
+        self.key_resumes = false;
         self.retirement_revision = self.retirement_revision.saturating_add(1);
     }
     /// Called only after a correlated native client retirement callback.
@@ -190,6 +201,7 @@ impl TerminalInput {
         if self.cancelled {
             self.composition = Input::default();
             self.cancelled = false;
+            self.key_resumes = false;
         }
         true
     }
@@ -199,6 +211,7 @@ impl TerminalInput {
     /// a discard fence without a gesture (SH1-156).
     pub fn fresh_gesture(&mut self) {
         self.cancelled = false;
+        self.key_resumes = false;
     }
     pub fn mark(&mut self, text: &str, selected: Option<std::ops::Range<usize>>) {
         if self.destination.is_none() || self.cancelled {
@@ -237,7 +250,12 @@ impl TerminalInput {
     }
     pub fn key_down(&mut self, event: &KeyDownEvent, report_all: bool) -> Option<GeneratedInput> {
         self.held.forget(&event.keystroke.key);
-        // A key press cannot acknowledge native composition cancellation.
+        // A key press cannot acknowledge native composition cancellation; it
+        // only ends a fence that holds none (`fence`).
+        if self.key_resumes && !event.is_held {
+            self.cancelled = false;
+            self.key_resumes = false;
+        }
         self.destination.as_ref()?;
         if !self.composition.text.is_empty() {
             return None;
