@@ -39,6 +39,9 @@ pub(crate) struct Handoff {
     pub selection: Option<Selection>,
     pub select_mode: bool,
     pub passive_highlight: bool,
+    /// Keep the highlight after a fresh key (passive) instead of clearing it.
+    /// Not shown in the handoff strip: its extra row shrank the terminal and
+    /// broke the SH1-152 Simulator checks (CI run 44041334941).
     pub keep_highlight_on_key: bool,
     /// The last terminal press may be a plain tap (no Select, one click).
     pub tap_to_type: bool,

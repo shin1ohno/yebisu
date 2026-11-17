@@ -45,9 +45,8 @@ never put the password in a command or send it to a worker.
    of physical UIKit callbacks.
 
 7. Repeat Select with no range, Select with a range, and ordinary drag selection.
-   Test **Typing: Clear highlight** and **Typing: Keep highlight** from the handoff
-   strip. After a fresh Ctrl-A/Left press, Select must be off; only Keep retains
-   a copyable highlight. Held repeats and Command-C must not exit selection.
+   After a fresh Ctrl-A/Left press, Select must be off and the highlight
+   cleared. Held repeats and Command-C must not exit selection.
    Change pane/host, reconnect and Detach: neither variant may retain an old
    selection gate. Verify report-all press/release once, then report-all off.
 8. Distinguish semantic keys (Ctrl-A, Left) from printable hardware text in English

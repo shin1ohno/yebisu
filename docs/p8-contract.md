@@ -80,10 +80,11 @@ composition cancellation, so later injected discarded commits remain fenced.
 Pending paste is not cancelled by the key. P7 navigation and P9 destination
 checks remain in place; this repair adds no buffering, replay or text comparison.
 
-The handoff strip offers **Typing: Clear highlight** (default) and **Typing: Keep
-highlight**. The latter retains a copyable, passive highlight until the frame or
-destination changes; it does not block keys or weaken the IME fence. New selection
-begins an active input block again. This preference is session-local.
+A fresh key clears the highlight (Clear). The passive "Keep" state retains a
+copyable highlight until the frame or destination changes; it does not block keys
+or weaken the IME fence, and a tap with Start: Drag leaves its cell in it. New
+selection begins an active input block again. No strip control switches it
+(docs/variants.md, SH1-156).
 
 Status distinguishes disconnected/Detached, command barrier, Commands palette,
 selection, waiting frame and paused text input. Paused text is not evidence that
