@@ -56,7 +56,7 @@ subset; it cannot certify reconnect/Detach/IME-first/OS queued-retarget behavior
 | R10 setup/background/hidden owner | Host owner/revision and setup-discard/host-discard fixtures | Native focus/hidden-window |
 | R12 availability | main's SH1-153 publisher retained, old-object checks in native probe | Native availability removal mutation |
 | R14 acquisition/close/refusals | Production checks actual successor and responder; host cancelled/unprepared/changed completion tests | Native failed-acquisition/window-close negatives |
-| R16 OS queued retarget/no-loss | Concrete physical steps in device-check.md | Actual OS trace and peer receipt, entirely unverified |
+| R16 OS queued retarget/no-loss | Concrete physical steps in sh1-156-device-check.md | Actual OS trace and peer receipt, entirely unverified |
 | R17 status | Host status-reason mutation and native observation records | Native pending/failed-acquisition observation |
 | R18 receiver/oracle | FIFO sentinels and Python panic/zero-match classifier fixtures | Native retired-peer closure across host switches |
 
