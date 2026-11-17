@@ -27,6 +27,10 @@ impl Smoke {
         self.shell.hosts_sheet.over_terminal = over_terminal;
         self.hosts_sheet_takes_input();
         cx.notify();
+        // A saved host is already trusted: Open signs in at once.
+        if mode == SheetMode::Open {
+            self.hosts_sign_in(cx);
+        }
     }
 
     pub(crate) fn hosts_close(&mut self, cx: &mut Context<Self>) {

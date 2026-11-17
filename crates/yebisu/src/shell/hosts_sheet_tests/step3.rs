@@ -75,3 +75,25 @@ fn failed_sign_in_shows_reason_and_retry() {
     assert!(session.notice.as_ref().is_some_and(Notice::offers_retry));
     assert!(session.can_sign_in(), "Retry signs in again");
 }
+
+#[gpui::test]
+fn open_on_a_saved_host_signs_in_at_once(cx: &mut TestAppContext) {
+    let (view, cx) = window(cx);
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.hosts_open_add(SheetMode::Open, HOST, cx);
+            assert!(this.setup.busy, "the sign-in job started");
+            let signing = this
+                .shell
+                .hosts_sheet
+                .add
+                .as_ref()
+                .is_some_and(|s| s.signing_in);
+            assert!(signing);
+            assert_eq!(this.setup_input.text, HOST);
+            // A second tap while the job runs starts nothing new.
+            this.hosts_sign_in(cx);
+            assert!(this.setup.busy);
+        });
+    });
+}
