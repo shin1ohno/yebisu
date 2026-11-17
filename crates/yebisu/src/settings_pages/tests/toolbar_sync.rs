@@ -23,7 +23,9 @@ fn toolbar_change_is_visible_in_sheet_draft(cx: &mut TestAppContext) {
     let view = cx.new(Smoke::new);
     view.update(cx, |this, cx| {
         this.settings = Some(store);
-        // The legacy toolbar flips its in-memory value, then reports it.
+        // The legacy toolbar (terminal_controls.rs) gives the view the stored
+        // values, flips its in-memory value, then reports it.
+        this.sync_input_settings();
         this.terminal.input.options.option_alt = true;
         this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
         this.terminal.reconnect.automatic = false;

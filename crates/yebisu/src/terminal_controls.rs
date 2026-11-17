@@ -428,6 +428,8 @@ impl Smoke {
                         "Option: Native"
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
+                        // The view may still hold a new host's defaults.
+                        this.sync_input_settings();
                         this.terminal.input.options.option_alt ^= true;
                         this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
@@ -444,6 +446,8 @@ impl Smoke {
                         "Command: Local"
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
+                        // The view may still hold a new host's defaults.
+                        this.sync_input_settings();
                         this.terminal.input.options.command_control ^= true;
                         this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
@@ -476,6 +480,8 @@ impl Smoke {
                         "Candidate: Clause"
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
+                        // The view may still hold a new host's defaults.
+                        this.sync_input_settings();
                         this.terminal.input.options.caret_anchor ^= true;
                         this.toolbar_setting_changed(ToolbarSetting::InputOptions, cx);
                         cx.notify();
