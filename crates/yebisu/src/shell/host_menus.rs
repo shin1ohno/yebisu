@@ -248,6 +248,19 @@ impl Smoke {
         }
     }
 
+    /// The focused space's name for the Space menu's labels: its label,
+    /// or "Space N" when it has none.
+    pub(crate) fn menu_space_name(&self) -> Option<String> {
+        let shown = snapshot(&self.terminal.live)?;
+        let id = shown.focused_workspace_id.as_ref()?;
+        let space = shown.workspaces.iter().find(|w| &w.workspace_id == id)?;
+        Some(if space.label.is_empty() {
+            format!("Space {}", space.number)
+        } else {
+            space.label.clone()
+        })
+    }
+
     /// The chrome state the Host and Space menus are built from.
     pub(crate) fn menu_chrome_state(&self) -> ChromeState {
         ChromeState {

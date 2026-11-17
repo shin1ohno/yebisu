@@ -120,7 +120,7 @@ pub(crate) struct NativeMenus {
     scope: Option<Scope>,
     rows: Vec<(String, String, bool)>,
     /// The Host and Space menus (L6, Q8): title and (name, label, enabled).
-    host_menus: HostMenuRows,
+    pub(crate) host_menus: HostMenuRows,
     /// The target the Host and Space menus were built for (S-10).
     menu_scope: MenuScope,
 }
@@ -145,8 +145,14 @@ impl NativeMenus {
     }
 
     /// The Host and Space menus (L6): rebuilt when their target or rows change.
-    fn refresh_host_menus(&mut self, scope: MenuScope, state: &ChromeState, focused: bool) -> bool {
-        let host_menus = host_menu_rows(&scope, state, focused);
+    fn refresh_host_menus(
+        &mut self,
+        scope: MenuScope,
+        space_name: &str,
+        state: &ChromeState,
+        focused: bool,
+    ) -> bool {
+        let host_menus = host_menu_rows(&scope, space_name, state, focused);
         if self.host_menus == host_menus && self.menu_scope == scope {
             return false;
         }
@@ -234,7 +240,10 @@ impl Smoke {
             .native_menus
             .refresh(&self.terminal, &self.actions, focused);
         let (scope, state) = (self.current_menu_scope(), self.menu_chrome_state());
-        let host_menus = self.native_menus.refresh_host_menus(scope, &state, focused);
+        let space_name = self.menu_space_name().unwrap_or_default();
+        let host_menus = self
+            .native_menus
+            .refresh_host_menus(scope, &space_name, &state, focused);
         if !terminal_menu && !host_menus {
             return;
         }
@@ -297,14 +306,21 @@ impl Smoke {
 
 /// The Host and Space menus' rows for the menu bar. Items name their target
 /// ("Reconnect — studio"); every item is disabled without terminal focus.
-fn host_menu_rows(scope: &MenuScope, state: &ChromeState, focused: bool) -> HostMenuRows {
+/// The Host and Space menus' rows; Space items name the space as the
+/// sidebar does (`space_name`), not by its workspace id.
+fn host_menu_rows(
+    scope: &MenuScope,
+    space_name: &str,
+    state: &ChromeState,
+    focused: bool,
+) -> HostMenuRows {
     host_menus::menu_bar(state, scope.space.is_some())
         .into_iter()
         .map(|(title, entries)| {
             let target = if title == host_menus::HOST_MENU {
                 scope.host.as_str()
             } else {
-                scope.space.as_deref().unwrap_or_default()
+                space_name
             };
             let rows = entries
                 .into_iter()
