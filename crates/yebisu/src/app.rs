@@ -239,10 +239,11 @@ impl Smoke {
             return self.render_terminal(window, cx);
         }
         if !self.smoke_mode {
-            if let Some(first_run) = self.render_first_run(window, cx) {
-                return first_run;
-            }
-            return self.render_setup(cx);
+            // The first-run frame draws whenever no terminal is open (SH1-157 L7);
+            // the full-page Keys and hosts screen is gone.
+            return self
+                .render_first_run(window, cx)
+                .unwrap_or_else(|| div().into_any_element());
         }
         let entity = cx.entity();
         let input_entity = entity.clone();
