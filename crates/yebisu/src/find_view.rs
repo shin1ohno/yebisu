@@ -299,23 +299,32 @@ impl Smoke {
             cx.notify();
         }
     }
+    /// The legacy band's Find button. While the find bar is open it draws
+    /// nothing here: the frame shows the bar at the top of the terminal column
+    /// (q8, `render_find_bar`).
     pub(crate) fn render_find(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(bar) = &self.find else {
-            let enabled = available(&self.terminal);
-            return div()
-                .id("terminal-search-open")
-                .px_4()
-                .py_2()
-                .child(if enabled {
-                    "Find"
-                } else {
-                    State::Unsupported.label()
-                })
-                .when(enabled, |view| {
-                    view.on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx)))
-                })
-                .into_any_element();
-        };
+        if self.find.is_some() {
+            return div().into_any_element();
+        }
+        let enabled = available(&self.terminal);
+        div()
+            .id("terminal-search-open")
+            .px_4()
+            .py_2()
+            .child(if enabled {
+                "Find"
+            } else {
+                State::Unsupported.label()
+            })
+            .when(enabled, |view| {
+                view.on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx)))
+            })
+            .into_any_element()
+    }
+    /// The open find bar: one 44 pt row at the top of the terminal column,
+    /// directly under the tab row (q8). `None` while closed.
+    pub(crate) fn render_find_bar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let bar = self.find.as_ref()?;
         let label = bar
             .search
             .result
@@ -329,19 +338,22 @@ impl Smoke {
                 )
             })
             .unwrap_or_else(|| bar.search.state.label().into());
-        div()
+        let bar = div()
             .id("terminal-search")
+            .flex_none()
+            .w_full()
+            .h(px(crate::layout::FIND_BAR_HEIGHT))
             .px_4()
-            .py_2()
             .flex()
-            .flex_col()
-            .gap_2()
-            .child(bar.field.clone())
-            .child(label)
+            .items_center()
+            .gap_3()
+            .child(div().flex_1().min_w_0().child(bar.field.clone()))
+            .child(div().flex_none().whitespace_nowrap().child(label))
             .child(
                 div()
                     .flex()
-                    .gap_2()
+                    .flex_none()
+                    .gap_3()
                     .child(
                         div()
                             .id("search-previous")
@@ -368,7 +380,8 @@ impl Smoke {
                             .on_click(cx.listener(Self::close_find_click)),
                     ),
             )
-            .into_any_element()
+            .into_any_element();
+        Some(bar)
     }
     fn close_find_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.close_find(window, cx);

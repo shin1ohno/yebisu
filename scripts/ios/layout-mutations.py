@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Run the layout source mutations (L0 geometry, L1 settings, L5 edit bar, L7
-Hosts sheet), requiring each named test to
+"""Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L3 sidebar,
+L5 edit bar, L7 Hosts sheet), requiring each named test to
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
@@ -20,10 +20,12 @@ OUT = ROOT / "target/layout-mutations"
 def test_panics(test):
     """The named test's own test directory. `a::b::tests::c::name` lives in
     a/b/tests/ (L0 layout, L1 settings_pages) or in a/b_tests/ when the module
-    keeps its tests beside it (L5 shell/edit_bar_tests/, L7
-    shell/hosts_sheet_tests/)."""
+    keeps its tests beside it (L3 shell/sidebar_tests/, L5
+    shell/edit_bar_tests/, L7 shell/hosts_sheet_tests/), or in a/b_tests.rs
+    (L2a shell/tab_row_tests.rs)."""
     module = test.split("::tests::")[0].replace("::", "/")
-    return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/")
+    return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/",
+            f"panicked at crates/yebisu/src/{module}_tests.rs")
 
 
 CASES = [
@@ -49,6 +51,29 @@ CASES = [
     ("l1-toolbar-sheet-sync", "settings_pages/toolbar_sync.rs", "        let Some(host) = &mut self.settings else {\n",
      "        let Some(host) = None::<&mut crate::settings::SettingsHost> else {\n",
      "settings_pages::tests::toolbar_sync::toolbar_change_is_visible_in_sheet_draft"),
+    # L2a (plan v2 7.5): the tab's × never hits, so a tap on it selects (S-9).
+    ("l2a-close-hit", "shell/tab_row.rs", "return Some(if x >= close_left {",
+     "return Some(if x >= right {",
+     "shell::tab_row::tests::close_hit_closes_and_does_not_select"),
+    # L2a: Reconnect shows in the status bar while connected too.
+    ("l2a-reconnect-condition", "shell/status_bar.rs", "show_reconnect: !state.connected,",
+     "show_reconnect: true,",
+     "shell::status_bar::tests::reconnect_shows_only_when_disconnected"),
+    # L2a: Paste drops out of the entry-point set (the ... menu place, B-1).
+    ("l2a-entry-paste", "shell/entry_points.rs", "OverflowItem::Paste => Some(EntryAction::Paste),",
+     "OverflowItem::Paste => None,",
+     "shell::entry_points::tests::chrome_entry_points_cover_required_set"),
+    # L3 (plan v2 7.8): Error ranked after Done breaks the AGENTS order (Q5).
+    ("l3-agents-order", "shell/sidebar_status.rs", "            Self::Error => 1,",
+     "            Self::Error => 3,",
+     "shell::sidebar::tests::order::agents_order_needs_you_error_working_done_idle_unknown"),
+    # L3: a status-less terminal counted as an agent (Q4).
+    ("l3-status-less", "shell/sidebar_status.rs", "        !matches!(self, Self::NoStatus)\n", "        true\n",
+     "shell::sidebar::tests::rows::status_less_terminal_is_not_an_agent"),
+    # L3: the notification target resolved by its recorded tab, not by identity (S-2).
+    ("l3-notification-target", "shell/sidebar/target.rs", ".find(|p| p.pane_id == agent.pane)",
+     ".find(|p| p.pane_id == agent.pane && target.tab.as_ref().is_none_or(|t| t == &p.tab_id))",
+     "shell::sidebar::tests::identity::notification_target_resolves_after_identity_change"),
     # L5 (plan v2 7.10): the edit bar drawn without a selection (display condition).
     ("edit-bar-condition", "shell/edit_bar.rs", "    if selecting {\n        vec![", "    if true {\n        vec![",
      "shell::edit_bar::tests::visibility::edit_bar_only_while_selecting"),

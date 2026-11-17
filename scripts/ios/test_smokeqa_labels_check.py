@@ -61,7 +61,7 @@ class CheckedIn(Tree):
         source = labels.strip_comments("\n".join(p.read_text() for p in sorted(self.tests.glob("SmokeQA*.swift"))))
         found, problems = labels.collect(source)
         self.assertEqual(problems, [])
-        for expected in ("Settings", "Observer next", "Native next", "High contrast", "paste-2.png", "Board: Dense", "Host: ",
+        for expected in ("Settings", "Observer next", "Native next", "High contrast", "paste-2.png", "HOSTS", "Host: ",
                          "qa-alpha", "idle", "Type here", "Theme", "Agent needs attention", "QuietHours"):
             with self.subTest(label=expected):
                 self.assertIn(expected, found)

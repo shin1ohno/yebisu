@@ -69,7 +69,7 @@ SH1-155 option 1 は 2026-11-11 にオーナーが選択。Inactive（アプリ�
 
 ## P6 status board density
 
-Tap `Board: Dense` / `Board: Roomy` above the board to switch immediately, without a rebuild. Dense uses 4 pt vertical row padding and a 180 pt scrolling board; Roomy uses 12 pt padding and 260 pt. Both show the same snapshot states and textual harness marks. The board remains above the terminal; scroll it to reach every space and agent on every host. The switch is session-local. Compare tap accuracy, scan speed and remaining terminal space on M5 and at narrow width.
+The board has one density (SH1-157 L3 removed the Dense / Roomy toggle, q7): 4 pt vertical row padding and a 180 pt scrolling board under a `HOSTS` heading. It shows the snapshot states and textual harness marks. The board remains above the terminal; scroll it to reach every space and agent on every host. Compare tap accuracy, scan speed and remaining terminal space on M5 and at narrow width.
 
 ## R3 review repairs
 

@@ -174,9 +174,9 @@ final class SmokeQA: XCTestCase {
         request.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: image).perform([request])
         let header = try XCTUnwrap(request.results?.first {
-            $0.topCandidates(1).first?.string.contains("Board: Dense") == true
+            $0.topCandidates(1).first?.string.contains("HOSTS") == true
         })
-        // The source defines a 180 pt Dense board immediately below this header.
+        // board.rs (BOARD_HEIGHT) defines a 180 pt board immediately below the HOSTS header.
         let top = 1 - header.boundingBox.minY + 10 / app.frame.height
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 140 / app.frame.height))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: top + 20 / app.frame.height))

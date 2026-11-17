@@ -60,7 +60,20 @@ Measure the job on the first integration run: `gh run view <run-id> --json jobs`
 `startedAt` and `completedAt` and each step's, and the `durations.json` artifact splits the
 "Layout smoke receiving-system checks" step by check. A total above 45 minutes is the signal to split the
 job into two (P2 and P3 in one, P10 and the next additions in the other) before the 60-minute
-limit is hit. The job has not been run on a hosted runner yet; the figures are open until it has.
+limit is hit. First hosted runs (PR 72): run 44151000668 job 134279069207 took 16 min 41 s
+(checks 932.6 s: p2 580.8, p3 140.5, p10 102.1) and run 44155672313 job 134296175129 took
+24 min 42 s (checks 1284.8 s: p2 772.3, p3 237.4, p10 146.7).
+
+Two hosted findings are handled in the harness, not in the checks (task e115109b440f4304):
+- `simctl pbpaste` times out (exit 60) on GitHub-hosted runners. `p2-check.py` retries it
+  three times and, only when `GITHUB_ACTIONS=true`, skips the pasteboard read with the logged
+  reason `P2 SKIPPED the receiving pasteboard read`; the app's `Copied restricted public key.`
+  receipt is still required, and the Mac mini keeps the exact match. `p2-setup.jsonl` is read
+  with `live_jsonl.read_records`, so a partly written last line is not a parse error.
+- `p3-check.py` is in `KNOWN_RED` of `ci-layout-smoke.py`: the landscape stage loses the
+  private-peer connection on main aed154e too. p3 still runs and uploads its evidence; its
+  failure is logged as `layout-smoke KNOWN RED`, and a pass fails the job until the entry is
+  removed with the product fix.
 
 The tests moved from `SmokeQA.swift` into `SmokeQA+<unit>.swift` extensions of the same class
 (Terminal, Keys, Handoff, Settings, Theme, Observer, Notifications, Input, Core), each at most 300
