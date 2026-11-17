@@ -65,7 +65,7 @@ fn sh1_156_core_detach_reattach_uses_new_destination_without_tap(cx: &mut TestAp
             this.select_host("private-core");
             this.connect_core_using(cx, move |_| Ok(backend));
         });
-        wait_frame(&view, cx, |this| this.terminal.live.connected);
+        wait_frame(&view, cx, has_destination);
         let old = cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 prepare(this, window, cx);
@@ -96,7 +96,7 @@ fn sh1_156_core_detach_reattach_uses_new_destination_without_tap(cx: &mut TestAp
             this.terminal.core_test_backend = Some(backend);
             this.connect_terminal(cx);
         });
-        wait_frame(&view, cx, |this| this.terminal.live.connected);
+        wait_frame(&view, cx, has_destination);
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 let _ = this.render_terminal(window, cx);

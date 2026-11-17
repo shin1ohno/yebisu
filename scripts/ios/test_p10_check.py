@@ -11,9 +11,11 @@ spec.loader.exec_module(p10)
 class P10Oracle(unittest.TestCase):
     def test_valid_and_negative_receiving_shapes(self):
         saved = json.loads((Path(__file__).parent / "fixtures/settings-writer-default.json").read_text())
-        saved.update(compact=True, terminal_priority=True)
+        saved.update(compact=True, terminal_priority=True, option_key="alt", command_key="ctrl",
+                     japanese_candidates="caret", return_policy="tap")
+        restored = dict(option_alt=True, command_control=True, caret_anchor=True, reconnect_automatic=False)
         loaded = [dict(kind="settings-loaded", compact=False, terminal_priority=False),
-                  dict(kind="settings-loaded", compact=True, terminal_priority=True)]
+                  dict(kind="settings-loaded", compact=True, terminal_priority=True, **restored)]
         lifecycle = [dict(kind="settings-lifecycle", phase=p) for p in ["Inactive", "Background", "Active"]]
         p10.validate(loaded + lifecycle, saved)
         with self.assertRaisesRegex(ValueError, "file differs"):
@@ -22,6 +24,13 @@ class P10Oracle(unittest.TestCase):
             p10.validate(loaded, saved)
         with self.assertRaisesRegex(ValueError, "fresh process"):
             p10.validate(loaded[:1] + lifecycle, saved)
+        for key in ["option_key", "command_key", "japanese_candidates", "return_policy"]:
+            missing = dict(saved)
+            del missing[key]
+            with self.subTest(missing_input=key), self.assertRaisesRegex(ValueError, "file differs"):
+                p10.validate(loaded + lifecycle, missing)
+        with self.assertRaisesRegex(ValueError, "Input options and Return"):
+            p10.validate(loaded[:1] + [dict(loaded[1], option_alt=False)] + lifecycle, saved)
 
         for key, value in [("route", "system"), ("sound", False), ("volume", 51), ("muted", True), ("quiet", [0, 1])]:
             with self.subTest(notification_field=key), self.assertRaisesRegex(ValueError, "file differs"):

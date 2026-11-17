@@ -1,6 +1,6 @@
 """Static guards for the state waits of SmokeQA.testInputAndLifecycleReceipts and the P9 timeout.
 
-Swift cannot be compiled on the Linux CI host, so this reads SmokeQA.swift as text. The
+Swift cannot be compiled on the Linux CI host, so this reads the SmokeQA*.swift files as text. The
 failures it guards (class C of the L17 diagnosis) are a fixed sleep after Home, activate()
 or typeText that lets the next step run before the app is ready, and a P9 hang that runs
 into the 40-minute job timeout instead of failing the test."""
@@ -9,7 +9,12 @@ from pathlib import Path
 import re
 import unittest
 
-SWIFT = Path(__file__).with_name("smoke-qa") / "Tests" / "SmokeQA.swift"
+TESTS = Path(__file__).with_name("smoke-qa") / "Tests"
+
+
+def swift_source():
+    """SmokeQA.swift and every SmokeQA+<unit>.swift extension, as one text."""
+    return "\n".join(path.read_text() for path in sorted(TESTS.glob("SmokeQA*.swift")))
 
 spec = importlib.util.spec_from_file_location("p9_check", Path(__file__).with_name("p9-check.py"))
 p9 = importlib.util.module_from_spec(spec)
@@ -34,7 +39,7 @@ def statements(function):
 
 class LifecycleWaits(unittest.TestCase):
     def setUp(self):
-        self.source = SWIFT.read_text()
+        self.source = swift_source()
         self.test = statements(body(self.source, "func testInputAndLifecycleReceipts("))
 
     def following(self, prefix):
@@ -59,7 +64,7 @@ class LifecycleWaits(unittest.TestCase):
 
     def test_a_failed_wait_stops_the_test_at_once(self):
         self.assertIn("continueAfterFailure = false", "\n".join(self.test))
-        for signature in ("private func requireState(", "private func waitForRenderedText("):
+        for signature in ("func requireState(", "func waitForRenderedText("):
             with self.subTest(signature=signature):
                 function = body(self.source, signature)
                 self.assertIn("XCTFail(", function)
@@ -71,7 +76,7 @@ class LifecycleWaits(unittest.TestCase):
         # after press(.home) and the wait failed although Home had been handled. The wait
         # must go through app.wait(for:timeout:), return as soon as a wanted state is reached,
         # and only fail after its timeout (run 43790640783 shows it passing, 5.29 s after Home).
-        function = body(self.source, "private func requireState(")
+        function = body(self.source, "func requireState(")
         wait = function.index("app.wait(for: state")
         self.assertLess(wait, function.index("return"))
         self.assertLess(function.index("return"), function.index("XCTFail("))
@@ -94,7 +99,7 @@ class P9Timeout(unittest.TestCase):
         self.assertIn("id=DEVICE", command)
 
     def test_p9_core_has_an_execution_time_allowance(self):
-        source = SWIFT.read_text()
+        source = swift_source()
         setup = body(source, "override func setUpWithError(")
         match = re.search(r'name\.contains\("testP9Core"\)\s*\{\s*executionTimeAllowance = (\d+)', setup)
         self.assertIsNotNone(match)
