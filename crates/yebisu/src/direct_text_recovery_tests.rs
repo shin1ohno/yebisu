@@ -32,7 +32,7 @@ fn sh1_156_fresh_herdr1_accepts_printable_and_direct_text(cx: &mut TestAppContex
         this.terminal.test_client = Some(client);
         this.connect_terminal(cx);
     });
-    wait_frame(&view, cx, |this| this.terminal.live.connected);
+    wait_frame(&view, cx, has_destination);
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             let _ = this.render_terminal(window, cx);
@@ -76,7 +76,7 @@ fn sh1_156_fresh_core_and_clean_reattach_accept_direct_text(cx: &mut TestAppCont
             }
             this.connect_core_using(cx, move |_| Ok(backend));
         });
-        wait_frame(&view, cx, |this| this.terminal.live.connected);
+        wait_frame(&view, cx, has_destination);
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 let _ = this.render_terminal(window, cx);
