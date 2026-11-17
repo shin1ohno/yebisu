@@ -109,6 +109,7 @@ UNRELATED = {
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
     "hosts": "outside the checks: host list, called from terminal_view.rs",
     "keys": "outside the checks: device keys, called from settings/key_ops.rs",
+    "layout": "unreferenced: L0 pure window geometry, no render path calls it yet",
     "native_menus_qa": "P12 native menu QA scene (YEBISU_P12_QA), called from app.rs",
     "notification_settings": "unreferenced",
     "notification_view": "outside the checks: notification banner, called from app.rs",
