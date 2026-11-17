@@ -184,6 +184,13 @@ class PathFilterTests(unittest.TestCase):
         self.assertTrue(self.layout("crates/yebisu/src/locales/ipad-settings-sheet.ftl"))
         self.assertTrue(self.layout("crates/yebisu/src/commands.ftl"))
 
+    def test_sh1_157_shell_and_layout_changes_run_it(self):
+        """The frame around the terminal, the Hosts sheet p2 drives and the geometry they use (Integration 1)."""
+        for path in ("crates/yebisu/src/shell.rs", "crates/yebisu/src/shell/frame.rs", "crates/yebisu/src/shell/hosts_sheet/view.rs",
+                     "crates/yebisu/src/layout.rs", "crates/yebisu/src/layout/height.rs"):
+            with self.subTest(path=path):
+                self.assertTrue(self.layout(path))
+
     def test_push_to_main_and_manual_runs_always_run_it(self):
         self.assertTrue(self.layout("crates/yebisu/src/find/search.rs", event="push"))
         self.assertTrue(self.layout("docs/ci-simulator.md", event="push"))
