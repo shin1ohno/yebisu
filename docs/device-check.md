@@ -270,7 +270,7 @@ Worker は実機署名・実機操作を行っていない。下記を実機の�
 3. On each sandbox daemon change an agent between working, blocked, done and idle. Record the delay from the daemon snapshot to the board. Repeat for the unselected host, with its rows scrolled out of view. Returning to its rows must show the latest state, without waiting for a new event.
 4. Compare each textual harness mark (for example `[Claude]`) and state against that host's daemon snapshot. Unknown harness/status must remain explicit; terminal text alone must not alter a dot.
 5. Tap a space, then an agent on each host. Confirm the daemon focuses the requested workspace/pane. Switch hosts while an update is arriving; the terminal must stay on the newly selected host. Compose text before switching and confirm it is discarded, never delivered to the other host.
-6. Toggle `Board: Dense` and `Board: Roomy`. Compare row tap accuracy and terminal room. Repeat in narrow Split View and both orientations; scroll to the last host/agent and verify labels remain usable. Record preferred density, device/iPadOS version and any clipping.
+6. Check row tap accuracy and terminal room on the board under its `HOSTS` heading (one 180 pt height since SH1-157 L3 removed the Dense / Roomy toggle). Repeat in narrow Split View and both orientations; scroll to the last host/agent and verify labels remain usable. Record device/iPadOS version and any clipping.
 7. Lock/unlock with both hosts connected. With automatic return enabled, both must receive new snapshots. Disconnect one sandbox host: its heading must report disconnection while the other continues updating. Reconnect it; old queued input must not replay.
 
 Host coverage is separate: `crates/yebisu/src/board_tests.rs` uses private in-process peers for hidden-host snapshot updates and workspace/pane endpoint requests. It does not prove physical IME, hardware keyboard or device update latency.
@@ -312,7 +312,7 @@ IME/hardware keyboard behavior.
 2. Use disposable sandbox daemons only. Start with pane p1 focused and tap p2. Immediately focus p3 from another sandbox client. After the board shows p3, type a unique token: it must reach p3 exactly once, and another board move must remain available. Repeat while composing Japanese text; the old composition must not reach p3.
 3. Keep a board row visible, restart its sandbox daemon (new boot, reuse the pane ID), and tap the old row before its redraw. It must refuse the old tap; after the redraw a fresh tap must work. Repeat after disconnect/reconnect with the same daemon boot to exercise connection-generation rejection.
 4. With at least two workspaces and panes, tap a workspace other than the focused one, then a different agent. Confirm each move changes the highlighted daemon focus, terminal contents and the destination receiving a unique typed token. Repeat with each host, while the other host continues updating.
-5. Repeat the P6 narrow-width, harness-mark, host-switch and Dense/Roomy checks above. Record the results in PR QA; Simulator output is not proof of physical keyboard or IME behavior.
+5. Repeat the P6 narrow-width, harness-mark and host-switch checks above. Record the results in PR QA; Simulator output is not proof of physical keyboard or IME behavior.
 
 No new feel-based design fork was found for R4. Existing density and input variants remain in docs/variants.md.
 

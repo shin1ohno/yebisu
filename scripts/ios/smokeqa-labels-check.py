@@ -8,7 +8,7 @@ are, in the check job:
 
   * every string passed to tapText, tapTextBox, textVisible or waitForRenderedText,
     every string the P15 host screen is matched against (text.contains), and the
-    Board header scrollBoard reads, is collected from Tests/SmokeQA*.swift;
+    HOSTS header scrollBoard reads, is collected from Tests/SmokeQA*.swift;
   * each must have an entry in SOURCES (the app paints it as a literal) or in
     ALLOWED (the app composes it, or the test types it, with the reason), and every
     location of the entry must still contain its fragment;
@@ -44,7 +44,6 @@ EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
 # keep-sorted start
 SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
-    "Board: Dense": [(SRC + "board.rs", '"Board: Dense"')],
     "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
     "Copy authorized_keys line": [(HOSTS_SHEET, '"Copy authorized_keys line"')],
     "Copy: Manual": [(HANDOFF, '"Copy: Manual"')],
@@ -52,6 +51,7 @@ SOURCES = {
     "Detach": [(CORE_VIEW, '"Detach"')],
     "Discard composition": [(SRC + "sh1_156_qa.rs", '"Discard composition"')],
     "File path unavailable": [(P15_VIEW, '"File path unavailable"')],
+    "HOSTS": [(SRC + "shell/sidebar/view.rs", '"HOSTS"')],
     "High contrast": [(SRC + "theme_picker/mod.rs", '"High contrast"')],
     "Larger": [(SETTINGS_VIEW, '"font-plus", "Larger"')],
     "Menu execute": [(EDIT_MENU_QA, '"Menu execute"')],
