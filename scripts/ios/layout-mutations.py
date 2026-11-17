@@ -14,6 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "crates/yebisu/src"
 OUT = ROOT / "target/layout-mutations"
+TEST_PANIC = "panicked at crates/yebisu/src/layout/tests/"
 CASES = [
     # The terminal's 206 pt minimum comparison (Q1, D2).
     ("minimum-206", "layout/height.rs", "    height >= TERMINAL_MIN_HEIGHT\n", "    height >= 0.0\n",
@@ -55,7 +56,11 @@ def main():
         try:
             path.write_text(original.replace(old, new))
             code, output, mutated = run(name, test)
-            if code == 0 or f"{test} ... FAILED" not in output or "assertion" not in output:
+            # The named test must fail on a panic raised in the layout test files
+            # (an assert, or a test's own panic), never on a build error or a
+            # panic elsewhere. assert!(cond, "msg") prints only the message, so
+            # the word "assertion" alone would miss the intended failure.
+            if code == 0 or f"{test} ... FAILED" not in output or TEST_PANIC not in output:
                 raise SystemExit(f"{name}: intended assertion failure not observed")
         finally:
             path.write_text(original)
