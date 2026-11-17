@@ -10,7 +10,8 @@ sprint plan (`mellow-squishing-wilkinson.md`). F1 (herdr-gpui
 `main` and are not streams here.
 
 Branch: `layout/integration`, cut from `origin/fix/hw-keyboard-after-discard-3`
-(PR 70's head `cad6d74`). One integrator owns it.
+(PR 70's head `cad6d74`), with `origin/main` 492c604 merged in. One
+integrator owns it.
 
 ## 1. Rules for every stream
 
@@ -72,12 +73,11 @@ frame calls through the slots below. They replace the board and the setup page
 on screen only when L2a's frame (L3) and L2b's footer (L7) are in the
 integration branch.
 
-**L0 is not yet in `layout/integration`.** PR 70's head predates PR 68 (L0).
-`git merge-tree` shows that `origin/main` merges into this branch without
-conflicts. The next integrator merges `origin/main` after PR 70 merges. Streams
-that call `crate::layout` (L2a, L2c, L4, L9) may `git merge origin/main` into
-their own branch to build against L0 earlier; the commits are the same as the
-integrator's merge, so nothing conflicts later.
+**L0 is in `layout/integration`.** The integrator merged `origin/main`
+(492c604: L0, PR 68, and PR 69) with a merge commit, so `crate::layout` is
+available to every stream from the Wave 1 base. When PR 70 merges into `main`,
+the next integrator merges `origin/main` again; streams take it through
+`git merge origin/layout/integration`.
 
 L0's public items used by the streams (from `origin/main` 492c604,
 `crates/yebisu/src/layout.rs`): `pub fn compute(input: &Input) -> Layout`,
@@ -520,7 +520,7 @@ goes away at the end of Wave 3.
 
 ## 7. Not done in Wave 0 (TODO for later integrators)
 
-- Merge `origin/main` (L0, PR 68) after PR 70 merges.
+- Merge `origin/main` again after PR 70 merges (L0 and PR 69 are already in).
 - The `layout-smoke` job (T0 patch) and `layout-mutations` entries for each
   stream (patches) in `.github/workflows/ci.yml` and
   `scripts/ios/layout-mutations.py`.
