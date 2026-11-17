@@ -369,7 +369,7 @@ class PageLabel(unittest.TestCase):
     def sources(self):
         read = lambda path: (self.ROOT / path).read_text()
         tests = (self.ROOT / "scripts/ios/smoke-qa/Tests").glob("SmokeQA*.swift")
-        return (read("crates/yebisu/src/settings_pages/mod.rs"), read("crates/yebisu/src/settings_sheet/view.rs"),
+        return (read("crates/yebisu/src/settings_pages/sections.rs"), read("crates/yebisu/src/settings_sheet/view.rs"),
                 "\n".join(path.read_text() for path in sorted(tests)))
 
     def test_checked_in_sources_agree(self):
@@ -378,8 +378,8 @@ class PageLabel(unittest.TestCase):
     # L1: the Swift constant goes back to the display name
     def test_l1_swift_constant_with_a_capital_fails(self):
         pages, view, swift = self.sources()
-        swift = swift.replace('let appearancePage = "appearance"', 'let appearancePage = "Appearance"')
-        with self.assertRaisesRegex(ValueError, "appearancePage must equal the page id"):
+        swift = swift.replace('let appearancePage = "Theme"', 'let appearancePage = "appearance"')
+        with self.assertRaisesRegex(ValueError, "appearancePage must equal the section title"):
             p15.check_page_label(pages, view, swift)
 
     def test_l1_literal_tap_fails(self):
@@ -387,18 +387,18 @@ class PageLabel(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "literal Appearance"):
             p15.check_page_label(pages, view, swift.replace("tapText(appearancePage", 'tapText("Appearance"', 1))
 
-    # L2: the page id changes in Rust
+    # L2: the section title changes in Rust
     def test_l2_page_id_change_fails(self):
         pages, view, swift = self.sources()
-        with self.assertRaisesRegex(ValueError, "appearancePage must equal the page id"):
-            p15.check_page_label(pages.replace('Self::Appearance => "appearance"', 'Self::Appearance => "Appearance"'), view, swift)
+        with self.assertRaisesRegex(ValueError, "appearancePage must equal the section title"):
+            p15.check_page_label(pages.replace('Self::Theme => "Theme"', 'Self::Theme => "Themes"'), view, swift)
 
-    # L3: the button stops showing page.id()
+    # L3: the button stops showing section.title()
     def test_l3_button_label_change_fails(self):
         pages, view, swift = self.sources()
-        changed = view.replace('page.id(), true)', 'display_name(page), true)')
+        changed = view.replace('section.title(),', 'page.id(),')
         self.assertNotEqual(changed, view)
-        with self.assertRaisesRegex(ValueError, "no longer shows page.id"):
+        with self.assertRaisesRegex(ValueError, "no longer shows section.title"):
             p15.check_page_label(pages, changed, swift)
 
     def test_missing_page_id_fails(self):

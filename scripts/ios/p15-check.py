@@ -28,7 +28,7 @@ SEED = dict(version=1, language="en-US", theme="owner-default", compact=False,
 
 # Page button text on the settings sheet: PageId::id() is shown as is. This must
 # equal the SmokeQA constant, because OCR matching is case-sensitive.
-APPEARANCE_PAGE = "appearance"
+APPEARANCE_PAGE = "Theme"
 CONTROLS = ("P15-start", "P15-end")
 # xcresulttool export attachments: <name>_<index>_<UUID><ext>
 ATTACHMENT = re.compile(r"^(?P<base>.+)_(?P<index>\d+)_(?P<uuid>[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-"
@@ -63,19 +63,23 @@ def attachment_files(manifest, root):
     return found[("p15-ui", ".json")]
 
 
-def check_page_label(rust_pages, rust_view, swift):
-    """The page button label, the OCR constant and the checker must agree."""
-    ids = re.findall(r'Self::Appearance\s*=>\s*"([^"]+)"', rust_pages)
+def check_page_label(rust_sections, rust_view, swift):
+    """The section button label, the OCR constant and the checker must agree.
+
+    SH1-157 L1: the sheet lists sections (settings_pages/sections.rs); the
+    appearance page is the Theme section, whose button shows section.title().
+    """
+    ids = re.findall(r'Self::Theme\s*=>\s*"([^"]+)"', rust_sections)
     if len(ids) != 1:
-        raise ValueError("settings_pages: Appearance page id not found exactly once")
-    if not re.search(r'button\(\s*format!\("settings-page-\{\}",\s*page\.id\(\)\),\s*page\.id\(\)', rust_view):
-        raise ValueError("settings_sheet: page button no longer shows page.id() as its label")
+        raise ValueError("settings_pages: Theme section title not found exactly once")
+    if not re.search(r'button\(\s*format!\("settings-page-\{\}",\s*page\.id\(\)\),\s*section\.title\(\)', rust_view):
+        raise ValueError("settings_sheet: section button no longer shows section.title() as its label")
     constants = re.findall(r'\blet appearancePage = "([^"]+)"', swift)
     if constants != [ids[0]]:
-        raise ValueError("SmokeQA appearancePage must equal the page id " + repr(ids[0]))
+        raise ValueError("SmokeQA appearancePage must equal the section title " + repr(ids[0]))
     if ids[0] != APPEARANCE_PAGE:
-        raise ValueError("p15-check APPEARANCE_PAGE must equal the page id " + repr(ids[0]))
-    if re.search(r'tapText\("[Aa]ppearance"', swift):
+        raise ValueError("p15-check APPEARANCE_PAGE must equal the section title " + repr(ids[0]))
+    if re.search(r'tapText\("([Aa]ppearance|Theme)"', swift):
         raise ValueError("SmokeQA taps a literal Appearance label instead of appearancePage")
     if len(re.findall(r"tapText\(appearancePage", swift)) != 1 or len(re.findall(r"tapAppearance\(in:", swift)) != 3:
         raise ValueError("SmokeQA must tap appearancePage through tapAppearance exactly three times")

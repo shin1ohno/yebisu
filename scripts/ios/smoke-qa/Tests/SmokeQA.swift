@@ -74,7 +74,10 @@ final class SmokeQA: XCTestCase {
     }
     // The settings sheet shows PageId::id() as is ("appearance"), and tapText matches
     // case-sensitively. test_p15_check.py ties this value to settings_pages/mod.rs.
-    let appearancePage = "appearance"
+    // SH1-157 L1: the sheet lists sections; the appearance page is the Theme
+    // section (settings_pages/sections.rs). "Terminal theme" does not match
+    // case-sensitively.
+    let appearancePage = "Theme"
     // Last body row of the private wire peer surface (mock_peer.rs).
     let terminalInputRow = "Type here"
 
