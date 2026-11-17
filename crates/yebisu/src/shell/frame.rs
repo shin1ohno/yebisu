@@ -155,6 +155,8 @@ impl Smoke {
         let sidebar = self.render_sidebar_column(&layout, board_in_band, cx);
         let geometry = frame_geometry(&layout, sidebar.is_some());
         let mut body = Some(body);
+        // The bar fits the terminal column it floats over (L5 N-3).
+        self.set_edit_bar_width(Some(geometry.tab_row.width));
         let mut column = div()
             .relative()
             .flex()
@@ -167,23 +169,30 @@ impl Smoke {
             column = match slot {
                 ColumnSlot::TabRow => column.children(self.render_tab_row(cx)).child(rule()),
                 ColumnSlot::FindBar => column.children(self.render_find_bar(cx)),
+                // The edit bar is absolute (edit_bar.rs): placed inside the
+                // relative terminal slot it floats over the terminal's top
+                // edge, never over the tab row above it (review SF-1).
                 ColumnSlot::Terminal => column.child(
                     div()
                         .id("shell-terminal")
+                        .debug_selector(|| "shell-terminal".into())
                         .relative()
                         .flex_1()
                         .min_h_0()
                         .w_full()
-                        .children(body.take()),
+                        .children(body.take())
+                        .children(self.render_edit_bar(cx)),
                 ),
-                ColumnSlot::EditBar => column.children(self.render_edit_bar(cx)),
+                ColumnSlot::EditBar => column,
                 ColumnSlot::QaStrip => column.children(self.render_qa_strip(cx)),
                 ColumnSlot::StatusBar => column
                     .child(rule())
                     .children(self.render_status_bar(window, cx)),
             };
         }
-        let column = column.children(self.render_overflow_menu(cx));
+        let column = column
+            .children(self.render_overflow_backdrop(cx))
+            .children(self.render_overflow_menu(cx));
         div()
             .id("shell-frame")
             .size_full()
@@ -244,8 +253,11 @@ impl Smoke {
         }
         let list = match self.render_sidebar_list(cx) {
             Some(list) => Some(list),
-            // Herdr 2 had no board in the band either; L8 fills its sidebar.
-            None if self.terminal.core_mode => None,
+            // Herdr 2 had no board in the band either. Until L8 fills its
+            // sidebar, draw no column at all, so frame_geometry gives the
+            // 300 pt back to the terminal (Integration 1 review S3; the
+            // narrowed column hid the core strip's Paste in testSH154CoreImage).
+            None if self.terminal.core_mode => return None,
             // The body drew the board this frame (a resize just widened the
             // window past the collapse width): never draw it twice.
             None if board_in_band => None,
@@ -315,3 +327,7 @@ fn window_bottom_inset(layout: &Layout, window: &Window) -> f32 {
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "frame_overlay_tests.rs"]
+mod overlay_tests;

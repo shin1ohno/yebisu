@@ -91,7 +91,7 @@ pub(crate) fn tab_hit(x: f32, tab_widths: &[f32], row_width: f32) -> Option<TabH
 type TabEntry = (String, String, bool);
 
 impl Smoke {
-    fn row_tabs(&self) -> Vec<TabEntry> {
+    pub(super) fn row_tabs(&self) -> Vec<TabEntry> {
         if self.terminal.core_mode {
             return Vec::new();
         }
@@ -181,6 +181,7 @@ impl Smoke {
             .child(
                 div()
                     .id(("shell-tab-body", index))
+                    .debug_selector(move || format!("shell-tab-body-{index}"))
                     .flex_1()
                     .min_w_0()
                     .pl(px(TAB_PADDING))
