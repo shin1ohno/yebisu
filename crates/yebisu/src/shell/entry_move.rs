@@ -1,4 +1,20 @@
 //! L2b: retires the legacy bands. Owner: L2b.
+//!
+//! Plan v2 7.6: the two toolbar rows, the Input options band, the Return
+//! band, the handoff band and the tab-and-button band are gone, and the six
+//! QA bands moved into the QA strip. Each one left in the same change that
+//! gave its entry points a new place (plan v2 5.1 rule 1):
+//!
+//! | Band | New place |
+//! |---|---|
+//! | toolbar: Hosts, Settings | sidebar footer (`footer.rs`) |
+//! | toolbar: Reconnect | status bar and the ... menu (L2a) |
+//! | toolbar: Standard / Compact, Input options | Settings › Display, Input (L1) |
+//! | toolbar: "P9 · status" | none; the status bar has no phase prefix |
+//! | Return band | Settings › Connection (L1) |
+//! | handoff band: Paste, Paste image, Select, Copy | the ... menu (L2a) |
+//! | tab-and-button band | tab row, ... menu, sidebar header, ⌘ keys (L2a) |
+//! | QA bands | QA strip (`qa_strip.rs`, Simulator QA builds only) |
 use crate::app::Smoke;
 
 /// Which legacy bands `render_terminal` still draws. L2b turns them off in
@@ -14,7 +30,22 @@ pub(crate) struct LegacyBands {
 }
 
 impl LegacyBands {
+    /// Every legacy band is retired (plan v2 7.6).
     pub(crate) const fn current() -> Self {
+        Self {
+            toolbar: false,
+            input_options: false,
+            return_policy: false,
+            handoff: false,
+            actions: false,
+            qa_controls: false,
+        }
+    }
+
+    /// The bands as they were before L2b; tests use it to show what the
+    /// retirement removed.
+    #[cfg(test)]
+    pub(crate) const fn before_l2b() -> Self {
         Self {
             toolbar: true,
             input_options: true,
@@ -31,3 +62,7 @@ impl Smoke {
         LegacyBands::current()
     }
 }
+
+#[cfg(test)]
+#[path = "entry_move_tests.rs"]
+mod tests;
