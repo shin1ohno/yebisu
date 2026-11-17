@@ -7,6 +7,11 @@ pub(crate) mod device_key;
 pub(crate) mod fonts;
 pub(crate) mod general;
 pub(crate) mod keyboard;
+// SH1-157 L1 (docs/layout-contracts.md). Wave 0 stubs; L1 removes the allow.
+#[allow(dead_code)]
+pub(crate) mod sections;
+#[allow(dead_code)]
+pub(crate) mod toolbar_sync;
 
 #[cfg(test)]
 mod tests;

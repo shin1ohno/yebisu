@@ -599,7 +599,7 @@ impl Smoke {
         }
         let mut panel = div()
             .absolute()
-            .bottom(overlay_bottom(&window.insets()))
+            .bottom(overlay_bottom(&window.insets()) + self.toast_lift(window))
             .right_0()
             .max_w(px(384.))
             .p_2()

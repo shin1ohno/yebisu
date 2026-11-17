@@ -41,6 +41,9 @@ pub(crate) struct Smoke {
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     pub(crate) p12_qa: crate::native_menus_qa::MenuQa,
     pub(crate) retirement: crate::input_retirement::Retirement,
+    // SH1-157 per-stream state; the streams read it from Wave 1 on.
+    #[allow(dead_code)]
+    pub(crate) shell: crate::shell::ShellState,
     ticks: u64,
     taps: u64,
     image: Arc<RenderImage>,
@@ -130,6 +133,7 @@ impl Smoke {
             actions: Default::default(),
             native_menus: Default::default(),
             retirement: Default::default(),
+            shell: Default::default(),
             handoff: crate::handoff::Handoff {
                 drag_select: true,
                 ..Default::default()
@@ -174,6 +178,9 @@ impl Render for Smoke {
             .size_full()
             .child(rendered)
             .child(self.render_notification(window, cx))
+            .children(self.render_shortcuts_popover(window, cx))
+            .children(self.render_hosts_sheet(window, cx))
+            .children(self.render_mods_overlay(window, cx))
             .into_any_element();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()
@@ -232,6 +239,9 @@ impl Smoke {
             return self.render_terminal(window, cx);
         }
         if !self.smoke_mode {
+            if let Some(first_run) = self.render_first_run(window, cx) {
+                return first_run;
+            }
             return self.render_setup(cx);
         }
         let entity = cx.entity();
