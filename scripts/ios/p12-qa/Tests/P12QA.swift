@@ -14,20 +14,38 @@ final class P12QA: XCTestCase {
     private var lastMenuClosed: Date?
     /// The reveal-precondition record of the swipe in progress, quoted by its failures.
     private var preReveal: [String: Any] = [:]
+    /// The app's Documents directory on the host; p12-check.py passes it as
+    /// TEST_RUNNER_P12_DOCUMENTS (xcodebuild strips the prefix), as sh1-152-check.py does.
+    private let documents = ProcessInfo.processInfo.environment["P12_DOCUMENTS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    /// Negative controls (TEST_RUNNER_P12_QA_FAULT, comma separated, empty in CI):
+    /// `drop-tap:<step>` skips the first tap of that fixture step, `skip-swipe:<case>`
+    /// skips the first reveal swipe of that case. Each fault is spent once, and the
+    /// retry it forces must be logged and accepted by the oracle.
+    private var faults = Set((ProcessInfo.processInfo.environment["P12_QA_FAULT"] ?? "").split(separator: ",").map(String.init))
+    /// How long the app gets to log a fixture tap before it is tapped once more.
+    private static let receiptTimeout: TimeInterval = 5
+    /// How long a swipe gets to reveal the OS menu bar before it is repeated once.
+    private static let revealTimeout: TimeInterval = 10
+    /// What the reveal of the case in progress needed, quoted by its failure.
+    private var revealNote = ""
     private static let fixtureControls = ["Remote", "Rearm", "Sidebar", "Palette", "Release", "Host", "Pane",
                                           "Boot", "Focus", "Current", "Capability", "Reset", "Finish"]
                                           .map { "P12 " + $0 }
 
+    /// A failed assertion ends the test method without running its `defer`, so the
+    /// events are attached here: a failed run keeps them as evidence too.
+    override func tearDown() {
+        if let data = try? JSONSerialization.data(withJSONObject: events, options: [.sortedKeys]) {
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            attachment.name = "p12-ui-events.json"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        super.tearDown()
+    }
+
     func testInstalledTerminalMenu() throws {
         continueAfterFailure = false
-        defer {
-            if let data = try? JSONSerialization.data(withJSONObject: events, options: [.sortedKeys]) {
-                let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
-                attachment.name = "p12-ui-events.json"
-                attachment.lifetime = .keepAlways
-                add(attachment)
-            }
-        }
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
@@ -35,6 +53,7 @@ final class P12QA: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(3)
+        XCTAssertNotNil(setupEnds("remote"), "P12 app log unreadable: p12-check.py passes the app's Documents directory as TEST_RUNNER_P12_DOCUMENTS")
         // A remote pick holds pane.split at the peer until "P12 Release", and the
         // pinned sheprd-client fails the link once a request is 60 s old
         // (limits.rs COMMAND_TIMEOUT). One native menu session took up to 44 s on
@@ -71,22 +90,12 @@ final class P12QA: XCTestCase {
         // Recorded before the swipe so a reveal that fails can say which
         // precondition was missing (L17 class B), not only that the bar is absent.
         recordRevealPrecondition(caseName)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
         // The pinned herdr-uikit (see Cargo.toml) menu::placement maps GPUI position 0
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
         let owner = springboard
         let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
-        // Wait on the observable condition (the OS menu-bar control exists and is
-        // hittable), not on a fixed sleep. Evidence is captured after the wait so a
-        // reveal that never happens still leaves a hierarchy and screenshot.
-        let revealed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND hittable == true"), object: applicationMenu)
-        let revealStart = Date()
-        let reveal = XCTWaiter().wait(for: [revealed], timeout: 10)
-        events.append(["kind": "reveal-result", "case": caseName, "revealed": reveal == .completed,
-                       "waited": Date().timeIntervalSince(revealStart), "time": Date().timeIntervalSince1970])
+        let reveal = revealMenuBar(applicationMenu, caseName: caseName)
         hierarchy("p12-revealed-" + caseName)
         // Screenshots taken while the OS menu is open are failure evidence only: on a
         // hosted runner one of them can stall for the 30 s XCTest limit while the
@@ -94,7 +103,7 @@ final class P12QA: XCTestCase {
         screenshotOnFailure("p12-revealed-" + caseName,
                             reveal == .completed && applicationMenu.exists && applicationMenu.isHittable
                                 && applicationMenu.frame.maxY <= 64)
-        XCTAssertEqual(reveal, .completed, "OS menu bar not revealed (class B) in case \(caseName): " + preRevealSummary())
+        XCTAssertEqual(reveal, .completed, "OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary())
         XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
@@ -142,6 +151,73 @@ final class P12QA: XCTestCase {
                        "started": pickStart, "ended": Date().timeIntervalSince1970,
                        "enabled": enabled, "tapped": tapped, "negative": negative, "menuClosed": menuClosed])
         screenshot("p12-after-" + caseName)
+    }
+
+    /// Swipes down from the top edge and waits on the observable condition (the OS
+    /// menu-bar control exists and is hittable), never on a fixed sleep. A swipe
+    /// that reveals nothing is repeated once, and the repeat is logged with its
+    /// reason (`reveal-retry`); the second miss fails as class B. In the failed runs
+    /// of 2026-11-17 the swipe call itself took 5.6 s and 5.7 s against 0.6-1.1 s
+    /// for 14 of the 15 reveals that worked (the 15th took 4.2 s), so the gesture was
+    /// spread over a stalled Simulator [unproven]. The assertion after this call is unchanged.
+    private func revealMenuBar(_ applicationMenu: XCUIElement, caseName: String) -> XCTWaiter.Result {
+        var attempt = 1
+        revealNote = ""
+        while true {
+            let swipeStart = Date()
+            let injected = attempt == 1 && faults.remove("skip-swipe:" + caseName) != nil
+            if !injected {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
+            }
+            let swipeSeconds = Date().timeIntervalSince(swipeStart)
+            let revealed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == true AND hittable == true"), object: applicationMenu)
+            let revealStart = Date()
+            let reveal = XCTWaiter().wait(for: [revealed], timeout: Self.revealTimeout)
+            let waited = Date().timeIntervalSince(revealStart)
+            if reveal == .completed || attempt == 2 {
+                events.append(["kind": "reveal-result", "case": caseName, "revealed": reveal == .completed,
+                               "waited": waited, "attempts": attempt, "swipeSeconds": swipeSeconds,
+                               "time": Date().timeIntervalSince1970])
+                return reveal
+            }
+            var reason = injected ? "injected fault: the first swipe was skipped; " : ""
+            reason += "OS menu bar not revealed \(Int(waited)) s after the first swipe"
+            reason += " (the swipe call took \(String(format: "%.1f", swipeSeconds)) s); swiping once more"
+            revealNote = "after one retry (" + reason + "); "
+            events.append(["kind": "reveal-retry", "case": caseName, "reason": reason, "injected": injected,
+                           "swipeSeconds": swipeSeconds, "waited": waited, "time": Date().timeIntervalSince1970])
+            attempt += 1
+        }
+    }
+
+    /// Number of `p12-setup-end` records the app has logged for one step, or nil when
+    /// its observation log cannot be read. Only newline-terminated lines count: the
+    /// app may be writing the last one, as scripts/ios/live_jsonl.py also assumes.
+    private func setupEnds(_ step: String) -> Int? {
+        guard let url = documents?.appendingPathComponent("p0-smoke.jsonl"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        let marker = Data("p12-setup-end".utf8)
+        var count = 0
+        for slice in data.split(separator: 0x0A, omittingEmptySubsequences: false).dropLast() {
+            let line = Data(slice)
+            guard line.range(of: marker) != nil,
+                  let row = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  row["kind"] as? String == "p12-setup-end", row["step"] as? String == step else { continue }
+            count += 1
+        }
+        return count
+    }
+
+    /// Waits until the app has logged one more `p12-setup-end` for `step` than `before`.
+    private func awaitSetupEnd(_ step: String, after before: Int) -> Bool {
+        let deadline = Date().addingTimeInterval(Self.receiptTimeout)
+        while Date() < deadline {
+            if (setupEnds(step) ?? 0) > before { return true }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return false
     }
 
     /// Records what Springboard and the app window looked like just before a
@@ -234,10 +310,27 @@ final class P12QA: XCTestCase {
         if tap {
             // No OCR here: this may run while the Remote case holds pane.split.
             let point = try XCTUnwrap(fixturePoints[label], "Fixture control not located: \(label)")
+            let step = String(label.dropFirst(4)).lowercased()
             let setupStart = Date().timeIntervalSince1970
-            app.coordinate(withNormalizedOffset: point).tap()
+            let before = setupEnds(step) ?? 0
+            // The app's own `p12-setup-end` record, not a fixed delay, says the tap
+            // arrived. In job 134059155142 the first tap (Remote) never reached the
+            // app and nothing in the test noticed until the oracle ran. A tap with no
+            // record is repeated once, with its reason logged (`fixture-retry`).
+            let injected = faults.remove("drop-tap:" + step) != nil
+            if !injected { app.coordinate(withNormalizedOffset: point).tap() }
+            var received = awaitSetupEnd(step, after: before)
+            if !received {
+                var reason = injected ? "injected fault: the first tap was skipped; " : ""
+                reason += "the app logged no p12-setup-end for '\(step)' within \(Int(Self.receiptTimeout)) s of the tap; tapping once more"
+                events.append(["kind": "fixture-retry", "step": step, "reason": reason, "injected": injected,
+                               "time": Date().timeIntervalSince1970])
+                app.coordinate(withNormalizedOffset: point).tap()
+                received = awaitSetupEnd(step, after: before)
+            }
+            XCTAssertTrue(received, "Fixture tap on '\(label)' not received by the app, also after one retry (class P12-fixture)")
             sleep(1)
-            events.append(["kind": "fixture-control", "step": String(label.dropFirst(4)).lowercased(),
+            events.append(["kind": "fixture-control", "step": step, "received": received,
                            "started": setupStart, "ended": Date().timeIntervalSince1970])
             return
         }
