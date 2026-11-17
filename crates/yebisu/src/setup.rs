@@ -29,7 +29,6 @@ pub(crate) struct Setup {
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) enum Job {
     Load,
-    Save(String),
     SaveFailure,
     Scan(String),
     Trust(String, NewHostKey),
@@ -49,6 +48,9 @@ pub(crate) enum Reply {
         seen: String,
     },
     Saved(crate::hosts::SavedHosts, String),
+    // Only tests still send it (setup/tests.rs, live/tests.rs): the L7 sign-in
+    // replies SignedIn. Drop it with those tests' move to SignedIn.
+    #[cfg_attr(target_os = "ios", allow(dead_code))]
     Authenticated(crate::hosts::SavedHosts, String),
     /// Sign-in succeeded; the probe says which Herdr the host runs.
     SignedIn(crate::hosts::SavedHosts, String, Probe),
@@ -107,11 +109,6 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
         Job::SaveFailure => Err(Error::Storage(std::io::Error::other(
             "Developer-injected save failure; saved hosts unchanged",
         ))),
-        Job::Save(target) => {
-            let store = store()?;
-            store.save(&target)?;
-            Ok(Reply::Hosts(store.load_hosts()?, String::new()))
-        }
         Job::Scan(target) => {
             let scan = ssh::scan_host_key(&target).map_err(map)?;
             if matches!(scan, HostKeyScan::Refused(ssh::SshFailure::HostKey))

@@ -30,7 +30,8 @@ pub(crate) const GROUPS: [(&str, &[Section]); 3] = [
     ("CONNECT", &[Section::HostsAndKeys, Section::About]),
 ];
 
-/// The sections in canvas order.
+/// The sections in canvas order (the view walks `GROUPS`; tests use this).
+#[cfg(test)]
 pub(crate) fn sections() -> Vec<Section> {
     GROUPS
         .iter()

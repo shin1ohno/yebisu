@@ -15,6 +15,9 @@ mod footer;
 mod scan;
 #[path = "hosts_sheet_tests/step3.rs"]
 mod step3;
+// NewHostKey::fixture_for_tests is not built for iOS (sheprd-client host_key.rs:92),
+// as in hosts.rs:112.
+#[cfg(not(target_os = "ios"))]
 #[path = "hosts_sheet_tests/trust.rs"]
 mod trust;
 

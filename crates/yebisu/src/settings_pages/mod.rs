@@ -30,6 +30,8 @@ pub(crate) enum Page {
 }
 
 impl Page {
+    // The sheet walks sections::GROUPS since L1; only tests list every page.
+    #[cfg(test)]
     pub(crate) const ALL: [Self; 8] = [
         Self::Fonts,
         Self::Appearance,
