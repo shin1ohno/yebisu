@@ -33,3 +33,27 @@ fn herdr1_narrow_column_requests_zoom_once(cx: &mut TestAppContext) {
     assert_eq!(sent[0]["params"]["pane_id"], "w1:p1");
     assert_eq!(sent[0]["params"]["mode"], "toggle");
 }
+
+#[gpui::test]
+fn herdr1_zoom_waits_while_input_would_be_discarded(cx: &mut TestAppContext) {
+    let peer = connected(cx);
+    // run_action would close the palette and cancel a selection: wait.
+    peer.view.update(cx, |this, _| {
+        measure(this, 400.0);
+        this.actions.palette = true;
+        this.enforce_herdr1(400.0);
+        this.actions.palette = false;
+        this.handoff.select_mode = true;
+        this.enforce_herdr1(400.0);
+        this.handoff.select_mode = false;
+        this.terminal.input.mark("かな", None);
+        this.enforce_herdr1(400.0);
+    });
+    assert!(zoom_requests(&peer).is_empty(), "nothing is sent meanwhile");
+    // The first free frame sends it.
+    peer.view.update(cx, |this, _| {
+        this.terminal.input.discard();
+        this.enforce_herdr1(400.0);
+    });
+    assert_eq!(zoom_requests(&peer).len(), 1);
+}

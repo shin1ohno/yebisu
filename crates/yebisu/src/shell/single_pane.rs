@@ -14,7 +14,7 @@ use sheprd_client::protocol::ClientShellSnapshot;
 use sheprd_commands::Command;
 use std::{
     collections::BTreeMap,
-    sync::Mutex,
+    sync::{Arc, Mutex, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -32,6 +32,11 @@ enum Phase {
     Held,
     /// Release sent, the snapshot still shows the zoom.
     Releasing,
+    /// Zoom sent, never shown within `REQUEST_TTL`: not sent again until the
+    /// column or the tab changes (a repeat would discard input each time).
+    GaveZoom,
+    /// Release sent, the zoom stayed: not sent again until the column changes.
+    GaveRelease,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +63,9 @@ pub(crate) struct SinglePaneState {
     shown: Option<Shown>,
     /// A redraw was asked for because the column had no measured width yet.
     waiting_for_width: bool,
+    /// The column Herdr 2 was last told about.
+    published: Option<ColumnMetrics>,
+    mailbox: Mailbox,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,13 +75,19 @@ pub(crate) enum ZoomRequest {
 }
 
 impl SinglePaneState {
+    /// A test's own mailbox, so it never reaches another test's worker.
+    #[cfg(test)]
+    pub(crate) fn set_mailbox(&mut self, mailbox: Mailbox) {
+        self.mailbox = mailbox;
+    }
+
     fn entry(&self, host: &str, tab: u64) -> Option<&Forced> {
         self.forced.get(&(host.to_owned(), tab))
     }
 
     /// Folds what the snapshot shows into the record: a zoom that arrived is
     /// held, a zoom that is gone is forgotten, a request that was never
-    /// answered is dropped so the rule can ask again.
+    /// answered is given up (and not repeated, see `Phase::GaveZoom`).
     pub(crate) fn observe(&mut self, host: &str, tab: u64, zoomed: bool, now: Instant) {
         let key = (host.to_owned(), tab);
         let Some(entry) = self.forced.get_mut(&key) else {
@@ -81,14 +95,25 @@ impl SinglePaneState {
         };
         let stale = now.saturating_duration_since(entry.at) >= REQUEST_TTL;
         match (entry.phase, zoomed) {
-            (Phase::Zooming, true) => entry.phase = Phase::Held,
-            (Phase::Zooming, false) if stale => {
+            (Phase::Zooming | Phase::GaveZoom, true) => entry.phase = Phase::Held,
+            (Phase::Zooming, false) if stale => entry.phase = Phase::GaveZoom,
+            (Phase::Held | Phase::Releasing | Phase::GaveRelease, false) => {
                 self.forced.remove(&key);
             }
-            (Phase::Held | Phase::Releasing, false) => {
+            (Phase::Releasing, true) if stale => entry.phase = Phase::GaveRelease,
+            _ => {}
+        }
+    }
+
+    /// The column crossed the 568 pt line for this tab: a request given up on
+    /// the other side may be sent again.
+    pub(crate) fn column_changed(&mut self, host: &str, tab: u64, narrow: bool) {
+        let key = (host.to_owned(), tab);
+        match self.forced.get_mut(&key) {
+            Some(entry) if narrow && entry.phase == Phase::GaveRelease => entry.phase = Phase::Held,
+            Some(entry) if !narrow && entry.phase == Phase::GaveZoom => {
                 self.forced.remove(&key);
             }
-            (Phase::Releasing, true) if stale => entry.phase = Phase::Held,
             _ => {}
         }
     }
@@ -127,7 +152,7 @@ impl SinglePaneState {
 /// count and whether it is zoomed (L2c calls `layout::pane_mode`).
 ///
 /// - Narrow column, two or more panes, not zoomed: `Zoom`, once (a request
-///   already out for this pane count is not repeated).
+///   already out, or given up on, for this pane count is not repeated).
 /// - Wide column, zoomed, and the zoom is the one yebisu set: `Release`,
 ///   once. A zoom the user set stays.
 pub(crate) fn herdr1_zoom_request(
@@ -141,7 +166,9 @@ pub(crate) fn herdr1_zoom_request(
     let entry = state.entry(host, tab);
     match pane_mode(column_width, pane_count) {
         PaneMode::Single if pane_count >= 2 => {
-            let asked = entry.is_some_and(|e| e.phase == Phase::Zooming && e.panes == pane_count);
+            let asked = entry.is_some_and(|e| {
+                matches!(e.phase, Phase::Zooming | Phase::GaveZoom) && e.panes == pane_count
+            });
             (!zoomed && !asked).then_some(ZoomRequest::Zoom)
         }
         PaneMode::Single => None,
@@ -218,20 +245,41 @@ impl ColumnMetrics {
     }
 }
 
-static METRICS: Mutex<Option<ColumnMetrics>> = Mutex::new(None);
+/// The latest column, shared between the UI thread (writer) and the Herdr 2
+/// worker (reader). Production code uses the one process-wide mailbox; a test
+/// builds its own with [`Mailbox::detached`] so it never leaks into another
+/// test's worker.
+#[derive(Clone, Debug)]
+pub(crate) struct Mailbox(Arc<Mutex<Option<ColumnMetrics>>>);
 
-pub(crate) fn publish_column_metrics(metrics: Option<ColumnMetrics>) {
-    let mut slot = METRICS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *slot = metrics;
+impl Mailbox {
+    fn global() -> Self {
+        static GLOBAL: OnceLock<Mailbox> = OnceLock::new();
+        GLOBAL.get_or_init(|| Self::detached()).clone()
+    }
+
+    pub(crate) fn detached() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    pub(crate) fn publish(&self, metrics: Option<ColumnMetrics>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = metrics;
+    }
+
+    pub(crate) fn latest(&self) -> Option<ColumnMetrics> {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Default for Mailbox {
+    fn default() -> Self {
+        Self::global()
+    }
 }
 
 /// The last published column, `None` until the first frame is measured.
 pub(crate) fn column_metrics() -> Option<ColumnMetrics> {
-    *METRICS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    Mailbox::global().latest()
 }
 
 impl Smoke {
@@ -250,16 +298,32 @@ impl Smoke {
         }
         self.shell.single_pane.waiting_for_width = false;
         if self.terminal.core_mode {
-            publish_column_metrics(Some(ColumnMetrics {
+            self.publish_core_column(ColumnMetrics {
                 width,
                 height,
                 cell_width: self.terminal.geometry.cell_width,
                 cell_height: self.terminal.geometry.cell_height,
-            }));
+            });
             return;
         }
-        publish_column_metrics(None);
+        if self.shell.single_pane.published.take().is_some() {
+            self.shell.single_pane.mailbox.publish(None);
+        }
         self.enforce_herdr1(width);
+    }
+
+    /// Tells the Herdr 2 worker about the column. The worker only sizes its
+    /// terminals when it is sent a command, and the Resize of this frame was
+    /// sent from paint with the previous column, so a changed column forgets
+    /// the size that was sent: the next paint sends it again.
+    fn publish_core_column(&mut self, metrics: ColumnMetrics) {
+        let state = &mut self.shell.single_pane;
+        if state.published == Some(metrics) {
+            return;
+        }
+        state.published = Some(metrics);
+        state.mailbox.publish(Some(metrics));
+        self.terminal.size = None;
     }
 
     fn enforce_herdr1(&mut self, column_width: f32) {
@@ -275,9 +339,13 @@ impl Smoke {
         let state = &mut self.shell.single_pane;
         state.retain_tabs(&host, &tabs);
         state.observe(&host, view.key, view.zoomed, now);
+        state.column_changed(
+            &host,
+            view.key,
+            pane_mode(column_width, 2) == PaneMode::Single,
+        );
         self.record_layout(&host, view, column_width);
-        // A zoom changes the selection's pane; wait for the user to finish.
-        if self.handoff.select_mode || self.handoff.selection.is_some() || self.settings_modal {
+        if self.auto_zoom_would_discard_input() {
             return;
         }
         let Some(request) = herdr1_zoom_request(
@@ -298,6 +366,18 @@ impl Smoke {
                 .single_pane
                 .record_sent(&host, view.key, request, view.panes, now);
         }
+    }
+
+    /// `run_action` cancels a selection, closes the palette and discards typed
+    /// and composing input, so the automatic Zoom waits while any of that is
+    /// in use. It is sent on the first frame after.
+    fn auto_zoom_would_discard_input(&self) -> bool {
+        self.handoff.select_mode
+            || self.handoff.selection.is_some()
+            || self.settings_modal
+            || self.find.is_some()
+            || self.actions.palette
+            || !self.terminal.input.composition.text.is_empty()
     }
 
     /// Records how many panes the screen shows, when that changes.

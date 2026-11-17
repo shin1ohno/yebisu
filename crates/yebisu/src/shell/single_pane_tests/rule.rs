@@ -6,13 +6,25 @@ use crate::shell::single_pane::{
 use std::time::{Duration, Instant};
 
 #[test]
-fn unanswered_zoom_is_asked_again_after_a_while() {
+fn unanswered_zoom_is_given_up_not_repeated() {
     let start = Instant::now();
     let mut state = SinglePaneState::default();
     state.record_sent(HOST, 1, ZoomRequest::Zoom, 2, start);
     state.observe(HOST, 1, false, start + Duration::from_secs(1));
     assert_eq!(herdr1_zoom_request(&state, HOST, 1, 400.0, 2, false), None);
-    state.observe(HOST, 1, false, start + Duration::from_secs(4));
+    // Never shown: recorded as failed, and still not sent again however long
+    // the column stays narrow.
+    for seconds in [4, 9, 60] {
+        state.observe(HOST, 1, false, start + Duration::from_secs(seconds));
+        assert_eq!(herdr1_zoom_request(&state, HOST, 1, 400.0, 2, false), None);
+    }
+    // A split is a new situation for the tab.
+    assert_eq!(
+        herdr1_zoom_request(&state, HOST, 1, 400.0, 3, false),
+        Some(ZoomRequest::Zoom)
+    );
+    // So is the column going wide and narrow again.
+    state.column_changed(HOST, 1, false);
     assert_eq!(
         herdr1_zoom_request(&state, HOST, 1, 400.0, 2, false),
         Some(ZoomRequest::Zoom)
@@ -20,21 +32,26 @@ fn unanswered_zoom_is_asked_again_after_a_while() {
 }
 
 #[test]
-fn unanswered_release_is_asked_again_after_a_while() {
+fn unanswered_release_is_given_up_until_the_column_changes() {
     let start = Instant::now();
     let mut state = SinglePaneState::default();
     state.record_sent(HOST, 1, ZoomRequest::Zoom, 2, start);
     state.observe(HOST, 1, true, start);
     state.record_sent(HOST, 1, ZoomRequest::Release, 2, start);
     assert_eq!(herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true), None);
-    state.observe(HOST, 1, true, start + Duration::from_secs(4));
+    for seconds in [4, 9, 60] {
+        state.observe(HOST, 1, true, start + Duration::from_secs(seconds));
+        assert_eq!(herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true), None);
+    }
+    // Narrow, then wide again: the release is tried once more.
+    state.column_changed(HOST, 1, true);
     assert_eq!(
         herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true),
         Some(ZoomRequest::Release)
     );
     // The zoom is gone: the record goes with it.
-    state.observe(HOST, 1, false, start + Duration::from_secs(5));
-    state.observe(HOST, 1, true, start + Duration::from_secs(6));
+    state.observe(HOST, 1, false, start + Duration::from_secs(70));
+    state.observe(HOST, 1, true, start + Duration::from_secs(71));
     assert_eq!(herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true), None);
 }
 
