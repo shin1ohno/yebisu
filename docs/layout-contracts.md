@@ -11,7 +11,11 @@ sprint plan (`mellow-squishing-wilkinson.md`). F1 (herdr-gpui
 
 Branch: `layout/integration`, cut from `origin/fix/hw-keyboard-after-discard-3`
 (PR 70's head `cad6d74`), with `origin/main` 492c604 merged in. One
-integrator owns it.
+integrator owns it. Integration 1 merged `origin/main` aed154e (PR 70
+c33b746, PR 71) and the Wave 1 streams listed in section 7.
+
+The amendments of section 8 (review 0e80, 2026-11-18) override the text
+above and below where they differ.
 
 ## 1. Rules for every stream
 
@@ -108,7 +112,8 @@ Integrator-owned shared files (also changed only by the integrator, from
 patches): `crates/yebisu/src/shell.rs`, `crates/yebisu/src/shell/tests.rs`,
 `docs/layout-contracts.md`, `crates/yebisu/src/notification_view.rs`,
 `crates/yebisu/src/observation.rs`, `crates/yebisu/src/mock_peer.rs`,
-`scripts/ios/layout-mutations.py`, `justfile`, `Cargo.toml`, `Cargo.lock`,
+`scripts/ios/layout-mutations.py`, `scripts/ios/layout-check.py` (A2),
+`justfile`, `Cargo.toml`, `Cargo.lock`,
 `crates/yebisu/Cargo.toml`, and every `scripts/ios/smoke-qa/Tests/*.swift`
 change after T0 has landed.
 
@@ -138,7 +143,7 @@ its module. "New" means the stream creates it.
 | Integrator | the integrator-only and integrator-owned files of section 3 |
 | T0 | `scripts/ios/smoke-qa/Tests/SmokeQA.swift`; new `scripts/ios/smoke-qa/Tests/SmokeQA+Keys.swift`, `SmokeQA+Terminal.swift`, `SmokeQA+Input.swift`, `SmokeQA+Handoff.swift`, `SmokeQA+Settings.swift`, `SmokeQA+Core.swift`, `SmokeQA+Board.swift`; new `scripts/ios/smokeqa-labels-check.py`, `scripts/ios/smokeqa-labels-allow.txt`, `scripts/ios/test_smokeqa_labels_check.py`, `scripts/ios/layout-smoke.py` |
 | L1 | `crates/yebisu/src/settings_pages/**` (including the Wave 0 `sections.rs`, `toolbar_sync.rs`), `settings.rs`, `settings/**`, `settings_sheet.rs`, `settings_sheet/**`, `settings_view.rs`, `p15_settings_view.rs`, `notification_settings.rs`, `terminal_controls.rs`, `terminal_controls_tests.rs`, `scripts/ios/p10-check.py` |
-| L2a | `crates/yebisu/src/shell/frame.rs`, `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/entry_points.rs`, `shell/toast.rs`, `find_view.rs`; new `scripts/ios/layout-check.py` |
+| L2a | `crates/yebisu/src/shell/frame.rs`, `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/entry_points.rs`, `shell/toast.rs`, `find_view.rs`; new `scripts/ios/layout-check-l2a.py` and `scripts/ios/p7-check.py` (A2) |
 | L2b | `shell/entry_move.rs`, `shell/footer.rs`, `shell/qa_strip.rs`, `actions.rs`, `action_tests.rs`, `action_view.rs` |
 | L2c | `shell/single_pane.rs`, `core/screen.rs` |
 | L3 | `shell/sidebar.rs`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
@@ -222,7 +227,8 @@ it (so the stream does not need to edit them).
 
 - **Owns:** `shell/frame.rs`, `tab_row.rs`, `overflow_menu.rs`,
   `status_bar.rs`, `entry_points.rs`, `toast.rs`, `find_view.rs`,
-  `scripts/ios/layout-check.py`.
+  `scripts/ios/layout-check-l2a.py` (A2: `layout-check.py` is
+  integrator-owned).
 - **Fills:**
   - `frame.rs`: `pub(crate) struct FrameState {}`;
     `impl Smoke { pub(crate) fn shell_frame(&mut self, body: AnyElement, _window: &mut Window, _cx: &mut Context<Self>) -> AnyElement; pub(crate) fn board_in_band(&self) -> bool }`.
@@ -520,9 +526,40 @@ goes away at the end of Wave 3.
 
 ## 7. Not done in Wave 0 (TODO for later integrators)
 
-- Merge `origin/main` again after PR 70 merges (L0 and PR 69 are already in).
-- The `layout-smoke` job (T0 patch) and `layout-mutations` entries for each
-  stream (patches) in `.github/workflows/ci.yml` and
-  `scripts/ios/layout-mutations.py`.
-- The draft integration PR to `main` (the integrator opens it at the end of
-  Wave 1, not in Wave 0).
+- Done in Integration 1: `origin/main` aed154e merged (PR 70 c33b746 and
+  PR 71); `layout/t0` 24a8c3a, `layout/l1` 7ffde18, `layout/l7` 52983b8 and
+  `layout/l5` 87350e5 merged with their integrator patches; the
+  `layout-smoke` job (T0) with `shell/` and `layout/` in its filter and in
+  edit-menu's; the L1, L5 and L7 `layout-mutations` entries; the draft
+  integration PR to `main`.
+- Still open: `layout/l3`, `layout/l2a` and the next `layout/l1` head
+  (Integration 1, second push); Wave 2 and Wave 3 streams.
+
+## 8. Amendments (2026-11-18, review 0e80 B1 to B4)
+
+- **A1 (B1).** `crates/yebisu/src/shell/tests.rs`
+  `wave0_slots_are_inert`: a stream may delete, on its own branch, only the
+  asserts for the slots it fills (L2a: `chrome_entry_points`,
+  `overflow_menu_items`; L5: `edit_bar_items`, `paused_typing_status`;
+  L3 and L2b: `footer_items` and the sidebar slots; and so on), and also
+  sends the same lines as a patch. No other change to integrator-only files
+  on a branch.
+- **A2 (B2).** `scripts/ios/layout-check.py` is integrator-owned. Each stream
+  writes its Simulator layout assertions in its own
+  `scripts/ios/layout-check-<stream>.py` (for example `layout-check-l1.py`)
+  with a `main()` the integrator calls. `p6-check.py` (L3), `p7-check.py`
+  (L2a) and `p8-check.py` (L5) are owned by those streams if the stream adds
+  them. Host tests are required; Simulator check scripts are best effort and
+  may be listed as not done.
+- **A3 (B3).** T0's targets follow the branch as it is (`SmokeQA.swift` 790
+  lines, 41 `tapText` strings, the existing p2, p3, p9, p10, p8-native,
+  sh1-153, sh1-156 and selection-settings checks), not plan v2's 889, 55
+  and 12 figures. `layout/t0` already does this.
+- **A4 (B4).** Until L2b lands, `required_entry_actions` excludes New space;
+  `chrome_entry_points_cover_required_set` in L2a and in the L3, L7 and L5
+  branches checks the set without New space. L2b adds New space to the
+  required set in the same branch that adds the footer entry.
+- **L2a.** The `sh1_150` test is widened from 1200 to 1500 pt (the legacy band
+  wraps and the frame jumps); L2b restores 1200 and asserts no jump.
+- **A5.** L7 F1 (keys reach the remote shell while the Hosts sheet is open)
+  is a merge condition of L2b (S5).
