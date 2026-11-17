@@ -64,9 +64,45 @@ impl Smoke {
             board_hidden: self.actions.board_hidden,
             drag_select: self.handoff.drag_select,
             copy_on_select: self.handoff.copy_on_select,
+            option_alt: self.terminal.input.options.option_alt,
+            command_control: self.terminal.input.options.command_control,
+            caret_anchor: self.terminal.input.options.caret_anchor,
+            reconnect_automatic: self.terminal.reconnect.automatic,
         }
     }
+    /// The Input options and Return read by the key encoder, the toolbar
+    /// and reconnect (SH1-157 L1): the same fields the sheet edits. They are
+    /// app settings, but every terminal view carries a copy, so the hidden
+    /// hosts' views (which reconnect on return, reconnect.rs) take them too.
+    fn adopt_input_settings(&mut self, values: &Values) {
+        let terminals = std::iter::once(&mut self.terminal).chain(self.board.hidden.values_mut());
+        for terminal in terminals {
+            let options = &mut terminal.input.options;
+            options.option_alt = values.option_alt;
+            options.command_control = values.command_control;
+            options.caret_anchor = values.caret_anchor;
+            terminal.reconnect.automatic = values.reconnect_automatic;
+        }
+    }
+    /// A host switch (board.rs `select_host`) swaps in another terminal view
+    /// with its own, possibly default, copy of the Input options and Return.
+    /// Before anything reads the live values back into the draft (the next
+    /// poll) or encodes a key (`refresh_terminal_input`), give the newly
+    /// selected view the stored values. Runs once per selected host change.
+    pub(crate) fn sync_input_settings(&mut self) {
+        let Some(host) = &mut self.settings else {
+            return;
+        };
+        let target = &self.terminal.reconnect.target;
+        if host.synced_target.as_ref() == Some(target) {
+            return;
+        }
+        host.synced_target = Some(target.clone());
+        let values = host.draft.clone();
+        self.adopt_input_settings(&values);
+    }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sync_input_settings();
         let values = self.settings_values();
         let Some(host) = &mut self.settings else {
             return;
@@ -76,7 +112,8 @@ impl Smoke {
             cx.notify();
         }
         if host.poll() {
-            self.observation.record(serde_json::json!({"kind":"settings-loaded", "theme":host.draft.theme.key(), "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select}));
+            self.observation.record(serde_json::json!({"kind":"settings-loaded", "theme":host.draft.theme.key(), "compact":host.draft.compact, "font_size":host.draft.font.size, "terminal_priority":host.draft.terminal_priority, "drag_select":host.draft.drag_select, "copy_on_select":host.draft.copy_on_select, "option_alt":host.draft.option_alt, "command_control":host.draft.command_control, "caret_anchor":host.draft.caret_anchor, "reconnect_automatic":host.draft.reconnect_automatic}));
+            let values = host.draft.clone();
             self.local_theme = host.draft.theme;
             self.terminal.font = host.draft.font.clone();
             self.terminal.compact = host.draft.compact;
@@ -85,9 +122,10 @@ impl Smoke {
             self.actions.board_hidden = host.draft.board_hidden;
             self.handoff.drag_select = host.draft.drag_select;
             self.handoff.copy_on_select = host.draft.copy_on_select;
+            self.adopt_input_settings(&values);
             cx.notify();
         }
-        let error = host.error.clone();
+        let error = self.settings.as_ref().and_then(|host| host.error.clone());
         self.update_settings_error(error, cx);
     }
     fn update_settings_error(&mut self, error: Option<String>, cx: &mut gpui::Context<Self>) {
@@ -104,6 +142,12 @@ impl Smoke {
             // An edit immediately before UIKit interrupts the regular save timer.
             self.terminal.compact = true;
             self.actions.terminal_priority = true;
+            // SH1-157 L1: the three Input options and Return (Q7, q7).
+            let options = &mut self.terminal.input.options;
+            options.option_alt = true;
+            options.command_control = true;
+            options.caret_anchor = true;
+            self.terminal.reconnect.automatic = false;
         }
         let values = self.settings_values();
         if let Some(host) = &mut self.settings {
@@ -198,6 +242,18 @@ impl Smoke {
         self.apply_settings(values, cx);
     }
 
+    /// A radio row of the Input or Connection page (SH1-157 L1).
+    pub(crate) fn select_settings_choice(
+        &mut self,
+        choice: crate::settings_pages::choices::Choice,
+        value: bool,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let mut values = self.settings_values();
+        choice.set(&mut values, value);
+        self.apply_settings(values, cx);
+    }
+
     pub(crate) fn apply_settings(&mut self, values: Values, cx: &mut gpui::Context<Self>) {
         if self.settings.is_none() || values.font.validate().is_err() {
             return;
@@ -209,6 +265,7 @@ impl Smoke {
         self.actions.board_hidden = values.board_hidden;
         self.handoff.drag_select = values.drag_select;
         self.handoff.copy_on_select = values.copy_on_select;
+        self.adopt_input_settings(&values);
         if let Some(host) = &mut self.settings {
             host.edit(values);
             host.flush();
