@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import unittest
@@ -179,8 +180,7 @@ class Tables(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_the_check_job_runs_it(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        import re
-        check_job = re.search(r"^  check:\n(.*)\Z", workflow, re.S | re.M).group(1)
+        check_job = re.search(r"^  check:\n(.*?)(?=^  [a-z][a-z-]*:\n|\Z)", workflow, re.S | re.M).group(1)
         self.assertIn("run: python3 scripts/ios/smokeqa-labels-check.py\n", check_job)
 
 

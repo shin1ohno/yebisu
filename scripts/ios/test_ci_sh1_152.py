@@ -241,7 +241,7 @@ class PathFilterTests(unittest.TestCase):
     def test_unrelated_jobs_keep_their_own_filters(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(decisions("pull_request", ["crates/yebisu/src/find/search.rs"], tmp),
-                             {"check": True, "simulator-smoke": True, "edit-menu": False})
+                             {"check": True, "simulator-smoke": True, "edit-menu": False, "layout-smoke": False})
 
 
 if __name__ == "__main__":
