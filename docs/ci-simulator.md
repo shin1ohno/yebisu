@@ -49,7 +49,9 @@ Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
 labels. Origin: 2026-11-16, L17 diagnosis, with P12 (PR 55), L16 (PR 57) and
 SH1-265 (PR 56) reports.
 
-Known classes for the merge rule below: L15, L16, A, B and P12-shot.
+Known classes for the merge rule below: L15, L16, A, B and P12-shot. P12-fixture
+(first seen 2026-11-17) is in the table but not on this list: adding it is an owner
+decision.
 C-snapshot and C-anim left the list when PR 58 merged (716018a), and C-paint
 was never on it. Since PR 58 merged, a failure with any of their signatures is
 a new defect, not a known class, and blocks the merge. L19 and L20 are open work on L15 and A/B, not
@@ -62,9 +64,10 @@ classes.
 | C-snapshot | `SmokeQA.swift:23: error: ... Failed to get matching snapshot: Timed out` | 3/98 P0 runs | `app.activate()` right after Home does not take effect and no characters reach the app (the app stderr shows 8 `input committed` lines, all for `P0-input`; none for `-returned`), so the `typeText("-rotated")` at `SmokeQA.swift:23` times out. Happens on a freshly booted, slow Simulator. That the app stays suspended, and the press/activate ordering, are `[unproven]` | PR 58 (merged, 716018a) replaces the fixed sleeps after Home, `activate()` and `typeText` with state waits. A failed wait now stops the test at once with `initial activate(): app.state is ...`, `app left the foreground after press(.home): app.state is ...` or `activate() after press(.home): app.state is ...` (`SmokeQA.swift` `requireState`, 30 s each); since PR 58 merged, a non-foreground state after `activate()` is a new defect, not a known class | run 43730444891/7 job 132946288166 (artifact 14179437935); run 43720814607/1 job 132832187258; run 43729845313/2 job 132888134849 |
 | C-anim | `App animations complete notification not received` (60 s waits, 25 times, job cancelled at 40 min) | 1/92 P9 runs | `animationsHaveFinished` stays NO after `P9-native\n`; what keeps animating is `[unproven]` | PR 58 (merged, 716018a) caps `testP9Core` at 150 s (XCTest rounds it up to 3 minutes; `-test-timeouts-enabled YES` in `p9-check.py`), so a hang now ends with `Test Case '-[SmokeOracle.SmokeQA testP9Core]' exceeded execution time allowance of 3 minutes` (negative control: run 43790640783, 02:25:17.999 to 02:28:17.998); the QA build writes an `animations-running` record with each layer's class and `animationKeys()` into `p0-smoke.jsonl` once an animation stays for 10 s. It does not fix the cause; since PR 58 merged, a failure with this signature is a new defect | run 43730444891/4 job 132914175740 (artifact 14176482747) |
 | C-paint | `input result expected 'P0-input', received 'P0-inpu'` | 1 job seen | A fixed `sleep(2)` after `typeText` ended before the last character was drawn | PR 58 (merged, 716018a) waits for the typed text on screen; a miss now fails as `typed '<text>' received: '<word>' not on screen after 20 s` (the `-rotated` step keeps its sleeps, the keyboard covers the field); since PR 58 merged, a failure with this signature is a new defect | run 43684762210/1 job 132722801994 |
-| A | `OS menu still open ... (class A)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `P12 xctest: exit 0` then `ValueError: setup callbacks missing/duplicated` | 2/52 P12 runs | The first tap after an OS menu opens is lost; the menu stays open. Cause `[unproven]` | Open: L20 (PR 59 merged, c7013bb: observation only) | run 43730444891/3 job 132903694966 (P12 artifact 14174842401); run 43717998985/1 job 132823606035 (14164345944) |
-| B | `OS menu bar not revealed (class B)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `Installed OS application menu must be revealed and reachable` (`P12QA.swift:68`, `:81` since PR 55) | 4/52 P12 runs | The top-edge swipe does not reveal the menu bar or `•••`. Cause `[unproven]` | Open: L20 (PR 59 merged, c7013bb: observation only) | run 43699190351/1 job 132766634071; run 43729845313/1 job 132859692803; run 43754156237/4 job 132956853113; run 43730444891/9 job 132960855571 |
+| A | `OS menu still open ... (class A)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `P12 xctest: exit 0` then `ValueError: setup callbacks missing/duplicated` | 2/52 P12 runs | The first tap after an OS menu opens is lost; the menu stays open. Cause `[unproven]`. A lost tap on a P12 fixture control, not on the OS menu, is P12-fixture, not A. Not seen in the three P12 jobs of 2026-11-17 | Open: L20 (PR 59 merged, c7013bb: observation only); the pick wait on the menu closing is unchanged by the P12 reliability PR | run 43730444891/3 job 132903694966 (P12 artifact 14174842401); run 43717998985/1 job 132823606035 (14164345944) |
+| B | `OS menu bar not revealed (class B)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `Installed OS application menu must be revealed and reachable` (`P12QA.swift:68`, `:81` since PR 55) | 4/52 P12 runs; 2 more of the 3 P12 jobs of 2026-11-17 | The top-edge swipe does not reveal the menu bar or `•••`. Cause `[unproven]`. In both new failures the swipe call took 5.6 s and 5.7 s (`xctest.stdout`: from `Synthesize event` to the idle wait after `Press Application`), against 0.6 to 1.1 s for 14 of the 15 swipes that revealed it (the 15th took 4.2 s); the XCTest gesture was spread over a stalled Simulator. The PR 59 precondition record does not separate them: Window Controls absent, app window not focused, `runningForeground` in all 10 reveals of job 134059155142 (3.2 to 53.1 s since the last close) and in both failures (3.3 s, 35.6 s) | Open: L20 (PR 59 merged, c7013bb: observation only). P12 reliability PR: `P12QA.revealMenuBar` swipes once more when the bar is absent after 10 s and logs a `reveal-retry` (reason, swipe seconds) that the oracle accepts once per case and prints in the verdict `retries`; a second miss still fails as class B, and the XCTest assertion after the reveal is unchanged | run 44077223916/1 job 134018333353 (`xctest.stdout:708`, case palette); run 44117720382/1 job 134160368350 (`xctest.stdout:628`, case rearm); run 43699190351/1 job 132766634071; run 43729845313/1 job 132859692803; run 43754156237/4 job 132956853113; run 43730444891/9 job 132960855571 |
 | P12-shot | `xctest.stdout`: `Failed to get screenshot: Timed out while requesting screenshot` from `P12QA.swift` (at 716018a `:278` is the `screenshot()` helper and `:255` is `recognize()`; the case and step are the last `Added attachment named 'p12-…'` / `Tap` lines before it). Supporting: `app.jsonl` has no `"kind":"terminal"` record for ≥ 10 s outside the `boot` case. Job log shows only `P12 xctest: exit 65` | 1/53 P12 runs (2026-11-15T00:00Z–2026-11-16T12:06Z); 0/1536 vs 1/204 screenshots before/after PR 59 | The Simulator stopped drawing for ~24 s with the OS menu open; XCTest gives up on a screenshot after 30 s. Why drawing stopped is `[unproven]`. A held `pane.split` can then pass the 60 s `COMMAND_TIMEOUT` (`Disconnected: endpoint request timed out`); that is a consequence, not the PR 55 class | PR 63 (merged, 2c1e8b2): open-menu screenshots only on failure, 39 to 11 per run. Open: time every capture | run 43834250246/1 job 133186893086 (artifact `p12-native-menu-evidence`) |
+| P12-fixture | Job log: `P12 xctest: exit 0`, then `ValueError: app prepare cases missing/duplicated` (`p12-oracle.py:73`) with the Springboard reveals all passing (before this PR). Now `xctest.stdout`: `Fixture tap on 'P12 <Control>' not received by the app, also after one retry (class P12-fixture)`, or the oracle's `fixture tap lost (class P12-fixture): the app logged no p12-setup-begin for step <step>` | 1 of the 3 P12 jobs of 2026-11-17; not measured over the window | The first fixture tap (`P12 Remote`, `Tap Application ...[0.87, 0.09]` at `xctest.stdout` t=53.04 s, XCTest `Synthesize event` normal) produced no `p12-setup-begin`/`p12-prepare`/`p12-setup-end` for `remote` in `app.jsonl`: between the lines 16 (13:28:45) and 73 (13:29:39) there are only `terminal` records, and the pick that followed logged `case: ""`. The fixture OCR before it took 41 s (13:28:46 to 13:29:27). The tap point was the same as in the passing runs. Why the app did not receive the tap is `[unproven]` | P12 reliability PR: after each fixture tap `P12QA` waits (5 s) for the app's own `p12-setup-end` of that step instead of a fixed delay, taps once more when it is absent and logs a `fixture-retry`; a second miss fails by name. The oracle names the step before its generic checks and prints the retries in the verdict. Replaying the evidence of job 134059155142 through the new oracle gives `fixture tap lost ... step remote` | run 44077223916/2 job 134059155142 (artifact `p12-native-menu-evidence`: `app.jsonl` lines 16-73, `xctest.stdout:430`) |
 
 Also fixed: a P12 held `pane.split` request that reached the 60 s client
 timeout (`held request reached the client's 60 s COMMAND_TIMEOUT`; earlier
@@ -85,7 +88,7 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
    `p12-native-menu-evidence` (`xctest.stdout`, `peer.jsonl`, `app.jsonl`).
    The job log of a P12 failure shows only `P12 xctest: exit 65`. A job that hit
    the 40-minute timeout may have no artifact.
-2. Classify from lines you can cite. P12 classes (A, B, P12-shot) are classified from the
+2. Classify from lines you can cite. P12 classes (A, B, P12-fixture, P12-shot) are classified from the
    `xctest.stdout` lines of the `p12-native-menu-evidence` artifact; every other
    class, from job log lines. A failure with no matching signature is a new
    class: do not rerun it, report it.
@@ -266,3 +269,30 @@ and 43992978378. Cited ids are run/job.)
   `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`);
   a request held that long drops the connection. Hold one request per local
   case and release it before the next search.
+
+### P12 receipts, retries and negative controls
+
+(2026-11-18: P12 reliability PR; jobs 134018333353, 134059155142 and 134160368350.)
+
+- Wait on the receiving side, not on a delay. After each fixture tap `P12QA`
+  polls the app's own `Documents/p0-smoke.jsonl` (`p12-check.py` passes the
+  directory as `TEST_RUNNER_P12_DOCUMENTS`, the way `sh1-152-check.py` does)
+  for one more `p12-setup-end` of that step. Only newline-terminated lines
+  count, as in `live_jsonl.py`. A reveal waits on the Springboard control
+  (`exists` and `hittable`), as before.
+- Repeat once, and say why. A tap without a receipt (5 s) and a swipe without a
+  revealed menu bar (10 s) are repeated once. Each repeat is a `fixture-retry` or
+  `reveal-retry` record in `p12-ui-events.json` with its reason; the oracle
+  accepts at most one per control or case and prints all of them under `retries`
+  in the verdict, so a rate is never hidden. A second miss is a failure
+  (P12-fixture, class B). No assertion was weakened: the received-receipt check,
+  the revealed-menu-bar assertion, the hierarchy and menu-close checks and every
+  oracle correlation are unchanged.
+- The events attachment is added in `tearDown`, so a failed run keeps
+  `p12-ui-events.json` (before, a failed assertion skipped the `defer` and the
+  reveal and menu-close records were lost).
+- Negative control: `P12_QA_FAULT=drop-tap:<step>,skip-swipe:<case>
+  python3 scripts/ios/p12-check.py ...` (empty in CI) skips the first tap of a
+  step or the first swipe of a case. `p12-check.py` then requires one logged,
+  injected retry for each fault, so a run with a fault proves that the retry path
+  ran and that the oracle accepts it.

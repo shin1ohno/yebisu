@@ -20,6 +20,16 @@ live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
 
 
+def xctest_env(documents, fault=""):
+    """xcodebuild hands TEST_RUNNER_-prefixed variables to the UI test runner without
+    the prefix. P12QA waits on the app's own records in `documents` (a tap or a
+    reveal with no receipt is repeated once) and reads `fault`, a negative control."""
+    env = {**os.environ, "TEST_RUNNER_P12_DOCUMENTS": str(documents)}
+    if fault:
+        env["TEST_RUNNER_P12_QA_FAULT"] = fault
+    return env
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -39,10 +49,10 @@ def main():
     os.environ["YEBISU_P12_BUILD_MESSAGES"] = str(directory / "bundle-compiler.jsonl")
     steps = []
 
-    def run(label, command, guarded=False, check=True):
+    def run(label, command, guarded=False, check=True, env=None):
         if guarded:
             command = ["python3", "scripts/guarded.py", *command]
-        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, env=env)
         (directory / f"{label}.stdout").write_text(result.stdout)
         (directory / f"{label}.stderr").write_text(result.stderr)
         steps.append({"label": label, "command": command, "exit": result.returncode})
@@ -96,10 +106,13 @@ def main():
     run("xcodegen", ["xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project)])
     result_path = directory / "result.xcresult"
     derived = directory / "xcode-derived"
+    fault = os.environ.get("P12_QA_FAULT", "")
+    oracle.require(oracle.valid_fault(fault), f"P12_QA_FAULT must be drop-tap:<step> or skip-swipe:<case> items, got {fault!r}")
     tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
         "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
         "-resultBundlePath", str(result_path), "CODE_SIGNING_ALLOWED=NO",
-        "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu"], guarded=True, check=False)
+        "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu"], guarded=True, check=False,
+        env=xctest_env(documents, fault))
     # Collect receiving evidence even on XCTest failure; never replace it with a model.
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and "fifo_fence" not in peer.read_text():
@@ -123,7 +136,8 @@ def main():
     records = live_jsonl.read_records(directory / "app.jsonl")
     messages = live_jsonl.read_records(directory / "peer.jsonl")
     verdict = oracle.validate(records, messages, ui, screenshots)
-    verdict.update(head=head, device=device, screenshot_count=len(screenshots))
+    oracle.validate_faults(fault, ui)
+    verdict.update(head=head, device=device, screenshot_count=len(screenshots), fault=fault)
     (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
     print(json.dumps(verdict), flush=True)
 
