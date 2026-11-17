@@ -147,9 +147,8 @@ impl Smoke {
             .flex()
             .flex_col()
             .items_center()
+            // The frame draws the 1 pt rule between the sidebar and the column.
             .bg(rgb(RAIL_BG))
-            .border_r_1()
-            .border_color(rgb(RULE))
             .child(div().h(px(RAIL_HEADER_HEIGHT)).flex_none())
             .child(list)
             .child(
