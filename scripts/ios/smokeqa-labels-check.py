@@ -143,6 +143,12 @@ def strip_comments(text):
     return "\n".join(out)
 
 
+def strip_rust_comments(text):
+    """Blank `//` and `/* */` comments so a commented-out control no longer counts as painted; line numbers are kept."""
+    text = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+    return strip_comments(text)
+
+
 def first_argument(text, start):
     """The text of the first argument of the call whose `(` is at text[start - 1]."""
     depth, in_string = 0, False
@@ -171,8 +177,10 @@ IDENTIFIER = re.compile(r"^\w+$")
 
 
 def resolve_identifier(name, source):
-    """Literals a local name can hold: `let n = "x"`, `let n = c ? "x" : "y"`, or the label of a `for (n, _) in [...]`."""
-    found = []
+    """(literals, unresolved): what a local name can hold: `let n = "x"`, `let n = c ? "x" : "y"`, or the label of a
+    `for (n, _) in [...]`; unresolved counts `let n = ...` definitions that are none of these. Every file is one
+    namespace here, so a same-named `let` elsewhere that cannot be read must not hide behind one that can."""
+    found, unresolved = [], 0
     for match in re.finditer(r'\blet %s\s*=\s*([^\n]+)' % re.escape(name), source):
         value = match.group(1).strip()
         literal, ternary = LITERAL.match(value), TERNARY.match(value)
@@ -180,9 +188,11 @@ def resolve_identifier(name, source):
             found.append(literal.group(1))
         elif ternary:
             found.extend(ternary.groups())
+        else:
+            unresolved += 1
     for match in re.finditer(r"\bfor \(%s, \w+\) in \[(.*?)\]\s*\{" % re.escape(name), source, re.S):
         found.extend(re.findall(r'\(\s*"([^"\\]*)"\s*,', match.group(1)))
-    return found
+    return found, unresolved
 
 
 def collect(source):
@@ -203,8 +213,8 @@ def collect(source):
             elif ternary:
                 for label in ternary.groups():
                     add(label, where)
-            elif IDENTIFIER.match(argument) and resolve_identifier(argument, source):
-                for label in resolve_identifier(argument, source):
+            elif IDENTIFIER.match(argument) and resolve_identifier(argument, source)[0] and not resolve_identifier(argument, source)[1]:
+                for label in resolve_identifier(argument, source)[0]:
                     add(label, where)
             else:
                 problems.append("%s: cannot resolve the label argument %r to string literals; teach smokeqa-labels-check.py "
@@ -212,8 +222,10 @@ def collect(source):
     for match in re.finditer(r"\bp15Host\(\s*\"([^\"]+)\"\s*,\s*stale:\s*\"([^\"]+)\"", source):
         for host in match.groups():
             add(host, "p15Host() line %d" % (source.count("\n", 0, match.start()) + 1))
-    for match in re.finditer(r"(\w+)\.contains\(\s*\"([^\"]+)\"", source):
-        receiver, label = match.groups()
+    for match in re.finditer(r"\.contains\(\s*\"([^\"]+)\"", source):
+        label = match.group(1)
+        before = re.search(r"(\w+)$", source[: match.start()])
+        receiver = before.group(1) if before else source[max(0, match.start() - 12) : match.start()].strip()
         line = source.count("\n", 0, match.start()) + 1
         if receiver in OCR_RECEIVERS:
             add(label, "%s.contains() line %d" % (receiver, line))
@@ -230,6 +242,8 @@ def locate(root, location):
     if not file.is_file():
         return None
     text = file.read_text(errors="replace")
+    if file.suffix == ".rs":
+        text = strip_rust_comments(text)
     at = text.find(fragment)
     return None if at < 0 else (path, text.count("\n", 0, at) + 1)
 

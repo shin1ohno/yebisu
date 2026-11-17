@@ -87,7 +87,7 @@ def layout_pattern():
 def layout_names_and_dirs():
     pattern = layout_pattern()
     names = re.search(r"src/\(\((.*?)\)\\\.rs\$", pattern).group(1).split("|")
-    dirs = re.search(r"preferences\\\.rs\$\|\(([a-z0-9_|]+)\)/\)\)\)$", pattern).group(1).split("|")
+    dirs = re.search(r"\|\(([a-z0-9_|]+)\)/\)\)\)$", pattern).group(1).split("|")
     return names, dirs
 
 
@@ -171,7 +171,18 @@ class PathFilterTests(unittest.TestCase):
                                      "crates/yebisu/src/native_observer_qa.rs", "crates/yebisu/src/animation_qa.rs"))
         self.assertFalse(self.layout("crates/yebisu/src/diagnostics.rs", "crates/yebisu/src/front_layer.rs", "crates/yebisu/src/p11_observer.rs",
                                      "crates/yebisu/src/upstream/mod.rs", "crates/yebisu/src/host_settings/store.rs",
-                                     "crates/yebisu/locales/en/main.ftl", "crates/yebisu/src/handoff_cjk_tests.rs"))
+                                     "crates/yebisu/src/settings_spike/settings.ftl", "crates/yebisu/src/handoff_cjk_tests.rs"))
+
+    def test_every_ftl_file_i18n_embeds_runs_it(self):
+        """i18n.rs include_str!s these into the binary, so a text change in one repaints what p2 and p10 read."""
+        included = re.findall(r'include_str!\("([^"]+\.ftl)"\)', (ROOT / "crates/yebisu/src/i18n.rs").read_text())
+        self.assertGreaterEqual(len(included), 4)
+        for name in included:
+            with self.subTest(ftl=name):
+                self.assertTrue((ROOT / "crates/yebisu/src" / name).is_file())
+                self.assertTrue(self.layout("crates/yebisu/src/" + name))
+        self.assertTrue(self.layout("crates/yebisu/src/locales/ipad-settings-sheet.ftl"))
+        self.assertTrue(self.layout("crates/yebisu/src/commands.ftl"))
 
     def test_push_to_main_and_manual_runs_always_run_it(self):
         self.assertTrue(self.layout("crates/yebisu/src/find/search.rs", event="push"))

@@ -114,8 +114,42 @@ class AddedLabel(Tree):
         self.assertEqual(self.run_check()[1], [])
 
 
+    def test_contains_on_an_expression_receiver_fails(self):
+        for call in ('text.lowercased().contains("Ghost line")', 'text?.contains("Ghost line")'):
+            with self.subTest(call=call):
+                self.add_swift("        XCTAssertTrue(%s)" % call)
+                problems = self.run_check()[1]
+                self.assertTrue(any("Ghost line" in p and "contains" in p for p in problems), problems)
+
+    def test_a_same_named_let_that_cannot_be_read_is_not_hidden_by_one_that_can(self):
+        self.add_swift('        let ghost = "Close"\n        try tapText(ghost, in: app)')
+        self.assertEqual(self.run_check()[1], [])
+        (self.tests / "SmokeQA+Other.swift").write_text(
+            "extension SmokeQA {\n    func testOther() throws {\n        let ghost = computedTitle()\n    }\n}\n")
+        problems = self.run_check()[1]
+        self.assertTrue(any("cannot resolve the label argument 'ghost'" in p for p in problems), problems)
+
+
 class AppChanged(Tree):
     """The app stops painting what SmokeQA still taps."""
+
+    def test_a_commented_out_control_fails(self):
+        self.rewrite("crates/yebisu/src/terminal_view.rs", '"Reconnect"', '"Reconnect"')
+        file = self.root / "crates/yebisu/src/terminal_view.rs"
+        lines = file.read_text().splitlines()
+        at = next(i for i, line in enumerate(lines) if '"Reconnect"' in line)
+        lines[at] = "// " + lines[at]
+        file.write_text("\n".join(lines) + "\n")
+        problems = self.run_check()[1]
+        self.assertTrue(any("'Reconnect'" in p and "no longer contains" in p for p in problems), problems)
+
+    def test_a_block_commented_control_fails(self):
+        file = self.root / "crates/yebisu/src/mock_peer.rs"
+        text = file.read_text()
+        self.assertIn("Type here", text)
+        file.write_text("/* " + text.replace("*/", "* /") + " */\n")
+        problems = self.run_check()[1]
+        self.assertTrue(any("'Type here'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_a_renamed_control_text_fails(self):
         self.rewrite("crates/yebisu/src/settings_sheet/view.rs", '"open-settings", "Settings"', '"open-settings", "Preferences"')
