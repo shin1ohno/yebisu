@@ -1,4 +1,8 @@
-use crate::live::Live;
+use crate::{
+    layout::{PaneMode, pane_mode},
+    live::Live,
+    shell::single_pane::{ColumnMetrics, column_metrics},
+};
 use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
 use sheprd_client::protocol::{CellData, ClientShellSnapshot, PaneSurfaceFrame};
 use std::sync::Arc;
@@ -35,8 +39,39 @@ impl Screen {
         }
     }
 }
+/// Whether the panes cannot share the column (plan v2 6): narrower than two
+/// panes need, or divided so far that a pane would fall under the 280 x 206 pt
+/// minimum. The drawn pane then gets the whole column.
+fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetrics>) -> bool {
+    let Some(column) = column else {
+        return false;
+    };
+    if pane_mode(column.width, count) == PaneMode::Single {
+        return true;
+    }
+    let (least_cols, least_rows) = column.minimum_cells();
+    let divided = count.clamp(1, usize::from(u16::MAX)) as u16;
+    if vertical {
+        size.rows() / divided < least_rows
+    } else {
+        size.cols() / divided < least_cols
+    }
+}
+/// The size one terminal is given (plan v2 6.3, Herdr 2): the whole column
+/// while one pane is drawn, otherwise the column divided between the panes.
 pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
+    pane_size_for(size, count, vertical, column_metrics())
+}
+pub(super) fn pane_size_for(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Size> {
     let count = count.max(1) as u16;
+    if is_single(size, usize::from(count), vertical, column) {
+        return Ok(size);
+    }
     Ok(if vertical {
         Size::new(size.cols(), (size.rows() / count).max(1))?
     } else {
@@ -51,6 +86,24 @@ pub(super) fn publish(
     revision: u64,
     epoch: u64,
 ) -> Live {
+    publish_for(
+        screens,
+        saved,
+        size,
+        (generation, revision, epoch),
+        column_metrics(),
+    )
+}
+/// `publish` for an explicit column measurement. A column too narrow for the
+/// panes draws only `saved.active`, over the whole size.
+pub(super) fn publish_for(
+    screens: &[Screen],
+    saved: &super::store::Saved,
+    size: Size,
+    (generation, revision, epoch): (u64, u64, u64),
+    column: Option<ColumnMetrics>,
+) -> Live {
+    let single = is_single(size, screens.len(), saved.vertical, column);
     let blank = CellData {
         symbol: " ".into(),
         fg: 0,
@@ -71,7 +124,12 @@ pub(super) fn publish(
         let Some(source) = &screen.frame else {
             continue;
         };
-        let (x, y) = if saved.vertical {
+        if single && index != saved.active {
+            continue;
+        }
+        let (x, y) = if single {
+            (0, 0)
+        } else if saved.vertical {
             (0, index as u16 * (size.rows() / screens.len() as u16))
         } else {
             (index as u16 * (size.cols() / screens.len() as u16), 0)
@@ -149,7 +207,9 @@ pub(super) fn publish(
         "Herdr 2 · {} pane(s) · active {} · {}",
         screens.len(),
         saved.active + 1,
-        if saved.vertical {
+        if single && screens.len() > 1 {
+            "One pane"
+        } else if saved.vertical {
             "Stacked"
         } else {
             "Side by side"
@@ -168,3 +228,7 @@ pub(super) fn publish(
     live.dirty = true;
     live
 }
+
+#[cfg(test)]
+#[path = "screen_tests.rs"]
+mod tests;
