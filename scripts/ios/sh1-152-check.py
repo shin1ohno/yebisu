@@ -18,6 +18,9 @@ transition_spec.loader.exec_module(transitions)
 scene_spec = importlib.util.spec_from_file_location("sh1_152_scenes", Path(__file__).with_name("sh1_152_scenes.py"))
 scenes = importlib.util.module_from_spec(scene_spec)
 scene_spec.loader.exec_module(scenes)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
@@ -27,6 +30,12 @@ def run(*args, **kwargs):
     print(result.stderr, flush=True)
     result.check_returncode()
     return result
+
+
+def xctest_env(documents):
+    """xcodebuild hands TEST_RUNNER_-prefixed variables to the UI test runner
+    without the prefix, so EditMenuQA can wait on the receipts the app writes."""
+    return {**os.environ, "TEST_RUNNER_SH1_152_DOCUMENTS": str(documents)}
 
 
 def main():
@@ -46,7 +55,7 @@ def main():
         print("SH1-152 COMMAND xcodebuild test", flush=True)
         result = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
                                  "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
-                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, text=True, capture_output=True)
+                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, env=xctest_env(container), text=True, capture_output=True)
         print(result.stdout, flush=True)
         print(result.stderr, flush=True)
         (directory / "xctest.log").write_text(result.stdout + result.stderr)
@@ -54,7 +63,7 @@ def main():
         for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
             if path.exists():
                 shutil.copyfile(path, directory / path.name)
-    read = lambda path: [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    read = lambda path: live_jsonl.read_records(path) if path.exists() else []
     records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
     peer, core = read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl")
     verdicts, failures = {"xctest": {m: f"{m}]' passed" in result.stdout for m in methods}}, []

@@ -39,6 +39,24 @@ class SmokeOracleTests(unittest.TestCase):
     def test_positive_checks_all_receiving_paths(self):
         oracle.validate(self.positive, verbose=False)
 
+    def test_unterminated_tail_from_a_running_app_is_ignored(self):
+        # The app was still writing when app.jsonl was copied: SH1 run 43992978378 job 133738049997.
+        fragment = (Path(__file__).parent / 'fixtures/app-unterminated-tail.jsonl').read_bytes().split(b'\n')[-1]
+        self.assertEqual(len(fragment), 85)
+        with (self.positive / 'app.jsonl').open('ab') as live:
+            live.write(fragment)
+        oracle.validate(self.positive, verbose=False)
+        negative = self.root / 'live-text'
+        oracle.negative_fixture(self.positive, negative, 'text')
+        with self.assertRaisesRegex(oracle.SmokeFailure, 'text region'):
+            oracle.validate(negative, verbose=False)
+
+    def test_malformed_complete_line_still_fails(self):
+        with (self.positive / 'app.jsonl').open('ab') as live:
+            live.write(b'{"kind":"paint",\n')
+        with self.assertRaises(ValueError):
+            oracle.validate(self.positive, verbose=False)
+
     def test_each_independent_fault_is_rejected_for_its_own_reason(self):
         for mode, reason in [('text','text region'), ('quad','quad region'), ('image','image region'), ('input','input result'), ('counter-background','counter did not advance across background'), ('counter-idle','counter did not advance across idle')]:
             with self.subTest(mode=mode):

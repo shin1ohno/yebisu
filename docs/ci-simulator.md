@@ -49,30 +49,31 @@ Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
 labels. Origin: 2026-11-16, L17 diagnosis, with P12 (PR 55), L16 (PR 57) and
 SH1-265 (PR 56) reports.
 
-Known classes for the merge rule below: L15, L16, C-snapshot, C-anim (until
-PR 58 merges), A and B. C-paint is classified but is not one of them, so a
-C-paint failure blocks the merge. L19 and L20 are open work on L15 and A/B, not
+Known classes for the merge rule below: L15, L16, A, B and P12-shot.
+C-snapshot and C-anim left the list when PR 58 merged (716018a), and C-paint
+was never on it. Since PR 58 merged, a failure with any of their signatures is
+a new defect, not a known class, and blocks the merge. L19 and L20 are open work on L15 and A/B, not
 classes.
 
 | Class | Log signature (grep) | Rate | Cause | Fix / open item | Evidence |
 |---|---|---|---|---|---|
 | L15 | `Missing source-defined control: Paste` (`OCR attempt [0-2] for Paste`, then `missing-control`) | 11/41 P9 runs whose head has the Settings button; 0/49 without | The OCR after a `QA image ready` finds no control: no standalone `Paste` after the second one (4 of 11), no `Paste image` after the first one (7 of 11). What Vision returns is `[unproven]` | 4 of 11 (second `Paste`): PR 57, merged 1de7020. 7 of 11 (first `Paste image` misread): open, L19, after PR 57 | run 43746802879/1 job 132911829322 (artifact 14175507358); run 43754156237/1 job 132934538869 (14177458803) |
 | L16 | `image receipts incomplete: puts=3 paths=3 text=0`, with the logged tap box at x=0.215 | 3 of the 41 jobs that reached SH1-154 in the L16 scan; a 4th job was added later | The second text `Paste` tap landed on `Paste image` (box x=0.215, the right one is 0.151), so no `P8-shadow` text arrived. A `text=0` whose tap box is x=0.151 has another cause (job 132483179735, head 1954cab, no Settings button): not L16 | PR 57, merged 1de7020; 3 of 3 `simulator-smoke` passes at its head 756f70b (run 43766302928) | run 43736757874 jobs 132881022688, 132900139639; run 43760942018 job 132955457568; added job 132969174547 |
-| C-snapshot | `SmokeQA.swift:23: error: ... Failed to get matching snapshot: Timed out` | 3/98 P0 runs | `app.activate()` right after Home does not take effect and no characters reach the app (the app stderr shows 8 `input committed` lines, all for `P0-input`; none for `-returned`), so the `typeText("-rotated")` at `SmokeQA.swift:23` times out. Happens on a freshly booted, slow Simulator. That the app stays suspended, and the press/activate ordering, are `[unproven]` | Open: PR 58 (draft) replaces the fixed sleeps after Home, `activate()` and `typeText` with state waits. A failed wait now stops the test at once with `initial activate(): app.state is ...`, `app left the foreground after press(.home): app.state is ...` or `activate() after press(.home): app.state is ...` (`SmokeQA.swift` `requireState`, 30 s each); a non-foreground state after `activate()` is this class, not a new one | run 43730444891/7 job 132946288166 (artifact 14179437935); run 43720814607/1 job 132832187258; run 43729845313/2 job 132888134849 |
-| C-anim | `App animations complete notification not received` (60 s waits, 25 times, job cancelled at 40 min) | 1/92 P9 runs | `animationsHaveFinished` stays NO after `P9-native\n`; what keeps animating is `[unproven]` | Open: PR 58 (draft) caps `testP9Core` at 150 s (XCTest rounds it up to 3 minutes; `-test-timeouts-enabled YES` in `p9-check.py`), so a hang now ends with `Test Case '-[SmokeOracle.SmokeQA testP9Core]' exceeded execution time allowance of 3 minutes` (negative control: run 43790640783, 02:25:17.999 to 02:28:17.998); the QA build writes an `animations-running` record with each layer's class and `animationKeys()` into `p0-smoke.jsonl` once an animation stays for 10 s. It does not fix the cause | run 43730444891/4 job 132914175740 (artifact 14176482747) |
-| C-paint | `input result expected 'P0-input', received 'P0-inpu'` | 1 job seen | A fixed `sleep(2)` after `typeText` ended before the last character was drawn | Open: PR 58 (draft) waits for the typed text on screen; a miss now fails as `typed '<text>' received: '<word>' not on screen after 20 s` (the `-rotated` step keeps its sleeps, the keyboard covers the field) | run 43684762210/1 job 132722801994 |
-| A | `P12 xctest: exit 0` then `ValueError: setup callbacks missing/duplicated` | 2/52 P12 runs | The first tap after an OS menu opens is lost; the menu stays open. Cause `[unproven]` | Open: L20 (draft PR 59, observation only) | run 43730444891/3 job 132903694966 (P12 artifact 14174842401); run 43717998985/1 job 132823606035 (14164345944) |
-| B | `Installed OS application menu must be revealed and reachable` (`P12QA.swift:68`, `:81` since PR 55) | 4/52 P12 runs | The top-edge swipe does not reveal the menu bar or `•••`. Cause `[unproven]` | Open: L20 (draft PR 59, observation only) | run 43699190351/1 job 132766634071; run 43729845313/1 job 132859692803; run 43754156237/4 job 132956853113; run 43730444891/9 job 132960855571 |
+| C-snapshot | `SmokeQA.swift:23: error: ... Failed to get matching snapshot: Timed out` | 3/98 P0 runs | `app.activate()` right after Home does not take effect and no characters reach the app (the app stderr shows 8 `input committed` lines, all for `P0-input`; none for `-returned`), so the `typeText("-rotated")` at `SmokeQA.swift:23` times out. Happens on a freshly booted, slow Simulator. That the app stays suspended, and the press/activate ordering, are `[unproven]` | PR 58 (merged, 716018a) replaces the fixed sleeps after Home, `activate()` and `typeText` with state waits. A failed wait now stops the test at once with `initial activate(): app.state is ...`, `app left the foreground after press(.home): app.state is ...` or `activate() after press(.home): app.state is ...` (`SmokeQA.swift` `requireState`, 30 s each); since PR 58 merged, a non-foreground state after `activate()` is a new defect, not a known class | run 43730444891/7 job 132946288166 (artifact 14179437935); run 43720814607/1 job 132832187258; run 43729845313/2 job 132888134849 |
+| C-anim | `App animations complete notification not received` (60 s waits, 25 times, job cancelled at 40 min) | 1/92 P9 runs | `animationsHaveFinished` stays NO after `P9-native\n`; what keeps animating is `[unproven]` | PR 58 (merged, 716018a) caps `testP9Core` at 150 s (XCTest rounds it up to 3 minutes; `-test-timeouts-enabled YES` in `p9-check.py`), so a hang now ends with `Test Case '-[SmokeOracle.SmokeQA testP9Core]' exceeded execution time allowance of 3 minutes` (negative control: run 43790640783, 02:25:17.999 to 02:28:17.998); the QA build writes an `animations-running` record with each layer's class and `animationKeys()` into `p0-smoke.jsonl` once an animation stays for 10 s. It does not fix the cause; since PR 58 merged, a failure with this signature is a new defect | run 43730444891/4 job 132914175740 (artifact 14176482747) |
+| C-paint | `input result expected 'P0-input', received 'P0-inpu'` | 1 job seen | A fixed `sleep(2)` after `typeText` ended before the last character was drawn | PR 58 (merged, 716018a) waits for the typed text on screen; a miss now fails as `typed '<text>' received: '<word>' not on screen after 20 s` (the `-rotated` step keeps its sleeps, the keyboard covers the field); since PR 58 merged, a failure with this signature is a new defect | run 43684762210/1 job 132722801994 |
+| A | `OS menu still open ... (class A)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `P12 xctest: exit 0` then `ValueError: setup callbacks missing/duplicated` | 2/52 P12 runs | The first tap after an OS menu opens is lost; the menu stays open. Cause `[unproven]` | Open: L20 (PR 59 merged, c7013bb: observation only) | run 43730444891/3 job 132903694966 (P12 artifact 14174842401); run 43717998985/1 job 132823606035 (14164345944) |
+| B | `OS menu bar not revealed (class B)` in `xctest.stdout` (PR 59, merged c7013bb); before PR 59: `Installed OS application menu must be revealed and reachable` (`P12QA.swift:68`, `:81` since PR 55) | 4/52 P12 runs | The top-edge swipe does not reveal the menu bar or `•••`. Cause `[unproven]` | Open: L20 (PR 59 merged, c7013bb: observation only) | run 43699190351/1 job 132766634071; run 43729845313/1 job 132859692803; run 43754156237/4 job 132956853113; run 43730444891/9 job 132960855571 |
+| P12-shot | `xctest.stdout`: `Failed to get screenshot: Timed out while requesting screenshot` from `P12QA.swift` (at 716018a `:278` is the `screenshot()` helper and `:255` is `recognize()`; the case and step are the last `Added attachment named 'p12-…'` / `Tap` lines before it). Supporting: `app.jsonl` has no `"kind":"terminal"` record for ≥ 10 s outside the `boot` case. Job log shows only `P12 xctest: exit 65` | 1/53 P12 runs (2026-11-15T00:00Z–2026-11-16T12:06Z); 0/1536 vs 1/204 screenshots before/after PR 59 | The Simulator stopped drawing for ~24 s with the OS menu open; XCTest gives up on a screenshot after 30 s. Why drawing stopped is `[unproven]`. A held `pane.split` can then pass the 60 s `COMMAND_TIMEOUT` (`Disconnected: endpoint request timed out`); that is a consequence, not the PR 55 class | PR 63 (merged, 2c1e8b2): open-menu screenshots only on failure, 39 to 11 per run. Open: time every capture | run 43834250246/1 job 133186893086 (artifact `p12-native-menu-evidence`) |
 
 Also fixed: a P12 held `pane.split` request that reached the 60 s client
 timeout (`held request reached the client's 60 s COMMAND_TIMEOUT`; earlier
 symptoms `P12QA.swift:78` `Native command missing` and `:79` `Captured native
 command must start enabled`), PR 55, merged cb18764.
 
-PR 58 and PR 59 change the failure messages of C-snapshot, A and B (PR 59
-adds `OS menu bar not revealed (class B)` and `OS menu still open ... (class A)`).
-Each of those PRs updates its rows in this table; until it does, a failure with
-the new message is not "a new class" by itself, so compare it with the row's cause.
+PR 59 (merged, c7013bb) changed the failure messages of A and B: it adds
+`OS menu bar not revealed (class B)` and `OS menu still open ... (class A)`.
+Rows A and B list the new message first and the earlier one after it.
 
 ### Classify a failing smoke job
 
@@ -84,7 +85,7 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
    `p12-native-menu-evidence` (`xctest.stdout`, `peer.jsonl`, `app.jsonl`).
    The job log of a P12 failure shows only `P12 xctest: exit 65`. A job that hit
    the 40-minute timeout may have no artifact.
-2. Classify from lines you can cite. P12 classes (A, B) are classified from the
+2. Classify from lines you can cite. P12 classes (A, B, P12-shot) are classified from the
    `xctest.stdout` lines of the `p12-native-menu-evidence` artifact; every other
    class, from job log lines. A failure with no matching signature is a new
    class: do not rerun it, report it.
@@ -178,6 +179,11 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
        test taps at `SmokeQA.swift:386-387` before it types) is in this area too.
      - Harness: `scripts/ios/smoke-qa/Tests/SmokeQA.swift` (`testP9Core`
        :377-410) and `scripts/ios/smoke-qa/project.yml`.
+   - **P12-shot** (P12 screenshot timeout during a Simulator draw stall):
+     `scripts/ios/p12-qa/` and the P12 harness scripts (`p12-ci.py`,
+     `p12-check.py` and `p12-oracle.py`, which are also shared inputs).
+     PR 58's failure in job 133186893086 is classified P12-shot: its `app.rs`
+     change is gated on `YEBISU_CORE_QA`, which is unset in P12.
    - **A and B** (P12 `testInstalledTerminalMenu`; the reveal wait is
      `P12QA.swift:75-81`, the pick `:86-112`):
      - The native menu code: `crates/yebisu/src/native_menus.rs`
@@ -203,13 +209,48 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
    `xctest.stdout` lines of the `p12-native-menu-evidence` artifact); the PR's
    changed files do not touch that class's area (step 3); every other job is
    green; one review round has 0 blocking findings; 0 threads are unresolved.
-   Known classes: L15 and L16 (SH1-154 Paste OCR mis-tap), C-snapshot and C-anim
-   (L18; they leave the list once PR 58 merges, after which such a failure is a
-   new defect), A and B (P12). The rule decides only whether the failure blocks.
+   Known classes: L15 and L16 (SH1-154 Paste OCR mis-tap), A and B (P12), and
+   P12-shot (P12 screenshot timeout). C-snapshot and C-anim (L18) left the list
+   when PR 58 merged (716018a); such a failure is a new defect. The rule decides only whether the failure blocks.
    It does not grant merge permission, which stays per PR or per approved plan.
    Merge with a merge commit.
 5. Rerun only the failed job (`gh run rerun --job <job-id>`), at most 2 times per
    PR. Cite the run and job id of each attempt in the PR.
+
+### Cancelled jobs without a runner, H-live-read and E-launch
+
+(2026-11-17: diagnosis of the main failures of runs 43891836688, 43897926491
+and 43992978378. Cited ids are run/job.)
+
+- **Runner cancellation.** A job that ended `cancelled` with `runner_name`
+  empty, 0 steps and the annotation `The job was not acquired by Runner` never
+  ran on a runner. It has no log and is not a failure class. Classify it as
+  runner cancellation and rerun that job once with `gh run rerun --job
+  <job-id>`; this one rerun is outside the 2-rerun budget of step 5. Seen:
+  43897926491/133419859913 and 43897926491/133419860003. A cancelled job that
+  has a runner or steps is not this case: classify it from its log (step 2).
+- **H-live-read (fixed by this PR).** A harness script raised
+  `json.decoder.JSONDecodeError` while reading a JSONL file after the XCTest
+  had already `passed`. The app was still writing, so the last line had no
+  newline yet. In 43992978378/133738049997 (`simulator-smoke`,
+  `smoke_oracle.py:59`, `Expecting value: line 1 column 86 (char 85)`) the
+  last line of `app.jsonl` was an 85-byte fragment. 43891836688/133390084701
+  (`edit-menu`, `selection-settings-check.py:64`, `Expecting ',' delimiter`)
+  has the same cause; its artifact has no `selection-settings.jsonl`, so the
+  fragment itself was not seen. `scripts/ios/live_jsonl.py` now reads every
+  newline-terminated line and drops only an unterminated final line (a
+  malformed terminated line still raises). `smoke_oracle.py` and the
+  `selection-settings`, `p12`, `p3`, `p8-native`, `sh1-152` and `sh1-153`
+  checks use it, and so do the line counts used as offsets. After this PR, a
+  `JSONDecodeError` from one of those reads is a new defect, not a known class.
+- **E-launch (observed, not fixed).** `EditMenuQA.swift:203: error: ...
+  Failed to launch com.shin1ohno.yebisu: Timed out attempting to launch app.`
+  failed `testSH1152Basic` in 43897926491/133419860111 (1 of 169 `edit-menu`
+  jobs in the diagnosis window). The cause is unproven; there is no fix and no
+  retry. E-launch is not on the known-class list of step 4. The next time it
+  happens, read the new log lines `SH1-152 LAUNCH <case> <seconds>` (the
+  seconds `app.launch()` took per case, printed when it returns) in the job
+  log and compare the failing case with the earlier ones.
 
 ### XCUITest OCR rules
 

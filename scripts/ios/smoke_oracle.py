@@ -12,6 +12,9 @@ import importlib.util
 _spec = importlib.util.spec_from_file_location("png_colors", Path(__file__).with_name("screenshot-color.py"))
 png = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(png)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 # Independent RGB expectations from app.rs source constants, never screenshot samples.
 TITLE = "yebisu · GPUI 0.3.12 · P0"
@@ -56,7 +59,7 @@ def frame_at(events, stage, region):
 def validate(directory, verbose=True):
     directory = Path(directory)
     stages = json.loads((directory / "stages.json").read_text())
-    events = [json.loads(s) for s in (directory / "app.jsonl").read_text().splitlines()]
+    events = live_jsonl.read_records(directory / "app.jsonl")
     by_stage = {s["stage"]: s for s in stages}
     require(set(EXPECTED) <= set(by_stage), "missing lifecycle screenshot stage")
     receipts = {}
@@ -108,7 +111,7 @@ def negative_fixture(source, destination, mode):
     source, destination = Path(source), Path(destination)
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns('result.xcresult', 'attachments', 'launch', 'project', 'negatives'))
     stages = json.loads((destination / 'stages.json').read_text())
-    events = [json.loads(line) for line in (destination / 'app.jsonl').read_text().splitlines()]
+    events = live_jsonl.read_records(destination / 'app.jsonl')
     if mode in {'text', 'quad', 'image'}:
         stage = next(s for s in stages if s['stage'] == 'initial')
         path = destination / stage['file']

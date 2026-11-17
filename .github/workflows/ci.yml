@@ -61,8 +61,93 @@ jobs:
           check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
           # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
           smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
-          # edit-menu: ci-sh1-152.py and the four checks it runs.
-          menu="$build|"'^scripts/ios/(ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)'
+          # edit-menu is narrower than $build:
+          # a pull request runs it only when a file the four checks drive
+          # changes, so a change to other crates/yebisu code (search, hosts,
+          # notifications, ...) skips it. Pushes to main and workflow_dispatch
+          # still run all four (all=true above), so a break from an unrelated
+          # change is found after merge. The files, and why each is listed:
+          #   build harness     every check runs scripts/ios/bundle.sh, which
+          #                     cargo-builds the crate (Cargo.toml and Cargo.lock
+          #                     pin the SDK and GPUI, rust-toolchain.toml and
+          #                     .cargo/ the compiler, justfile and guarded.py
+          #                     the `just guarded` wrapper) and copies assets/,
+          #                     scripts/ios/Info.plist and lib.sh (ios_sim_boot)
+          #   ci-smoke.py       ci-sh1-152.py:10 loads it for select_template
+          #   ci-sh1-152.py     the driver the job runs
+          #   the four checks   sh1-152-check.py, sh1-153-check.py,
+          #                     p8-native-check.py, selection-settings-check.py
+          #   sh1_152_*.py      oracles that sh1-152-check.py:12-20 loads
+          #   smoke-qa/         the XCTest bundle all four xcodebuild test runs
+          #                     build (Tests/EditMenuQA.swift for SH1-152,
+          #                     Tests/SmokeQA.swift for the other three, project.yml)
+          #   crates/yebisu     the app code the checks drive, found from the
+          #                     YEBISU_* variables the XCTest sets:
+          #     Cargo.toml        features and dependencies of the binary
+          #     main.rs, app.rs   module list; app.rs:119,378,410 read
+          #                       YEBISU_SMOKE_OBSERVE/TERMINAL_QA/CORE_QA
+          #     edit_menu*.rs     the edit menu and its QA scenes
+          #                       (edit_menu_qa.rs:12 YEBISU_EDIT_MENU_QA,
+          #                       edit_menu_qa_sh1_152.rs:24 YEBISU_SH1_152_CASE)
+          #     native_menus.rs, native_edit_qa.rs, native_observer_qa.rs
+          #                       the native menu and text input that
+          #                       p8-native-check.py drives (YEBISU_NATIVE_QA)
+          #     terminal_controls.rs, terminal_input.rs, terminal_view.rs,
+          #     input.rs, input_geometry.rs
+          #                       the terminal surface the menu opens on
+          #                       (terminal_controls.rs:163, terminal_view.rs:124)
+          #     mock_peer.rs, core_mock.rs, core_view.rs, core_paste_view.rs
+          #                       the mock peer and core the SH1-152 cases run
+          #                       against (mock_peer.rs:13, core_mock.rs:255)
+          #     observation*      the records the oracles read (observation.rs:41-51,100)
+          #     handoff.rs, handoff_view.rs
+          #                       the selection strip (handoff_view.rs:321-331)
+          #     settings*         selection settings that selection-settings-check.py
+          #                       saves and reloads (settings_view.rs:17,71,
+          #                       settings/store.rs, settings_sheet/view.rs:271)
+          #   Files and directories added after review (each driven by a check):
+          #     fixtures/         endpoint-*.json: mock_peer.rs:7-8 include_str!s them
+          #                       and sends them to the app in every check (whole
+          #                       directory, it holds only those two files)
+          #     handoff_clipboard.rs
+          #                       Paste reads the clipboard here (handoff_view.rs:116)
+          #                       for SH1-152 and SH1-153; iOS reads it (:3-4)
+          #     handoff_ticket.rs core paste ticket (handoff.rs:50-51)
+          #     core.rs, core/    core::Session and Command behind the SH1-152 core
+          #                       cases (core_view.rs:69, edit_menu_qa_sh1_152.rs:109);
+          #                       whole directory: every file in it is on that path
+          #     core_mock/        paste.rs is the Probe core_mock.rs:34-61 uses; a
+          #                       directory is safer than naming it, as the next
+          #                       child module would be missed
+          #     live.rs, live/    terminal_input.rs:26 live::coherent decides whether
+          #                       any input reaches the wire (all four checks)
+          #     notifications/preferences.rs
+          #                       Policy::encode writes the saved `notifications` that
+          #                       selection-settings-check.py compares exactly
+          #     theme_picker/     reads and writes the saved `theme` the same check
+          #                       compares (settings/store.rs:38,67)
+          #     animation_qa*     app.rs samples it every second when YEBISU_CORE_QA
+          #                       is set, which the SH1-152 core cases set
+          #     actions.rs        terminal_controls.rs:222 shortcut_candidate runs on
+          #                       every key; native_menus.rs builds its rows from it
+          #     settings_pages/   settings_sheet/view.rs:244-285 renders fonts and
+          #                       keyboard; they set terminal_font_family and the
+          #                       terminal_priority p8-native-check.py uses
+          #     mock_commands.rs, mock_notifications.rs
+          #                       mock_peer.rs:229,327 call them while it answers
+          #     link.rs           terminal_input.rs HeldInput: the key events
+          #                       sh1-153 and p8-native check on the wire
+          #     theme.rs          terminal_view.rs applies it to the painter
+          #     board.rs          native_menus.rs builds its menu scope from
+          #                       board::snapshot
+          #     i18n.rs           actions.rs resolves the menu row labels through it
+          # A new module is not picked up by this list. test_ci_sh1_152.py fails
+          # for any module in main.rs that is neither matched here nor in its
+          # reviewed exclusion list, so adding one forces a decision.
+          # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
+          # other scripts/ios files or other crates/yebisu code (find, hosts,
+          # notifications, ...) skips edit-menu.
+          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation)/)))'
           decide() {
             if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
               echo "$1=true" >> "$GITHUB_OUTPUT"

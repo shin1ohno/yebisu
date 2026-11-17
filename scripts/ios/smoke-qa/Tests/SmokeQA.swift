@@ -584,26 +584,63 @@ final class SmokeQA: XCTestCase {
         app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launch()
-        try tapText("QA Image only", in: app, attempts: 15)
+        // Locate the four strip controls once, in the first frame, and tap the recorded
+        // points from here on. Re-reading the strip after a "QA image ready" repaint lets
+        // Vision drop the "Paste" label or return a truncated "Paste image", and the tap
+        // then starts the wrong paste (L15 no control found, L16 text=0; main 2ed2beb,
+        // job 132955457568). The handoff row never moves between taps (handoff_view.rs,
+        // handoff_qa.rs), and p9-check validate_images proves what each tap did.
+        let qaImageOnly = try tapText("QA Image only", in: app, tap: false, attempts: 15).box
+        let qaImage = try tapText("QA Image", in: app, tap: false, excludingNextWord: "only").box
+        let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
+        let pasteImage = try tapText("Paste image", in: app, tap: false).box
+        // A misread box would otherwise surface only as put/path/text counts at the end:
+        // each pair is laid out left to right on one row, so reject a box that is not.
+        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only"),
+                                    (paste, pasteImage, "Paste / Paste image")] {
+            XCTAssertTrue(left.minX < right.minX && abs(left.midY - right.midY) < max(left.height, right.height),
+                          "\(what) not located left to right on one row: \(left) \(right)")
+        }
+        tapRecorded(qaImageOnly, "QA Image only", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try tapText("Paste image", in: app)
+        tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        let paste = try tapText("Paste", in: app, excludingSuffix: " image").box
+        tapRecorded(paste, "Paste", in: app)
         try tapText("paste-1.png", in: app, tap: false, attempts: 30)
-        try tapText("QA Image", in: app, excludingSuffix: " only")
+        tapRecorded(qaImage, "QA Image", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        // Tap the text-priority Paste where it was found above instead of reading the
-        // label again. In this frame Vision can miss the "Paste" label, and then a
-        // truncated reading of "Paste image" passes the suffix filter: the tap starts
-        // an image paste and P8-shadow never reaches the peer (main 2ed2beb, job
-        // 132955457568). Nothing in the handoff row changes between the two taps; the
-        // receiving checker (p9-check validate_images) proves the text paste arrived.
-        app.coordinate(withNormalizedOffset: CGVector(dx: paste.midX, dy: 1 - paste.midY)).tap()
+        tapRecorded(paste, "Paste", in: app)
         sleep(1)
-        try tapText("Paste image", in: app)
+        tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-2.png", in: app, tap: false, attempts: 30)
         save("sh154-core-image")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// First occurrence of `label` in `text` that is a whole word: the characters on both
+    /// sides are not letters or digits, and the next word is not `excludingNextWord`
+    /// (compared case-insensitively). "Paste" is therefore not found in "Paste image" or
+    /// "Pasted", but is found in "Paste Paste image" (the first word) and in "Copy Paste".
+    /// Pure so the cases do not need a Simulator; mirrored in test_smoke_qa_probe.py.
+    static func wholeWordRange(of label: String, in text: String, excludingNextWord next: String? = nil) -> Range<String.Index>? {
+        var from = text.startIndex
+        while from < text.endIndex, let range = text.range(of: label, range: from..<text.endIndex) {
+            from = text.index(after: range.lowerBound)
+            if range.lowerBound > text.startIndex {
+                let before = text[text.index(before: range.lowerBound)]
+                if before.isLetter || before.isNumber { continue }
+            }
+            if range.upperBound < text.endIndex {
+                let after = text[range.upperBound]
+                if after.isLetter || after.isNumber { continue }
+            }
+            if let next = next {
+                let following = text[range.upperBound...].drop { $0.isWhitespace }.prefix { $0.isLetter || $0.isNumber }
+                if following.lowercased() == next.lowercased() { continue }
+            }
+            return range
+        }
+        return nil
     }
 
     /// Non-asserting OCR lookup. `matching` counts the recognized lines of the
@@ -612,7 +649,7 @@ final class SmokeQA: XCTestCase {
     /// bands: a busy frame can make Vision drop a whole row of small controls that the
     /// screenshot shows (P11 adds a Settings button above the SH1-154 strip).
     /// `attachAs` keeps the very screenshot the match came from, for a measurement made on it.
-    private func locateText(_ label: String, excludingSuffix: String? = nil, bands: Bool = false, attachAs: String? = nil) throws -> (box: CGRect, matching: Int)? {
+    private func locateText(_ label: String, excludingNextWord: String? = nil, bands: Bool = false, attachAs: String? = nil) throws -> (box: CGRect, matching: Int)? {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
         var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
@@ -635,11 +672,8 @@ final class SmokeQA: XCTestCase {
             }
             for line in lines {
                 for candidate in line.texts {
-                    guard let range = candidate.string.range(of: label),
+                    guard let range = SmokeQA.wholeWordRange(of: label, in: candidate.string, excludingNextWord: excludingNextWord),
                           let observation = try candidate.boundingBox(for: range) else { continue }
-                    if let suffix = excludingSuffix, candidate.string[range.upperBound...].hasPrefix(suffix) {
-                        continue
-                    }
                     let local = observation.boundingBox
                     let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
                                      width: local.width, height: local.height * line.height)
@@ -702,14 +736,14 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingSuffix: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
+    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // The whole screenshot is tried on every attempt, as before; the horizontal
         // bands are only the last resort, so a control the whole-screenshot pass finds
         // is never replaced by a band match.
         for attempt in 0..<attempts {
-            if let found = try locateText(label, excludingSuffix: excludingSuffix, bands: attempt == attempts - 1) {
+            if let found = try locateText(label, excludingNextWord: excludingNextWord, bands: attempt == attempts - 1) {
                 print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
@@ -722,6 +756,12 @@ final class SmokeQA: XCTestCase {
         save("missing-control")
         XCTFail("Missing source-defined control: \(label)")
         throw NSError(domain: "SmokeQA.MissingControl", code: 1)
+    }
+
+    /// Taps a box recorded earlier by `tapText(tap: false)`. No OCR runs here.
+    private func tapRecorded(_ box: CGRect, _ label: String, in app: XCUIApplication) {
+        print("recorded tap \(label) box=\(box)")
+        app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1 - box.midY)).tap()
     }
 
     /// P14 toast: one pass that screenshots (kept as `attachAs`), recognizes and taps, and
