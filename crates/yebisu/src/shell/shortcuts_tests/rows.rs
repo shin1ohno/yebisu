@@ -107,3 +107,27 @@ fn unavailable_rows_are_disabled() {
     );
     assert!(enabled(&rows, Command::SplitRight));
 }
+
+#[gpui::test]
+fn popover_reads_find_and_sheets_from_the_frame(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext;
+    let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let view = cx.new(Smoke::new);
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal = terminal(&["pane.copy_search"]);
+            // The popover takes Find's availability from the frame (L2a).
+            let frame = this.chrome_state();
+            assert_eq!(
+                this.popover_chrome_state().find_available,
+                frame.find_available
+            );
+            assert!(!this.popover_chrome_state().sheet_open);
+            // The Hosts sheet counts as a sheet, as Settings does.
+            assert!(this.open_hosts(cx));
+            assert!(this.popover_chrome_state().sheet_open);
+        })
+    });
+}

@@ -225,6 +225,14 @@ pub(crate) fn shortcuts_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
 }
 
 impl Smoke {
+    /// The chrome state the popover's rows read: the frame's (L2a), with
+    /// the Hosts sheet (L7) counted as a sheet, since it is modal too.
+    pub(crate) fn popover_chrome_state(&self) -> ChromeState {
+        let mut state = self.chrome_state();
+        state.sheet_open |= self.hosts_sheet_modal();
+        state
+    }
+
     /// Status bar Shortcuts. `false` means not handled: the caller falls
     /// back to the command palette (plan v2 5.2, L2a column).
     pub(crate) fn open_shortcuts(&mut self, cx: &mut Context<Self>) -> bool {

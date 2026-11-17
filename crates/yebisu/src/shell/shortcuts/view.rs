@@ -49,7 +49,7 @@ impl Smoke {
         let viewport = window.viewport_size();
         let width = popover_width(f32::from(viewport.width));
         let columns = popover_columns(width);
-        let state = self.menu_chrome_state();
+        let state = self.popover_chrome_state();
         let groups = grouped(popover_rows(&self.terminal, &state));
         let footer = settings_line(
             self.terminal.input.options.command_control,
