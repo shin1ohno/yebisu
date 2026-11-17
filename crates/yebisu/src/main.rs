@@ -155,6 +155,7 @@ mod edit_menu_qa_native;
 mod edit_menu_qa_scenes;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_sh1_152;
+#[cfg(any(target_os = "ios", test))]
 #[path = "host_settings/availability.rs"]
 mod host_settings_availability;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
@@ -180,3 +181,10 @@ mod native_retirement;
 
 #[cfg(test)]
 mod sh1_156_tap_tests;
+
+// SH1-157 layout skeleton (docs/layout-contracts.md). Wave 0 slots are
+// declared before their streams call them; the integrator removes this
+// allow at the end of Wave 3.
+#[cfg(any(target_os = "ios", test))]
+#[allow(dead_code)]
+mod shell;
