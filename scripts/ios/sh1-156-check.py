@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SH1-156: pointer click and Select after a discarded composition, judged by
 the private peer's receipts. Simulator UIKit typing, not physical keyboard proof."""
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -8,6 +9,9 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 TEST = "testSH1156PointerClickAfterDiscard"
 # Typed by the XCTest: after the click, after Select on and off, and after
 # Settings closed with no touch on the terminal (R7).
@@ -78,7 +82,7 @@ def main():
             if (container / "Documents" / source).is_file():
                 shutil.copyfile(container / "Documents" / source, directory / target)
         if (directory / "peer.jsonl").is_file():
-            received = [json.loads(line) for line in (directory / "peer.jsonl").read_text().splitlines()]
+            received = live_jsonl.read_records(directory / "peer.jsonl")
             (directory / "received.txt").write_text(typed(received))
         export = directory / "attachments"
         if result.exists():
@@ -90,8 +94,8 @@ def main():
                         shutil.copyfile(export / attachment["exportedFileName"], directory / (stage + ".png"))
         if tested.returncode != 0 or TEST + "]' passed" not in tested.stdout:
             raise RuntimeError("SH1-156 XCTest did not execute and pass")
-        records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]
-        messages = [json.loads(line) for line in (directory / "peer.jsonl").read_text().splitlines()]
+        records = live_jsonl.read_records(directory / "app.jsonl")
+        messages = live_jsonl.read_records(directory / "peer.jsonl")
         validate(records, messages)
         print("SH1-156 receiving-system evidence", directory, flush=True)
     finally:

@@ -141,13 +141,22 @@ jobs:
           #     board.rs          native_menus.rs builds its menu scope from
           #                       board::snapshot
           #     i18n.rs           actions.rs resolves the menu row labels through it
+          #   Added with SH1-156 (PR 70, which also lands PR 62):
+          #     sh1-156-check.py  the fifth check ci-sh1-152.py runs
+          #     sh1_156_qa.rs     its fixture (YEBISU_SH1_156_QA)
+          #     input_retirement.rs, native_retirement.rs
+          #                       every input transition ends in a retirement
+          #                       request (input_retirement.rs:70-78), so every
+          #                       check's key, tap and Select path runs them
+          #   find and find_view (P13 search) stay out, as
+          #   test_find_search_change_skips_it decides.
           # A new module is not picked up by this list. test_ci_sh1_152.py fails
           # for any module in main.rs that is neither matched here nor in its
           # reviewed exclusion list, so adding one forces a decision.
           # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) skips edit-menu.
-          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation)/)))'
+          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|input_retirement|native_retirement|sh1_156_qa|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation)/)))'
           decide() {
             if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
@@ -202,6 +211,7 @@ jobs:
             target/ios-sh1-153/
             target/ios-p8-native/
             target/ios-selection-settings/
+            target/ios-sh1-156/
             target/disk.log
   simulator-smoke:
     needs: changes
