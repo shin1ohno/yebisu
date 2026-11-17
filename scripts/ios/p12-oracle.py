@@ -8,6 +8,9 @@ LABELS = {"remote": "Split Right", "rearm": "Split Right", "sidebar": "Toggle Si
 HOLDS = [("remote", "sidebar"), ("rearm", "palette")]
 # sheprd-client limits.rs COMMAND_TIMEOUT: a held request this old fails the link.
 COMMAND_TIMEOUT = 60
+# The fixture control steps P12QA taps, in order. Each is one `p12-setup-begin`/`p12-setup-end` pair.
+STEPS = [*[s for hold in HOLDS for s in (*hold, "release")],
+         *[s for case in NEGATIVE for s in ((case, "current", "reset") if case == "focus" else (case, "reset"))], "finish"]
 # One swipe reveal and one menu close per choose() call, in the order P12QA runs them.
 CHOOSES = [*CASES[:CASES.index("focus") + 1], "focus-current", *CASES[CASES.index("focus") + 1:]]
 # A menu build this close to a tap is reported next to a lost tap.
@@ -69,6 +72,8 @@ def screenshot_names(name, data):
 def validate(records, messages, ui, screenshots):
     picks = [r for r in ui if r.get("kind") == "os-menu-pick"]
     require([r.get("case") for r in picks] == CASES, "actual OS menu cases missing/duplicated")
+    validate_fixture_taps(records, ui)
+    retries = validate_retries(ui)
     prepares = [r for r in records if r.get("kind") == "p12-prepare"]
     require([r.get("case") for r in prepares] == CASES, "app prepare cases missing/duplicated")
     receivers = [r for r in records if r.get("kind") == "p12-menu-receiver"]
@@ -135,7 +140,8 @@ def validate(records, messages, ui, screenshots):
     require([r.get("enqueued") for r in records if r.get("kind") == "p12-finish"] == [True], "fixture fence not queued")
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
-            "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes}
+            "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes,
+            "retries": retries}
 
 
 def scope_text(record):
@@ -154,6 +160,75 @@ def builds_near(records, time):
     return "; ".join(f"{r.get('source')} build at {r['time'] - time:+.2f} s (changed={r.get('changed')}"
                      f"{scope_text(r)})" for r in near) or \
         f"no p12-menu-build within {BUILD_MARGIN} s"
+
+
+def validate_fixture_taps(records, ui):
+    """Name the fixture tap the app never received (class P12-fixture).
+
+    P12QA taps a fixture control and waits for the app's own `p12-setup-end`; a tap
+    with no record is repeated once. In job 134059155142 the first tap (Remote) never
+    reached the app and the first symptom was the generic 'app prepare cases
+    missing/duplicated'. A control window with no `p12-setup-begin` of its step is
+    that tap, so it is reported by step before the generic checks."""
+    controls = [r for r in ui if r.get("kind") == "fixture-control"]
+    begins = [r for r in records if r.get("kind") == "p12-setup-begin"]
+    for control in controls:
+        require(any(inside(begin, control) and begin.get("step") == control.get("step") for begin in begins),
+                f"fixture tap lost (class P12-fixture): the app logged no p12-setup-begin for step {control.get('step')} "
+                f"during its control window; steps with a begin: {sorted({b.get('step') for b in begins})}")
+        require(control.get("received") is True,
+                f"fixture tap on step {control.get('step')} has no app receipt in the XCTest record (class P12-fixture)")
+
+
+def validate_retries(ui):
+    """A fixture tap or a reveal swipe may be repeated once, with its reason logged.
+
+    The retries are returned for the verdict, so a repeat is never silent and the
+    rate of flaky taps and swipes stays visible. The assertion that a control was
+    received and that the menu bar was revealed is not relaxed by a retry: the
+    repeat has to succeed, and `validate_fixture_taps` and the reveal check still
+    apply to its final state."""
+    controls = [r for r in ui if r.get("kind") == "fixture-control"]
+    taps = [r for r in ui if r.get("kind") == "fixture-retry"]
+    for retry in taps:
+        require(isinstance(retry.get("reason"), str) and retry["reason"], "fixture retry without a logged reason")
+        require(retry.get("step") in STEPS and isinstance(retry.get("injected"), bool), "fixture retry record incomplete")
+    for control in controls:
+        require(len([r for r in taps if r.get("step") == control.get("step") and inside(r, control)]) <= 1,
+                f"more than one fixture retry for step {control.get('step')}")
+    require(all(any(inside(r, control) and r.get("step") == control.get("step") for control in controls) for r in taps),
+            "fixture retry outside its control window")
+    swipes = [r for r in ui if r.get("kind") == "reveal-retry"]
+    for retry in swipes:
+        require(isinstance(retry.get("reason"), str) and retry["reason"], "reveal retry without a logged reason")
+        require(retry.get("case") in CHOOSES and isinstance(retry.get("injected"), bool), "reveal retry record incomplete")
+    require(len({r.get("case") for r in swipes}) == len(swipes), "more than one reveal retry for a case")
+    for result in (r for r in ui if r.get("kind") == "reveal-result"):
+        retried = len([r for r in swipes if r.get("case") == result.get("case")])
+        require(result.get("attempts", 1) == 1 + retried, f"reveal attempts and retries disagree in case {result.get('case')}")
+    return {"fixture": [{"step": r["step"], "reason": r["reason"], "injected": r["injected"]} for r in taps],
+            "reveal": [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in swipes]}
+
+
+def valid_fault(spec):
+    """True when spec is empty or a comma list of `drop-tap:<step>` and `skip-swipe:<case>` negative controls."""
+    items = [item for item in spec.split(",") if item]
+    return all(item.startswith("drop-tap:") and item[9:] in STEPS or item.startswith("skip-swipe:") and item[11:] in CHOOSES
+               for item in items)
+
+
+def validate_faults(spec, ui):
+    """Negative control: every injected fault must have forced exactly its logged retry, and nothing else may have retried.
+
+    A fault that leaves no retry means the retry path was not exercised; a retry that
+    no fault asked for is not hidden by this check (it stays in the verdict)."""
+    for item in [item for item in spec.split(",") if item]:
+        kind, _, target = item.partition(":")
+        if kind == "drop-tap":
+            found = [r for r in ui if r.get("kind") == "fixture-retry" and r.get("step") == target and r.get("injected") is True]
+        else:
+            found = [r for r in ui if r.get("kind") == "reveal-retry" and r.get("case") == target and r.get("injected") is True]
+        require(len(found) == 1, f"injected fault {item} did not force exactly one logged retry")
 
 
 def validate_gui_preconditions(records, ui, picks, prepares):
@@ -201,8 +276,7 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
     # Strict joint ordering: callbacks must belong to the actual OS pick, and
     # every fixture click must have zero command effect. Wall clocks must be
     # the same Simulator clock; missing/ambiguous observations fail closed.
-    steps = [*[s for hold in HOLDS for s in (*hold, "release")],
-             *[s for case in NEGATIVE for s in ((case, "current", "reset") if case == "focus" else (case, "reset"))], "finish"]
+    steps = STEPS
     controls = [r for r in ui if r.get("kind") == "fixture-control"]
     begins = [r for r in records if r.get("kind") == "p12-setup-begin"]
     ends = [r for r in records if r.get("kind") == "p12-setup-end"]

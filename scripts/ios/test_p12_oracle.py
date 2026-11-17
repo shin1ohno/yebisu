@@ -30,7 +30,7 @@ def fixture():
 
     def setup(step):
         nonlocal clock
-        ui.append(dict(kind="fixture-control", step=step, started=clock, ended=clock+1))
+        ui.append(dict(kind="fixture-control", step=step, received=True, started=clock, ended=clock+1))
         before = [state["sidebar"], state["palette"]]
         records.extend([dict(kind="p12-setup-begin", step=step, time=clock+.1, state=copy.deepcopy(state)),
                         dict(kind="p12-setup-end", step=step, time=clock+.2, state=copy.deepcopy(state), before=before, after=before)])
@@ -406,6 +406,114 @@ class P12OracleTests(unittest.TestCase):
 
     def test_every_prepared_menu_records_its_build(self):
         self.rejected(lambda r,m,u,s: r.remove(select(r,"p12-menu-build","pane")), "menu build record missing")
+
+
+
+
+class P12RetryTests(unittest.TestCase):
+    """The harness repeats a fixture tap or a reveal swipe once and logs why; the oracle names and bounds it."""
+
+    def rejected(self, edit, reason):
+        data = fixture()
+        edit(*data)
+        with self.assertRaisesRegex(ValueError, reason):
+            p12.validate(*data)
+
+    @staticmethod
+    def control(ui, step, index=0):
+        return [r for r in ui if r.get("kind") == "fixture-control" and r["step"] == step][index]
+
+    def test_lost_fixture_tap_is_named_by_step_before_the_generic_symptom(self):
+        # Job 134059155142: the first tap (Remote) never reached the app, so the app
+        # logged no p12-setup-begin/-prepare for it and only the generic message appeared.
+        def lose(records, messages, ui, shots):
+            records[:] = [r for r in records if r.get("step") != "remote" and not (r.get("kind") == "p12-prepare" and r["case"] == "remote")]
+        self.rejected(lose, r"fixture tap lost \(class P12-fixture\).*step remote")
+
+    def test_a_tap_with_no_xctest_receipt_is_rejected(self):
+        self.rejected(lambda r, m, ui, s: self.control(ui, "sidebar").update(received=False), "step sidebar has no app receipt")
+
+    def test_retried_fixture_tap_passes_and_is_reported(self):
+        records, messages, ui, shots = fixture()
+        control = self.control(ui, "remote")
+        ui.append(dict(kind="fixture-retry", step="remote", reason="no p12-setup-end within 5 s", injected=False,
+                       time=control["started"] + .5))
+        result = p12.validate(records, messages, ui, shots)
+        self.assertEqual(result["retries"]["fixture"], [dict(step="remote", reason="no p12-setup-end within 5 s", injected=False)])
+        self.assertEqual(result["retries"]["reveal"], [])
+
+    def test_retry_that_still_lost_the_tap_is_not_rescued(self):
+        def lose(records, messages, ui, shots):
+            records[:] = [r for r in records if r.get("step") != "remote"]
+            ui.append(dict(kind="fixture-retry", step="remote", reason="x", injected=False, time=self.control(ui, "remote")["started"] + .5))
+        self.rejected(lose, r"fixture tap lost \(class P12-fixture\)")
+
+    def test_fixture_retry_needs_a_reason_and_a_window(self):
+        records, messages, ui, shots = fixture()
+        ui.append(dict(kind="fixture-retry", step="remote", reason="", injected=False, time=self.control(ui, "remote")["started"] + .5))
+        with self.assertRaisesRegex(ValueError, "without a logged reason"):
+            p12.validate(records, messages, ui, shots)
+        ui[-1].update(reason="late", time=self.control(ui, "remote")["ended"] + 50)
+        with self.assertRaisesRegex(ValueError, "outside its control window"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_only_one_fixture_retry_per_control(self):
+        records, messages, ui, shots = fixture()
+        for offset in (.4, .6):
+            ui.append(dict(kind="fixture-retry", step="remote", reason="r", injected=False, time=self.control(ui, "remote")["started"] + offset))
+        with self.assertRaisesRegex(ValueError, "more than one fixture retry"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_retried_reveal_passes_and_is_reported(self):
+        records, messages, ui, shots = fixture()
+        result = next(r for r in ui if r.get("kind") == "reveal-result" and r["case"] == "palette")
+        result["attempts"] = 2
+        ui.append(dict(kind="reveal-retry", case="palette", reason="menu bar absent 10 s after the first swipe", injected=False, time=result["time"] - .1))
+        report = p12.validate(records, messages, ui, shots)
+        self.assertEqual([r["case"] for r in report["retries"]["reveal"]], ["palette"])
+
+    def test_reveal_retry_does_not_excuse_a_menu_bar_that_never_appeared(self):
+        records, messages, ui, shots = fixture()
+        result = next(r for r in ui if r.get("kind") == "reveal-result" and r["case"] == "palette")
+        result.update(attempts=2, revealed=False)
+        ui.append(dict(kind="reveal-retry", case="palette", reason="absent", injected=False, time=result["time"] - .1))
+        with self.assertRaisesRegex(ValueError, "menu bar not revealed \\(class B\\) in case palette"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_reveal_attempts_must_match_the_logged_retries(self):
+        records, messages, ui, shots = fixture()
+        next(r for r in ui if r.get("kind") == "reveal-result" and r["case"] == "palette")["attempts"] = 2
+        with self.assertRaisesRegex(ValueError, "attempts and retries disagree in case palette"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_only_one_reveal_retry_per_case(self):
+        records, messages, ui, shots = fixture()
+        for _ in range(2):
+            ui.append(dict(kind="reveal-retry", case="palette", reason="absent", injected=False, time=1))
+        with self.assertRaisesRegex(ValueError, "more than one reveal retry"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_fault_specs(self):
+        self.assertTrue(p12.valid_fault(""))
+        self.assertTrue(p12.valid_fault("drop-tap:remote,skip-swipe:palette,skip-swipe:focus-current"))
+        for bad in ("drop-tap:idle", "skip-swipe:finish", "drop-tap", "drop-tap:remote,x", "tap:remote"):
+            self.assertFalse(p12.valid_fault(bad), bad)
+
+    def test_negative_control_needs_the_injected_retry(self):
+        records, messages, ui, shots = fixture()
+        with self.assertRaisesRegex(ValueError, "drop-tap:remote did not force exactly one logged retry"):
+            p12.validate_faults("drop-tap:remote", ui)
+        ui.append(dict(kind="fixture-retry", step="remote", reason="injected fault", injected=True, time=1))
+        p12.validate_faults("drop-tap:remote", ui)
+        with self.assertRaisesRegex(ValueError, "skip-swipe:palette did not force"):
+            p12.validate_faults("drop-tap:remote,skip-swipe:palette", ui)
+        ui.append(dict(kind="reveal-retry", case="palette", reason="injected fault", injected=False, time=1))
+        with self.assertRaisesRegex(ValueError, "skip-swipe:palette did not force"):
+            p12.validate_faults("skip-swipe:palette", ui)
+
+    def test_steps_match_the_fixture_run_order(self):
+        records, messages, ui, shots = fixture()
+        self.assertEqual([r["step"] for r in ui if r.get("kind") == "fixture-control"], p12.STEPS)
 
 
 if __name__ == "__main__":
