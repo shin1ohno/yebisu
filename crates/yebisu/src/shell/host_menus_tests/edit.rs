@@ -36,9 +36,9 @@ fn menu_edit_host_targets_selected_host(cx: &mut TestAppContext) {
             assert_eq!(this.shell.shortcuts.edit_host.as_deref(), Some("studio"));
             // After a host switch the shown menu's Edit is refused.
             this.shell.shortcuts.edit_host = None;
-            // Edit opened Settings (L7's sheet is not here yet), which took focus.
-            assert!(this.settings_modal);
-            this.settings_modal = false;
+            // Edit opened the Hosts sheet (L7), which took the input.
+            assert!(this.shell.hosts_sheet.visible());
+            this.shell.hosts_sheet.close();
             this.terminal_focus.focus(window, cx);
             this.terminal.reconnect.target = "alpha".into();
             this.native_command_action(&NativeCommand::named("host.edit"), window, cx);

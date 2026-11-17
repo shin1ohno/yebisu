@@ -257,7 +257,7 @@ impl Smoke {
                 HerdrKind::Herdr1
             },
             connected: self.terminal.live.connected,
-            sheet_open: self.settings_modal,
+            sheet_open: self.settings_modal || self.hosts_sheet_modal(),
             ..ChromeState::default()
         }
     }
@@ -308,7 +308,7 @@ impl Smoke {
                     .ok_or(crate::Error::NativeMenu("menu target changed"))?;
                 self.shell.shortcuts.edit_host = Some(host);
                 if !self.open_hosts(cx) {
-                    // Until L7's Hosts sheet lands, Settings holds the hosts page.
+                    // Without the Hosts sheet, Settings holds the hosts page.
                     self.begin_settings_modal(window, cx);
                 }
             }

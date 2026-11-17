@@ -228,7 +228,7 @@ impl Smoke {
     /// Status bar Shortcuts. `false` means not handled: the caller falls
     /// back to the command palette (plan v2 5.2, L2a column).
     pub(crate) fn open_shortcuts(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.settings_modal {
+        if self.settings_modal || self.hosts_sheet_modal() {
             return false;
         }
         self.shell.shortcuts.open ^= true;

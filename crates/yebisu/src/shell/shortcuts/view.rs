@@ -42,7 +42,7 @@ impl Smoke {
         if !self.shell.shortcuts.open {
             return None;
         }
-        if self.settings_modal {
+        if self.settings_modal || self.hosts_sheet_modal() {
             self.shell.shortcuts.open = false;
             return None;
         }
@@ -150,6 +150,7 @@ impl Smoke {
                             .child(CHANGE_IN_SETTINGS)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.shell.shortcuts.open = false;
+                                this.settings_page = crate::settings_pages::Page::Input;
                                 this.begin_settings_modal(window, cx);
                                 cx.notify();
                             })),

@@ -47,6 +47,11 @@ fn palette_runs_locally_and_shortcuts_opens_the_popover(cx: &mut TestAppContext)
             this.settings_modal = true;
             assert!(!this.open_shortcuts(cx));
             assert!(!this.shell.shortcuts.open);
+            // So does the Hosts sheet (L7), which is modal too.
+            this.settings_modal = false;
+            assert!(this.open_hosts(cx));
+            assert!(!this.open_shortcuts(cx));
+            assert!(!this.shell.shortcuts.open);
         })
     });
 }
