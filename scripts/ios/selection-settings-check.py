@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """SH1-151: real strip taps, rendered labels, disk and fresh-process restore."""
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -7,6 +8,9 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
@@ -46,7 +50,7 @@ def main():
     if settings.exists():
         shutil.rmtree(settings)
     observations = container / "Documents/selection-settings.jsonl"
-    previous = len(observations.read_text().splitlines()) if observations.exists() else 0
+    previous = live_jsonl.count_lines(observations)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
@@ -61,7 +65,7 @@ def main():
                 for stage in ["fresh", "restored"]:
                     if attachment["suggestedHumanReadableName"].startswith("sh1-151-" + stage + "_0_"):
                         shutil.copyfile(export / attachment["exportedFileName"], directory / (stage + ".png"))
-        records = [json.loads(line) for line in observations.read_text().splitlines()[previous:]]
+        records = live_jsonl.read_records(observations, previous)
         saved = json.loads((settings / "yebisu-settings.json").read_text())
         validate(records, saved)
         (directory / "receipts.json").write_text(json.dumps(dict(records=records, saved=saved)))

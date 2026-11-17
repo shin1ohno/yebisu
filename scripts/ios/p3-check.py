@@ -9,6 +9,10 @@ import shutil
 import subprocess
 import time
 
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
+
 
 def run(*args, **kwargs):
     print("P3 COMMAND", list(args), flush=True)
@@ -45,7 +49,7 @@ def validate_colors(counts):
 
 
 def validate(directory, require_rotation=False):
-    records = [json.loads(line) for line in (directory / "app.jsonl").read_text().splitlines()]
+    records = live_jsonl.read_records(directory / "app.jsonl")
     validate_records(records, require_rotation)
     spec = importlib.util.spec_from_file_location("colors", Path(__file__).with_name("screenshot-color.py"))
     colors = importlib.util.module_from_spec(spec)

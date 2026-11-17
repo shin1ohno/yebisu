@@ -217,6 +217,41 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
 5. Rerun only the failed job (`gh run rerun --job <job-id>`), at most 2 times per
    PR. Cite the run and job id of each attempt in the PR.
 
+### Cancelled jobs without a runner, H-live-read and E-launch
+
+(2026-11-17: diagnosis of the main failures of runs 43891836688, 43897926491
+and 43992978378. Cited ids are run/job.)
+
+- **Runner cancellation.** A job that ended `cancelled` with `runner_name`
+  empty, 0 steps and the annotation `The job was not acquired by Runner` never
+  ran on a runner. It has no log and is not a failure class. Classify it as
+  runner cancellation and rerun that job once with `gh run rerun --job
+  <job-id>`; this one rerun is outside the 2-rerun budget of step 5. Seen:
+  43897926491/133419859913 and 43897926491/133419860003. A cancelled job that
+  has a runner or steps is not this case: classify it from its log (step 2).
+- **H-live-read (fixed by this PR).** A harness script raised
+  `json.decoder.JSONDecodeError` while reading a JSONL file after the XCTest
+  had already `passed`. The app was still writing, so the last line had no
+  newline yet. In 43992978378/133738049997 (`simulator-smoke`,
+  `smoke_oracle.py:59`, `Expecting value: line 1 column 86 (char 85)`) the
+  last line of `app.jsonl` was an 85-byte fragment. 43891836688/133390084701
+  (`edit-menu`, `selection-settings-check.py:64`, `Expecting ',' delimiter`)
+  has the same cause; its artifact has no `selection-settings.jsonl`, so the
+  fragment itself was not seen. `scripts/ios/live_jsonl.py` now reads every
+  newline-terminated line and drops only an unterminated final line (a
+  malformed terminated line still raises). `smoke_oracle.py` and the
+  `selection-settings`, `p12`, `p3`, `p8-native`, `sh1-152` and `sh1-153`
+  checks use it, and so do the line counts used as offsets. After this PR, a
+  `JSONDecodeError` from one of those reads is a new defect, not a known class.
+- **E-launch (observed, not fixed).** `EditMenuQA.swift:203: error: ...
+  Failed to launch com.shin1ohno.yebisu: Timed out attempting to launch app.`
+  failed `testSH1152Basic` in 43897926491/133419860111 (1 of 169 `edit-menu`
+  jobs in the diagnosis window). The cause is unproven; there is no fix and no
+  retry. E-launch is not on the known-class list of step 4. The next time it
+  happens, read the new log lines `SH1-152 LAUNCH <case> <seconds>` (the
+  seconds `app.launch()` took per case, printed when it returns) in the job
+  log and compare the failing case with the earlier ones.
+
 ### XCUITest OCR rules
 
 (2026-11-16: PR 55, PR 57.)
