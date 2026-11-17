@@ -146,11 +146,11 @@ its module. "New" means the stream creates it.
 | L2a | `crates/yebisu/src/shell/frame.rs`, `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/entry_points.rs`, `shell/toast.rs`, `find_view.rs`; new `scripts/ios/layout-check-l2a.py` and `scripts/ios/p7-check.py` (A2) |
 | L2b | `shell/entry_move.rs`, `shell/footer.rs`, `shell/qa_strip.rs`, `actions.rs`, `action_tests.rs`, `action_view.rs` |
 | L2c | `shell/single_pane.rs`, `core/screen.rs` |
-| L3 | `shell/sidebar.rs`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
+| L3 | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_tests/**`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
 | L4 | `shell/rail.rs`, `shell/rail_badges.rs`, `shell/filter.rs` |
-| L5 | `shell/edit_bar.rs` |
+| L5 | `shell/edit_bar.rs`, `shell/edit_bar_tests/**` |
 | L6 | `shell/shortcuts.rs`, `shell/host_menus.rs`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
-| L7 | `shell/hosts_sheet.rs`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
+| L7 | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `shell/hosts_sheet_tests/**`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
 | L8 | `shell/herdr2_frame.rs`, `core.rs`, `core/store.rs`, `core_view.rs`, `core_mock.rs`, `core_mock/**`, `scripts/ios/p9-check.py` |
 | L9 | `shell/fit.rs`, `shell/mods.rs`, `shell/overlay.rs`, `shell/disconnect.rs`, `terminal_input.rs`, `terminal_input_tests.rs` |
 
@@ -532,8 +532,13 @@ goes away at the end of Wave 3.
   `layout-smoke` job (T0) with `shell/` and `layout/` in its filter and in
   edit-menu's; the L1, L5 and L7 `layout-mutations` entries; the draft
   integration PR to `main`.
-- Still open: `layout/l3`, `layout/l2a` and the next `layout/l1` head
-  (Integration 1, second push); Wave 2 and Wave 3 streams.
+- Integration 1, second push: `layout/l3` 2b859fe with its patches 01 to
+  04, and the iOS-only clippy fixes the first hosted run found (L1 test-only
+  items, L7's unused `Job::Save`, `trust.rs` gated off iOS). The `*_tests/`
+  and sub-module directories the streams created are listed in the table
+  above (L3 review N-6).
+- Still open: `layout/l2a` and the next `layout/l1` head; Wave 2 and Wave 3
+  streams.
 
 ## 8. Amendments (2026-11-18, review 0e80 B1 to B4)
 
