@@ -187,6 +187,19 @@ impl Smoke {
         self.board.selection = self.board.selection.wrapping_add(1);
     }
     pub(crate) fn record_board(&self, host: &str, live: &Live) {
+        // Every reader update reaches here, drawn or not: the sidebar's
+        // AGENTS receive order is recorded now, not when the list renders.
+        let core = if host == self.terminal.reconnect.target {
+            self.terminal.core_mode
+        } else {
+            self.board.hidden.get(host).is_some_and(|t| t.core_mode)
+        };
+        let kind = if core {
+            crate::shell::HerdrKind::Herdr2
+        } else {
+            crate::shell::HerdrKind::Herdr1
+        };
+        crate::shell::sidebar::model::record_live(&self.shell.sidebar, host, kind, live);
         self.observation.record(serde_json::json!({"kind":"board", "host":host, "selected":host == self.terminal.reconnect.target, "revision":snapshot(live).map(|s|s.revision), "rows":rows(live).iter().map(|r|r.label.clone()).collect::<Vec<_>>(), "states":rows(live).iter().map(|r|status(r.status).0).collect::<Vec<_>>() }));
     }
     pub(crate) fn poll_hidden(&mut self, cx: &mut Context<Self>) {

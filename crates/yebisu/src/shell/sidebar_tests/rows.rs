@@ -30,15 +30,15 @@ fn terminal(host: &str, connected: bool, status: &str) -> TerminalView {
 
 #[test]
 fn offline_host_shows_no_spaces() {
-    let mut state = SidebarState::default();
+    let state = SidebarState::default();
     let none = BTreeMap::new();
-    let online = host_entries(&mut state, &terminal("h", true, ""), &none);
+    let online = host_entries(&state, &terminal("h", true, ""), &none);
     assert_eq!(online[0].link, HostLink::Connected);
     assert_eq!(online[0].spaces.len(), 1, "positive control");
     assert_eq!(online[0].detail(), "SSH · Herdr 1");
     // The same reader, now disconnected, still holds the last snapshot.
     let reason = "host is untrusted or its key has changed; authentication refused";
-    let offline = host_entries(&mut state, &terminal("h", false, reason), &none);
+    let offline = host_entries(&state, &terminal("h", false, reason), &none);
     assert_eq!(
         offline[0].link,
         HostLink::Offline(OfflineReason::HostKeyMismatch)
@@ -46,7 +46,7 @@ fn offline_host_shows_no_spaces() {
     assert!(offline[0].spaces.is_empty());
     assert!(offline[0].agents.is_empty());
     assert_eq!(offline[0].detail(), "Host key mismatch");
-    let connecting = host_entries(&mut state, &terminal("h", false, "Connecting…"), &none);
+    let connecting = host_entries(&state, &terminal("h", false, "Connecting…"), &none);
     assert!(connecting[0].spaces.is_empty());
     assert_eq!(connecting[0].detail(), "Connecting…");
     for (text, label) in [
@@ -58,7 +58,7 @@ fn offline_host_shows_no_spaces() {
         ("Version mismatch: Protocol", "Version mismatch"),
         ("closed", "Not connected"),
     ] {
-        let entry = host_entries(&mut state, &terminal("h", false, text), &none);
+        let entry = host_entries(&state, &terminal("h", false, text), &none);
         assert_eq!(entry[0].detail(), label, "{text}");
         assert!(entry[0].spaces.is_empty(), "{text}");
     }

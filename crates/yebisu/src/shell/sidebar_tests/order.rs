@@ -31,7 +31,7 @@ fn same_status_newest_received_first() {
 
 #[test]
 fn cross_daemon_seq_is_ignored() {
-    let mut state = SidebarState::default();
+    let state = SidebarState::default();
     let seen = |pane: &str, status, seq| Observed {
         pane: pane.into(),
         status,
@@ -63,7 +63,7 @@ fn cross_daemon_seq_is_ignored() {
 
 #[test]
 fn initial_batch_orders_by_host_then_name() {
-    let mut state = SidebarState::default();
+    let state = SidebarState::default();
     let batch = |names: &[&str]| {
         names
             .iter()
@@ -121,4 +121,26 @@ fn initial_batch_orders_by_host_then_name() {
         }],
     );
     assert_eq!(state.received(&a), 0);
+}
+
+#[test]
+fn agents_follow_saved_host_order() {
+    use model::{AgentLine, HostEntry, HostLink, agents_list, order_hosts};
+    let host = |name: &str, agent: &str| {
+        let mut entry = HostEntry::new(name, HerdrKind::Herdr1, HostLink::Connected);
+        entry.agents = vec![AgentLine {
+            row: row(name, "p", agent, Working, 0),
+            shown: agent.into(),
+            place: name.into(),
+        }];
+        entry
+    };
+    let mut hosts = vec![host("alpha", "a"), host("zeta", "z")];
+    order_hosts(&mut hosts, &["zeta".into(), "alpha".into()]);
+    let names = |lines: &[AgentLine]| lines.iter().map(|l| l.row.name.clone()).collect::<Vec<_>>();
+    // A first batch follows the saved Hosts order, like the host rows.
+    assert_eq!(names(&agents_list(&hosts)), ["z", "a"]);
+    // Without a saved order, hosts (and their first batches) go by name.
+    order_hosts(&mut hosts, &[]);
+    assert_eq!(names(&agents_list(&hosts)), ["a", "z"]);
 }

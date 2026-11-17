@@ -1,7 +1,10 @@
 //! L3: host, space and AGENTS rows built from daemon snapshots. Pure data;
 //! the view draws it. Owner: L3.
-use super::{AgentIdentity, AgentRow, Observed, SidebarState, agent_order, display_name};
+use super::{
+    AgentIdentity, AgentRow, Observed, SidebarState, agent_order, agent_order_in, display_name,
+};
 use crate::{
+    board::snapshot,
     live::Live,
     shell::{
         HerdrKind,
@@ -48,16 +51,35 @@ pub(crate) fn offline_reason(text: &str) -> OfflineReason {
         OfflineReason::VersionMismatch
     } else if text.contains("host key") || text.contains("untrusted") {
         OfflineReason::HostKeyMismatch
-    } else if text.contains("auth") || text.contains("permission denied") || text.contains("sign") {
+    } else if text.contains("authentication")
+        || text.contains("permission denied")
+        || text.contains("sign-in")
+        || text.contains("sign in")
+    {
         OfflineReason::SignInFailed
     } else if text.contains("not running")
         || text.contains("connection refused")
         || text.contains("no such file")
-        || text.contains("socket")
     {
         OfflineReason::HerdrNotRunning
     } else {
         OfflineReason::NotConnected
+    }
+}
+
+/// Records a reader update in the receive order when it arrives (called
+/// from `board.rs` `record_board` for every host, drawn or not). A host that
+/// is not connected forgets its agents, so its next snapshot is a first batch.
+pub(crate) fn record_live(state: &SidebarState, host: &str, kind: HerdrKind, live: &Live) {
+    if host.is_empty() {
+        return;
+    }
+    match (host_link(live), kind, snapshot(live)) {
+        (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) => {
+            state.observe(host, kind, &snap.boot_id, &observed(snap));
+        }
+        (HostLink::Connected, _, _) => {}
+        _ => state.forget(host, kind),
     }
 }
 
@@ -228,14 +250,21 @@ pub(crate) fn order_hosts(hosts: &mut [HostEntry], saved: &[String]) {
 }
 
 /// AGENTS across every host: status-sending terminals only, in Q5 order.
+/// `hosts` is in Hosts order (`order_hosts`); a first batch follows it.
 pub(crate) fn agents_list(hosts: &[HostEntry]) -> Vec<AgentLine> {
+    let host_rank = |id: &AgentIdentity| {
+        hosts
+            .iter()
+            .position(|h| h.host == id.host && h.kind == id.kind)
+            .unwrap_or(usize::MAX)
+    };
     let mut lines = hosts
         .iter()
         .flat_map(|h| h.agents.iter())
         .filter(|line| line.row.status.is_agent())
         .cloned()
         .collect::<Vec<_>>();
-    lines.sort_by(|a, b| agent_order(&a.row, &b.row));
+    lines.sort_by(|a, b| agent_order_in(&a.row, &b.row, &host_rank));
     lines
 }
 

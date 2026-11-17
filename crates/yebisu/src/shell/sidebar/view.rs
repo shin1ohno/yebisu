@@ -3,7 +3,7 @@ use super::{
     AGENT_ROW_HEIGHT, HOST_ROW_HEIGHT, SPACE_ROW_HEIGHT, SidebarState,
     model::{
         AgentLine, HostEntry, HostLink, OfflineReason, SpaceEntry, agents_list, host_link,
-        observed, order_hosts, snapshot_content,
+        order_hosts, record_live, snapshot_content,
     },
     row_height,
 };
@@ -43,10 +43,10 @@ pub(crate) enum SidebarTap {
 }
 
 /// Host rows for every reader this app holds, in the saved Hosts order.
-/// Records each connected snapshot in `state` first, so the AGENTS order
-/// follows this iPad's receive order.
+/// The receive order is recorded when updates arrive (`record_live`); this
+/// records again only to cover a reader no update has reached yet.
 pub(crate) fn host_entries(
-    state: &mut SidebarState,
+    state: &SidebarState,
     current: &TerminalView,
     hidden: &BTreeMap<String, TerminalView>,
 ) -> Vec<HostEntry> {
@@ -72,15 +72,11 @@ pub(crate) fn host_entries(
         let mut entry = HostEntry::new(host, kind, link);
         entry.selected = host == current.reconnect.target;
         entry.generation = terminal.link.generation;
-        match (link, kind, snapshot(live)) {
-            (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) => {
-                state.observe(host, kind, &snap.boot_id, &observed(snap));
-                entry.boot = snap.boot_id.clone();
-                let (spaces, agents) = snapshot_content(host, snap, state);
-                entry = entry.with_content(spaces, agents);
-            }
-            (HostLink::Connected, _, _) => {}
-            _ => state.forget(host, kind),
+        record_live(state, host, kind, live);
+        if let (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) = (link, kind, snapshot(live)) {
+            entry.boot = snap.boot_id.clone();
+            let (spaces, agents) = snapshot_content(host, snap, state);
+            entry = entry.with_content(spaces, agents);
         }
         hosts.push(entry);
     }
@@ -147,8 +143,13 @@ impl Smoke {
     }
 
     /// The sidebar list; `None` keeps the legacy board in the column.
+    /// Herdr 2 keeps `None` (L2a's frame leaves the column empty) until L8
+    /// puts its sessions in this list (review SF-6).
     pub(crate) fn render_sidebar_list(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let hosts = host_entries(&mut self.shell.sidebar, &self.terminal, &self.board.hidden);
+        if self.terminal.core_mode {
+            return None;
+        }
+        let hosts = host_entries(&self.shell.sidebar, &self.terminal, &self.board.hidden);
         let agents = agents_list(&hosts);
         let mut list = div()
             .id("sidebar-list")

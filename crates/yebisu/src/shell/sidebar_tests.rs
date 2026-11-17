@@ -5,6 +5,8 @@ use super::*;
 mod identity;
 #[path = "sidebar_tests/order.rs"]
 mod order;
+#[path = "sidebar_tests/receive.rs"]
+mod receive;
 #[path = "sidebar_tests/rows.rs"]
 mod rows;
 #[path = "sidebar_tests/status.rs"]

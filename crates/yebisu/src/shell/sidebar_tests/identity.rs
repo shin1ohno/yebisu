@@ -6,7 +6,7 @@ use target::{Destination, notification_identity, resolve_target};
 
 #[test]
 fn identity_survives_rename() {
-    let mut state = SidebarState::default();
+    let state = SidebarState::default();
     let mut snap = fixture();
     state.observe("h", HerdrKind::Herdr1, &snap.boot_id, &observed(&snap));
     snap.agents[0].agent_status = AgentStatus::Working;
