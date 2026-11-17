@@ -118,7 +118,7 @@ impl Smoke {
         }
     }
 
-    fn frame_layout(&self, window: &Window) -> Layout {
+    pub(super) fn frame_layout(&self, window: &Window) -> Layout {
         let viewport = window.viewport_size();
         let safe = window.insets().safe_area;
         let keyboard = viewport.height - window.fully_visible_bounds().bottom();

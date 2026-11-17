@@ -10,33 +10,40 @@ use super::overlay;
 use crate::{
     app::Smoke,
     layout::{RULE, STATUS_BAR_HEIGHT},
+    notification_view::overlay_bottom,
 };
 use gpui::{Pixels, Window, px};
 
 /// Gap between the status bar's hairline and the toast.
 pub(crate) const TOAST_GAP: f32 = 8.0;
 
-/// Points to add to `overlay_bottom` (`ime_bottom`) so the toast's bottom edge
-/// sits above the status bar. `slot` is L9's overlay placement as (bottom
-/// offset from the window's bottom edge, width); it wins when it is higher.
+/// Points to add to `overlay_bottom` so the toast's bottom edge sits above
+/// the status bar and its hairline. The status bar's top comes from the same
+/// L0 layout the frame draws (`status_bar_top`, measured from the window's
+/// top in a window `window_height` tall), so the toast and the status bar
+/// never use two different keyboard heights (review S3). `slot` is L9's
+/// overlay placement as (bottom offset from the window's bottom edge,
+/// width); it wins when it is higher.
 pub(crate) fn toast_lift_points(
-    ime_bottom: f32,
-    safe_bottom: f32,
+    window_height: f32,
+    status_bar_top: f32,
+    overlay_bottom: f32,
     slot: Option<(f32, f32)>,
 ) -> f32 {
-    let ime = ime_bottom.max(0.0);
-    let floor = ime.max(safe_bottom.max(0.0)) + STATUS_BAR_HEIGHT + RULE + TOAST_GAP;
+    let base = overlay_bottom.max(0.0);
+    let floor = (window_height - status_bar_top).max(STATUS_BAR_HEIGHT) + RULE + TOAST_GAP;
     let wanted = slot.map_or(floor, |(bottom, _)| bottom.max(floor));
-    (wanted - ime).max(0.0)
+    (wanted - base).max(0.0)
 }
 
 impl Smoke {
     /// Extra distance above `notification_view::overlay_bottom`.
     pub(crate) fn toast_lift(&self, window: &Window) -> Pixels {
-        let insets = window.insets();
+        let layout = self.frame_layout(window);
         px(toast_lift_points(
-            f32::from(insets.ime.bottom),
-            f32::from(insets.safe_area.bottom),
+            f32::from(window.viewport_size().height),
+            layout.status_bar.y,
+            f32::from(overlay_bottom(&window.insets())),
             overlay::toast_slot(),
         ))
     }

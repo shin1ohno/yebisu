@@ -72,12 +72,11 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 impl Smoke {
     pub(crate) fn render_status_bar(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let state = self.chrome_state();
         let model = status_bar_model(&state, &self.terminal.reconnect.target);
-        let _ = window;
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let line = status_line(&model);
         Some(

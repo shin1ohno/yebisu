@@ -88,3 +88,44 @@ fn pinned_actions_not_pushed_out_by_long_tab_names() {
         assert_eq!(tab_hit(x, &tabs, ROW), Some(hit), "x = {x}");
     }
 }
+
+/// Review S2: the × takes `run_action`'s fences. While Settings is open it
+/// is refused before any other check.
+#[gpui::test]
+fn close_tab_refused_while_settings_open(cx: &mut gpui::TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.settings_modal = true;
+        let host = this.terminal.reconnect.target.clone();
+        let generation = this.terminal.link.generation;
+        let err = this
+            .close_tab_by_id(&host, "tab", "boot", generation)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("blocked by settings"), "{err}");
+        assert!(this.terminal.navigating.is_none());
+    });
+}
+
+/// Review S2: the × cancels the handoff like Close tab does, and a
+/// suspended host refuses it without sending.
+#[gpui::test]
+fn close_tab_follows_run_action_fences(cx: &mut gpui::TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.terminal.reconnect.suspended = true;
+        let serial = this.handoff.serial;
+        let host = this.terminal.reconnect.target.clone();
+        let generation = this.terminal.link.generation;
+        let err = this
+            .close_tab_by_id(&host, "tab", "boot", generation)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains(HOST_UNAVAILABLE), "{err}");
+        assert_ne!(this.handoff.serial, serial, "handoff not cancelled");
+        assert!(this.handoff.selection.is_none());
+        assert!(this.terminal.navigating.is_none());
+    });
+}

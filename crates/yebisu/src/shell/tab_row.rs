@@ -18,6 +18,8 @@ pub(crate) const PINNED_ACTIONS: [TabHit; 3] = [TabHit::NewTab, TabHit::Split, T
 /// A tab never grows past this; a longer name is cut with an ellipsis so it
 /// cannot push its own × out.
 pub(crate) const MAX_TAB_WIDTH: f32 = 240.0;
+/// The refusal while the host is suspended or speaks another version.
+pub(crate) const HOST_UNAVAILABLE: &str = "Host unavailable or command pending";
 /// Left padding before a tab's label.
 const TAB_PADDING: f32 = 12.0;
 
@@ -207,10 +209,11 @@ impl Smoke {
                     .justify_center()
                     .text_color(rgb(0xacb2bb))
                     .child("×")
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         if let Err(e) = this.close_tab_by_id(&host, &id, &boot, generation) {
                             this.terminal.live.status = e.to_string();
                         }
+                        window.dismiss_virtual_keyboard();
                         cx.stop_propagation();
                         cx.notify();
                     })),
@@ -250,7 +253,9 @@ impl Smoke {
     }
 
     /// Closes the tab `id` without focusing it first (S-9: × closes and does
-    /// not select). Same fences as `focus_tab`.
+    /// not select). It takes the same path as `run_action`'s Close tab: the
+    /// input transition (native text retirement), the Settings fence, the
+    /// handoff cleanup, and the suspended / version-mismatch refusals.
     pub(crate) fn close_tab_by_id(
         &mut self,
         host: &str,
@@ -258,9 +263,31 @@ impl Smoke {
         boot: &str,
         generation: u64,
     ) -> crate::Result<()> {
+        self.input_transition(|this| this.close_tab_by_id_inner(host, id, boot, generation))
+    }
+
+    fn close_tab_by_id_inner(
+        &mut self,
+        host: &str,
+        id: &str,
+        boot: &str,
+        generation: u64,
+    ) -> crate::Result<()> {
+        if self.settings_modal {
+            return Err(crate::Error::Settings(
+                "terminal action blocked by settings".into(),
+            ));
+        }
+        self.handoff.cancel();
+        self.handoff.selection = None;
         if self.terminal.reconnect.target != host || self.terminal.link.generation != generation {
             return Err(crate::Error::Ssh("Stale tab; tap again".into()));
         }
+        if self.terminal.reconnect.suspended || self.terminal.live.version_mismatch.get().is_some()
+        {
+            return Err(crate::Error::Ssh(HOST_UNAVAILABLE.into()));
+        }
+        self.actions.palette = false;
         let terminal = &mut self.terminal;
         let mut live = terminal
             .link
@@ -269,6 +296,7 @@ impl Smoke {
             .map_err(|_| crate::Error::Ssh("Host busy".into()))?;
         let s = snapshot(&live).ok_or_else(|| crate::Error::Ssh("Waiting for snapshot".into()))?;
         if !live.connected
+            || live.version_mismatch.get().is_some()
             || live.surface.as_ref().is_some_and(|s| s.popup.is_some())
             || terminal.navigating.is_some()
             || s.boot_id != boot
