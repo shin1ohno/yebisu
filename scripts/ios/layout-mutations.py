@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run the layout source mutations (L0 geometry, L1 settings), requiring each named test to
+"""Run the layout source mutations (L0 geometry, L1 settings, L5 edit bar, L7
+Hosts sheet), requiring each named test to
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
@@ -16,10 +17,13 @@ SRC = ROOT / "crates/yebisu/src"
 OUT = ROOT / "target/layout-mutations"
 
 
-def test_panic(test):
-    """The named test's own test directory: `a::tests::b::name` -> a/tests/."""
+def test_panics(test):
+    """The named test's own test directory. `a::b::tests::c::name` lives in
+    a/b/tests/ (L0 layout, L1 settings_pages) or in a/b_tests/ when the module
+    keeps its tests beside it (L5 shell/edit_bar_tests/, L7
+    shell/hosts_sheet_tests/)."""
     module = test.split("::tests::")[0].replace("::", "/")
-    return f"panicked at crates/yebisu/src/{module}/tests/"
+    return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/")
 
 
 CASES = [
@@ -45,6 +49,29 @@ CASES = [
     ("l1-toolbar-sheet-sync", "settings_pages/toolbar_sync.rs", "        let Some(host) = &mut self.settings else {\n",
      "        let Some(host) = None::<&mut crate::settings::SettingsHost> else {\n",
      "settings_pages::tests::toolbar_sync::toolbar_change_is_visible_in_sheet_draft"),
+    # L5 (plan v2 7.10): the edit bar drawn without a selection (display condition).
+    ("edit-bar-condition", "shell/edit_bar.rs", "    if selecting {\n        vec![", "    if true {\n        vec![",
+     "shell::edit_bar::tests::visibility::edit_bar_only_while_selecting"),
+    # L5: Cancel no longer lets typing resume.
+    ("edit-bar-cancel-resume", "shell/edit_bar.rs", "            self.terminal.input.fresh_gesture();\n",
+     "            let _ = ();\n", "shell::edit_bar::tests::cancel::cancel_resumes_typing"),
+    # L5: the status bar wording that explains the pause.
+    ("edit-bar-wording", "shell/edit_bar.rs",
+     'const PAUSED_TYPING_STATUS: &str = "Typing is paused until you cancel the selection";',
+     'const PAUSED_TYPING_STATUS: &str = "Typing is paused";',
+     "shell::edit_bar::tests::status::status_explains_paused_typing"),
+    # L7 (plan v2 7.12): Trust only for the host that was scanned (app_setup.rs:181-186 binding).
+    ("l7-trust-binding", "shell/hosts_sheet/actions.rs", "        if target != typed {", "        if false && target != typed {",
+     "shell::hosts_sheet::tests::trust::trust_is_bound_to_the_scanned_target"),
+    # L7: a Scan or Trust while a host-key job runs (double Scan).
+    ("l7-double-scan", "shell/add_host.rs",
+     "        !self.scanning && self.step != AddHostStep::SignIn && !self.typed_host.trim().is_empty()",
+     "        self.step != AddHostStep::SignIn && !self.typed_host.trim().is_empty()",
+     "shell::hosts_sheet::tests::scan::scan_in_flight_blocks_second_scan_and_trust"),
+    # L7: the Add host sheet opens by itself with zero hosts.
+    ("l7-first-run-auto-open", "shell/hosts_sheet/view.rs", ".auto_open(self.setup.loaded, self.setup.hosts.len());",
+     ".auto_open(false, self.setup.hosts.len());",
+     "shell::hosts_sheet::tests::first_run::first_run_opens_add_host_sheet_over_empty_frame"),
 ]
 
 
@@ -78,7 +105,7 @@ def main():
             # (an assert, or a test's own panic), never on a build error or a
             # panic elsewhere. assert!(cond, "msg") prints only the message, so
             # the word "assertion" alone would miss the intended failure.
-            if code == 0 or f"{test} ... FAILED" not in output or test_panic(test) not in output:
+            if code == 0 or f"{test} ... FAILED" not in output or not any(p in output for p in test_panics(test)):
                 raise SystemExit(f"{name}: intended assertion failure not observed")
         finally:
             path.write_text(original)
