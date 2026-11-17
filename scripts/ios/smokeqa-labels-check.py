@@ -34,7 +34,7 @@ SRC = "crates/yebisu/src/"
 HANDOFF = SRC + "handoff_view.rs"
 CORE_VIEW = SRC + "core_view.rs"
 SETTINGS_VIEW = SRC + "settings_sheet/view.rs"
-APP_SETUP = SRC + "app_setup.rs"
+HOSTS_SHEET = SRC + "shell/hosts_sheet/view.rs"  # L7 replaced the Keys and hosts page
 P15_VIEW = SRC + "p15_settings_view.rs"
 TERMINAL_CONTROLS = SRC + "terminal_controls.rs"
 EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
@@ -46,7 +46,7 @@ SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
     "Board: Dense": [(SRC + "board.rs", '"Board: Dense"')],
     "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
-    "Copy authorized_keys line": [(APP_SETUP, '"Copy authorized_keys line"')],
+    "Copy authorized_keys line": [(HOSTS_SHEET, '"Copy authorized_keys line"')],
     "Copy: Manual": [(HANDOFF, '"Copy: Manual"')],
     "Copy: On selection": [(HANDOFF, '"Copy: On selection"')],
     "Detach": [(CORE_VIEW, '"Detach"')],
@@ -75,7 +75,7 @@ SOURCES = {
     "QA image ready": [(SRC + "handoff_qa.rs", '"QA image ready"')],
     "QA injected key provider": [(SRC + "settings_view.rs", '"QA injected key provider"')],
     "QA mark": [(TERMINAL_CONTROLS, '"QA mark"')],
-    "Read or initialize device key": [(APP_SETUP, '"Read or initialize device key"')],
+    "Read or initialize device key": [(HOSTS_SHEET, '"key-create", "Read or initialize device key"')],
     "Reconnect": [(SRC + "terminal_view.rs", '"Reconnect"')],
     "Select": [(HANDOFF, '"Select"')],
     "Select: On": [(HANDOFF, '"Select: On"')],
@@ -83,9 +83,9 @@ SOURCES = {
     "Split (2 panes)": [(CORE_VIEW, '"Split (2 panes)"')],
     "Start: Drag": [(HANDOFF, '"Start: Drag"')],
     "Start: Select / double tap": [(HANDOFF, '"Start: Select / double tap"')],
+    "Theme": [(SRC + "settings_pages/sections.rs", 'Self::Theme => "Theme"')],  # L1 canvas section title
     "Toggle split direction": [(CORE_VIEW, '"Toggle split direction"')],
     "Type here": [(SRC + "mock_peer.rs", "Type here")],
-    "appearance": [(SRC + "settings_pages/mod.rs", 'Self::Appearance => "appearance"')],
     "daemon-effective state unverified": [(P15_VIEW, "daemon-effective state unverified")],
     "qa-alpha": [(SRC + "app.rs", '"qa-alpha"')],
     "qa-beta": [(SRC + "app.rs", '"qa-beta"')],

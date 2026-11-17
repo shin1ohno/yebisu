@@ -62,7 +62,7 @@ class CheckedIn(Tree):
         found, problems = labels.collect(source)
         self.assertEqual(problems, [])
         for expected in ("Settings", "Observer next", "Native next", "High contrast", "paste-2.png", "Board: Dense", "Host: ",
-                         "qa-alpha", "idle", "Type here", "appearance", "Agent needs attention", "QuietHours"):
+                         "qa-alpha", "idle", "Type here", "Theme", "Agent needs attention", "QuietHours"):
             with self.subTest(label=expected):
                 self.assertIn(expected, found)
 
