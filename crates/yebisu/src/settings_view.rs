@@ -19,6 +19,14 @@ impl Smoke {
                 } else {
                     root
                 };
+                // sh1-156-check.py starts from defaults (Start: Drag), whatever
+                // an earlier check in the same Simulator saved.
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                let root = if std::env::var_os("YEBISU_SH1_156_QA").is_some() {
+                    root.join("sh1-156-qa")
+                } else {
+                    root
+                };
                 #[cfg(all(target_os = "ios", target_abi = "sim"))]
                 let root = if std::env::var_os("YEBISU_P11_QA").is_some() {
                     root.join("p11-qa")

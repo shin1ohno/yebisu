@@ -70,6 +70,11 @@ def main():
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip())
     for name in ["p4-peer.jsonl", "p0-smoke.jsonl"]:
         (container / "Documents" / name).unlink(missing_ok=True)
+    # The fixture's own settings namespace (settings_view.rs): start from
+    # defaults, not what an earlier check in this Simulator saved.
+    settings = container / "Library/Application Support/herdr/gpui/sh1-156-qa"
+    if settings.exists():
+        shutil.rmtree(settings)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
@@ -90,7 +95,7 @@ def main():
             for test in json.loads((export / "manifest.json").read_text()):
                 for attachment in test["attachments"]:
                     stage = attachment["suggestedHumanReadableName"].split("_0_")[0]
-                    if stage.startswith("sh1-156-"):
+                    if stage.startswith("sh1-156-") or stage == "missing-control":
                         shutil.copyfile(export / attachment["exportedFileName"], directory / (stage + ".png"))
         if tested.returncode != 0 or TEST + "]' passed" not in tested.stdout:
             raise RuntimeError("SH1-156 XCTest did not execute and pass")
@@ -101,6 +106,8 @@ def main():
     finally:
         cleanup = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
         print("SH1-156 cleanup terminate exit", cleanup.returncode, cleanup.stderr, flush=True)
+        if settings.exists():
+            shutil.rmtree(settings)
 
 
 if __name__ == "__main__":
