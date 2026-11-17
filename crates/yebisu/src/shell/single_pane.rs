@@ -255,7 +255,7 @@ pub(crate) struct Mailbox(Arc<Mutex<Option<ColumnMetrics>>>);
 impl Mailbox {
     fn global() -> Self {
         static GLOBAL: OnceLock<Mailbox> = OnceLock::new();
-        GLOBAL.get_or_init(|| Self::detached()).clone()
+        GLOBAL.get_or_init(Self::detached).clone()
     }
 
     pub(crate) fn detached() -> Self {

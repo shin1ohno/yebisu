@@ -108,6 +108,9 @@ fn column_change_reaches_the_worker_resize(cx: &mut TestAppContext) {
         measured(this, 820.0);
         this.terminal.resize_if_ready(options(82, 29));
     });
+    // The worker has sized for the old column (one pane, 82 columns) ...
+    wait_for(whole(82, 29), 2, |last| last == whole(82, 29));
+    // ... and only a size that is sent again can reach the new column.
     frame(cx, 820.0, 82);
     frame(cx, 820.0, 82);
     let wide = wait_for(whole(82, 29), 2, |last| last == whole(41, 29));
