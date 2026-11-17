@@ -25,6 +25,7 @@ jobs:
       check: ${{ steps.filter.outputs.check }}
       simulator-smoke: ${{ steps.filter.outputs.simulator-smoke }}
       edit-menu: ${{ steps.filter.outputs.edit-menu }}
+      layout-smoke: ${{ steps.filter.outputs.layout-smoke }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -157,6 +158,25 @@ jobs:
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) skips edit-menu.
           menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|input_retirement|native_retirement|sh1_156_qa|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation)/)))'
+          # layout-smoke runs the Mac-mini-only Simulator checks that still exist
+          # (p2-check.py, p3-check.py, p10-check.py, through ci-layout-smoke.py). It
+          # follows edit-menu's rule: a pull request runs it only when a file those
+          # checks drive changes, and test_ci_layout_smoke.py fails for any module
+          # main.rs declares that is neither matched here nor in its reviewed
+          # exclusion list, so adding a module forces a decision. Pushes to main and
+          # workflow_dispatch run it always (all=true above). Where it differs from
+          # edit-menu, and why:
+          #   p2   (YEBISU_P2_OBSERVE, YEBISU_P11_KEYS_QA)  app_setup.rs, keys/,
+          #        setup/ and settings_view.rs: the key provider screen and its restart
+          #   p3   (YEBISU_TERMINAL_QA)  the terminal screen on the private wire peer:
+          #        terminal_*, input*, mock_peer, board, theme, hosts/, handoff_view,
+          #        notification_view (the overlay is laid out against the keyboard)
+          #   p10  (YEBISU_SETTINGS_QA)  settings/, settings_sheet/, settings_pages/,
+          #        reconnect.rs (the Home and activate lifecycle it asserts)
+          # The core, hand-off paste, native-edit and edit-menu QA scenes are driven by
+          # edit-menu and simulator-smoke, not by these three checks, so they are not
+          # listed (see UNRELATED in test_ci_layout_smoke.py).
+          layout='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|sim\.sh|bundle-provenance\.py|compiler_inputs\.py|screenshot-color\.py|live_jsonl\.py|ci-smoke\.py|ci-layout-smoke\.py|p2-check\.py|p3-check\.py|p10-check\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|app_setup|actions|board|edit_menu|edit_menu_gestures|handoff|handoff_view|hosts|i18n|input|input_geometry|input_retirement|keys|link|live|mock_commands|mock_notifications|mock_peer|native_menus|native_retirement|notification_view|observation|reconnect|setup|settings|settings_sheet|settings_view|terminal_controls|terminal_input|terminal_view|theme)\.rs$|notifications/preferences\.rs$|commands\.ftl$|locales/|(hosts|keys|live|notification_view|observation|settings|settings_pages|settings_sheet|setup|theme_picker)/)))'
           decide() {
             if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
@@ -169,6 +189,7 @@ jobs:
           decide check "$check"
           decide simulator-smoke "$smoke"
           decide edit-menu "$menu"
+          decide layout-smoke "$layout"
   # Commit subjects are the release changelog, so every pull request is
   # checked, including ones that start no macOS job. Same command as
   # `just check-commits`; the script needs only Python.
@@ -271,6 +292,10 @@ jobs:
         run: just lint-ios
       - name: Test
         run: just test
+      # Every text SmokeQA taps or reads off the screen is tied to the app source
+      # that paints it (S-12), so a renamed control fails here, not on a Simulator.
+      - name: SmokeQA labels
+        run: python3 scripts/ios/smokeqa-labels-check.py
       - name: Native menu source mutations
         run: python3 scripts/ios/p12-mutations.py
       - name: Upload mutation evidence
@@ -287,3 +312,36 @@ jobs:
         with:
           name: layout-mutation-evidence
           path: target/layout-mutations/
+  # The Simulator checks that only the Mac mini ran (plan section 8.1): P2 keys,
+  # P3 terminal, P10 settings, one after another on one disposable Simulator.
+  # Each check's wall time is printed and uploaded in layout-smoke-evidence
+  # (target/ios-layout-smoke/durations.json) to measure the 60-minute budget.
+  layout-smoke:
+    needs: changes
+    if: needs.changes.outputs.layout-smoke == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install pinned Rust
+        run: python3 scripts/guarded.py rustup show active-toolchain
+      - name: Install simulator tools
+        run: brew install just xcodegen
+      - name: Fetch
+        run: just guarded cargo fetch --locked
+      - name: Layout smoke receiving-system checks
+        run: just guarded python3 scripts/ios/ci-layout-smoke.py
+      - name: Upload layout smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-smoke-evidence
+          path: |
+            target/ios-layout-smoke/
+            target/ios-p2/
+            target/ios-p3/
+            target/ios-p10/
+            target/disk.log

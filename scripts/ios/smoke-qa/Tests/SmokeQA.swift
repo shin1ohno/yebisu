@@ -12,51 +12,6 @@ final class SmokeQA: XCTestCase {
         }
     }
 
-    func testInputAndLifecycleReceipts() throws {
-        // A failed state wait below must stop the test at once under its own name,
-        // not turn into three 30 s snapshot timeouts on whatever comes next.
-        continueAfterFailure = false
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        XCUIDevice.shared.orientation = .portrait
-        app.activate()
-        try requireState(app, [.runningForeground], "initial activate()")
-        try waitForRenderedText("Async counter", what: "first paint after launch")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.425)).tap()
-        app.typeText("P0-input")
-        try waitForRenderedText("input", what: "typed 'P0-input' received")
-        save("initial")
-        XCUIDevice.shared.press(.home)
-        // activate() issued while the Home press is still being handled leaves the app
-        // suspended in the background (class C of the L17 diagnosis).
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")
-        app.activate()
-        try requireState(app, [.runningForeground], "activate() after press(.home)")
-        try waitForRenderedText("input", what: "repaint of 'P0-input' after returning")
-        app.typeText("-returned")
-        try waitForRenderedText("returned", what: "typed '-returned' received")
-        save("returned")
-        XCUIDevice.shared.orientation = .landscapeLeft
-        sleep(2)
-        // The native keyboard covers the input field in landscape, so no screen text
-        // shows this value. smoke_oracle.py still requires its receipt in app.jsonl.
-        app.typeText("-rotated")
-        sleep(2)
-        save("rotated")
-        XCUIDevice.shared.orientation = .portrait
-        sleep(2)
-        save("idle-before")
-        sleep(60)
-        app.typeText("-idle")
-        try waitForRenderedText("idle", what: "typed '-idle' received")
-        save("idle")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.96)).tap()
-        sleep(2)
-        save("image-clear")
-        XCTAssertEqual(app.state, .runningForeground)
-        // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered
-        // regions and app-written receipt state for every saved stage.
-    }
-
     private func stateName(_ state: XCUIApplication.State) -> String {
         switch state {
         case .notRunning: return "notRunning"
@@ -70,8 +25,8 @@ final class SmokeQA: XCTestCase {
     /// Waits for the app to reach one of `states`; fails at once, naming `what`, if it does not.
     /// `app.state` alone is not refreshed while it is polled (run 43770292492: Home pressed at
     /// t=61 s, state still runningForeground at t=92 s), so each pass asks XCTest to wait for a state.
-    private func requireState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
-                              timeout: TimeInterval = 30) throws {
+    func requireState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
+                      timeout: TimeInterval = 30) throws {
         let start = Date()
         while true {
             for state in states where app.wait(for: state, timeout: 0.5) {
@@ -95,7 +50,7 @@ final class SmokeQA: XCTestCase {
 
     /// Waits until a Vision pass over the screen reads `word` (case-insensitive). P0 paints only
     /// fixed source strings, so on a miss the recognized strings are printed for diagnosis.
-    private func waitForRenderedText(_ word: String, what: String, timeout: TimeInterval = 20) throws {
+    func waitForRenderedText(_ word: String, what: String, timeout: TimeInterval = 20) throws {
         let start = Date()
         while true {
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
@@ -119,502 +74,14 @@ final class SmokeQA: XCTestCase {
     }
     // The settings sheet shows PageId::id() as is ("appearance"), and tapText matches
     // case-sensitively. test_p15_check.py ties this value to settings_pages/mod.rs.
-    private let appearancePage = "appearance"
+    let appearancePage = "appearance"
     // Last body row of the private wire peer surface (mock_peer.rs).
-    private let terminalInputRow = "Type here"
-
-    func testP15Theme() throws {
-        continueAfterFailure = false
-        var ui: [[String: Any]] = []
-        defer {
-            if let data = try? JSONSerialization.data(withJSONObject: ui, options: [.sortedKeys]) {
-                let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
-                attachment.name = "p15-ui.json"
-                attachment.lifetime = .keepAlways
-                add(attachment)
-            }
-        }
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_BOARD_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P15_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(4)
-        save("p15-default")
-        // Real UIKit typing brackets the modal operations in the peer's FIFO. Focus the
-        // terminal on its last body row at mid-width, as the coordinate taps of P4/P9 do
-        // (the row's text starts at the left edge, where the first run tapped).
-        try tapText(terminalInputRow, in: app, dx: 0.5)
-        app.typeText("P15-start")
-        sleep(1)
-        try tapText("Settings", in: app)
-        try tapAppearance(in: app, ui: &ui)
-        try p15Host("qa-alpha", stale: "qa-beta", stage: "alpha", ui: &ui)
-        for (label, stage) in [("High contrast", "high-first"),
-                               ("Owner default", "owner-reset"),
-                               ("High contrast", "selected")] {
-            try tapText(label, in: app)
-            ui.append(["kind": "theme-click", "label": label, "time": Date().timeIntervalSince1970])
-            sleep(2)
-            save("p15-" + stage)
-        }
-        try tapText("Close", in: app)
-        sleep(2)
-        save("p15-closed")
-        try tapText(terminalInputRow, in: app, dx: 0.5)
-        app.typeText("P15-end")
-        sleep(1)
-        // Use the existing production board host buttons, not direct actions.
-        try scrollBoard(in: app)
-        try tapText("qa-beta", in: app)
-        sleep(2)
-        try tapText("Settings", in: app)
-        try tapAppearance(in: app, ui: &ui)
-        try p15Host("qa-beta", stale: "qa-alpha", stage: "beta", ui: &ui)
-        try tapText("Close", in: app)
-        XCUIDevice.shared.press(.home)
-        sleep(2)
-        app.activate()
-        sleep(3)
-        save("p15-returned")
-        app.terminate()
-        app.launch()
-        sleep(4)
-        save("p15-relaunch")
-        try tapText("Settings", in: app)
-        try tapAppearance(in: app, ui: &ui)
-        try tapText("High contrast", in: app, tap: false)
-        try p15Host("qa-alpha", stale: "qa-beta", stage: "relaunch-host", ui: &ui)
-        try tapText("Close", in: app)
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    /// Taps the Appearance page button and records how many OCR lines carried the label.
-    /// More than one line means the tap could land on another text (e.g. terminal output).
-    private func tapAppearance(in app: XCUIApplication, ui: inout [[String: Any]]) throws {
-        let lines = try tapText(appearancePage, in: app).matching
-        ui.append(["kind": "ocr-match", "label": appearancePage, "count": lines,
-                   "time": Date().timeIntervalSince1970])
-        XCTAssertEqual(lines, 1, "OCR lines containing \(appearancePage)")
-    }
+    let terminalInputRow = "Type here"
 
     /// Number of recognized text lines where any candidate contains `label`.
     /// Pure so the 0 and 2 cases do not need a Simulator.
     static func ocrLineCount(_ lines: [[String]], label: String) -> Int {
         lines.filter { candidates in candidates.contains { $0.contains(label) } }.count
-    }
-
-    private func p15Host(_ host: String, stale: String, stage: String,
-                         ui: inout [[String: Any]]) throws {
-        // This proves rendered current-host/Unavailable projection only. There is
-        // no settings read request whose stale response could be injected yet.
-        sleep(2)
-        let shot = XCUIScreen.main.screenshot()
-        let image = try XCTUnwrap(shot.image.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.customWords = [host, stale, "Unavailable", "File path unavailable"]
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-        let text = lines.joined(separator: "\n")
-        ui.append(["kind": "host-screen", "stage": stage, "host": host,
-                   "stale": stale, "lines": lines, "time": Date().timeIntervalSince1970])
-        save("p15-" + stage)
-        XCTAssertTrue(text.contains("Host: " + host), "Current host must be visible")
-        XCTAssertFalse(text.contains("Host: " + stale), "Old host must not occupy the settings view")
-        XCTAssertTrue(text.contains("File path unavailable"), "No invented remote path")
-        XCTAssertTrue(text.contains("Unavailable"), "Read authority is unavailable")
-        XCTAssertTrue(text.contains("daemon-effective state unverified"))
-    }
-
-    // SDK11 candidate source harness. UI waits never certify native completion;
-    // only the Rust state machine's actual callback/worker/peer receipts advance.
-    private func observerProbe(modal: Bool, drawing: Bool = false, disabled: Bool = false) throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
-        app.launchEnvironment["YEBISU_P11_CAPTURE"] = "1"
-        app.launchEnvironment["YEBISU_P11_BINDING"] = "P11_BINDING_UNSET"
-        app.launchEnvironment[modal ? "YEBISU_P11_QA" : "YEBISU_NATIVE_QA"] = "1"
-        if drawing { app.launchEnvironment["YEBISU_P11_DRAWING"] = "1" }
-        if disabled { app.launchEnvironment["YEBISU_P11_OBSERVER_DISABLED"] = "1" }
-        app.launch()
-        sleep(3)
-        if modal {
-            try tapText("Settings", in: app)
-            try tapText("Larger", in: app)
-        }
-        let done = modal ? "Observer matrix collected" : "Native matrix collected"
-        var collected = false
-        for _ in 0..<160 {
-            if textVisible(done) { collected = true; break }
-            try tapText(modal ? "Observer next" : "Native next", in: app)
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-        XCTAssertTrue(collected, "Missing actual callback/worker/receiving completion")
-        save(modal ? "p11-observer-modal" : "p11-observer-positive")
-        if modal {
-            try tapText("Close", in: app)
-            XCUIDevice.shared.press(.home)
-            app.activate()
-            app.terminate()
-            app.launch()
-            sleep(3)
-            save("p11-observer-relaunch")
-        }
-        app.terminate()
-        XCTAssertEqual(app.state, .notRunning)
-    }
-    func testP11ObserverText() throws { try observerProbe(modal: false) }
-    func testP11ObserverDrawing() throws { try observerProbe(modal: false, drawing: true) }
-    func testP11ObserverModal() throws { try observerProbe(modal: true) }
-    func testP11ObserverDisabled() throws { try observerProbe(modal: true, disabled: true) }
-
-    func testP14ConnectedNotifications() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P14_QA"] = "1"
-        app.launch()
-        sleep(4)
-        // Owner decision: with the software keyboard up, the toast sits just above it.
-        // A tap on the terminal focuses its input, which raises the keyboard.
-        try tapText("Type here", in: app)
-        sleep(2)
-        let keyboard = app.keyboards.element(boundBy: 0)
-        let keyboardTop = keyboard.exists ? keyboard.frame.minY : app.frame.height
-        XCTAssertLessThan(keyboardTop, app.frame.height - 100, "the software keyboard must be up for this measurement")
-        try tapText("P14 next", in: app)
-        sleep(1)
-        // The toast lives five seconds: a single pass screenshots, recognizes and taps it.
-        let toast = try tapTextBox("Agent needs attention", in: app, attachAs: "p14-toast")
-        let toastBottom = app.frame.minY + (1 - toast.minY) * app.frame.height
-        print("P14 keyboard top=\(keyboardTop) toast bottom=\(toastBottom)")
-        XCTAssertLessThanOrEqual(toastBottom, keyboardTop + 2, "toast is covered by the software keyboard")
-        sleep(2)
-        save("p14-focus")
-        for name in ["p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"] {
-            try tapText("P14 next", in: app)
-            sleep(3)
-            save(name)
-            if name == "p14-quiet" {
-                // The on-screen status line lives five seconds like the toast.
-                XCTAssertTrue(textVisible("QuietHours"), "the status line must be visible right after the refusal")
-                sleep(4)
-                save("p14-status-expired")
-                XCTAssertFalse(textVisible("QuietHours"), "the status line must disappear after its lifetime")
-            }
-        }
-        XCTAssertEqual(app.state, .runningForeground)
-        // Never visit notification settings or answer an OS permission dialog.
-    }
-
-    func testP11Settings() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P11_QA"] = "1"
-        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
-        app.launch()
-        sleep(4)
-        try tapText("Settings", in: app)
-        sleep(1)
-        try tapText("Larger", in: app)
-        try tapText("Probe modal callbacks", in: app)
-        sleep(3)
-        save("p11-modal")
-        try tapText("Close", in: app)
-        sleep(2)
-        XCUIDevice.shared.press(.home)
-        sleep(1)
-        app.activate()
-        save("p11-font")
-        app.terminate()
-        app.launch()
-        sleep(4)
-        save("p11-relaunch")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP2KeysAndRestart() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        XCUIDevice.shared.orientation = .portrait
-        app.activate()
-        sleep(3)
-        save("p2-initial")
-        try tapText("QA injected key provider", in: app, tap: false)
-        try tapText("Read or initialize device key", in: app)
-        sleep(4)
-        save("p2-key")
-        try tapText("Copy authorized_keys line", in: app)
-        sleep(2)
-        save("p2-copied")
-        // Home and return are a lifecycle check; terminate+launch is a restart.
-        XCUIDevice.shared.press(.home)
-        sleep(1)
-        app.activate()
-        app.terminate()
-        app.launchEnvironment["YEBISU_P2_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
-        app.launch()
-        sleep(3)
-        try tapText("QA injected key provider", in: app, tap: false)
-        try tapText("Read or initialize device key", in: app)
-        sleep(4)
-        save("p2-restarted")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testSH1153EditMenu() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_EDIT_MENU_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        for step in 0..<10 {
-            try tapText("Menu prepare", in: app)
-            sleep(1)
-            if step % 5 == 1 || step % 5 == 4 {
-                try tapText("Menu select", in: app)
-                sleep(1)
-            }
-            try tapText("Menu execute", in: app)
-            sleep(1)
-            save("sh1-153-case-\(step)")
-            if step == 1 || step == 6 {
-                print("SH1-153 MENU HIERARCHY case=\(step)\n\(app.debugDescription)")
-                let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
-                if edit.exists && edit.isHittable {
-                    edit.tap()
-                    sleep(1)
-                    save("sh1-153-system-edit-\(step)")
-                    print("SH1-153 OPEN MENU case=\(step)\n\(app.debugDescription)")
-                    // Dismiss without choosing an extra command outside the receipt cases.
-                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-                } else {
-                    print("SH1-153 system Edit menu is not exposed to XCTest in case \(step)")
-                }
-            }
-        }
-        try tapText("Menu prepare", in: app)
-        sleep(1)
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP8NativeEditing() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_NATIVE_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        for _ in 0..<25 {
-            try tapText("Native next", in: app)
-            sleep(1)
-        }
-        save("p8-native")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP3Terminal() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        save("p3-standard")
-        try tapText("Standard 14/20", in: app)
-        sleep(2)
-        save("p3-compact")
-        try tapText("Compact 12/17", in: app)
-        sleep(2)
-        XCUIDevice.shared.orientation = .landscapeLeft
-        sleep(3)
-        save("p3-landscape")
-        XCUIDevice.shared.orientation = .portrait
-        sleep(2)
-        save("p3-returned")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testSH1151SelectionSettings() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SELECTION_SETTINGS_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("Start: Drag", in: app, tap: false)
-        try tapText("Copy: Manual", in: app, tap: false)
-        save("sh1-151-fresh")
-        try tapText("Start: Drag", in: app)
-        try tapText("Copy: Manual", in: app)
-        sleep(2)
-        app.terminate()
-        app.launch()
-        sleep(3)
-        try tapText("Start: Select / double tap", in: app, tap: false)
-        try tapText("Copy: On selection", in: app, tap: false)
-        save("sh1-151-restored")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    // SH1-156: the owner's device failure, driven with the pointer. After a
-    // discarded composition, a trackpad click on the terminal must let letters
-    // reach the terminal, and so must Select on then off, and closing Settings
-    // without touching the terminal (R7). sh1-156-check.py
-    // asserts the private peer's receipts; this test only drives UIKit.
-    func testSH1156PointerClickAfterDiscard() throws {
-        continueAfterFailure = false
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_SH1_156_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        try tapText("Start: Drag", in: app, tap: false)
-        try tapText("Discard composition", in: app)
-        sleep(1)
-        save("sh1-156-discarded")
-        // A pointer click (not a touch) on the terminal's input row.
-        let row = try tapText(terminalInputRow, in: app, tap: false)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1 - row.box.midY)).click()
-        sleep(1)
-        save("sh1-156-clicked")
-        app.typeText("clicked")
-        sleep(1)
-        try tapText("Select", in: app)
-        sleep(1)
-        try tapText("Select: On", in: app, tap: false)
-        save("sh1-156-select-on")
-        try tapText("Select: On", in: app)
-        sleep(1)
-        save("sh1-156-select-off")
-        app.typeText("released")
-        sleep(2)
-        save("sh1-156-typed")
-        XCTAssertFalse(textVisible("Select: On"), "Select stayed on")
-        // R7: after Settings closes, typing without touching the terminal.
-        try tapText("Settings", in: app)
-        sleep(2)
-        try tapText("Close", in: app)
-        sleep(2)
-        app.typeText("settings")
-        sleep(2)
-        save("sh1-156-after-settings")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP10Settings() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_SETTINGS_QA"] = "1"
-        app.launch()
-        sleep(3)
-        save("p10-before")
-        XCUIDevice.shared.press(.home)
-        sleep(3)
-        app.activate()
-        sleep(2)
-        app.terminate()
-        app.launch()
-        sleep(3)
-        save("p10-restored")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testP9Core() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_CORE_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
-        app.launch()
-        sleep(3)
-        // Drag selection consumes the tap that must open native input here.
-        try tapText("Start: Drag", in: app)
-        try tapText("Start: Select / double tap", in: app, tap: false)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        app.typeText("P9-native\n")
-        try tapText("QA mark", in: app)
-        try tapText("QA delete", in: app)
-        try tapText("QA commit", in: app)
-        try tapText("Split (2 panes)", in: app)
-        sleep(2)
-        try tapText("Toggle split direction", in: app)
-        sleep(2)
-        try tapText("Pane 2", in: app)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        app.typeText("P9-pane2\n")
-        save("p9-split")
-        try tapText("Detach", in: app)
-        sleep(1)
-        try tapText("Reconnect", in: app)
-        sleep(3)
-        try tapText("Pane 1", in: app)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        app.typeText("P9-pane1\n")
-        save("p9-reattached")
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
-    func testSH154CoreImage() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_CORE_QA"] = "1"
-        app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launch()
-        // Locate the four strip controls once, in the first frame, and tap the recorded
-        // points from here on. Re-reading the strip after a "QA image ready" repaint lets
-        // Vision drop the "Paste" label or return a truncated "Paste image", and the tap
-        // then starts the wrong paste (L15 no control found, L16 text=0; main 2ed2beb,
-        // job 132955457568). The handoff row never moves between taps (handoff_view.rs,
-        // handoff_qa.rs), and p9-check validate_images proves what each tap did.
-        let qaImageOnly = try tapText("QA Image only", in: app, tap: false, attempts: 15).box
-        let qaImage = try tapText("QA Image", in: app, tap: false, excludingNextWord: "only").box
-        let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
-        let pasteImage = try tapText("Paste image", in: app, tap: false).box
-        // A misread box would otherwise surface only as put/path/text counts at the end:
-        // each pair is laid out left to right on one row, so reject a box that is not.
-        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only"),
-                                    (paste, pasteImage, "Paste / Paste image")] {
-            XCTAssertTrue(left.minX < right.minX && abs(left.midY - right.midY) < max(left.height, right.height),
-                          "\(what) not located left to right on one row: \(left) \(right)")
-        }
-        tapRecorded(qaImageOnly, "QA Image only", in: app)
-        try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        tapRecorded(pasteImage, "Paste image", in: app)
-        try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        tapRecorded(paste, "Paste", in: app)
-        try tapText("paste-1.png", in: app, tap: false, attempts: 30)
-        tapRecorded(qaImage, "QA Image", in: app)
-        try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        tapRecorded(paste, "Paste", in: app)
-        sleep(1)
-        tapRecorded(pasteImage, "Paste image", in: app)
-        try tapText("paste-2.png", in: app, tap: false, attempts: 30)
-        save("sh154-core-image")
-        XCTAssertEqual(app.state, .runningForeground)
     }
 
     /// First occurrence of `label` in `text` that is a whole word: the characters on both
@@ -694,11 +161,11 @@ final class SmokeQA: XCTestCase {
 
     // Non-asserting presence probe for polling loops. Use tapText(tap: false) only
     // where the control MUST already be on screen.
-    private func textVisible(_ label: String) -> Bool {
+    func textVisible(_ label: String) -> Bool {
         (try? locateText(label)) != nil
     }
 
-    private func scrollBoard(in app: XCUIApplication) throws {
+    func scrollBoard(in app: XCUIApplication) throws {
         let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
@@ -736,7 +203,7 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    private func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
+    func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // The whole screenshot is tried on every attempt, as before; the horizontal
@@ -759,14 +226,14 @@ final class SmokeQA: XCTestCase {
     }
 
     /// Taps a box recorded earlier by `tapText(tap: false)`. No OCR runs here.
-    private func tapRecorded(_ box: CGRect, _ label: String, in app: XCUIApplication) {
+    func tapRecorded(_ box: CGRect, _ label: String, in app: XCUIApplication) {
         print("recorded tap \(label) box=\(box)")
         app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1 - box.midY)).tap()
     }
 
     /// P14 toast: one pass that screenshots (kept as `attachAs`), recognizes and taps, and
     /// returns the matched box in normalized screenshot coordinates for the keyboard-clearance check.
-    private func tapTextBox(_ label: String, in app: XCUIApplication, attachAs: String) throws -> CGRect {
+    func tapTextBox(_ label: String, in app: XCUIApplication, attachAs: String) throws -> CGRect {
         for attempt in 0..<3 {
             if let found = try locateText(label, bands: attempt == 2, attachAs: attachAs) {
                 print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
@@ -781,7 +248,7 @@ final class SmokeQA: XCTestCase {
         throw NSError(domain: "SmokeQA.MissingControl", code: 1)
     }
 
-    private func save(_ name: String) {
+    func save(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways

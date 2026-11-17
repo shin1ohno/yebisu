@@ -40,6 +40,33 @@ provided evidence was produced. The artifact excludes `build/` and the local
 files disappear when the job finishes. This checks Simulator
 rendering and lifecycle behavior, not physical IME or hardware keyboard behavior.
 
+## layout-smoke job and SmokeQA label check
+
+| Job | Runs | Limit | Selected by |
+|---|---|---|---|
+| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | the `layout=` pattern of the `changes` job: the harness scripts above, `scripts/ios/smoke-qa/`, and the app modules those three drive; pushes to main and manual runs always run it |
+| `check`, step `SmokeQA labels` | `scripts/ios/smokeqa-labels-check.py`: ties every text SmokeQA taps or OCR-matches to the app source that paints it, or to an allow-list entry with its reason | within the 40-minute `check` job | every pull request that selects `check` |
+
+These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
+the finished-phase checks P4 to P8, R3, R5, CJK and SH1-155, three remain that are neither in
+`edit-menu` nor in `simulator-smoke`: P2, P3 and P10. The `layout-smoke` job is built like
+`ci-sh1-152.py`, with two differences: a failing check does not stop the next one (every check is
+timed and judged in one run; the job still fails), and each check's wall time is printed as
+`LAYOUT-SMOKE DURATION <check> <seconds> s exit <code>` and written to
+`target/ios-layout-smoke/durations.json`, uploaded with the other receipts as the
+`layout-smoke-evidence` artifact.
+
+Measure the job on the first integration run: `gh run view <run-id> --json jobs` gives the job's
+`startedAt` and `completedAt` and each step's, and the `durations.json` artifact splits the
+"Layout smoke receiving-system checks" step by check. A total above 45 minutes is the signal to split the
+job into two (P2 and P3 in one, P10 and the next additions in the other) before the 60-minute
+limit is hit. The job has not been run on a hosted runner yet; the figures are open until it has.
+
+The tests moved from `SmokeQA.swift` into `SmokeQA+<unit>.swift` extensions of the same class
+(Terminal, Keys, Handoff, Settings, Theme, Observer, Notifications, Input, Core), each at most 300
+lines. `-only-testing:SmokeOracle/SmokeQA/<test>` names are unchanged. Line numbers such as
+`SmokeQA.swift:23` in the classes below refer to the file before that split.
+
 ## Known simulator-smoke failure classes
 
 Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
