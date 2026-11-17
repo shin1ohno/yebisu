@@ -419,6 +419,7 @@ impl Smoke {
             .children(self.handoff_qa_controls(cx))
             .children(self.native_edit_qa_controls(cx))
             .children(self.edit_menu_qa_controls(cx))
+            .children(self.sh1_156_qa_controls(cx))
             .children(self.sh1_152_controls(cx))
             .child(
                 div()

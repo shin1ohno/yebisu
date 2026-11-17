@@ -449,4 +449,7 @@ impl Smoke {
     pub(crate) fn native_edit_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
+    pub(crate) fn sh1_156_qa_controls(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
+    }
 }

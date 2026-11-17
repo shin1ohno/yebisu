@@ -101,6 +101,8 @@ mod edit_menu_qa;
 mod native_edit_qa;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 mod native_observer_qa;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod sh1_156_qa;
 
 #[cfg(any(target_os = "ios", test))]
 mod core;
