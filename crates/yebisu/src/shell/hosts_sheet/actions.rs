@@ -22,7 +22,9 @@ impl Smoke {
         self.setup.pending = None;
         self.setup.fingerprints.clear();
         self.setup_input.set_text(host.to_owned());
+        let over_terminal = self.shell.hosts_sheet.over_terminal || self.terminal.open;
         self.shell.hosts_sheet.open_add(mode, host);
+        self.shell.hosts_sheet.over_terminal = over_terminal;
         self.hosts_sheet_takes_input();
         cx.notify();
     }

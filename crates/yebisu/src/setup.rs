@@ -19,10 +19,10 @@ pub(crate) struct Setup {
     pub(crate) pending: Option<(String, NewHostKey)>,
     /// Bumped by Cancel; a reply that carries an older value is dropped.
     pub(crate) epoch: u64,
-    /// The first Load reply (or its failure) has arrived.
-    pub(crate) loaded: bool,
     /// The job in flight is the startup Load.
     pub(crate) loading: bool,
+    /// The startup Load answered (with hosts or with an error).
+    pub(crate) loaded: bool,
 }
 
 #[cfg(any(target_os = "ios", test))]

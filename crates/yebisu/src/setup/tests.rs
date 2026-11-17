@@ -70,20 +70,29 @@ fn authentication_reply_adds_host_to_setup_list_without_reload() {
 }
 
 #[test]
-fn first_reply_of_the_startup_load_marks_hosts_loaded() {
+fn any_reply_of_the_startup_load_ends_the_waiting() {
     let mut setup = Setup {
         busy: true,
         loading: true,
         ..Setup::default()
     };
-    assert!(!setup.loaded);
     setup.apply(Err(Error::InvalidKeyLine));
-    assert!(setup.loaded, "a failed load still ends the waiting");
-    assert!(!setup.loading);
+    assert!(
+        setup.loaded && !setup.loading,
+        "a failed load still ends the waiting"
+    );
     // Later replies are not loads.
     let mut later = Setup::default();
     later.apply(Ok(Reply::Saved(saved_hosts("a@host"), "pin".into())));
     assert!(!later.loaded);
+    let mut loaded = Setup {
+        busy: true,
+        loading: true,
+        ..Setup::default()
+    };
+    loaded.apply(Ok(Reply::Hosts(saved_hosts("a@host"), String::new())));
+    assert!(loaded.loaded && !loaded.loading);
+    assert_eq!(loaded.hosts, ["existing@host", "a@host"]);
 }
 
 #[test]

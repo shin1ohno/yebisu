@@ -44,6 +44,11 @@ pub(crate) struct HostsSheetState {
     pub(crate) add: Option<AddHostSession>,
     /// The first-run auto-open already happened (it happens once).
     pub(crate) auto_opened: bool,
+    /// The sheet was opened over a connected terminal (footer Hosts); any other
+    /// sheet belongs to the first-run frame and closes when a terminal opens.
+    pub(crate) over_terminal: bool,
+    /// A terminal was open since the first-run frame was last drawn.
+    pub(crate) saw_terminal: bool,
     /// Sign-in found a Herdr to open; the view opens it after the reply.
     pub(crate) pending_open: Option<HerdrKind>,
 }
@@ -60,6 +65,19 @@ impl HostsSheetState {
     pub(crate) fn close(&mut self) {
         self.list_open = false;
         self.add = None;
+        self.over_terminal = false;
+    }
+
+    /// Called every frame. A sheet of the first-run frame does not stay on
+    /// top of a terminal that opened behind it.
+    pub(crate) fn note_terminal(&mut self, open: bool) {
+        if !open {
+            return;
+        }
+        self.saw_terminal = true;
+        if self.visible() && !self.over_terminal {
+            self.close();
+        }
     }
 
     pub(crate) fn visible(&self) -> bool {
@@ -67,9 +85,14 @@ impl HostsSheetState {
     }
 
     /// With no host saved the Add host sheet opens by itself, once, after the
-    /// saved hosts have loaded; with hosts saved the list opens instead.
+    /// startup load answered; with hosts saved the list opens instead. The
+    /// same happens again when a terminal that was open has closed.
     pub(crate) fn auto_open(&mut self, loaded: bool, host_count: usize) -> bool {
-        if self.auto_opened || !loaded {
+        let returning = std::mem::take(&mut self.saw_terminal);
+        if returning {
+            self.auto_opened = false;
+        }
+        if self.auto_opened || !(loaded || returning) {
             return false;
         }
         self.auto_opened = true;
@@ -135,6 +158,7 @@ impl Smoke {
     /// Footer Hosts: open the host list. `true` means handled.
     pub(crate) fn open_hosts(&mut self, cx: &mut Context<Self>) -> bool {
         self.shell.hosts_sheet.open_list();
+        self.shell.hosts_sheet.over_terminal = self.terminal.open;
         self.hosts_sheet_takes_input();
         cx.notify();
         true

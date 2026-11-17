@@ -169,7 +169,6 @@ impl Smoke {
         Some(
             div()
                 .id("first-run")
-                .children(self.key_qa_label())
                 .size_full()
                 .flex()
                 .bg(rgb(FIELD))
@@ -186,6 +185,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        self.shell.hosts_sheet.note_terminal(self.terminal.open);
         if !self.shell.hosts_sheet.visible() {
             return None;
         }
@@ -263,10 +263,12 @@ impl Smoke {
             .and_then(|h| h.keys.line())
             .map(str::to_owned);
         let key_ready = line.is_some();
+        let qa_label = self.key_qa_label();
         div()
             .flex()
             .flex_col()
             .gap_2()
+            .children(qa_label.map(|label| div().text_sm().text_color(rgb(MUTED)).child(label)))
             .child(
                 div()
                     .id("device-key-line")
