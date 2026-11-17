@@ -248,8 +248,8 @@ impl Smoke {
         }
     }
 
-    /// The focused space's name for the Space menu's labels: its label,
-    /// or "Space N" when it has none.
+    /// The focused space's name for the Space menu's labels, as the
+    /// sidebar writes it: "Space N · label", or "Space N" without a label.
     pub(crate) fn menu_space_name(&self) -> Option<String> {
         let shown = snapshot(&self.terminal.live)?;
         let id = shown.focused_workspace_id.as_ref()?;
@@ -257,7 +257,7 @@ impl Smoke {
         Some(if space.label.is_empty() {
             format!("Space {}", space.number)
         } else {
-            space.label.clone()
+            format!("Space {} · {}", space.number, space.label)
         })
     }
 
