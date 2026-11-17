@@ -117,6 +117,21 @@ fn chrome_allows(command: Command, state: &ChromeState) -> bool {
     }
 }
 
+/// Why the chrome disables `command`'s row (q4: a disabled place says why).
+fn chrome_reason(command: Command, state: &ChromeState) -> Option<&'static str> {
+    if chrome_allows(command, state) {
+        None
+    } else if state.sheet_open {
+        Some("Close the sheet first")
+    } else if command == Command::Find {
+        Some("Find is not available here")
+    } else if state.kind != HerdrKind::Herdr1 {
+        Some("Not available on Herdr 2")
+    } else {
+        Some("Host is not connected")
+    }
+}
+
 fn rows_from(catalog: Vec<Action>, state: &ChromeState, live: bool) -> Vec<(Command, ShortcutRow)> {
     catalog
         .into_iter()
@@ -198,7 +213,8 @@ pub(crate) fn shortcuts_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     let catalog = actions::catalog(&TerminalView::default());
     for (command, row) in rows_from(catalog, state, false) {
         if let Some(action) = entry_action(command) {
-            out.push(point(action, Place::ShortcutsPopover, row.enabled, None));
+            let reason = chrome_reason(command, state);
+            out.push(point(action, Place::ShortcutsPopover, row.enabled, reason));
         }
     }
     let menus = host_menus::menu_bar(state, true);
