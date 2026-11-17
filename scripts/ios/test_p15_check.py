@@ -368,8 +368,9 @@ class PageLabel(unittest.TestCase):
 
     def sources(self):
         read = lambda path: (self.ROOT / path).read_text()
+        tests = (self.ROOT / "scripts/ios/smoke-qa/Tests").glob("SmokeQA*.swift")
         return (read("crates/yebisu/src/settings_pages/mod.rs"), read("crates/yebisu/src/settings_sheet/view.rs"),
-                read("scripts/ios/smoke-qa/Tests/SmokeQA.swift"))
+                "\n".join(path.read_text() for path in sorted(tests)))
 
     def test_checked_in_sources_agree(self):
         p15.check_page_label(*self.sources())
@@ -377,7 +378,7 @@ class PageLabel(unittest.TestCase):
     # L1: the Swift constant goes back to the display name
     def test_l1_swift_constant_with_a_capital_fails(self):
         pages, view, swift = self.sources()
-        swift = swift.replace('private let appearancePage = "appearance"', 'private let appearancePage = "Appearance"')
+        swift = swift.replace('let appearancePage = "appearance"', 'let appearancePage = "Appearance"')
         with self.assertRaisesRegex(ValueError, "appearancePage must equal the page id"):
             p15.check_page_label(pages, view, swift)
 

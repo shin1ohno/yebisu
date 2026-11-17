@@ -70,7 +70,7 @@ def check_page_label(rust_pages, rust_view, swift):
         raise ValueError("settings_pages: Appearance page id not found exactly once")
     if not re.search(r'button\(\s*format!\("settings-page-\{\}",\s*page\.id\(\)\),\s*page\.id\(\)', rust_view):
         raise ValueError("settings_sheet: page button no longer shows page.id() as its label")
-    constants = re.findall(r'private let appearancePage = "([^"]+)"', swift)
+    constants = re.findall(r'\blet appearancePage = "([^"]+)"', swift)
     if constants != [ids[0]]:
         raise ValueError("SmokeQA appearancePage must equal the page id " + repr(ids[0]))
     if ids[0] != APPEARANCE_PAGE:
