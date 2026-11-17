@@ -1,10 +1,10 @@
 //! All Keychain, network and filesystem work lives in background jobs.
-use crate::Result;
 #[cfg(target_os = "ios")]
 use crate::{
     Error,
     hosts::{Store, authentication_gate},
 };
+use crate::{Result, shell::add_host::Probe};
 #[cfg(target_os = "ios")]
 use sheprd_client::ssh;
 use sheprd_client::ssh::{HostKeyScan, NewHostKey};
@@ -17,6 +17,12 @@ pub(crate) struct Setup {
     pub(crate) target: String,
     pub(crate) fingerprints: String,
     pub(crate) pending: Option<(String, NewHostKey)>,
+    /// Bumped by Cancel; a reply that carries an older value is dropped.
+    pub(crate) epoch: u64,
+    /// The job in flight is the startup Load.
+    pub(crate) loading: bool,
+    /// The startup Load answered (with hosts or with an error).
+    pub(crate) loaded: bool,
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -35,8 +41,42 @@ pub(crate) enum Reply {
     Loaded(String, String),
     Hosts(crate::hosts::SavedHosts, String),
     Scanned(String, HostKeyScan, String),
+    /// The host offered a key that differs from the pinned one: both
+    /// fingerprints, nothing trusted.
+    Mismatch {
+        target: String,
+        expected: String,
+        seen: String,
+    },
     Saved(crate::hosts::SavedHosts, String),
     Authenticated(crate::hosts::SavedHosts, String),
+    /// Sign-in succeeded; the probe says which Herdr the host runs.
+    SignedIn(crate::hosts::SavedHosts, String, Probe),
+}
+
+#[cfg(target_os = "ios")]
+fn probe_facts(probe: &ssh::HostProbe) -> Probe {
+    use ssh::HostProbe;
+    let (herdr1, herdr2, outdated) = match probe {
+        HostProbe::Running | HostProbe::Stopped => (true, false, false),
+        HostProbe::CoreAvailable => (false, true, false),
+        HostProbe::OutdatedCoreAvailable => (false, true, true),
+        HostProbe::Outdated => (false, false, true),
+        HostProbe::Missing | HostProbe::SshFailed(_) => (false, false, false),
+    };
+    Probe {
+        herdr1,
+        herdr2,
+        outdated,
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn join_fingerprints(list: &[ssh::HostKeyFingerprint]) -> String {
+    list.iter()
+        .map(|f| format!("{} {}", f.kind, f.fingerprint))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(target_os = "ios")]
@@ -74,6 +114,15 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
         }
         Job::Scan(target) => {
             let scan = ssh::scan_host_key(&target).map_err(map)?;
+            if matches!(scan, HostKeyScan::Refused(ssh::SshFailure::HostKey))
+                && let Ok(Some(change)) = ssh::changed_host_key(&target)
+            {
+                return Ok(Reply::Mismatch {
+                    expected: join_fingerprints(&change.pinned),
+                    seen: join_fingerprints(&change.offered.fingerprints),
+                    target,
+                });
+            }
             let fingerprints = match &scan {
                 HostKeyScan::New(key) => key
                     .fingerprints
@@ -104,11 +153,13 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             if let ssh::HostProbe::SshFailed(failure) = probe {
                 return Err(Error::Ssh(format!("authentication refused: {failure:?}")));
             }
+            let facts = probe_facts(&probe);
             let store = store()?;
             store.save(&target)?;
-            Ok(Reply::Authenticated(
+            Ok(Reply::SignedIn(
                 store.load_hosts()?,
                 format!("SSH authenticated: {probe:?}"),
+                facts,
             ))
         }
     }
@@ -117,6 +168,9 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
 impl Setup {
     pub(crate) fn apply(&mut self, reply: Result<Reply>) {
         self.busy = false;
+        if std::mem::take(&mut self.loading) {
+            self.loaded = true;
+        }
         match reply {
             Err(e) => {
                 crate::diagnostics::record("setup_error");
@@ -153,6 +207,12 @@ impl Setup {
                     }
                 }
             }
+            Ok(Reply::Mismatch { target, .. }) => {
+                self.target = target;
+                self.fingerprints.clear();
+                self.pending = None;
+                self.status = "Host key changed. Refused; nothing was trusted.".into();
+            }
             Ok(Reply::Saved(hosts, fingerprints)) => {
                 self.target = hosts.selected;
                 self.hosts = hosts.targets;
@@ -160,7 +220,7 @@ impl Setup {
                 self.fingerprints = fingerprints;
                 self.status = "Host key trusted and connection saved.".into();
             }
-            Ok(Reply::Authenticated(hosts, message)) => {
+            Ok(Reply::Authenticated(hosts, message) | Reply::SignedIn(hosts, message, _)) => {
                 self.target = hosts.selected;
                 self.hosts = hosts.targets;
                 self.status = message;
