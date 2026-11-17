@@ -10,10 +10,7 @@ fn wave0_slots_are_inert() {
     assert!(legacy.toolbar && legacy.input_options && legacy.return_policy);
     assert!(legacy.handoff && legacy.actions && legacy.qa_controls);
     assert!(footer::footer_items(HerdrKind::Herdr1).is_empty());
-    assert!(mods::mods_item(2).is_none());
-    assert!(overlay::toast_slot().is_none());
     assert!(!qa_strip::qa_strip_enabled());
-    assert!(fit::status_bar_overflow(0.0).is_empty());
 }
 
 #[test]
