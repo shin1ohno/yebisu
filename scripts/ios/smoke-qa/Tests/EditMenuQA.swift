@@ -28,7 +28,7 @@ final class EditMenuQA: XCTestCase {
     private static let labels = [
         "152 Begin", "152 Begun", "152 Select", "152 Mutate", "152 Replay", "152 Fresh", "152 End", "152 Ordinary",
         "152 Restore", "152 Second", "152 Two Begin", "152 Two Begun", "152 Two Select", "152 Two End", "152 Two Close",
-        "private wire peer", "yebisu P9", "AAA-152", "BBB-152",
+        "private wire peer", "P9 Herdr", "AAA-152", "BBB-152",
     ]
 
     func testSH1152Basic() throws {
@@ -285,7 +285,10 @@ final class EditMenuQA: XCTestCase {
     // selection the menu is Paste alone; with a selection it is Copy and Paste.
     private func menu(_ app: XCUIApplication, _ name: String, selected: Bool, target: String? = nil) throws {
         let captures = records("sh1-152-capture").count
-        let spot = try point(target ?? (name.contains("core") ? "yebisu P9" : "private wire peer"), app)
+        // The Herdr 2 mock banner is "yebisu P9 Herdr 2" (core_mock.rs). After L8 retired the
+        // band, Vision split it after "yebisu" in 2 of 3 Mac mini E1-core runs and read
+        // "P9 Herdr 2" whole every time, so the spot is found by "P9 Herdr".
+        let spot = try point(target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer"), app)
         spot.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
         menuOpen = true
