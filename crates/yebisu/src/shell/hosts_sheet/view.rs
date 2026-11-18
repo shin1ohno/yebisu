@@ -375,7 +375,10 @@ impl Smoke {
             )));
         }
         let close = button("hosts-close", "Close", true, false)
-            .on_click(cx.listener(|this, _, _, cx| this.hosts_close(cx)))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.hosts_close(cx);
+                this.return_keys_to_terminal(window, cx);
+            }))
             .into_any_element();
         let add = button("hosts-add", "Add host", !busy, true)
             .on_click(cx.listener(|this, _, _, cx| this.hosts_open_add(SheetMode::Add, "", cx)))
@@ -565,7 +568,10 @@ impl Smoke {
             }
         }
         let cancel = button("hosts-add-cancel", "Cancel", true, false)
-            .on_click(cx.listener(|this, _, _, cx| this.hosts_close(cx)))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.hosts_close(cx);
+                this.return_keys_to_terminal(window, cx);
+            }))
             .into_any_element();
         let connect = button("hosts-add-connect", "Connect", session.can_sign_in(), false)
             .on_click(cx.listener(|this, _, _, cx| this.hosts_sign_in(cx)))

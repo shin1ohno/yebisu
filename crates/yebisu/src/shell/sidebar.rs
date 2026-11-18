@@ -7,6 +7,7 @@
 use super::{HerdrKind, sidebar_status::SidebarStatus};
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
+pub(crate) mod long_press;
 pub(crate) mod model;
 pub(crate) mod target;
 pub(crate) mod view;
@@ -30,6 +31,8 @@ pub(crate) const SPACE_ROW_HEIGHT: f32 = 56.;
 pub(crate) struct SidebarState {
     /// Saved Hosts order (L7's Hosts list); hosts not in it follow by name.
     pub(crate) host_order: Vec<String>,
+    /// The open long-press menu of a host or space row (L6, Q8).
+    pub(crate) long_press: Option<long_press::LongPressMenu>,
     order: RefCell<ReceiveOrder>,
 }
 

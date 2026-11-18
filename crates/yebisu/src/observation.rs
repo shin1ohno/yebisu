@@ -130,11 +130,39 @@ fn write_records(
         .append(append)
         .truncate(!append)
         .open(path)?;
+    write_records_to(&mut file, receiver)
+}
+
+/// The writer loop of `write_records`, over any sink so a test can count the
+/// writes it makes.
+fn write_records_to(
+    file: &mut impl Write,
+    receiver: std::sync::mpsc::Receiver<Value>,
+) -> std::io::Result<()> {
     for value in receiver.into_iter().take(8192) {
-        writeln!(file, "{value}")?;
-        file.flush()?;
+        write_jsonl_line(file, &value)?;
     }
     Ok(())
+}
+
+/// One JSONL record as one complete line in one `write_all`. Every QA JSONL
+/// writer that appends to a file another process or thread may also append
+/// to uses it. `writeln!(file, "{value}")` on an unbuffered `File` issues one
+/// `write` per formatter piece (`{`, `"kind"`, `:`, ...), so a writer that is
+/// killed or interleaved between them leaves part of a line. Integration 2
+/// run 44236636053 (layout-smoke job 134574290912) read a complete
+/// `p2-setup.jsonl` line that failed at column 8, right after `{"kind"`; the
+/// likely writer is the app killed by `terminate()` right after `activate()`
+/// in testP2KeysAndRestart, followed by the relaunched app's first record
+/// (inferred: the line itself was not uploaded). Records are small, so one
+/// `write_all` is one `write`.
+pub(crate) fn write_jsonl_line(
+    file: &mut impl Write,
+    value: &impl std::fmt::Display,
+) -> std::io::Result<()> {
+    let line = format!("{value}\n");
+    file.write_all(line.as_bytes())?;
+    file.flush()
 }
 #[cfg(test)]
 impl Observation {

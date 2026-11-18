@@ -14,9 +14,12 @@ _live_spec.loader.exec_module(live_jsonl)
 
 # simctl pbpaste times out (NSPOSIXErrorDomain code=60, exit 60) on GitHub-hosted macOS runners:
 # run 44151000668 job 134279069207. The Mac mini keeps the exact pasteboard match.
-HOSTED_PBPASTE_SKIP = ("P2 SKIPPED the receiving pasteboard read: simctl pbpaste times out (exit 60) on GitHub-hosted "
-                       "macOS runners (run 44151000668 job 134279069207). The copy itself is still asserted by the app "
-                       "receipt 'Copied restricted public key.' (validate_records); the Mac mini keeps the exact-match check.")
+HOSTED_PBPASTE_SKIP = ("P2 SKIPPED the receiving pasteboard read on a GitHub-hosted runner: simctl pbpaste times out "
+                       "(exit 60) there (run 44151000668 job 134279069207) and, after a timeout, returned text that is not "
+                       "the key line (run 44247827726 job 134611018720). Owner decision "
+                       "pr73-p2-hosted-pasteboard-decision.json. The copy itself is still asserted by the app receipt "
+                       "'Copied restricted public key.' (validate_records), with the XCTest and the colour check; the "
+                       "Mac mini keeps the exact-match read.")
 
 
 def run(*command, **kwargs):
@@ -83,18 +86,24 @@ def pbpaste(device, attempts=3, delay=5, check_output=subprocess.check_output, s
     return None
 
 
-def check_pasteboard(clipboard, expected_line, hosted):
-    """Exact match, except that a GitHub-hosted runner that cannot read the pasteboard skips with the reason."""
+def check_pasteboard(clipboard, expected_line):
+    """The exact-match read off the hosted runner: a read failure or any other text fails."""
     if clipboard is None:
-        if hosted:
-            print(HOSTED_PBPASTE_SKIP, flush=True)
-            return False
         raise RuntimeError("receiving Simulator pasteboard could not be read")
     if clipboard != expected_line:
         raise RuntimeError("receiving Simulator pasteboard differs from the formatted public key")
     print("P2 receiving Simulator pasteboard exactly matches the restricted public key.")
     return True
 
+
+def verify_pasteboard(device, expected_line, hosted, read=None):
+    """On a GitHub-hosted runner only the external read of the receiving Simulator pasteboard is
+    skipped, with the reason and its run evidence printed; elsewhere (the Mac mini) the pasteboard
+    is read and must equal the key line exactly. Returns whether the read was made and matched."""
+    if hosted:
+        print(HOSTED_PBPASTE_SKIP, flush=True)
+        return False
+    return check_pasteboard((read or pbpaste)(device), expected_line)
 
 def main():
     root = Path(__file__).resolve().parents[2]
@@ -128,7 +137,7 @@ def main():
     run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
     container = subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()
     records, expected_line = read_until_valid(Path(container) / "Documents/p2-setup.jsonl", start, validate_records)
-    check_pasteboard(pbpaste(device), expected_line, os.environ.get("GITHUB_ACTIONS") == "true")
+    verify_pasteboard(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")
     # Negative controls use the actual app's receipt shape, not invented output.
     for corrupted, expected in [([], "missing independent process launch receipts"),
                                 ([v for v in records if v.get("status") != "Copied restricted public key."],

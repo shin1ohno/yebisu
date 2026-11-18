@@ -1,6 +1,15 @@
 //! Keyless UIKit commands: labels advertise shortcuts without registering keys.
 //! Native stale tags are discarded by the pinned SDK before action dispatch.
-use crate::{actions, app::Smoke, board::snapshot, terminal_view::TerminalView};
+use crate::{
+    actions,
+    app::Smoke,
+    board::snapshot,
+    shell::{
+        ChromeState,
+        host_menus::{self, MenuItemId, MenuScope},
+    },
+    terminal_view::TerminalView,
+};
 use gpui::{Context, Menu, MenuItem, Window};
 use sheprd_commands::Command;
 
@@ -45,6 +54,14 @@ impl Scope {
 pub(crate) struct NativeCommand {
     name: String,
 }
+impl NativeCommand {
+    /// The menu item a `NativeCommand` stands for, by catalog or item name.
+    /// Tests only: the app builds its commands in `install_native_menus`.
+    #[cfg(test)]
+    pub(crate) fn named(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
 
 /// Shared Settings/menu presentation API. No platform keymap is modified.
 /// Search opens from its shortcut and the palette; the keyless OS menu keeps
@@ -69,9 +86,10 @@ pub(crate) fn catalog_rows(
         .collect()
 }
 
-fn menu_label(row: &actions::Action) -> String {
-    let shortcuts = row
-        .shortcuts
+/// Menu glyphs for catalog shortcuts ("cmd-d" -> "⌘D"), joined by " / ".
+/// Shared by the OS menu and the Shortcuts popover.
+pub(crate) fn shortcut_glyphs(shortcuts: &[&str]) -> String {
+    shortcuts
         .iter()
         .map(|shortcut| {
             shortcut
@@ -82,7 +100,11 @@ fn menu_label(row: &actions::Action) -> String {
                 .to_uppercase()
         })
         .collect::<Vec<_>>()
-        .join(" / ");
+        .join(" / ")
+}
+
+fn menu_label(row: &actions::Action) -> String {
+    let shortcuts = shortcut_glyphs(row.shortcuts);
     if shortcuts.is_empty() {
         row.label.clone()
     } else {
@@ -90,10 +112,19 @@ fn menu_label(row: &actions::Action) -> String {
     }
 }
 
+/// One OS menu row: (`NativeCommand` name, label, enabled).
+type MenuRow = (String, String, bool);
+/// The Host and Space menus: title and rows.
+type HostMenuRows = Vec<(&'static str, Vec<MenuRow>)>;
+
 #[derive(Default)]
 pub(crate) struct NativeMenus {
     scope: Option<Scope>,
     rows: Vec<(String, String, bool)>,
+    /// The Host and Space menus (L6, Q8): title and (name, label, enabled).
+    pub(crate) host_menus: HostMenuRows,
+    /// The target the Host and Space menus were built for (S-10).
+    menu_scope: MenuScope,
 }
 impl NativeMenus {
     fn refresh(
@@ -113,6 +144,29 @@ impl NativeMenus {
         self.scope = Some(scope);
         self.rows = rows;
         true
+    }
+
+    /// The Host and Space menus (L6): rebuilt when their target or rows change.
+    fn refresh_host_menus(
+        &mut self,
+        scope: MenuScope,
+        space_name: &str,
+        state: &ChromeState,
+        focused: bool,
+    ) -> bool {
+        let host_menus = host_menu_rows(&scope, space_name, state, focused);
+        if self.host_menus == host_menus && self.menu_scope == scope {
+            return false;
+        }
+        self.host_menus = host_menus;
+        self.menu_scope = scope;
+        true
+    }
+
+    /// The target the Host and Space menus were last built for (tests only).
+    #[cfg(test)]
+    pub(crate) fn menu_scope(&self) -> &MenuScope {
+        &self.menu_scope
     }
 
     /// QA only: the Scope and rows the OS menu is being rebuilt from, for the
@@ -185,10 +239,15 @@ impl Smoke {
             return;
         }
         let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
-        if !self
+        let terminal_menu = self
             .native_menus
-            .refresh(&self.terminal, &self.actions, focused)
-        {
+            .refresh(&self.terminal, &self.actions, focused);
+        let (scope, state) = (self.current_menu_scope(), self.menu_chrome_state());
+        let space_name = self.menu_space_name().unwrap_or_default();
+        let host_menus = self
+            .native_menus
+            .refresh_host_menus(scope, &space_name, &state, focused);
+        if !terminal_menu && !host_menus {
             return;
         }
         // QA only: `refresh` returned true, so the OS menu is rebuilt below.
@@ -197,7 +256,14 @@ impl Smoke {
         let items = self.native_menus.rows.iter().map(|(name, label, enabled)| {
             MenuItem::action(label.clone(), NativeCommand { name: name.clone() }).disabled(!enabled)
         });
-        cx.set_menus(vec![Menu::new("Terminal").items(items)]);
+        let mut menus = vec![Menu::new("Terminal").items(items)];
+        menus.extend(self.native_menus.host_menus.iter().map(|(title, rows)| {
+            Menu::new(*title).items(rows.iter().map(|(name, label, enabled)| {
+                MenuItem::action(label.clone(), NativeCommand { name: name.clone() })
+                    .disabled(!enabled)
+            }))
+        }));
+        cx.set_menus(menus);
     }
 
     pub(crate) fn native_command_action(
@@ -209,12 +275,23 @@ impl Smoke {
         let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let receipt = self.p12_menu_begin(&action.name, "native_action", window);
-        let result = actions::catalog(&self.terminal)
-            .iter()
-            .find(|row| row.info.name == action.name)
-            .map(|row| row.info.command)
-            .ok_or(crate::Error::NativeMenu("unsupported command"))
-            .and_then(|command| self.run_catalog_command(command, Some(action), focused));
+        let result = if let Some(item) = MenuItemId::from_name(&action.name) {
+            // Host / Space (L6): the target shown with the menu must still be
+            // the current one (S-10).
+            let shown = self.native_menus.menu_scope.clone();
+            if focused {
+                self.run_menu_item(item, &shown, window, cx)
+            } else {
+                Err(crate::Error::NativeMenu("inactive terminal focus"))
+            }
+        } else {
+            actions::catalog(&self.terminal)
+                .iter()
+                .find(|row| row.info.name == action.name)
+                .map(|row| row.info.command)
+                .ok_or(crate::Error::NativeMenu("unsupported command"))
+                .and_then(|command| self.run_catalog_command(command, Some(action), focused))
+        };
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_menu_end(Some(receipt), result.is_ok(), "command_gate");
         self.observation.record(serde_json::json!({
@@ -228,6 +305,40 @@ impl Smoke {
         window.notify_text_input_changed(&self.terminal_focus);
         cx.notify();
     }
+}
+
+/// The Host and Space menus' rows for the menu bar. Items name their target
+/// ("Reconnect — studio"); every item is disabled without terminal focus.
+/// The Host and Space menus' rows; Space items name the space as the
+/// sidebar does (`space_name`), not by its workspace id.
+fn host_menu_rows(
+    scope: &MenuScope,
+    space_name: &str,
+    state: &ChromeState,
+    focused: bool,
+) -> HostMenuRows {
+    host_menus::menu_bar(state, scope.space.is_some())
+        .into_iter()
+        .map(|(title, entries)| {
+            let target = if title == host_menus::HOST_MENU {
+                scope.host.as_str()
+            } else {
+                space_name
+            };
+            let rows = entries
+                .into_iter()
+                .map(|entry| {
+                    let label = host_menus::menu_item_label(entry.item, target);
+                    (
+                        entry.item.name().to_owned(),
+                        label,
+                        entry.enabled && focused,
+                    )
+                })
+                .collect();
+            (title, rows)
+        })
+        .collect()
 }
 
 #[cfg(test)]

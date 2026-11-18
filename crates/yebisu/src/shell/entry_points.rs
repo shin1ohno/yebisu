@@ -102,7 +102,10 @@ fn frame_entry_points(state: &ChromeState, out: &mut Vec<EntryPoint>) {
         out.push(point(EntryAction::Reconnect, Place::StatusBar, true));
     }
     out.push(point(EntryAction::Shortcuts, Place::StatusBar, true));
-    if state.sidebar_hidden {
+    if state.sidebar_forced {
+        // The status bar hides "Show sidebar" while the width forces the
+        // rail; the rail's own toggle carries the reason.
+    } else if state.sidebar_hidden {
         out.push(point(EntryAction::ToggleSidebar, Place::StatusBar, true));
     } else {
         out.push(point(
@@ -120,7 +123,15 @@ fn frame_entry_points(state: &ChromeState, out: &mut Vec<EntryPoint>) {
             EntryAction::Shortcuts,
             EntryAction::ToggleSidebar,
         ] {
-            out.push(point(action, Place::Keyboard, true));
+            // Command-B refuses with the reason while the width forces the
+            // rail (actions.rs, L4 review F1).
+            let reason = (action == EntryAction::ToggleSidebar)
+                .then(|| rail::toggle_unavailable(state))
+                .flatten();
+            out.push(EntryPoint {
+                reason,
+                ..point(action, Place::Keyboard, reason.is_none())
+            });
         }
         if state.find_available {
             out.push(point(EntryAction::Find, Place::Keyboard, true));

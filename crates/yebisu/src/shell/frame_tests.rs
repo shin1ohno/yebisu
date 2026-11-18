@@ -71,3 +71,95 @@ fn terminal_receives_allocated_rect() {
         }
     }
 }
+
+#[gpui::test]
+fn forced_rail_reaches_the_entry_model(cx: &mut gpui::TestAppContext) {
+    use crate::shell::{
+        EntryAction, Place, entry_move::LegacyBands, entry_points::chrome_entry_points,
+    };
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        let rail_actions = |this: &Smoke| {
+            let state = this.chrome_state();
+            let found: Vec<(EntryAction, bool, Option<&'static str>)> =
+                chrome_entry_points(&state, LegacyBands::current())
+                    .into_iter()
+                    .filter(|e| e.place == Place::Rail)
+                    .map(|e| (e.action, e.enabled, e.reason))
+                    .collect();
+            (state.sidebar_hidden, found)
+        };
+        // 300 on screen: the rail offers nothing.
+        assert_eq!(rail_actions(this), (false, vec![]));
+        // The width forces the rail while the user still wants 300.
+        this.shell.frame.sidebar_collapsed = true;
+        let (hidden, found) = rail_actions(this);
+        assert!(hidden);
+        for action in [EntryAction::Hosts, EntryAction::Settings] {
+            assert!(
+                found.contains(&(action, true, None)),
+                "{action:?} must be reachable in the rail: {found:?}"
+            );
+        }
+        // Integration 2 (L4 review F1): the toggle cannot change anything
+        // while the width forces the rail, so it is off with its reason.
+        assert!(
+            found.contains(&(EntryAction::ToggleSidebar, false, Some("Window too narrow"))),
+            "the forced rail's toggle must be disabled with its reason: {found:?}"
+        );
+        // The user chose the rail in a wide window.
+        this.shell.frame.sidebar_collapsed = false;
+        this.actions.board_hidden = true;
+        assert!(rail_actions(this).0);
+    });
+}
+
+/// Integration 2 (L4 review F1): while the width forces the rail, "Show
+/// sidebar ⌘B" is not offered, Command-B and the palette row refuse with
+/// "Window too narrow" and the saved choice stays; once the window is wide
+/// enough the same command switches the sidebar again.
+#[gpui::test]
+fn forced_rail_refuses_the_sidebar_toggles_with_a_reason(cx: &mut gpui::TestAppContext) {
+    use crate::shell::{
+        EntryAction, Place, entry_move::LegacyBands, entry_points::chrome_entry_points,
+        status_bar::status_bar_model,
+    };
+    use sheprd_commands::Command;
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        // A Herdr 1 terminal screen: the catalog offers its local commands.
+        this.terminal.open = true;
+        this.shell.frame.sidebar_collapsed = true;
+        let state = this.chrome_state();
+        assert!(state.sidebar_hidden && state.sidebar_forced);
+        assert!(!status_bar_model(&state, "h").show_sidebar_hint);
+        let toggles: Vec<_> = chrome_entry_points(&state, LegacyBands::current())
+            .into_iter()
+            .filter(|e| e.action == EntryAction::ToggleSidebar)
+            .collect();
+        assert!(
+            toggles.iter().all(|e| e.place != Place::StatusBar),
+            "the status bar must not offer Show sidebar: {toggles:?}"
+        );
+        assert!(
+            toggles
+                .iter()
+                .all(|e| !e.enabled && e.reason == Some("Window too narrow")),
+            "every sidebar toggle is off with its reason: {toggles:?}"
+        );
+        let Err(error) = this.run_action(Command::ToggleSidebar) else {
+            panic!("Command-B must refuse while the width forces the rail");
+        };
+        assert!(
+            error.to_string().contains("Window too narrow"),
+            "the refusal says why: {error}"
+        );
+        assert!(!this.actions.board_hidden, "the saved choice stays 300");
+        // Positive control: in a wide window the same command switches.
+        this.shell.frame.sidebar_collapsed = false;
+        assert!(!this.chrome_state().sidebar_forced);
+        this.run_action(Command::ToggleSidebar)
+            .unwrap_or_else(|e| panic!("toggle in a wide window: {e}"));
+        assert!(this.actions.board_hidden, "Command-B chose the rail");
+    });
+}

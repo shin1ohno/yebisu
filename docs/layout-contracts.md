@@ -149,7 +149,7 @@ its module. "New" means the stream creates it.
 | L3 | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_tests/**`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
 | L4 | `shell/rail.rs`, `shell/rail_badges.rs`, `shell/filter.rs` |
 | L5 | `shell/edit_bar.rs`, `shell/edit_bar_tests/**` |
-| L6 | `shell/shortcuts.rs`, `shell/host_menus.rs`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
+| L6 | `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/shortcuts_tests/**`, `shell/host_menus.rs`, `shell/host_menus_tests/**`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
 | L7 | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `shell/hosts_sheet_tests/**`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
 | L8 | `shell/herdr2_frame.rs`, `core.rs`, `core/store.rs`, `core_view.rs`, `core_mock.rs`, `core_mock/**`, `scripts/ios/p9-check.py` |
 | L9 | `shell/fit.rs`, `shell/mods.rs`, `shell/overlay.rs`, `shell/disconnect.rs`, `terminal_input.rs`, `terminal_input_tests.rs` |
@@ -568,3 +568,20 @@ goes away at the end of Wave 3.
   wraps and the frame jumps); L2b restores 1200 and asserts no jump.
 - **A5.** L7 F1 (keys reach the remote shell while the Hosts sheet is open)
   is a merge condition of L2b (S5).
+- **A6 (Integration 1 Sonnet review S2).** Before L2b merges, every input
+  guard that checks `settings_modal` also checks the Hosts sheet
+  (`input_modal()`), opening the sheet over a terminal does the clean-up of
+  `begin_settings_modal` (`hand_keys_to_sheet`), and closing it returns the
+  terminal focus and the keyboard (`return_keys_to_terminal`). Landed in
+  Integration 2 with L2b patch 02. Every path that opens the sheet over a
+  live terminal goes through `hand_keys_to_sheet`: footer Hosts, the L4
+  rail's Hosts and L6's Host > Edit. L6's `HOSTS_SHEET_FENCED` is true.
+- **Integration 2 (L4 review F1).** `ChromeState.sidebar_forced` is true
+  while the width forces the rail; every sidebar toggle (status bar Show
+  sidebar, rail, keyboard, Shortcuts popover, `Command::ToggleSidebar`) is
+  hidden or disabled with "Window too narrow".
+- **Integration 2 (Herdr 2 footer).** With the toolbar retired, Herdr 2
+  draws the sidebar column with an empty list and the L2b footer until L8
+  fills the list; Integration 1 S3's empty-column rule no longer holds.
+- **Integration 2 (layout-mutations).** Streams' patches append to `CASES`
+  only; the integrator folds their docstring edits into one change.

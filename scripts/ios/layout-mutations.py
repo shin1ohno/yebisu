@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L3 sidebar,
-L5 edit bar, L7 Hosts sheet), requiring each named test to
+"""Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L2b sidebar
+footer, L2c one-pane rule, L3 sidebar, L4 rail, L5 edit bar, L6 Shortcuts and menus,
+L7 Hosts sheet, L9 keyboards and mod regions), requiring each named test to
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
@@ -20,8 +21,12 @@ OUT = ROOT / "target/layout-mutations"
 def test_panics(test):
     """The named test's own test directory. `a::b::tests::c::name` lives in
     a/b/tests/ (L0 layout, L1 settings_pages) or in a/b_tests/ when the module
-    keeps its tests beside it (L3 shell/sidebar_tests/, L5
-    shell/edit_bar_tests/, L7 shell/hosts_sheet_tests/), or in a/b_tests.rs
+    keeps its tests beside it (L2b shell/footer_tests/, L2c
+    shell/single_pane_tests/ and core/screen_tests/, L3 shell/sidebar_tests/,
+    L4 shell/rail_tests/ and shell/rail_badges_tests/, L5
+    shell/edit_bar_tests/, L6 shell/shortcuts_tests/ and
+    shell/host_menus_tests/, L7 shell/hosts_sheet_tests/, L9 shell/fit_tests/,
+    shell/mods_tests/ and shell/disconnect_tests/), or in a/b_tests.rs
     (L2a shell/tab_row_tests.rs)."""
     module = test.split("::tests::")[0].replace("::", "/")
     return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/",
@@ -97,6 +102,70 @@ CASES = [
     ("l7-first-run-auto-open", "shell/hosts_sheet/view.rs", ".auto_open(self.setup.loaded, self.setup.hosts.len());",
      ".auto_open(false, self.setup.hosts.len());",
      "shell::hosts_sheet::tests::first_run::first_run_opens_add_host_sheet_over_empty_frame"),
+    # L9 (plan v2 7.15): input queued while the window is too small (Q1, D2).
+    ("l9-no-send-too-small", "terminal_input.rs", "        if self.size_hold {\n            return false;\n",
+     "        if false {\n            return false;\n",
+     "shell::fit::tests::too_small::too_small_window_message_and_no_send"),
+    # L9: Mods shown with nothing withdrawn (Q3).
+    ("l9-mods-condition", "shell/mods.rs", "    (withdrawn > 0).then(|| format!(\"Mods {withdrawn}\"))",
+     "    true.then(|| format!(\"Mods {withdrawn}\"))",
+     "shell::mods::tests::item::mods_item_only_when_withdrawn"),
+    # L9: the disconnected region held 60 s instead of 30 s (mod point 7).
+    ("l9-disconnect-30s", "shell/disconnect.rs", "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(30);",
+     "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(60);",
+     "shell::disconnect::tests::fade::disconnected_region_fades_after_30s"),
+    # L2b (plan v2 7.6): Hosts removed from the sidebar footer (5.1 rule 2).
+    ("l2b-footer-hosts", "shell/footer.rs", "            item: FooterItem::Hosts,\n",
+     "            item: FooterItem::NewSpace,\n",
+     "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
+    # L2b: New space enabled on Herdr 2 without its reason (q4).
+    ("l2b-herdr2-new-space", "shell/footer.rs",
+     "            enabled: herdr1,\n            reason: (!herdr1).then_some(HERDR2_NEW_SPACE),\n",
+     "            enabled: true,\n            reason: None,\n",
+     "shell::footer::tests::new_space::new_space_herdr2_disabled_with_reason"),
+    # L2b: Settings removed from the sidebar footer.
+    ("l2b-footer-settings", "shell/footer.rs", "            item: FooterItem::Settings,\n",
+     "            item: FooterItem::Hosts,\n",
+     "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
+    # L4 (plan v2 7.9). The rail's badge fit comparison: a left badge that is too wide still fits.
+    ("l4-badge-fit", "shell/rail_badges.rs",
+     "    let left_fits = left_right_edge + MIN_GAP <= dot_left;\n",
+     "    let left_fits = left_right_edge + MIN_GAP <= dot_left + 100.0;\n",
+     "shell::rail_badges::tests::fit::rail_badges_fall_back_to_combined_when_too_wide"),
+    # L4: no Combined fallback, two badges are drawn even when they would touch the dot.
+    ("l4-combined-fallback", "shell/rail_badges.rs",
+     "    } else {\n        RailBadges::Combined\n    }\n",
+     "    } else {\n        RailBadges::Two\n    }\n",
+     "shell::rail_badges::tests::fit::rail_badges_fall_back_to_combined_when_too_wide"),
+    # L4: the sidebar collapses when two panes no longer fit, not when one does not (Q2: collapse last).
+    ("l4-collapse-order", "shell/rail.rs",
+     "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + TERMINAL_MIN_WIDTH;",
+     "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + crate::layout::TWO_PANE_MIN_WIDTH;",
+     "shell::rail::tests::collapse::sidebar_collapses_last"),
+    # L2c (plan v2 6.3): Herdr 1 narrow column, the Zoom request is never sent.
+    ("l2c-zoom-send", "shell/single_pane.rs",
+     "        if available && self.run_action(Command::Zoom).is_ok() {",
+     "        if false && available && self.run_action(Command::Zoom).is_ok() {",
+     "shell::single_pane::tests::zoom::herdr1_narrow_column_requests_zoom_once"),
+    # L2c: Herdr 2 draws every pane in a narrow column instead of the active one.
+    ("l2c-herdr2-active-only", "core/screen.rs",
+     "        if single && index != saved.active {",
+     "        if false && single && index != saved.active {",
+     "core::screen::tests::narrow::herdr2_narrow_column_draws_active_pane_only"),
+    # L2c: a stacked division under the 206 pt minimum is no longer refused.
+    ("l2c-per-pane-minimum", "core/screen.rs",
+     "        size.rows() / divided < least_rows",
+     "        false",
+     "core::screen::tests::minimum::per_pane_size_never_below_minimum"),
+    # L6 (plan v2 7.11): the Shortcuts rows are the catalog's; narrowing the catalog drops a row.
+    ("l6-catalog-filter", "shell/shortcuts.rs", "    catalog\n        .into_iter()\n",
+     "    catalog\n        .into_iter()\n        .skip(1)\n",
+     "shell::shortcuts::tests::rows::shortcuts_rows_come_from_catalog"),
+    # L6: long press of a space row lists the Space menu's items (Q8).
+    ("l6-long-press-match", "shell/host_menus.rs",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 1] = [SpaceMenuItem::NewTab];",
+     "shell::host_menus::tests::long_press::menu_items_match_long_press"),
 ]
 
 

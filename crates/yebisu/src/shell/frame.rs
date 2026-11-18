@@ -6,7 +6,7 @@
 //! bar). L0 `layout::compute` decides every size; the frame only places the
 //! slots in that order. The legacy toolbar and bands stay inside the
 //! terminal body until L2b retires them (plan v2 5.1 rule 1).
-use super::{ChromeState, HerdrKind};
+use super::{ChromeState, HerdrKind, rail::SidebarMode};
 use crate::{
     app::Smoke,
     layout::{self, Insets, Layout, RULE, Rect, Size},
@@ -114,7 +114,9 @@ impl Smoke {
             selecting: self.handoff.select_mode || self.handoff.selection.is_some(),
             sheet_open: self.settings_modal,
             find_available: crate::find_view::available(&self.terminal),
-            sidebar_hidden: self.actions.board_hidden,
+            // The rail is on screen when the user chose it or the width forces it.
+            sidebar_hidden: self.actions.board_hidden || self.shell.frame.sidebar_collapsed,
+            sidebar_forced: self.sidebar_forced_rail(),
         }
     }
 
@@ -130,7 +132,11 @@ impl Smoke {
             keyboard: f32::from(keyboard),
         };
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
-        layout::compute(&frame_input(size, insets, self.find.is_some()))
+        layout::compute(&layout::Input {
+            // Command-B and the rail's button collapse to 72 at any width (L4).
+            sidebar_rail: self.sidebar_user_mode() == SidebarMode::Rail,
+            ..frame_input(size, insets, self.find.is_some())
+        })
     }
 
     /// Wraps the terminal screen built by `render_terminal` in the frame:
@@ -248,16 +254,15 @@ impl Smoke {
                     .into_any_element()
             });
         }
-        if self.actions.board_hidden {
-            return None;
-        }
         let list = match self.render_sidebar_list(cx) {
             Some(list) => Some(list),
             // Herdr 2 had no board in the band either. Until L8 fills its
-            // sidebar, draw no column at all, so frame_geometry gives the
-            // 300 pt back to the terminal (Integration 1 review S3; the
-            // narrowed column hid the core strip's Paste in testSH154CoreImage).
-            None if self.terminal.core_mode => return None,
+            // sidebar the list stays empty, but the column still draws: the
+            // L2b footer is the only place of Hosts, Settings and New space
+            // once the toolbar is retired (Integration 2). Integration 1 S3
+            // dropped the column while it was empty; with the footer in it,
+            // it is not.
+            None if self.terminal.core_mode => None,
             // The body drew the board this frame (a resize just widened the
             // window past the collapse width): never draw it twice.
             None if board_in_band => None,
@@ -309,11 +314,10 @@ impl Smoke {
     }
 
     /// Whether the legacy board stays in the terminal screen's band list.
-    /// False while the sidebar column is expanded and hosts it; a collapsed
-    /// sidebar (narrow window, no L4 rail yet) keeps the board in the band so
-    /// it stays reachable.
+    /// False: the sidebar column hosts it when expanded and the rail lists the
+    /// same hosts and spaces when collapsed.
     pub(crate) fn board_in_band(&self) -> bool {
-        self.shell.frame.sidebar_collapsed
+        false
     }
 }
 

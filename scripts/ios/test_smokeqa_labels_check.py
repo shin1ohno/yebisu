@@ -134,8 +134,8 @@ class AppChanged(Tree):
     """The app stops painting what SmokeQA still taps."""
 
     def test_a_commented_out_control_fails(self):
-        self.rewrite("crates/yebisu/src/terminal_view.rs", '"Reconnect"', '"Reconnect"')
-        file = self.root / "crates/yebisu/src/terminal_view.rs"
+        self.rewrite("crates/yebisu/src/shell/status_bar.rs", '"Reconnect"', '"Reconnect"')
+        file = self.root / "crates/yebisu/src/shell/status_bar.rs"
         lines = file.read_text().splitlines()
         at = next(i for i, line in enumerate(lines) if '"Reconnect"' in line)
         lines[at] = "// " + lines[at]
@@ -152,12 +152,12 @@ class AppChanged(Tree):
         self.assertTrue(any("'Type here'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_a_renamed_control_text_fails(self):
-        self.rewrite("crates/yebisu/src/settings_sheet/view.rs", '"open-settings", "Settings"', '"open-settings", "Preferences"')
+        self.rewrite("crates/yebisu/src/shell/footer.rs", 'SETTINGS: &str = "Settings"', 'SETTINGS: &str = "Preferences"')
         problems = self.run_check()[1]
         self.assertTrue(any("'Settings'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_a_deleted_source_file_fails(self):
-        (self.root / "crates/yebisu/src/handoff_view.rs").unlink()
+        (self.root / "crates/yebisu/src/shell/overflow_menu.rs").unlink()
         problems = self.run_check()[1]
         self.assertTrue(any("'Paste image'" in p and "no longer contains" in p for p in problems), problems)
 
@@ -180,7 +180,7 @@ class AllowListSource(Tree):
     def test_the_font_metrics_changing_fails(self):
         self.rewrite("crates/yebisu/src/settings_pages/fonts.rs", "size_px: 14.0,", "size_px: 15.0,")
         problems = self.run_check()[1]
-        self.assertTrue(any("'Standard 14/20'" in p and "no longer contains" in p for p in problems), problems)
+        self.assertTrue(any("'Regular 14/20'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_an_allow_list_entry_no_test_uses_any_more_fails(self):
         with mock.patch.dict(labels.ALLOWED, {"Retired": ("no longer used", [("crates/yebisu/src/app.rs", "Async counter")])}):

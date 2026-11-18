@@ -12,6 +12,12 @@ final class EditMenuQA: XCTestCase {
     // Vision boxes (screen-normalized) of the labels the last OCR passes saw.
     // Cleared whenever an action can move them.
     private var located: [String: CGRect] = [:]
+    // The software keyboard frame (points) the boxes in `located` were seen with.
+    // Since L2b the 152 controls sit in the QA strip above the status bar, which the
+    // frame keeps clear of the keyboard, so they move when it shows or hides
+    // (Integration 2 run 44214913068: 152 Begin at y 0.09 and 0.37, a recorded
+    // 152 End tap landed on the keyboard).
+    private var locatedKeyboard = CGRect(x: -1, y: -1, width: 0, height: 0)
     // Set while an edit menu may be open, so a remembered point it may cover
     // is read from the screen again, as every tap was before.
     private var menuOpen = false
@@ -437,11 +443,36 @@ final class EditMenuQA: XCTestCase {
     // an open edit menu now lies over that point; then the screen is read
     // again, which also finds a control whose start the menu covers.
     private func point(_ label: String, _ app: XCUIApplication, required: Bool = true) throws -> XCUICoordinate {
+        if settledKeyboard(app) != locatedKeyboard {
+            located.removeAll()
+        }
         if let box = located[label], !covered(box, app) {
             print("SH1-152 TAP \(label) seen at \(box)")
             return screenPoint(app, box.midX, 1-box.midY)
         }
         return try coordinate(label, app, required: required)
+    }
+
+    // One snapshot: `exists` then `frame` are two queries, and a keyboard that leaves between
+    // them fails the test ("No matches found ... Keyboard", run 44241460741 job 134590165203).
+    // A keyboard that is not there, or leaves while it is read, is .zero.
+    private func keyboardFrame(_ app: XCUIApplication) -> CGRect {
+        guard let snapshot = try? app.keyboards.firstMatch.snapshot() else { return .zero }
+        return snapshot.frame.integral
+    }
+
+    // The keyboard frame once it stops moving (at most 3 s): the 152 controls move with it,
+    // and a box read while it slides in or out is stale by the time it is tapped
+    // (Integration 2, E3d after the return from the background).
+    private func settledKeyboard(_ app: XCUIApplication) -> CGRect {
+        var frame = keyboardFrame(app)
+        for _ in 0..<10 {
+            usleep(300_000)
+            let next = keyboardFrame(app)
+            if next == frame { return frame }
+            frame = next
+        }
+        return frame
     }
 
     private func covered(_ box: CGRect, _ app: XCUIApplication) -> Bool {
@@ -459,6 +490,11 @@ final class EditMenuQA: XCTestCase {
 
     private func coordinate(_ label: String, _ app: XCUIApplication, required: Bool = true, attempts: Int = 4) throws -> XCUICoordinate {
         for attempt in 0..<attempts {
+            let keyboard = settledKeyboard(app)
+            if keyboard != locatedKeyboard {
+                located.removeAll()
+                locatedKeyboard = keyboard
+            }
             let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate

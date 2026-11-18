@@ -28,6 +28,14 @@ pub(crate) struct FindBar {
     inbox: Arc<Mutex<Live>>,
     _changed: Subscription,
 }
+
+impl FindBar {
+    /// The field's focus handle: the Hosts sheet gives the keys back to it
+    /// when it closes over an open bar (Integration 2, review 87cd S1).
+    pub(crate) fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
+    }
+}
 impl FindBar {
     /// True while the search field, not the terminal, is UIKit's editing target.
     pub(crate) fn owns_text_editing(&self, window: &Window) -> bool {

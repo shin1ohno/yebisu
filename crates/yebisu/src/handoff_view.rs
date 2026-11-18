@@ -6,7 +6,7 @@ use crate::{
 use gpui::{AnyElement, ClipboardItem, Context, Window, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn sync_handoff(&mut self) {
-        let stamp = if !self.settings_modal
+        let stamp = if !self.input_modal()
             && self.find.is_none()
             && !self.find_handoff.paused
             && self.terminal.open

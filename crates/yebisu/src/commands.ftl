@@ -1,12 +1,14 @@
 commands-close-pane = Close Pane
 commands-close-tab = Close Tab
 commands-command-palette = Command Palette
+commands-find = Find
 commands-focus-down = Focus Down
 commands-focus-left = Focus Left
 commands-focus-right = Focus Right
 commands-focus-tab = Focus Tab { $number }
 commands-focus-up = Focus Up
 commands-new-tab = New Tab
+commands-new-workspace = New Space
 commands-next-pane = Next Pane
 commands-next-tab = Next Tab
 commands-previous-pane = Previous Pane

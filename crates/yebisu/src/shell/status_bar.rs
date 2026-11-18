@@ -55,8 +55,17 @@ pub(crate) fn status_bar_model(state: &ChromeState, connection: &str) -> StatusB
         kind: state.kind,
         state: status.to_owned(),
         show_reconnect: !state.connected,
-        show_sidebar_hint: state.sidebar_hidden,
+        // While the width forces the rail, "Show sidebar" could not show it.
+        show_sidebar_hint: state.sidebar_hidden && !state.sidebar_forced,
     }
+}
+
+/// The terminal's own status text (`Smoke::terminal_status`: "Paste queued",
+/// "Text input paused · tap terminal to type", errors) that only the retired
+/// toolbar row showed (L2b). Shown after the state unless it repeats it.
+pub(crate) fn status_detail(model: &StatusBarModel, detail: &str) -> Option<String> {
+    let detail = one_line(detail.trim());
+    (!detail.is_empty() && !detail.eq_ignore_ascii_case(&model.state)).then_some(detail)
 }
 
 /// The visible text of the bar's left side.
@@ -76,9 +85,13 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let state = self.chrome_state();
-        let model = status_bar_model(&state, &self.terminal.reconnect.target);
+        let mut model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
-        let line = status_line(&model);
+        let mut line = status_line(&model);
+        if let Some(detail) = status_detail(&model, &self.terminal_status()) {
+            line = format!("{line} · {detail}");
+            model.accessibility_label = format!("{}, {detail}", model.accessibility_label);
+        }
         Some(
             div()
                 .id("shell-status-bar")
@@ -120,8 +133,25 @@ impl Smoke {
                         )),
                     )
                 })
-                .children(mods.map(|text| div().flex_none().whitespace_nowrap().child(text)))
                 .child(div().flex_1())
+                // L9: Mods sits beside Shortcuts (ModsMax.dc.html) and opens
+                // the withdrawn regions' list in overlay O.
+                .children(mods.map(|text| {
+                    div()
+                        .id("shell-status-mods")
+                        .flex_none()
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .px_2()
+                        .whitespace_nowrap()
+                        .text_color(rgb(0xacb2bb))
+                        .child(text)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_mods_overlay();
+                            cx.notify();
+                        }))
+                }))
                 .when(model.show_sidebar_hint, |view| {
                     view.child(chip("shell-status-show-sidebar", SHOW_SIDEBAR).on_click(
                         cx.listener(|this, _, _, cx| {
@@ -132,10 +162,10 @@ impl Smoke {
                 })
                 .child(
                     chip("shell-status-shortcuts", SHORTCUTS).on_click(cx.listener(
-                        |this, _, _, cx| {
+                        |this, _, window, cx| {
                             // L6 fills the popover; until then Shortcuts opens the
                             // command palette (plan v2 5.2, L2a column).
-                            if !this.open_shortcuts(cx)
+                            if !this.toggle_shortcuts(window, cx)
                                 && let Err(e) = this.run_action(Command::Palette)
                             {
                                 this.terminal.live.status = e.to_string();

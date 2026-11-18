@@ -251,6 +251,38 @@ final class SmokeQA: XCTestCase {
         throw NSError(domain: "SmokeQA.MissingControl", code: 1)
     }
 
+    /// L2b retired the toolbar and the handoff band (shell/entry_move.rs). Settings is
+    /// the sidebar footer's "Settings" (shell/footer.rs); the caller then taps the page
+    /// title in the sheet's left column (settings_pages/sections.rs) and its control.
+    func openSettings(in app: XCUIApplication) throws {
+        try tapText("Settings", in: app)
+        sleep(2)
+    }
+
+    /// Opens the tab row's ... menu (shell/tab_row.rs `shell-more`) and returns the point
+    /// that opened it. The button is one "…" glyph that Vision does not read reliably, so
+    /// the test taps its place: the last 44 pt pinned button (PINNED_ACTION_WIDTH) at the
+    /// right end of the 36 pt tab row (TAB_ROW_HEIGHT), under the safe-area top that the
+    /// frame keeps (24 pt on the iPad Simulator; the other tops are fallbacks). The menu is
+    /// open when its "Select text" item (shell/overflow_menu.rs) is on screen. Tapping the
+    /// returned point again closes it: the open menu's backdrop takes that press.
+    @discardableResult
+    func openOverflowMenu(in app: XCUIApplication, at known: CGVector? = nil) throws -> CGVector {
+        let width = app.frame.width
+        let points = known.map { [$0] } ?? [24, 32, 20, 0].map { CGVector(dx: width - 22, dy: $0 + 18) }
+        for point in points {
+            print("overflow menu tap \(point)")
+            app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+            for _ in 0..<3 {
+                sleep(1)
+                if textVisible("Select text") { return point }
+            }
+        }
+        save("missing-overflow-menu")
+        XCTFail("The ... menu did not open (no \"Select text\" on screen)")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 2)
+    }
+
     func save(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name

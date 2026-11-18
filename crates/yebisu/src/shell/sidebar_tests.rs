@@ -3,6 +3,8 @@ use super::*;
 
 #[path = "sidebar_tests/identity.rs"]
 mod identity;
+#[path = "sidebar_tests/long_press.rs"]
+mod long_press;
 #[path = "sidebar_tests/order.rs"]
 mod order;
 #[path = "sidebar_tests/receive.rs"]

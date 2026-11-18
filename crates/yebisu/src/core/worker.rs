@@ -175,10 +175,17 @@ pub(super) fn run(
             }
         }
         if changed {
-            let pane_size = screen::pane_size(size, terminals.len(), saved.vertical)?;
-            for (terminal, screen) in terminals.iter_mut().zip(&screens) {
-                if !screen.ended {
-                    terminal.resize(pane_size)?;
+            // A pane the one-pane rule hides keeps the size it last had.
+            let sizes = screen::pane_sizes(
+                size,
+                terminals.len(),
+                saved.vertical,
+                saved.active,
+                crate::shell::single_pane::column_metrics(),
+            )?;
+            for ((terminal, screen), sent) in terminals.iter_mut().zip(&screens).zip(sizes) {
+                if let (false, Some(sent)) = (screen.ended, sent) {
+                    terminal.resize(sent)?;
                 }
             }
             if persist {

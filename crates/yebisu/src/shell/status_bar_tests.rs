@@ -51,4 +51,31 @@ fn hidden_sidebar_offers_show_in_status_bar() {
     };
     assert!(status_bar_model(&hidden, "h").show_sidebar_hint);
     assert_eq!(SHOW_SIDEBAR, "Show sidebar ⌘B");
+    // Integration 2 (L4 review F1): no Show sidebar while the width forces
+    // the rail; pressing it could not show the sidebar.
+    let forced = ChromeState {
+        sidebar_forced: true,
+        ..hidden
+    };
+    assert!(!status_bar_model(&forced, "h").show_sidebar_hint);
+}
+
+#[test]
+fn status_bar_carries_terminal_status_text() {
+    let model = status_bar_model(&state(HerdrKind::Herdr1, true), "pro-dev");
+    assert_eq!(
+        status_detail(&model, "Paste queued").as_deref(),
+        Some("Paste queued")
+    );
+    assert_eq!(
+        status_detail(&model, "connected"),
+        None,
+        "repeats the state"
+    );
+    assert_eq!(status_detail(&model, "  "), None);
+    // Untrusted daemon text stays on one line.
+    assert_eq!(
+        status_detail(&model, "Version mismatch:\nold").as_deref(),
+        Some("Version mismatch: old")
+    );
 }

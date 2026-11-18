@@ -34,7 +34,36 @@ impl Smoke {
             }))
             .into_any_element()
     }
+    /// The commands the palette list shows (the whole supported catalog
+    /// but the palette itself).
+    pub(crate) fn palette_commands(&self) -> Vec<Command> {
+        catalog(&self.terminal)
+            .into_iter()
+            .map(|a| a.info.command)
+            .filter(|c| *c != Command::Palette)
+            .collect()
+    }
+
+    fn render_palette_list(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("action-palette")
+            .debug_selector(|| "action-palette".into())
+            .h(gpui::px(200.))
+            .overflow_y_scroll()
+            .px_4()
+            .children(
+                self.palette_commands()
+                    .into_iter()
+                    .map(|c| self.action_button(c, cx)),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn render_actions(&self, cx: &mut Context<Self>) -> AnyElement {
+        // L2b retired the band; only the palette list is left (B1).
+        if !crate::shell::entry_move::LegacyBands::current().actions {
+            return self.render_palette_list(cx);
+        }
         let tabs = snapshot(&self.terminal.live)
             .map(|s| {
                 s.tabs
@@ -91,19 +120,7 @@ impl Smoke {
                 ),
             )
             .when(self.actions.palette, |view| {
-                view.child(
-                    div()
-                        .id("action-palette")
-                        .h(gpui::px(200.))
-                        .overflow_y_scroll()
-                        .px_4()
-                        .children(
-                            catalog(&self.terminal)
-                                .into_iter()
-                                .filter(|a| a.info.command != Command::Palette)
-                                .map(|a| self.action_button(a.info.command, cx)),
-                        ),
-                )
+                view.child(self.render_palette_list(cx))
             })
             .into_any_element()
     }

@@ -31,10 +31,11 @@ impl Smoke {
             return None;
         }
         Some({
-            let focused = !self.settings_modal
+            let focused = !self.input_modal()
                 && self.terminal_focus.is_focused(window)
                 && self.terminal.navigating.is_none()
                 && !self.actions.palette
+                && !self.shell.shortcuts.open
                 && !self.terminal.reconnect.suspended
                 && self.handoff.stamp.is_some();
             let copy = focused
@@ -103,11 +104,13 @@ impl Smoke {
     pub(crate) fn refresh_terminal_input(&mut self) {
         // A host switch must not encode keys with the new view's defaults.
         self.sync_input_settings();
+        let modal = self.input_modal();
         let terminal = &mut self.terminal;
-        if self.settings_modal
+        if modal
             || self.find.is_some()
             || terminal.navigating.is_some()
             || self.actions.palette
+            || self.shell.shortcuts.open
         {
             terminal.input.detach();
             return;
@@ -156,7 +159,11 @@ impl Smoke {
         if self.find.is_some() || self.find_handoff.paused {
             return;
         }
-        if self.settings_modal || self.terminal.navigating.is_some() || self.actions.palette {
+        if self.input_modal()
+            || self.terminal.navigating.is_some()
+            || self.actions.palette
+            || self.shell.shortcuts.open
+        {
             self.terminal.input.detach();
             return;
         }
@@ -192,8 +199,9 @@ impl Smoke {
             },
             "down",
         );
-        // The modal consumes every key before any native edit routing below.
-        if self.settings_modal {
+        // The modal (Settings or Hosts, A6) consumes every key before any
+        // native edit routing below.
+        if self.input_modal() {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_P11_QA").is_some()
                 && let Some(action) = herdr_uikit::native_edit_action()
@@ -243,6 +251,23 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         if !self.terminal_focus.is_focused(window) {
+            return;
+        }
+        // Escape closes the Shortcuts popover, never reaching the host (S1).
+        if self.shell.shortcuts.open && event.keystroke.key == "escape" {
+            self.shell.shortcuts.open = false;
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            window.notify_text_input_changed(&self.terminal_focus);
+            cx.notify();
+            return;
+        }
+        // Any other key, paste and copy included, stays in the app while
+        // the popover is open.
+        if self.shell.shortcuts.open {
+            cx.stop_propagation();
+            window.prevent_default();
             return;
         }
         #[cfg(target_os = "ios")]
@@ -382,10 +407,10 @@ impl Smoke {
         // SH1-156: the SDK refuses a retirement request while a key is held
         // (held-press ledger, herdr-uikit PR 16) and admits it again after the
         // release, so a release submits the pending request once more.
-        if self.terminal.input.requires_gesture() && !self.settings_modal && self.find.is_none() {
+        if self.terminal.input.requires_gesture() && !self.input_modal() && self.find.is_none() {
             self.request_text_retirement();
         }
-        if self.settings_modal {
+        if self.input_modal() {
             self.actions.consumed.remove(&event.keystroke.key);
             cx.stop_propagation();
             return;

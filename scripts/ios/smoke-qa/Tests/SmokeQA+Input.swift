@@ -18,7 +18,6 @@ extension SmokeQA {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(3)
-        try tapText("Start: Drag", in: app, tap: false)
         try tapText("Discard composition", in: app)
         sleep(1)
         save("sh1-156-discarded")
@@ -29,17 +28,21 @@ extension SmokeQA {
         save("sh1-156-clicked")
         app.typeText("clicked")
         sleep(1)
-        try tapText("Select", in: app)
+        // L2b: Select is the ... menu's Select text; while it is on, the status bar
+        // says typing is paused (shell/edit_bar.rs PAUSED_TYPING_STATUS).
+        let more = try openOverflowMenu(in: app)
+        try tapText("Select text", in: app)
         sleep(1)
-        try tapText("Select: On", in: app, tap: false)
+        try tapText("Typing is paused", in: app, tap: false)
         save("sh1-156-select-on")
-        try tapText("Select: On", in: app)
+        try openOverflowMenu(in: app, at: more)
+        try tapText("Select text", in: app)
         sleep(1)
         save("sh1-156-select-off")
         app.typeText("released")
         sleep(2)
         save("sh1-156-typed")
-        XCTAssertFalse(textVisible("Select: On"), "Select stayed on")
+        XCTAssertFalse(textVisible("Typing is paused"), "Select stayed on")
         // R7: after Settings closes, typing without touching the terminal.
         try tapText("Settings", in: app)
         sleep(2)

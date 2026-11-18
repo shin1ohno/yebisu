@@ -158,7 +158,7 @@ fn overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal(
 }
 
 #[gpui::test]
-fn herdr2_without_a_sidebar_list_gives_the_column_width_back(cx: &mut TestAppContext) {
+fn herdr2_without_a_sidebar_list_keeps_the_footer_column(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1200.), px(1000.)));
     let (collapsed, drawn, herdr1) = view.update_in(cx, |this, window, cx| {
@@ -171,7 +171,17 @@ fn herdr2_without_a_sidebar_list_gives_the_column_width_back(cx: &mut TestAppCon
     assert!(!collapsed, "fixture: 1200 pt keeps the sidebar open");
     assert!(herdr1, "fixture: Herdr 1 draws its sidebar column");
     assert!(
-        !drawn,
-        "Herdr 2 with no sidebar list draws an empty 300 pt column"
+        drawn,
+        "Herdr 2 with no sidebar list must still draw the column that holds the footer"
+    );
+    let footer: Vec<_> = crate::shell::footer::footer_items(crate::shell::HerdrKind::Herdr2)
+        .into_iter()
+        .map(|entry| (entry.item, entry.enabled))
+        .collect();
+    use crate::shell::footer::FooterItem;
+    assert!(
+        footer.contains(&(FooterItem::Settings, true))
+            && footer.contains(&(FooterItem::Hosts, true)),
+        "Herdr 2's footer reaches Settings and Hosts: {footer:?}"
     );
 }

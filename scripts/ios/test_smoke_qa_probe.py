@@ -126,6 +126,12 @@ class ObserverPollProbe(unittest.TestCase):
             self.assertLess(test.index('tapText("%s"' % label), first_tap, label)
         taps = re.findall(r"tapRecorded\((\w+),", test)
         self.assertEqual(taps, ["qaImageOnly", "pasteImage", "paste", "qaImage", "paste", "pasteImage"])
+        # L2b: Paste and Paste image are ... menu items, so every one of their taps
+        # reopens the menu at the point that opened it first, never by a fresh OCR.
+        for box in re.findall(r"openOverflowMenu\(in: app, at: more\)\n\s*tapRecorded\((\w+),", test):
+            self.assertIn(box, ("paste", "pasteImage"))
+        self.assertEqual(len(re.findall(r"openOverflowMenu\(in: app, at: more\)\n\s*tapRecorded\(", test)), 4)
+        self.assertEqual(test.count("openOverflowMenu(in: app)"), 1)
         # Waits stay as they were: every tap is followed by the state it must produce.
         waits = re.findall(r'tapText\("(paste-\d\.png|QA image ready)", in: app, tap: false, attempts: 30\)', test)
         self.assertEqual(waits, ["QA image ready", "paste-0.png", "paste-1.png", "QA image ready", "paste-2.png"])

@@ -75,13 +75,19 @@ class JobTests(unittest.TestCase):
         for name in CHECKS:
             self.assertTrue((HERE / name).is_file(), name)
 
-    def test_known_red_is_only_p3_and_every_entry_is_a_check_the_driver_runs(self):
-        self.assertEqual(list(driver.KNOWN_RED), ["p3-check.py"])
-        self.assertIn("aed154e", driver.KNOWN_RED["p3-check.py"])
+    def test_known_red_is_empty_since_p3_passed_on_hosted(self):
+        # Integration 2: p3 passed every stage in run 44214913068, so no check is known red.
+        self.assertEqual(driver.KNOWN_RED, {})
+        for name in driver.KNOWN_RED:
+            self.assertIn(name, CHECKS)
 
     def results(self, p2=0, p3=1, p10=0):
         return [{"check": "p2-check.py", "exit": p2}, {"check": "p3-check.py", "exit": p3}, {"check": "p10-check.py", "exit": p10}]
 
+    # The known-red mechanism, exercised with p3 listed as it was in Integration 1.
+    P3_RED = {"p3-check.py": "landscape rotation drops the private-peer connection (aed154e)"}
+
+    @mock.patch.dict(driver.KNOWN_RED, P3_RED)
     def test_a_known_red_failure_is_logged_and_does_not_fail_the_job(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -90,10 +96,12 @@ class JobTests(unittest.TestCase):
 
     def test_negative_other_failures_still_fail_the_job(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(driver.verdict(self.results(p2=1)), ["p2-check.py"])
-            self.assertEqual(driver.verdict(self.results(p10=65)), ["p10-check.py"])
-            self.assertEqual(driver.verdict(self.results()[:2]), ["a check did not run"])
+            self.assertEqual(driver.verdict(self.results(p3=1)), ["p3-check.py"])
+            self.assertEqual(driver.verdict(self.results(p2=1, p3=0)), ["p2-check.py"])
+            self.assertEqual(driver.verdict(self.results(p3=0, p10=65)), ["p10-check.py"])
+            self.assertEqual(driver.verdict(self.results(p3=0)[:2]), ["a check did not run"])
 
+    @mock.patch.dict(driver.KNOWN_RED, P3_RED)
     def test_negative_a_known_red_that_passes_fails_the_job_until_removed(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -324,8 +332,9 @@ class DriverTests(unittest.TestCase):
     def scripts_run(self, calls):
         return [Path(c[1]).name for c in calls if c[:1] == [driver.sys.executable]]
 
+    @mock.patch.dict(driver.KNOWN_RED, {"p3-check.py": "known red for this test"})
     def test_all_three_checks_run_in_order_on_one_simulator_that_is_deleted(self):
-        # p3 is a known red (KNOWN_RED): its failure alone leaves the job green.
+        # With p3 known red, its failure alone leaves the job green.
         code, calls, durations = self.run_main([0, 1, 0])
         self.assertEqual(code, 0)
         self.assertEqual(self.scripts_run(calls), CHECKS)
@@ -341,6 +350,7 @@ class DriverTests(unittest.TestCase):
         self.assertEqual([c["exit"] for c in durations["checks"]], [1, 1, 0])
         self.assertEqual(sum(1 for c in calls if c[:3] == ["xcrun", "simctl", "delete"]), 1)
 
+    @mock.patch.dict(driver.KNOWN_RED, {"p3-check.py": "known red for this test"})
     def test_a_known_red_that_passes_fails_the_job(self):
         code, _, _ = self.run_main([0, 0, 0])
         self.assertEqual(code, 1)

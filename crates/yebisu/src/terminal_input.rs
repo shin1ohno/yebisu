@@ -88,6 +88,9 @@ pub(crate) struct TerminalInput {
     pub report_all: bool,
     gap: Option<&'static str>,
     reported: std::cell::Cell<Option<&'static str>>,
+    /// The window is too small for one pane (L9, Q1): nothing is queued or
+    /// sent until it grows again.
+    size_hold: bool,
 }
 
 impl TerminalInput {
@@ -123,12 +126,24 @@ impl TerminalInput {
         let revision = self.retirement_revision.saturating_add(1);
         let cancelled = self.cancelled;
         let key_resumes = self.key_resumes;
+        let size_hold = self.size_hold;
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
         self.cancelled = cancelled;
         self.key_resumes = key_resumes;
         self.retirement_revision = revision;
+        self.size_hold = size_hold;
+    }
+    /// L9: while `hold` is true the window is too small for one pane (Q1,
+    /// D2), so no input reaches the terminal. Entering the hold drops what
+    /// is queued, so nothing typed into a too-small window leaves later.
+    pub fn hold_for_size(&mut self, hold: bool) {
+        if hold && !self.size_hold {
+            self.pending = None;
+            self.held = HeldKeys::default();
+        }
+        self.size_hold = hold;
     }
     /// The native text client is shared across hosts, unlike terminal queues.
     pub fn retain_discard(&mut self, cancelled: bool) {
@@ -283,6 +298,9 @@ impl TerminalInput {
         self.generated(event)
     }
     pub fn queue(&mut self, input: GeneratedInput) -> bool {
+        if self.size_hold {
+            return false;
+        }
         let Some(target) = &self.destination else {
             return false;
         };
@@ -294,7 +312,7 @@ impl TerminalInput {
             .push(input.event)
     }
     pub fn next(&mut self) -> Option<ClientPaneInputEvent> {
-        if !self.ready {
+        if !self.ready || self.size_hold {
             return None;
         }
         let target = self.destination.as_ref()?;

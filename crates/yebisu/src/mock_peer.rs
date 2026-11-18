@@ -549,14 +549,12 @@ fn record_peer(mut value: serde_json::Value) -> Result<(), Box<dyn std::error::E
     }
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
-        use std::io::Write;
         let home = std::env::var_os("HOME").ok_or("QA HOME missing")?;
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(std::path::PathBuf::from(home).join("Documents/p4-peer.jsonl"))?;
-        writeln!(file, "{value}")?;
-        file.flush()?;
+        crate::observation::write_jsonl_line(&mut file, &value)?;
     }
     let _ = value;
     Ok(())

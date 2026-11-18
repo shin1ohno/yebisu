@@ -147,10 +147,9 @@ impl Host {
                                     .append(true)
                                     .open(path)
                                 {
-                                    let _ = writeln!(
-                                        file,
-                                        "{}",
-                                        json!({"channel":frame.channel,"terminal":channels.get(&frame.channel),"bytes":frame.payload})
+                                    let _ = crate::observation::write_jsonl_line(
+                                        &mut file,
+                                        &json!({"channel":frame.channel,"terminal":channels.get(&frame.channel),"bytes":frame.payload}),
                                     );
                                 }
                             }
@@ -312,10 +311,9 @@ fn record_put(request: &Value, decoded: usize) {
             .append(true)
             .open(path)
         {
-            let _ = writeln!(
-                file,
-                "{}",
-                json!({"method":"terminal.put","terminal":request["params"]["terminal"],"name":request["params"]["name"],"decoded":decoded})
+            let _ = crate::observation::write_jsonl_line(
+                &mut file,
+                &json!({"method":"terminal.put","terminal":request["params"]["terminal"],"name":request["params"]["name"],"decoded":decoded}),
             );
         }
     }

@@ -382,17 +382,15 @@ fn connect_mode(
 }
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 fn record(message: &ClientMessage) {
-    use std::io::Write;
     if let Some(home) = std::env::var_os("HOME")
         && let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(std::path::PathBuf::from(home).join("Documents/p13-peer.jsonl"))
     {
-        let _ = writeln!(
-            file,
-            "{}",
-            serde_json::to_string(message).unwrap_or_default()
+        let _ = crate::observation::write_jsonl_line(
+            &mut file,
+            &serde_json::to_string(message).unwrap_or_default(),
         );
     }
 }

@@ -506,7 +506,7 @@ impl Smoke {
         let index = self.notifications.posted.iter().position(|p| p.tag == tag);
         let posted = index.and_then(|i| self.notifications.posted.remove(i));
         self.notifications.toast = None;
-        if self.settings_modal {
+        if self.input_modal() {
             self.notifications.fail(Failure::Busy);
             cx.notify();
             return;

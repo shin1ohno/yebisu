@@ -1,0 +1,175 @@
+//! Long press of a sidebar host or space row (plan v2 7.11, Q8): the Host
+//! or Space menu's items for that row. Owner: L3 (the gesture and the
+//! menu); the items, their reasons and their run are L6's `host_menus`.
+//!
+//! The menu remembers the row it was shown for (review S4): an item runs
+//! only on that row's host and space, and a row other than the selected
+//! host or the focused space lists its items disabled, with the reason.
+use crate::{
+    app::Smoke,
+    shell::host_menus::{self, MenuEntry, MenuItemId, MenuScope},
+};
+use gpui::{
+    AnyElement, Context, DispatchPhase, HitboxBehavior, LongPressEvent, Pixels, Point, TouchPhase,
+    Window, anchored, canvas, deferred, div, prelude::*, px, rgb,
+};
+
+const MENU_WIDTH: f32 = 280.;
+const ITEM_HEIGHT: f32 = 44.;
+
+/// The row a long press landed on, with what its menu needs to name it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PressedRow {
+    Host(String),
+    Space {
+        host: String,
+        id: String,
+        name: String,
+    },
+}
+
+/// An open long-press menu: the row, the target it was shown for, its
+/// items, and where the press was (window coordinates).
+#[derive(Clone, Debug)]
+pub(crate) struct LongPressMenu {
+    pub(crate) row: PressedRow,
+    pub(crate) shown: MenuScope,
+    pub(crate) entries: Vec<MenuEntry>,
+    pub(crate) at: Point<Pixels>,
+}
+
+impl Smoke {
+    /// Opens the long-press menu of `row`.
+    pub(crate) fn sidebar_long_press(&mut self, row: PressedRow, at: Point<Pixels>) {
+        let state = self.menu_chrome_state();
+        let current = self.current_menu_scope();
+        let (shown, entries) = match &row {
+            PressedRow::Host(host) => (
+                MenuScope {
+                    host: host.clone(),
+                    space: None,
+                },
+                host_menus::host_long_press_for(&state, host, &current),
+            ),
+            PressedRow::Space { host, id, .. } => {
+                let shown = MenuScope {
+                    host: host.clone(),
+                    space: Some(id.clone()),
+                };
+                let entries = host_menus::space_long_press_for(&state, &shown, &current);
+                (shown, entries)
+            }
+        };
+        self.shell.sidebar.long_press = Some(LongPressMenu {
+            row,
+            shown,
+            entries,
+            at,
+        });
+    }
+
+    /// Runs `item` from the open long-press menu and closes it. A disabled
+    /// item, or a target that changed since the press, is refused.
+    pub(crate) fn pick_long_press(
+        &mut self,
+        item: MenuItemId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        let menu = self
+            .shell
+            .sidebar
+            .long_press
+            .take()
+            .ok_or(crate::Error::NativeMenu("no long-press menu"))?;
+        if !menu.entries.iter().any(|e| e.item == item && e.enabled) {
+            return Err(crate::Error::NativeMenu("menu item unavailable"));
+        }
+        self.run_menu_item(item, &menu.shown, window, cx)
+    }
+
+    /// The open long-press menu, drawn over everything at the press.
+    pub(crate) fn render_long_press_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let menu = self.shell.sidebar.long_press.clone()?;
+        let target = match &menu.row {
+            PressedRow::Host(host) => host.clone(),
+            PressedRow::Space { name, .. } => name.clone(),
+        };
+        let mut list = div()
+            .id("sidebar-long-press")
+            .w(px(MENU_WIDTH))
+            .py_1()
+            .rounded(px(10.))
+            .bg(rgb(0x2b2933))
+            .text_color(rgb(0xd8dee9))
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.shell.sidebar.long_press = None;
+                cx.notify();
+            }));
+        for entry in menu.entries {
+            let item = entry.item;
+            list = list.child(
+                div()
+                    .id(gpui::ElementId::Name(
+                        format!("sidebar-long-press-{}", item.name()).into(),
+                    ))
+                    .min_h(px(ITEM_HEIGHT))
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x6b7080 }))
+                    .child(host_menus::menu_item_label(item, &target))
+                    .children(
+                        entry
+                            .reason
+                            .map(|why| div().text_xs().text_color(rgb(0x9ca3af)).child(why)),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Err(e) = this.pick_long_press(item, window, cx) {
+                            this.terminal.live.status = e.to_string();
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        Some(
+            deferred(anchored().position(menu.at).snap_to_window().child(list))
+                .with_priority(1)
+                .into_any_element(),
+        )
+    }
+}
+
+/// A row-sized layer that opens `row`'s menu on a long press (as the
+/// terminal's edit menu listens, `edit_menu_gestures.rs`).
+pub(super) fn long_press_layer(row: PressedRow, cx: &mut Context<Smoke>) -> impl IntoElement {
+    let entity = cx.entity().downgrade();
+    canvas(
+        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            let row = row.clone();
+            let entity = entity.clone();
+            window.on_mouse_event(move |event: &LongPressEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble
+                    || event.phase != TouchPhase::Started
+                    || window.default_prevented()
+                    || !hitbox.is_hovered_at(event.start_position, window)
+                {
+                    return;
+                }
+                let _ = entity.update(cx, |this, cx| {
+                    this.sidebar_long_press(row.clone(), event.start_position);
+                    cx.notify();
+                });
+                window.prevent_default();
+                cx.stop_propagation();
+            });
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}

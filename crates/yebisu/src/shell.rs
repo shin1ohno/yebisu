@@ -56,6 +56,9 @@ pub(crate) struct ChromeState {
     pub(crate) sheet_open: bool,
     pub(crate) find_available: bool,
     pub(crate) sidebar_hidden: bool,
+    /// The width, not the user, holds the sidebar at the rail: Command-B and
+    /// the sidebar toggles cannot change anything (Integration 2, L4 review F1).
+    pub(crate) sidebar_forced: bool,
 }
 
 /// A product entry point (plan v2 5.2, the 19-row table).

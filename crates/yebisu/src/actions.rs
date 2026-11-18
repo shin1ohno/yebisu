@@ -22,11 +22,13 @@ pub(crate) struct Action {
     pub shortcuts: &'static [&'static str],
     pub available: bool,
 }
-fn supported(command: Command) -> bool {
+pub(crate) fn supported(command: Command) -> bool {
     use Command::*;
     matches!(
         command,
         Find | Tab
+            // New space (plan v2 7.6): a Herdr 1 workspace, from the footer.
+            | Workspace
             | SplitRight
             | SplitDown
             | NextTab
@@ -156,7 +158,8 @@ impl Smoke {
         self.input_transition(|this| this.run_action_inner(command))
     }
     fn run_action_inner(&mut self, command: Command) -> crate::Result<()> {
-        if self.settings_modal {
+        // A sheet over the terminal (Settings or Hosts, A6) blocks actions.
+        if self.input_modal() {
             return Err(crate::Error::Settings(
                 "terminal action blocked by settings".into(),
             ));
@@ -171,6 +174,11 @@ impl Smoke {
         }
         match command {
             Command::ToggleSidebar => {
+                // Command-B and the palette row would change nothing while
+                // the width forces the rail: say why (L4 review F1).
+                if let Some(reason) = crate::shell::rail::toggle_unavailable(&self.chrome_state()) {
+                    return Err(crate::Error::Settings(reason.into()));
+                }
                 self.toggle_sidebar();
                 return Ok(());
             }

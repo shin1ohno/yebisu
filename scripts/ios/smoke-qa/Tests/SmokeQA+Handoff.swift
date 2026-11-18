@@ -66,33 +66,46 @@ extension SmokeQA {
         app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launch()
-        // Locate the four strip controls once, in the first frame, and tap the recorded
-        // points from here on. Re-reading the strip after a "QA image ready" repaint lets
-        // Vision drop the "Paste" label or return a truncated "Paste image", and the tap
-        // then starts the wrong paste (L15 no control found, L16 text=0; main 2ed2beb,
-        // job 132955457568). The handoff row never moves between taps (handoff_view.rs,
-        // handoff_qa.rs), and p9-check validate_images proves what each tap did.
+        // Locate the two QA strip controls and the ... menu's Paste and Paste image once,
+        // and tap the recorded points from here on. Re-reading after a "QA image ready"
+        // repaint lets Vision drop the "Paste" label or return a truncated "Paste image",
+        // and the tap then starts the wrong paste (L15 no control found, L16 text=0; main
+        // 2ed2beb, job 132955457568). L2b moved Paste and Paste image from the handoff
+        // band to the tab row's ... menu (shell/overflow_menu.rs): the menu is anchored
+        // under the tab row's right edge and lists its items in a fixed order, so neither
+        // the QA strip nor the menu moves between taps, and p9-check validate_images
+        // proves what each tap did.
         let qaImageOnly = try tapText("QA Image only", in: app, tap: false, attempts: 15).box
         let qaImage = try tapText("QA Image", in: app, tap: false, excludingNextWord: "only").box
-        let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
-        let pasteImage = try tapText("Paste image", in: app, tap: false).box
         // A misread box would otherwise surface only as put/path/text counts at the end:
-        // each pair is laid out left to right on one row, so reject a box that is not.
-        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only"),
-                                    (paste, pasteImage, "Paste / Paste image")] {
+        // the QA pair is laid out left to right on one row, the menu items one above the
+        // other in one column, so reject a box that is not.
+        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only")] {
             XCTAssertTrue(left.minX < right.minX && abs(left.midY - right.midY) < max(left.height, right.height),
                           "\(what) not located left to right on one row: \(left) \(right)")
         }
+        let more = try openOverflowMenu(in: app)
+        let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
+        let pasteImage = try tapText("Paste image", in: app, tap: false).box
+        XCTAssertTrue(paste.midY > pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
+                      "Paste / Paste image not located one above the other in the ... menu: \(paste) \(pasteImage)")
+        // Close the menu; its backdrop takes this press (overflow_menu.rs).
+        app.coordinate(withNormalizedOffset: .zero).withOffset(more).tap()
+        sleep(1)
         tapRecorded(qaImageOnly, "QA Image only", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try openOverflowMenu(in: app, at: more)
         tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-0.png", in: app, tap: false, attempts: 30)
+        try openOverflowMenu(in: app, at: more)
         tapRecorded(paste, "Paste", in: app)
         try tapText("paste-1.png", in: app, tap: false, attempts: 30)
         tapRecorded(qaImage, "QA Image", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
+        try openOverflowMenu(in: app, at: more)
         tapRecorded(paste, "Paste", in: app)
         sleep(1)
+        try openOverflowMenu(in: app, at: more)
         tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-2.png", in: app, tap: false, attempts: 30)
         save("sh154-core-image")
