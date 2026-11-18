@@ -60,6 +60,8 @@ fn herdr2_pane_frames_draw_a_line_between_panes() {
             .all(|c| c.fg == FOCUSED_EDGE)
     );
     assert!(line.iter().filter(|c| c.y < 12).all(|c| c.fg == EDGE));
+    // Wire cell colours are tagged RGB (`0x02RRGGBB`), never bare RGB.
+    assert!(line.iter().all(|c| c.fg >> 24 == 0x02));
     // Stacked: one row of `─`.
     let stacked = pane_rects(80, 24, 2, true);
     assert_eq!(

@@ -25,10 +25,11 @@ pub(crate) const BAND_CONTROLS: [&str; 5] = [SPLIT, PANE_1, PANE_2, ORIENTATION,
 /// The separator between two panes: `│` side by side, `─` stacked.
 pub(crate) const SIDE_BY_SIDE_LINE: &str = "│";
 pub(crate) const STACKED_LINE: &str = "─";
-/// The focused pane's edge: the frame's accent (nord8).
-pub(crate) const FOCUSED_EDGE: u32 = 0x88c0d0;
-/// The other edges (nord3).
-pub(crate) const EDGE: u32 = 0x4c566a;
+/// The focused pane's edge: the frame's accent (nord8), as a wire cell
+/// colour (`CellData::fg`: RGB is `0x02RRGGBB`).
+pub(crate) const FOCUSED_EDGE: u32 = 0x0288_c0d0;
+/// The other edges (nord3), as a wire cell colour.
+pub(crate) const EDGE: u32 = 0x024c_566a;
 
 /// One pane's cells inside the composed frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
