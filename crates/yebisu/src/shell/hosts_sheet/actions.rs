@@ -45,6 +45,10 @@ impl Smoke {
             self.setup.epoch = self.setup.epoch.wrapping_add(1);
         }
         self.shell.hosts_sheet.close();
+        // Keys went to the sheet while it was open (shell/footer/keys.rs).
+        if self.terminal.open {
+            self.terminal.needs_focus = true;
+        }
         cx.notify();
     }
 

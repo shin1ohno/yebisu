@@ -84,10 +84,9 @@ fn sh1_150_vs16_preserves_real_space_and_covered_text() {
 fn sh1_150_real_selection_and_clipboard_adapter(cx: &mut TestAppContext) {
     for spacer in [" ", ""] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        // Wide enough that the legacy handoff band does not wrap beside the
-        // 300 pt sidebar (SH1-157 L2a); a wrap moves the terminal between the
-        // geometry read below and the first mouse event.
-        cx.simulate_resize(size(px(1500.), px(1000.)));
+        // SH1-157 L2b retired the handoff band whose "Select: On" wrap moved
+        // the terminal (L2a widened this to 1500); 1200 holds again.
+        cx.simulate_resize(size(px(1200.), px(1000.)));
         view.update(cx, |this, cx| {
             this.terminal.open = true;
             this.terminal.live.apply(ClientEvent::Snapshot(Arc::new(
@@ -108,11 +107,22 @@ fn sh1_150_real_selection_and_clipboard_adapter(cx: &mut TestAppContext) {
                 .apply(ClientEvent::Surface(Arc::new(surface)));
             this.terminal.live.connected = true;
             this.terminal.link.inbox = Arc::new(std::sync::Mutex::new(this.terminal.live.clone()));
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let before = view.update(cx, |this, _| this.terminal.geometry);
+        view.update(cx, |this, cx| {
             this.handoff.select_mode = true;
             cx.notify();
         });
         cx.run_until_parked();
         let g = view.update(cx, |this, _| this.terminal.geometry);
+        // Turning Select on must not move the terminal column (L2b).
+        assert_eq!(
+            g.grid.origin, before.grid.origin,
+            "Select moved the terminal"
+        );
+        assert_eq!(g.grid.size, before.grid.size, "Select resized the terminal");
         let at =
             |x: f32| g.grid.origin + point(px((x + 0.5) * g.cell_width), px(2.5 * g.cell_height));
         cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));

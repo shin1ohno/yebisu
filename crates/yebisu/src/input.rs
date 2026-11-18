@@ -62,14 +62,14 @@ impl Input {
 #[cfg(any(target_os = "ios", test))]
 impl Smoke {
     pub(crate) fn active_focus(&self) -> &gpui::FocusHandle {
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             &self.terminal_focus
         } else {
             &self.focus
         }
     }
     fn active_input(&self) -> &Input {
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             &self.terminal.input.composition
         } else if self.smoke_mode {
             &self.input
@@ -78,7 +78,7 @@ impl Smoke {
         }
     }
     fn active_input_mut(&mut self) -> &mut Input {
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             &mut self.terminal.input.composition
         } else if self.smoke_mode {
             &mut self.input
@@ -94,7 +94,7 @@ impl EntityInputHandler for Smoke {
         if self.settings_modal {
             return false;
         }
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             if self.find.is_some() || self.find_handoff.paused {
                 return false;
             }
@@ -150,12 +150,13 @@ impl EntityInputHandler for Smoke {
     }
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings_modal
-            || (self.terminal.open && (self.find.is_some() || self.find_handoff.paused))
+            || (self.terminal_owns_text_input()
+                && (self.find.is_some() || self.find_handoff.paused))
         {
             return;
         }
         self.input_transition(|this| {
-            if this.terminal.open {
+            if this.terminal_owns_text_input() {
                 this.terminal.input.discard();
             } else {
                 this.active_input_mut().marked = None;
@@ -174,7 +175,7 @@ impl EntityInputHandler for Smoke {
         if self.settings_modal || !self.active_focus().is_focused(window) {
             return;
         }
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             if self.find.is_some() || self.find_handoff.paused {
                 return;
             }
@@ -216,13 +217,13 @@ impl EntityInputHandler for Smoke {
             return;
         }
         if !self.active_focus().is_focused(window) {
-            if self.terminal.open {
+            if self.terminal_owns_text_input() {
                 self.terminal.input.reject_mark(text);
                 cx.notify();
             }
             return;
         }
-        if self.terminal.open {
+        if self.terminal_owns_text_input() {
             if self.find.is_some() || self.find_handoff.paused {
                 return;
             }
@@ -257,7 +258,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        if self.settings_modal || !self.terminal.open {
+        if self.settings_modal || !self.terminal_owns_text_input() {
             return None;
         }
         self.refresh_terminal_input();
@@ -283,7 +284,10 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<usize> {
-        if self.settings_modal || !self.terminal.open || !self.terminal.geometry.contains(point) {
+        if self.settings_modal
+            || !self.terminal_owns_text_input()
+            || !self.terminal.geometry.contains(point)
+        {
             return None;
         }
         let t = &self.terminal;
@@ -309,7 +313,8 @@ impl EntityInputHandler for Smoke {
         cx: &mut Context<Self>,
     ) {
         if self.settings_modal
-            || (self.terminal.open && (self.find.is_some() || self.find_handoff.paused))
+            || (self.terminal_owns_text_input()
+                && (self.find.is_some() || self.find_handoff.paused))
         {
             return;
         }

@@ -1,5 +1,8 @@
 use super::Input;
 
+#[path = "input_tests/hosts_sheet.rs"]
+mod hosts_sheet;
+
 #[test]
 fn composition_replaces_utf16_surrogate_pairs_and_clears_marked_text() {
     let mut input = Input::default();

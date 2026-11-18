@@ -126,7 +126,7 @@ impl Smoke {
             || self.actions.palette
             // The settings sheet, not the settings store: `settings` holds the
             // SettingsHost loaded at startup and is Some for the app's lifetime.
-            || self.settings_modal
+            || self.input_modal()
         {
             return None;
         }

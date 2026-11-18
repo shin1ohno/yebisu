@@ -285,7 +285,7 @@ impl Smoke {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.terminal.needs_focus && self.find.is_none() && !self.settings_modal {
+        if self.terminal.needs_focus && self.find.is_none() && !self.input_modal() {
             self.terminal_focus.focus(window, cx);
             self.terminal.needs_focus = false;
         }

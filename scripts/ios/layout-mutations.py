@@ -109,6 +109,19 @@ CASES = [
     ("l9-disconnect-30s", "shell/disconnect.rs", "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(30);",
      "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(60);",
      "shell::disconnect::tests::fade::disconnected_region_fades_after_30s"),
+    # L2b (plan v2 7.6): Hosts removed from the sidebar footer (5.1 rule 2).
+    ("l2b-footer-hosts", "shell/footer.rs", "            item: FooterItem::Hosts,\n",
+     "            item: FooterItem::NewSpace,\n",
+     "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
+    # L2b: New space enabled on Herdr 2 without its reason (q4).
+    ("l2b-herdr2-new-space", "shell/footer.rs",
+     "            enabled: herdr1,\n            reason: (!herdr1).then_some(HERDR2_NEW_SPACE),\n",
+     "            enabled: true,\n            reason: None,\n",
+     "shell::footer::tests::new_space::new_space_herdr2_disabled_with_reason"),
+    # L2b: Settings removed from the sidebar footer.
+    ("l2b-footer-settings", "shell/footer.rs", "            item: FooterItem::Settings,\n",
+     "            item: FooterItem::Hosts,\n",
+     "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
 ]
 
 

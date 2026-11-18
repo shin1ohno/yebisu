@@ -274,7 +274,7 @@ impl Smoke {
         boot: &str,
         generation: u64,
     ) -> crate::Result<()> {
-        if self.settings_modal {
+        if self.input_modal() {
             return Err(crate::Error::Settings(
                 "terminal action blocked by settings".into(),
             ));
