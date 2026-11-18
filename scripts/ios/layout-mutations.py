@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L3 sidebar,
-L5 edit bar, L7 Hosts sheet), requiring each named test to
+"""Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L2b sidebar
+footer, L2c one-pane rule, L3 sidebar, L4 rail, L5 edit bar, L6 Shortcuts and menus,
+L7 Hosts sheet, L9 keyboards and mod regions), requiring each named test to
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
@@ -20,8 +21,12 @@ OUT = ROOT / "target/layout-mutations"
 def test_panics(test):
     """The named test's own test directory. `a::b::tests::c::name` lives in
     a/b/tests/ (L0 layout, L1 settings_pages) or in a/b_tests/ when the module
-    keeps its tests beside it (L3 shell/sidebar_tests/, L5
-    shell/edit_bar_tests/, L7 shell/hosts_sheet_tests/), or in a/b_tests.rs
+    keeps its tests beside it (L2b shell/footer_tests/, L2c
+    shell/single_pane_tests/ and core/screen_tests/, L3 shell/sidebar_tests/,
+    L4 shell/rail_tests/ and shell/rail_badges_tests/, L5
+    shell/edit_bar_tests/, L6 shell/shortcuts_tests/ and
+    shell/host_menus_tests/, L7 shell/hosts_sheet_tests/, L9 shell/fit_tests/,
+    shell/mods_tests/ and shell/disconnect_tests/), or in a/b_tests.rs
     (L2a shell/tab_row_tests.rs)."""
     module = test.split("::tests::")[0].replace("::", "/")
     return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/",

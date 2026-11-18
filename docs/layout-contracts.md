@@ -568,3 +568,20 @@ goes away at the end of Wave 3.
   wraps and the frame jumps); L2b restores 1200 and asserts no jump.
 - **A5.** L7 F1 (keys reach the remote shell while the Hosts sheet is open)
   is a merge condition of L2b (S5).
+- **A6 (Integration 1 Sonnet review S2).** Before L2b merges, every input
+  guard that checks `settings_modal` also checks the Hosts sheet
+  (`input_modal()`), opening the sheet over a terminal does the clean-up of
+  `begin_settings_modal` (`hand_keys_to_sheet`), and closing it returns the
+  terminal focus and the keyboard (`return_keys_to_terminal`). Landed in
+  Integration 2 with L2b patch 02. Every path that opens the sheet over a
+  live terminal goes through `hand_keys_to_sheet`: footer Hosts, the L4
+  rail's Hosts and L6's Host > Edit. L6's `HOSTS_SHEET_FENCED` is true.
+- **Integration 2 (L4 review F1).** `ChromeState.sidebar_forced` is true
+  while the width forces the rail; every sidebar toggle (status bar Show
+  sidebar, rail, keyboard, Shortcuts popover, `Command::ToggleSidebar`) is
+  hidden or disabled with "Window too narrow".
+- **Integration 2 (Herdr 2 footer).** With the toolbar retired, Herdr 2
+  draws the sidebar column with an empty list and the L2b footer until L8
+  fills the list; Integration 1 S3's empty-column rule no longer holds.
+- **Integration 2 (layout-mutations).** Streams' patches append to `CASES`
+  only; the integrator folds their docstring edits into one change.
