@@ -34,7 +34,12 @@ fn overflow_action(item: OverflowItem) -> Option<EntryAction> {
         OverflowItem::CommandPalette => Some(EntryAction::Shortcuts),
         OverflowItem::Reconnect => Some(EntryAction::Reconnect),
         OverflowItem::NewTab => Some(EntryAction::NewTab),
-        OverflowItem::CloseTab | OverflowItem::Detach => None,
+        OverflowItem::Split => Some(EntryAction::Split),
+        OverflowItem::CloseTab
+        | OverflowItem::Detach
+        | OverflowItem::Pane1
+        | OverflowItem::Pane2
+        | OverflowItem::SplitDirection => None,
     }
 }
 
@@ -70,8 +75,8 @@ fn legacy_entry_points(state: &ChromeState, legacy: LegacyBands, out: &mut Vec<E
             out.push(point(action, Place::ActionsBand, true));
         }
     }
-    // Herdr 2's split, pane and Detach band (L8 moves it).
-    if !herdr1 {
+    // Herdr 2's split, pane and Detach band, until L8 retires it.
+    if !herdr1 && !super::herdr2_frame::panes::band_retired(state) {
         out.push(point(EntryAction::Split, Place::CoreBand, state.connected));
     }
 }

@@ -113,7 +113,8 @@ fn column_change_reaches_the_worker_resize(cx: &mut TestAppContext) {
     // ... and only a size that is sent again can reach the new column.
     frame(cx, 820.0, 82);
     frame(cx, 820.0, 82);
-    let wide = wait_for(whole(82, 29), 2, |last| last == whole(41, 29));
-    assert_eq!(wide, whole(41, 29), "two panes share the widened column");
+    // 40 + 1 line cell + 40 (L8 frame line, plan v2 7.14).
+    let wide = wait_for(whole(82, 29), 2, |last| last == whole(40, 29));
+    assert_eq!(wide, whole(40, 29), "two panes share the widened column");
     assert!(column_metrics().is_some());
 }

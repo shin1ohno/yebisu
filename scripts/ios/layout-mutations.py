@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the layout source mutations (L0 geometry, L1 settings, L2a frame, L2b sidebar
 footer, L2c one-pane rule, L3 sidebar, L4 rail, L5 edit bar, L6 Shortcuts and menus,
-L7 Hosts sheet, L9 keyboards and mod regions), requiring each named test to
+L7 Hosts sheet, L8 Herdr 2 frame, L9 keyboards and mod regions), requiring each named test to
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
@@ -26,8 +26,8 @@ def test_panics(test):
     L4 shell/rail_tests/ and shell/rail_badges_tests/, L5
     shell/edit_bar_tests/, L6 shell/shortcuts_tests/ and
     shell/host_menus_tests/, L7 shell/hosts_sheet_tests/, L9 shell/fit_tests/,
-    shell/mods_tests/ and shell/disconnect_tests/), or in a/b_tests.rs
-    (L2a shell/tab_row_tests.rs)."""
+    shell/mods_tests/ and shell/disconnect_tests/, L8
+    shell/herdr2_frame_tests/), or in a/b_tests.rs (L2a shell/tab_row_tests.rs)."""
     module = test.split("::tests::")[0].replace("::", "/")
     return (f"panicked at crates/yebisu/src/{module}/tests/", f"panicked at crates/yebisu/src/{module}_tests/",
             f"panicked at crates/yebisu/src/{module}_tests.rs")
@@ -154,7 +154,7 @@ CASES = [
      "core::screen::tests::narrow::herdr2_narrow_column_draws_active_pane_only"),
     # L2c: a stacked division under the 206 pt minimum is no longer refused.
     ("l2c-per-pane-minimum", "core/screen.rs",
-     "        size.rows() / divided < least_rows",
+     "        each.rows < least_rows",
      "        false",
      "core::screen::tests::minimum::per_pane_size_never_below_minimum"),
     # L6 (plan v2 7.11): the Shortcuts rows are the catalog's; narrowing the catalog drops a row.
@@ -166,6 +166,18 @@ CASES = [
      "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
      "const SPACE_LONG_PRESS: [SpaceMenuItem; 1] = [SpaceMenuItem::NewTab];",
      "shell::host_menus::tests::long_press::menu_items_match_long_press"),
+    # L8 (plan v2 7.14): a status-less Herdr 2 terminal listed in AGENTS (Q4).
+    ("l8-status-less", "shell/herdr2_frame/session.rs", ".filter(|(_, status)| status.is_agent())",
+     ".filter(|_| true)", "shell::herdr2_frame::tests::session::herdr2_status_less_not_in_agents"),
+    # L8: herdr-core's error folded into Needs you, so Error loses its place after it (Q5).
+    ("l8-error-order", "shell/herdr2_frame.rs", "Some(StatusState::Error) => SidebarStatus::Error,",
+     "Some(StatusState::Error) => SidebarStatus::NeedsYou,",
+     "shell::herdr2_frame::tests::session::herdr2_error_after_needs_you"),
+    # L8: New space creates a Herdr 2 session before the sessions task (q4).
+    ("l8-new-space", "shell/herdr2_frame.rs",
+     "                enabled: false,\n                reason: Some(HERDR2_NEW_SPACE),",
+     "                enabled: true,\n                reason: Some(HERDR2_NEW_SPACE),",
+     "shell::herdr2_frame::tests::entry::new_space_offers_only_herdr1_until_sessions_task"),
 ]
 
 

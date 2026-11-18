@@ -4,7 +4,7 @@
 //! Command palette, Reconnect, Close tab. Herdr 2: Paste, Paste image (q2),
 //! Select text, Copy, Find (when PR 26's `available` is true), Reconnect,
 //! Detach, New tab (disabled with its reason, q4). Plan v2 7.5.
-use super::{ChromeState, HerdrKind};
+use super::{ChromeState, HerdrKind, herdr2_frame::panes};
 use crate::app::Smoke;
 use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
@@ -21,6 +21,11 @@ pub(crate) enum OverflowItem {
     CloseTab,
     Detach,
     NewTab,
+    /// Herdr 2's band controls (L8): the band retires once these are here.
+    Split,
+    Pane1,
+    Pane2,
+    SplitDirection,
 }
 
 impl OverflowItem {
@@ -34,8 +39,12 @@ impl OverflowItem {
             Self::CommandPalette => "Command palette",
             Self::Reconnect => "Reconnect",
             Self::CloseTab => "Close tab",
-            Self::Detach => "Detach",
+            Self::Detach => panes::DETACH,
             Self::NewTab => "New tab",
+            Self::Split => panes::SPLIT,
+            Self::Pane1 => panes::PANE_1,
+            Self::Pane2 => panes::PANE_2,
+            Self::SplitDirection => panes::ORIENTATION,
         }
     }
 }
@@ -90,6 +99,15 @@ pub(crate) fn overflow_menu_items(state: &ChromeState) -> Vec<OverflowEntry> {
                 items.push(entry(OverflowItem::Find, true, FIND_UNAVAILABLE));
             }
             items.push(entry(OverflowItem::Reconnect, !online, ALREADY_CONNECTED));
+            // The control band's controls (L8, plan v2 5.2): same labels.
+            for item in [
+                OverflowItem::Split,
+                OverflowItem::Pane1,
+                OverflowItem::Pane2,
+                OverflowItem::SplitDirection,
+            ] {
+                items.push(entry(item, online, NOT_CONNECTED));
+            }
             items.push(entry(OverflowItem::Detach, online, NOT_CONNECTED));
             items.push(entry(OverflowItem::NewTab, false, HERDR2_NEW_TAB));
         }
@@ -219,6 +237,22 @@ impl Smoke {
                 Ok(())
             }
             OverflowItem::NewTab => self.run_action(Command::Tab),
+            OverflowItem::Split => {
+                self.core_command(crate::core::Command::Split);
+                Ok(())
+            }
+            OverflowItem::Pane1 => {
+                self.core_command(crate::core::Command::Focus(0));
+                Ok(())
+            }
+            OverflowItem::Pane2 => {
+                self.core_command(crate::core::Command::Focus(1));
+                Ok(())
+            }
+            OverflowItem::SplitDirection => {
+                self.core_command(crate::core::Command::Orientation);
+                Ok(())
+            }
         };
         if let Err(e) = result {
             self.terminal.live.status = e.to_string();

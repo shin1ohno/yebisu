@@ -53,14 +53,16 @@ fn wide_column_keeps_both_panes_drawn() -> crate::Result<()> {
     let wide = Some(column(700.0, 600.0, (10.0, 20.0)));
     let live = publish_for(&screens, &saved(1, false)?, size, (1, 1, 0), wide);
     let cells = symbols(&live);
-    assert_eq!(cells.iter().filter(|s| *s == "A").count(), 350);
-    assert_eq!(cells.iter().filter(|s| *s == "B").count(), 350);
+    // Two 34-column panes and the line between them (L8, plan v2 7.14).
+    assert_eq!(cells.iter().filter(|s| *s == "A").count(), 340);
+    assert_eq!(cells.iter().filter(|s| *s == "B").count(), 340);
+    assert_eq!(cells.iter().filter(|s| *s == "│").count(), 10);
     assert!(live.status.contains("Side by side"), "{}", live.status);
-    assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 35);
+    assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 34);
     // Before the first measurement nothing changes.
     let live = publish_for(&screens, &saved(1, false)?, size, (1, 1, 0), None);
     assert_eq!(symbols(&live), cells);
-    assert_eq!(pane_size_for(size, 2, false, None)?.cols(), 35);
+    assert_eq!(pane_size_for(size, 2, false, None)?.cols(), 34);
     Ok(())
 }
 
@@ -81,10 +83,11 @@ fn one_pane_tab_is_drawn_the_same_in_any_column() -> crate::Result<()> {
 
 #[test]
 fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
-    // 8 pt cells: 70 columns fit 560 pt and halve to 35 = 280 pt, so only the
-    // 568 pt line (not the cell minimum) makes this one pane.
-    let size = size(70, 10)?;
-    let screens = [screen("A", 35, 10), screen("B", 70, 10)];
+    // 8 pt cells: 71 columns hold two 35-column panes (280 pt) and the line
+    // between them (L8), so only the 568 pt line (not the cell minimum)
+    // makes this one pane.
+    let size = size(71, 10)?;
+    let screens = [screen("A", 35, 10), screen("B", 71, 10)];
     for width in [560.0, 563.0, 567.0] {
         let narrow = Some(column(width, 600.0, (8.0, 20.0)));
         assert_eq!(pane_size_for(size, 2, false, narrow)?, size, "{width}");
@@ -93,5 +96,40 @@ fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
     }
     let wide = Some(column(568.0, 600.0, (8.0, 20.0)));
     assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 35);
+    Ok(())
+}
+
+#[test]
+fn herdr2_size_sent_matches_the_rect_drawn() -> crate::Result<()> {
+    // Review 9c55 S1: the size each terminal is sent is the rect it is
+    // drawn in, and the line cell is counted once by both.
+    let wide = Some(column(800.0, 600.0, (10.0, 20.0)));
+    let size = size(80, 10)?;
+    let sent = pane_size_for(size, 2, false, wide)?;
+    assert_eq!((sent.cols(), sent.rows()), (39, 10));
+    let screens = [screen("A", 39, 10), screen("B", 39, 10)];
+    let live = publish_for(&screens, &saved(0, false)?, size, (1, 1, 0), wide);
+    let cells = symbols(&live);
+    assert_eq!(cells.iter().filter(|s| *s == "A").count(), 390);
+    assert_eq!(cells.iter().filter(|s| *s == "B").count(), 390);
+    assert_eq!(cells.iter().filter(|s| *s == "│").count(), 10);
+    // One pane drawn (narrow column): no line, the pane over the whole frame.
+    let narrow = Some(column(400.0, 600.0, (10.0, 20.0)));
+    let one = [screen("A", 80, 10), screen("B", 80, 10)];
+    let live = publish_for(&one, &saved(0, false)?, size, (1, 1, 0), narrow);
+    assert!(symbols(&live).iter().all(|s| s == "A"));
+    // A frame too small for two panes and their line is one pane, in any
+    // column, and nothing is drawn outside it.
+    let tiny = super::support::size(2, 1)?;
+    assert_eq!(pane_size_for(tiny, 2, false, wide)?, tiny);
+    let live = publish_for(
+        &[screen("A", 2, 1), screen("B", 2, 1)],
+        &saved(1, false)?,
+        tiny,
+        (1, 1, 0),
+        None,
+    );
+    assert_eq!(symbols(&live).len(), 2);
+    assert!(symbols(&live).iter().all(|s| s == "B"));
     Ok(())
 }

@@ -39,9 +39,10 @@ fn division_that_would_undercut_the_minimum_gives_the_whole_column() -> crate::R
     let metrics = Some(column(600.0, 300.0, (10.0, 20.0)));
     let whole = size(60, 15)?;
     assert_eq!(pane_size_for(whole, 2, true, metrics)?, whole);
-    // 600 x 800 pt side by side divides, each pane 300 pt wide.
+    // 600 x 800 pt side by side divides: 29 columns each and one line cell
+    // between them (L8 frame line, plan v2 7.14), 290 pt per pane.
     let metrics = Some(column(600.0, 800.0, (10.0, 20.0)));
     let sent = pane_size_for(size(60, 40)?, 2, false, metrics)?;
-    assert_eq!((sent.cols(), sent.rows()), (30, 40));
+    assert_eq!((sent.cols(), sent.rows()), (29, 40));
     Ok(())
 }

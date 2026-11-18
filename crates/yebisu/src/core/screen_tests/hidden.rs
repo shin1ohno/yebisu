@@ -15,7 +15,8 @@ fn hidden_pane_is_not_resized() -> crate::Result<()> {
     );
     assert_eq!(pane_sizes(whole, 2, false, 0, narrow)?, [Some(whole), None]);
     let wide = Some(column(700.0, 600.0, (10.0, 20.0)));
-    let halves = size(35, 10)?;
+    // 70 columns: two panes of 34 and the line between them (L8, 7.14).
+    let halves = size(34, 10)?;
     assert_eq!(
         pane_sizes(size(70, 10)?, 2, false, 1, wide)?,
         [Some(halves), Some(halves)]
