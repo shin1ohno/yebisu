@@ -133,17 +133,23 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 }
 
 impl Smoke {
-    /// L9: a hardware key press marks a hardware keyboard in use; the
-    /// software keyboard on screen clears it.
+    /// L9: a key press marks a hardware keyboard in use; the software
+    /// keyboard on screen clears it. The software keyboard sends some keys
+    /// as presses too (Return, Backspace), so a key press counts only after
+    /// a touch or pointer input that followed the software keyboard.
     fn note_hardware_keyboard(&mut self, window: &Window) {
         let viewport = window.viewport_size();
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
         let docked =
             fit::docked_keyboard_height(size, fit::ime_keyboard(size, &window.insets().ime));
+        let fit = &mut self.shell.fit;
         if docked > SOFTWARE_KEYBOARD_MIN_HEIGHT {
-            self.shell.fit.hardware_keyboard = false;
-        } else if window.last_input_was_keyboard() {
-            self.shell.fit.hardware_keyboard = true;
+            fit.hardware_keyboard = false;
+            fit.software_keyboard_since_touch = true;
+        } else if !window.last_input_was_keyboard() {
+            fit.software_keyboard_since_touch = false;
+        } else if !fit.software_keyboard_since_touch {
+            fit.hardware_keyboard = true;
         }
     }
 
@@ -156,6 +162,9 @@ impl Smoke {
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
         self.note_hardware_keyboard(window);
+        // L4: the sidebar filter field was not drawn (rail, hidden sidebar):
+        // the keys go back to the terminal.
+        self.release_hidden_filter(window, cx);
         let mut model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);

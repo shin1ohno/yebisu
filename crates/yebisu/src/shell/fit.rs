@@ -44,6 +44,12 @@ pub(crate) struct FitState {
     /// A hardware key reached the window since the software keyboard last
     /// showed (the status bar's Hardware keyboard item).
     pub(crate) hardware_keyboard: bool,
+    /// The software keyboard showed since the last touch or pointer input:
+    /// key presses until then may be its own keys (Return, Backspace).
+    pub(crate) software_keyboard_since_touch: bool,
+    /// Tests move the fit clock ahead without waiting.
+    #[cfg(test)]
+    pub(crate) clock_ahead: std::time::Duration,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -203,6 +209,14 @@ impl Smoke {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// The clock of the mod regions' 30 s fade.
+    pub(crate) fn fit_now(&self) -> std::time::Instant {
+        let now = std::time::Instant::now();
+        #[cfg(test)]
+        let now = now + self.shell.fit.clock_ahead;
+        now
     }
 
     /// False while the window is too small: no size or input reaches the

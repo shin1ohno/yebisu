@@ -12,7 +12,6 @@ use crate::{
     layout::{self, Insets, Layout, RULE, Rect, Size},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
-use std::time::Instant;
 
 /// Sidebar header text and its toggle (plan v2 5.2: SHD).
 pub(crate) const HIDE_SIDEBAR: &str = "Hide sidebar";
@@ -124,7 +123,12 @@ impl Smoke {
     pub(super) fn frame_layout(&self, window: &Window) -> Layout {
         let viewport = window.viewport_size();
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
-        let platform = window.insets();
+        self.layout_for(size, &window.insets())
+    }
+
+    /// `frame_layout` for a window `size` with the platform's `platform`
+    /// insets (safe area and keyboard).
+    pub(crate) fn layout_for(&self, size: Size, platform: &gpui::WindowInsets) -> Layout {
         let safe = platform.safe_area;
         let insets = Insets {
             safe_top: f32::from(safe.top),
@@ -141,7 +145,7 @@ impl Smoke {
             sidebar_rail: self.sidebar_user_mode() == SidebarMode::Rail,
             // L9: the requested mod regions, size 0 once the line has been
             // down for 30 s.
-            regions: self.requested_mod_regions(Instant::now()),
+            regions: self.requested_mod_regions(self.fit_now()),
             ..frame_input(size, insets, self.find.is_some())
         })
     }

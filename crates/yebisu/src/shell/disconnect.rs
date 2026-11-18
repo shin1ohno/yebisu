@@ -89,7 +89,8 @@ impl Smoke {
     /// again when the 30 s end so the regions go to size 0 without input.
     pub(crate) fn observe_disconnect(&mut self, connected: bool, cx: &mut Context<Self>) {
         let was = self.shell.fit.disconnect;
-        self.shell.fit.disconnect.observe(connected, Instant::now());
+        let now = self.fit_now();
+        self.shell.fit.disconnect.observe(connected, now);
         if was == self.shell.fit.disconnect || connected {
             return;
         }

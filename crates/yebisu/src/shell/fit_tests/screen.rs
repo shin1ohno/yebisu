@@ -174,3 +174,84 @@ fn disconnected_mod_regions_clear_after_30s_on_screen(cx: &mut TestAppContext) {
     assert_eq!(dropped(&view, cx, 31), 0, "the regions stayed after 30 s");
     assert!(painted(cx, "shell-status-mods").is_none());
 }
+
+/// Review F2: the status bar hands the line state to the clock and the 30 s
+/// timer draws again, so the regions go to 0 with no input and no output.
+#[gpui::test]
+fn line_drop_clears_mod_regions_after_30s_without_input(cx: &mut TestAppContext) {
+    let (view, cx) = terminal(cx, 605., 834.);
+    view.update(cx, |this, _| {
+        this.shell.fit.mod_regions = Regions::defaults()
+    });
+    redraw(&view, cx);
+    assert_eq!(view.read_with(cx, |this, _| this.shell.frame.withdrawn), 1);
+    // The line drops (the link's inbox too, so the poll keeps it down); the
+    // next frame starts the clock.
+    view.update(cx, |this, _| {
+        this.terminal.live.connected = false;
+        if let Ok(mut live) = this.terminal.link.inbox.lock() {
+            live.connected = false;
+        }
+    });
+    redraw(&view, cx);
+    assert_eq!(view.read_with(cx, |this, _| this.shell.frame.withdrawn), 1);
+    // 31 s pass with nothing to draw: only the timer can draw again.
+    view.update(cx, |this, _| {
+        this.shell.fit.clock_ahead = Duration::from_secs(31);
+    });
+    cx.executor().advance_clock(Duration::from_secs(31));
+    cx.run_until_parked();
+    assert_eq!(
+        view.read_with(cx, |this, _| this.shell.frame.withdrawn),
+        0,
+        "the regions stayed 31 s after the line dropped"
+    );
+}
+
+/// Review F3: a keyboard docked along the bottom edge shortens the terminal
+/// through `layout_for` (the body of `frame_layout`); a keyboard inset from
+/// a side edge (floating) does not. GPUI's test platform cannot change a
+/// window's insets from outside the crate, so the insets go in here.
+#[gpui::test]
+fn docked_keyboard_shortens_terminal_through_frame_layout(cx: &mut TestAppContext) {
+    use gpui::{Edges, WindowInsets};
+    let (view, cx) = terminal(cx, 1376., 1032.);
+    let window = crate::layout::Size::new(1376., 1032.);
+    let with = |ime: Edges<Pixels>| WindowInsets {
+        ime,
+        ..WindowInsets::default()
+    };
+    let terminal_height = |view: &Entity<Smoke>, cx: &mut VisualTestContext, ime| {
+        view.read_with(cx, |this, _| {
+            this.layout_for(window, &with(ime))
+                .terminal
+                .rect()
+                .map(|rect| rect.height)
+                .unwrap_or_else(|| panic!("terminal fits"))
+        })
+    };
+    let bare = terminal_height(&view, cx, Edges::default());
+    let docked = terminal_height(
+        &view,
+        cx,
+        Edges {
+            bottom: px(320.),
+            ..Edges::default()
+        },
+    );
+    assert!(
+        (bare - docked - 320.).abs() < 1.,
+        "a docked 320 pt keyboard left the terminal at {docked} (bare {bare})"
+    );
+    let floating = terminal_height(
+        &view,
+        cx,
+        Edges {
+            bottom: px(320.),
+            left: px(500.),
+            right: px(400.),
+            ..Edges::default()
+        },
+    );
+    assert_eq!(floating, bare, "a floating keyboard resized the terminal");
+}
