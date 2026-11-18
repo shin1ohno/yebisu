@@ -94,9 +94,9 @@ extension SmokeQA {
         let pasteImage = try tapText("Paste image", in: app, tap: false).box
         XCTAssertTrue(paste.midY > pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
                       "Paste / Paste image not located one above the other in the ... menu: \(paste) \(pasteImage)")
-        // Close the menu; its backdrop takes this press (overflow_menu.rs).
-        app.coordinate(withNormalizedOffset: .zero).withOffset(more).tap()
-        sleep(1)
+        // Close the menu; its backdrop takes this press (overflow_menu.rs). The QA strip tap
+        // below must not be the press that closes it.
+        closeOverflowMenu(in: app, at: more)
         tapRecorded(qaImageOnly, "QA Image only", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
         try openOverflowMenu(in: app, at: more)

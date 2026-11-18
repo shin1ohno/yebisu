@@ -291,6 +291,25 @@ final class SmokeQA: XCTestCase {
         throw NSError(domain: "SmokeQA.MissingControl", code: 2)
     }
 
+    /// Closes the open ... menu by pressing its backdrop at `point` (the place that opened it)
+    /// and fails unless the menu is gone ("Select text" off the screen). A press that the
+    /// menu did not take is repeated once, with the reason printed: in run 44297932478 (job
+    /// 134779801456) the close press left the menu open (screen recording at 47.8 s and
+    /// 48.4 s), and the next tap, meant for QA Image only, only closed it.
+    func closeOverflowMenu(in app: XCUIApplication, at point: CGVector) {
+        for press in 0..<2 {
+            print("overflow menu close \(point) press \(press)")
+            app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+            for _ in 0..<3 {
+                sleep(1)
+                if !textVisible("Select text") { return }
+            }
+            print("overflow menu still open 3 s after close press \(press): the press was not taken")
+        }
+        save("overflow-menu-still-open")
+        XCTFail("The ... menu stayed open after two close presses")
+    }
+
     /// Opens the ... menu at `point` (from `openOverflowMenu`) and taps `label` in the menu's
     /// column (`minX`, see `locateText`). One OCR pass per try both shows the menu is open (its
     /// item is in the column) and finds the item, where `openOverflowMenu` + `tapText` take two:

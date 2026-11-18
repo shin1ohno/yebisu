@@ -120,6 +120,11 @@ class ObserverPollProbe(unittest.TestCase):
         # software keyboard is hidden (it lifts the strip while it rises, Mac mini 32f1e21).
         self.assertEqual([label for label, rest in calls if "attempts: 15" in rest], ["QA Image only"])
         hidden = test.index('hideSoftwareKeyboard(in: app, "SH154 start")')
+        # The menu is shown closed before the strip is tapped, so the strip tap is never the
+        # press that closes it (run 44297932478: the close press was not taken).
+        closed = test.index("closeOverflowMenu(in: app, at: more)")
+        self.assertLess(closed, test.index("tapRecorded(qaImageOnly"))
+        self.assertNotIn("withOffset(more).tap()", test)
         self.assertLess(test.index('tapText("QA Image only", in: app, tap: false, attempts: 15)'), hidden)
         self.assertLess(hidden, test.index('let qaImageOnly = try tapText("QA Image only", in: app, tap: false).box'))
         self.assertLess(hidden, test.index('let qaImage = try tapText("QA Image"'))

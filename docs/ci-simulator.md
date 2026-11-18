@@ -310,6 +310,11 @@ and 43992978378. Cited ids are run/job.)
 - Match whole words so `Paste` never hits `Paste image`: split recognised text
   on whitespace and exclude `Paste` followed by `image`/`Image`. `locateText`
   still uses the suffix test; the whole-word match is open (L19).
+- Show that a menu is closed before the next tap. A hosted press can be lost: in
+  run 44297932478 (job 134779801456) the press that should close the `...` menu left
+  it open (screen recording at 47.8 s and 48.4 s), and SH154's QA Image only tap only
+  closed it, so `QA image ready` never came. `closeOverflowMenu` waits for `Select
+  text` to leave the screen and presses once more, saying why.
 - Never run an OCR search while a request is held. The pinned sheprd-client
   `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`);
   a request held that long drops the connection. Hold one request per local
