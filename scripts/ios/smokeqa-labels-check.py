@@ -63,6 +63,7 @@ SOURCES = {
     "Menu select": [(EDIT_MENU_QA, '"Menu select"')],
     "Native matrix collected": [(SRC + "native_observer_qa.rs", '"Native matrix collected"')],
     "Native next": [(SRC + "native_edit_qa.rs", '"Native next"'), (SRC + "native_observer_qa.rs", '"Native next"')],
+    "No public key loaded.": [(HOSTS_SHEET, '"No public key loaded."')],  # L7 key field before a key is read
     "Observer matrix collected": [(SRC + "settings_sheet/observer_qa.rs", '"Observer matrix collected"')],
     "Observer next": [(SRC + "settings_sheet/observer_qa.rs", '"Observer next"')],
     "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],

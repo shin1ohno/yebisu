@@ -289,8 +289,10 @@ final class EditMenuQA: XCTestCase {
         // band, Vision split it after "yebisu" in 2 of 3 Mac mini E1-core runs and read
         // "P9 Herdr 2" whole every time, so the spot is found by "P9 Herdr".
         let label = target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer")
-        // A tap would clear a selection, so only a menu without one raises the keyboard first.
-        if !selected { try keyboardUpBeforePress(app, name, label) }
+        // Only the E1 cases, which check what the menu presents, raise the keyboard first: a
+        // tap would clear an E2 selection, and it moves the responder the E3 to E5 cases test
+        // (Mac mini 6f2d709: E3g-key "successful internal switch revoked or did not occur").
+        if name.hasPrefix("E1") { try keyboardUpBeforePress(app, name, label) }
         let spot = try point(label, app)
         spot.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
