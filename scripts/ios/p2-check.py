@@ -62,12 +62,13 @@ def read_until_valid(path, start, validate, attempts=6, delay=5, sleep=time.slee
     live_jsonl drops only an unterminated last line (a malformed complete line still raises), so a
     record still being written can be missing on one read: the read and the validation are retried
     together, and the last validation error is raised (run 44155672313 job 134296175129 failed on
-    a json.loads of a partly written line)."""
+    a json.loads of a partly written line). A file the app has not created yet is the same case
+    (run 44288317467 job 134746732865: no p2-setup.jsonl 3 s after a hosted launch)."""
     for attempt in range(attempts):
-        records = [r for r in live_jsonl.read_records(path) if r.get("time", 0) >= start]
         try:
+            records = [r for r in live_jsonl.read_records(path) if r.get("time", 0) >= start]
             return records, validate(records)
-        except RuntimeError as error:
+        except (RuntimeError, FileNotFoundError) as error:
             if attempt == attempts - 1:
                 raise
             print("P2 receipts not complete yet, attempt", attempt + 1, "-", error, flush=True)
