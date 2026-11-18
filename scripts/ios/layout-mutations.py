@@ -97,6 +97,18 @@ CASES = [
     ("l7-first-run-auto-open", "shell/hosts_sheet/view.rs", ".auto_open(self.setup.loaded, self.setup.hosts.len());",
      ".auto_open(false, self.setup.hosts.len());",
      "shell::hosts_sheet::tests::first_run::first_run_opens_add_host_sheet_over_empty_frame"),
+    # L9 (plan v2 7.15): input queued while the window is too small (Q1, D2).
+    ("l9-no-send-too-small", "terminal_input.rs", "        if self.size_hold {\n            return false;\n",
+     "        if false {\n            return false;\n",
+     "shell::fit::tests::too_small::too_small_window_message_and_no_send"),
+    # L9: Mods shown with nothing withdrawn (Q3).
+    ("l9-mods-condition", "shell/mods.rs", "    (withdrawn > 0).then(|| format!(\"Mods {withdrawn}\"))",
+     "    true.then(|| format!(\"Mods {withdrawn}\"))",
+     "shell::mods::tests::item::mods_item_only_when_withdrawn"),
+    # L9: the disconnected region held 60 s instead of 30 s (mod point 7).
+    ("l9-disconnect-30s", "shell/disconnect.rs", "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(30);",
+     "pub(crate) const DISCONNECT_HOLD: Duration = Duration::from_secs(60);",
+     "shell::disconnect::tests::fade::disconnected_region_fades_after_30s"),
 ]
 
 

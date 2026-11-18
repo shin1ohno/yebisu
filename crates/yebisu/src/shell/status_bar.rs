@@ -120,8 +120,25 @@ impl Smoke {
                         )),
                     )
                 })
-                .children(mods.map(|text| div().flex_none().whitespace_nowrap().child(text)))
                 .child(div().flex_1())
+                // L9: Mods sits beside Shortcuts (ModsMax.dc.html) and opens
+                // the withdrawn regions' list in overlay O.
+                .children(mods.map(|text| {
+                    div()
+                        .id("shell-status-mods")
+                        .flex_none()
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .px_2()
+                        .whitespace_nowrap()
+                        .text_color(rgb(0xacb2bb))
+                        .child(text)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_mods_overlay();
+                            cx.notify();
+                        }))
+                }))
                 .when(model.show_sidebar_hint, |view| {
                     view.child(chip("shell-status-show-sidebar", SHOW_SIDEBAR).on_click(
                         cx.listener(|this, _, _, cx| {
