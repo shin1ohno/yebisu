@@ -33,7 +33,8 @@ enum Phase {
     /// Release sent, the snapshot still shows the zoom.
     Releasing,
     /// Zoom sent, never shown within `REQUEST_TTL`: not sent again until the
-    /// column or the tab changes (a repeat would discard input each time).
+    /// column crosses 568 pt or the tab's pane count changes (a repeat would
+    /// discard input each time). Switching tabs does not lift it.
     GaveZoom,
     /// Release sent, the zoom stayed: not sent again until the column changes.
     GaveRelease,
@@ -378,6 +379,9 @@ impl Smoke {
             || self.find.is_some()
             || self.actions.palette
             || !self.terminal.input.composition.text.is_empty()
+            // Keys typed while the surface is still at the old size wait in
+            // the input queue; `detach` would drop them.
+            || !self.terminal.input.ready
     }
 
     /// Records how many panes the screen shows, when that changes.

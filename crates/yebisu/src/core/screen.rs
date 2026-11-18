@@ -61,14 +61,11 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
 /// while one pane is drawn, otherwise the column divided between the panes.
 pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
     let sizes = pane_sizes(size, count, vertical, 0, column_metrics())?;
-    let sent = sizes
+    sizes
         .into_iter()
         .flatten()
         .next()
-        .ok_or(crate::Error::CoreState)?;
-    #[cfg(test)]
-    probe::record(size, count, sent);
-    Ok(sent)
+        .ok_or(crate::Error::CoreState)
 }
 pub(super) fn pane_size_for(
     size: Size,
@@ -99,9 +96,12 @@ pub(super) fn pane_sizes(
     let count = count.max(1);
     let sent = pane_size_for(size, count, vertical, column)?;
     let hidden = is_single(size, count, vertical, column);
-    Ok((0..count)
+    let sizes: Vec<Option<Size>> = (0..count)
         .map(|index| (!hidden || index == active).then_some(sent))
-        .collect())
+        .collect();
+    #[cfg(test)]
+    probe::record(size, count, active, &sizes);
+    Ok(sizes)
 }
 pub(super) fn publish(
     screens: &[Screen],
@@ -258,30 +258,43 @@ pub(super) fn publish_for(
 #[path = "screen_tests.rs"]
 mod tests;
 
-/// Test-only record of what the worker computed, keyed by the whole size so a
-/// test finds its own entries.
+/// Test-only record of what the worker was told to send each terminal,
+/// keyed by the whole size so a test finds its own entries. It records inside
+/// `pane_sizes`, which both `pane_size` and the hidden-size worker patch use.
 #[cfg(test)]
 pub(super) mod probe {
     use sheprd_backend::Size;
     use std::sync::{Mutex, PoisonError};
 
-    static SIZES: Mutex<Vec<(Size, usize, Size)>> = Mutex::new(Vec::new());
+    type Call = (Size, usize, usize, Vec<Option<Size>>);
+    static CALLS: Mutex<Vec<Call>> = Mutex::new(Vec::new());
 
-    pub(super) fn record(whole: Size, count: usize, sent: Size) {
-        SIZES
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push((whole, count, sent));
+    pub(super) fn record(whole: Size, count: usize, active: usize, sizes: &[Option<Size>]) {
+        CALLS.lock().unwrap_or_else(PoisonError::into_inner).push((
+            whole,
+            count,
+            active,
+            sizes.to_vec(),
+        ));
     }
 
-    /// Every `pane_size` result for `whole` and `count`, oldest first.
-    pub(crate) fn sent_for(whole: Size, count: usize) -> Vec<Size> {
-        SIZES
+    /// Every `pane_sizes` call for `whole` and `count`: the active pane and
+    /// what each terminal is sent (`None` keeps its size), oldest first.
+    pub(crate) fn calls_for(whole: Size, count: usize) -> Vec<(usize, Vec<Option<Size>>)> {
+        CALLS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
-            .filter(|(w, c, _)| *w == whole && *c == count)
-            .map(|(_, _, sent)| *sent)
+            .filter(|(w, c, _, _)| *w == whole && *c == count)
+            .map(|(_, _, active, sizes)| (*active, sizes.clone()))
+            .collect()
+    }
+
+    /// The size the drawn pane was sent in each call.
+    pub(crate) fn sent_for(whole: Size, count: usize) -> Vec<Size> {
+        calls_for(whole, count)
+            .into_iter()
+            .filter_map(|(_, sizes)| sizes.into_iter().flatten().next())
             .collect()
     }
 }
