@@ -15,6 +15,7 @@ use super::{
 use crate::{app::Smoke, notifications::Context, terminal_view::TerminalView};
 use sheprd_core_client::wire::{Status, StatusState, Terminal};
 
+pub(crate) mod panes;
 pub(crate) mod session;
 
 /// The one Herdr 2 session yebisu attaches to (`core::connect`,
@@ -129,12 +130,12 @@ pub(crate) fn notification_agent(target: &Context, key: &ConnectionKey) -> Optio
 }
 
 impl Smoke {
-    /// Whether the Herdr 2 control band (CB) stays in the terminal screen.
-    /// It stays until the ... menu carries Split and the split direction and
-    /// pane taps carry focus (plan v2 5.2, L8 column); today the ... menu
-    /// has Detach only, so removing the band would drop Split (5.1 rule 1).
+    /// Whether the Herdr 2 control band (CB) stays in the terminal screen:
+    /// until every control it holds (Split, Pane 1, Pane 2, the split
+    /// direction, Detach) has a home in the ... menu (plan v2 5.2, L8 column;
+    /// 5.1 rule 1).
     pub(crate) fn core_controls_in_band(&self) -> bool {
-        true
+        !panes::band_retired(&self.chrome_state())
     }
 }
 

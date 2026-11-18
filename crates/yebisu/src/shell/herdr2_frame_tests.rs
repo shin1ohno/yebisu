@@ -11,6 +11,8 @@ mod chrome;
 mod connection;
 #[path = "herdr2_frame_tests/entry.rs"]
 mod entry;
+#[path = "herdr2_frame_tests/panes.rs"]
+mod panes_tests;
 #[path = "herdr2_frame_tests/session.rs"]
 mod session;
 #[path = "herdr2_frame_tests/status.rs"]
