@@ -585,3 +585,13 @@ goes away at the end of Wave 3.
   fills the list; Integration 1 S3's empty-column rule no longer holds.
 - **Integration 2 (layout-mutations).** Streams' patches append to `CASES`
   only; the integrator folds their docstring edits into one change.
+- **Integration 3 (L8).** L8 also owns `shell/herdr2_frame/**` and
+  `shell/herdr2_frame_tests*`. The Herdr 2 control band retires once every
+  band control (Split (2 panes), Pane 1, Pane 2, Toggle split direction,
+  Detach) is an enabled entry of the `...` menu (`band_retired_in`, patch
+  07); SmokeQA and `smokeqa-labels-check.py` find those texts in the menu.
+  Herdr 2 pane sizes are L8's `pane_rects`: one line cell between two panes,
+  every pane the same size, and the size sent equals the rect drawn (patch
+  06; L2c's `size / count` expectations moved by one cell). Patches 02
+  (status poll thread) and 03 (Herdr 2 sidebar session) are held by review
+  e85e B1, so Herdr 2 keeps the empty list and the footer of Integration 2.
