@@ -2,16 +2,18 @@ import XCTest
 import Vision
 
 final class SmokeQA: XCTestCase {
-    // P9 takes about 70 s on the Mac mini and about 210 s on a hosted runner since
-    // L8 moved the Herdr 2 band into the ... menu, which the test opens five times
-    // (run 44276079121: 209.8 s; 112-121 s before). A hang inside it (the app never
-    // reports idle, so every XCUITest query waits its 60 s animation timeout) must
-    // still fail the test here instead of running into the 40-minute job timeout.
-    // p9-check.py passes -test-timeouts-enabled YES; XCTest rounds the allowance up
-    // to whole minutes (300 s is 5 minutes).
+    // P9 takes about 72 s on the Mac mini. On a hosted runner it took 96-121 s with the
+    // Herdr 2 band, and 209.8 s in run 44276079121 once L8 moved the band into the ...
+    // menu: about 30 s more for five menu trips (cut by tapMenuItem) and one 60.09 s wait
+    // for an animation (CASDFElementLayer) that did not end, the C-anim signature below.
+    // The allowance keeps room for the body (about 130 s hosted) plus one such 60 s wait,
+    // as the 3 minutes did before L8 (96 + 60 s), while a hang (every query waiting 60 s)
+    // still fails the test here instead of running into the 40-minute job timeout.
+    // p9-check.py passes -test-timeouts-enabled YES; XCTest rounds the allowance up to
+    // whole minutes (210 s is 4 minutes).
     override func setUpWithError() throws {
         if name.contains("testP9Core") {
-            executionTimeAllowance = 300
+            executionTimeAllowance = 210
         }
     }
 
@@ -287,6 +289,28 @@ final class SmokeQA: XCTestCase {
         save("missing-overflow-menu")
         XCTFail("The ... menu did not open (no \"Select text\" on screen)")
         throw NSError(domain: "SmokeQA.MissingControl", code: 2)
+    }
+
+    /// Opens the ... menu at `point` (from `openOverflowMenu`) and taps `label` in the menu's
+    /// column (`minX`, see `locateText`). One OCR pass per try both shows the menu is open (its
+    /// item is in the column) and finds the item, where `openOverflowMenu` + `tapText` take two:
+    /// on a hosted runner each pass costs about 5 s (run 44276079121, testP9Core).
+    @discardableResult
+    func tapMenuItem(_ label: String, in app: XCUIApplication, at point: CGVector, minX: CGFloat) throws -> CGRect {
+        print("overflow menu tap \(point)")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+        for attempt in 0..<3 {
+            sleep(1)
+            if let found = try locateText(label, bands: attempt == 2, minX: minX) {
+                print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
+                app.coordinate(withNormalizedOffset: CGVector(dx: found.box.midX, dy: 1 - found.box.midY)).tap()
+                return found.box
+            }
+            print("OCR attempt \(attempt) for \(label)")
+        }
+        save("missing-control")
+        XCTFail("Missing source-defined control in the ... menu: \(label)")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 3)
     }
 
     func save(_ name: String) {

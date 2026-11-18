@@ -6,7 +6,7 @@ text changes in the app, or a test that names a text the app never paints, fails
 only on a Simulator run, long after the change. This check runs where the sources
 are, in the check job:
 
-  * every string passed to tapText, tapTextBox, textVisible or waitForRenderedText,
+  * every string passed to tapText, tapTextBox, tapMenuItem, textVisible or waitForRenderedText,
     every string the P15 host screen is matched against (text.contains), and the
     HOSTS header scrollBoard reads, is collected from Tests/SmokeQA*.swift;
   * each must have an entry in SOURCES (the app paints it as a literal) or in
@@ -25,7 +25,7 @@ from pathlib import Path
 import re
 import sys
 
-LABEL_CALLS = ("tapText", "tapTextBox", "textVisible", "waitForRenderedText")
+LABEL_CALLS = ("tapText", "tapTextBox", "tapMenuItem", "textVisible", "waitForRenderedText")
 # `.contains("x")` receivers that are OCR output, and the ones that are not.
 OCR_RECEIVERS = ("text", "string")
 NOT_OCR_RECEIVERS = ("name",)  # setUpWithError: name.contains("testP9Core")
