@@ -35,19 +35,6 @@ pub(crate) fn qa_strip_enabled() -> bool {
 }
 
 impl Smoke {
-    /// A press on the strip focuses the terminal first, at mouse down, as it
-    /// did when these controls sat inside the terminal body, which tracks
-    /// `terminal_focus` (GPUI moves a tracked focus on mouse down). Without
-    /// it a QA control that focuses the terminal itself does so after its
-    /// own keyboard request: SH1-153 case 9 (a press right after a blur)
-    /// found the text input view as first responder although the case had
-    /// dismissed the keyboard (Integration 2, run 44220412031).
-    pub(crate) fn qa_strip_press(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        if self.terminal.open && !self.input_modal() && !self.terminal_focus.is_focused(window) {
-            self.terminal_focus.focus(window, cx);
-        }
-    }
-
     pub(crate) fn render_qa_strip(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !qa_strip_enabled() {
             return None;
@@ -76,10 +63,6 @@ impl Smoke {
         Some(
             div()
                 .id("shell-qa-strip")
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    cx.listener(|this, _, window, cx| this.qa_strip_press(window, cx)),
-                )
                 .flex_none()
                 .flex()
                 .flex_col()

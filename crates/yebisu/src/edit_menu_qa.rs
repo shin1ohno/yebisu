@@ -41,6 +41,15 @@ impl Smoke {
                                 window.request_virtual_keyboard();
                             } else {
                                 window.dismiss_virtual_keyboard();
+                                // A press right after a blur (case 9 after case 8)
+                                // moves the focus here, in the click handler, and
+                                // UIKit makes the text input view first responder
+                                // after this handler returns. Since L2b the QA strip
+                                // sits outside the terminal body, so the focus no
+                                // longer moves at mouse down; dismiss again once
+                                // the focus change has reached UIKit (Integration 2,
+                                // run 44220412031, sh1-153-check.py:57).
+                                window.on_next_frame(|window, _| window.dismiss_virtual_keyboard());
                             }
                             this.refresh_terminal_input();
                             this.sync_handoff();
