@@ -313,6 +313,35 @@ final class SmokeQA: XCTestCase {
         throw NSError(domain: "SmokeQA.MissingControl", code: 3)
     }
 
+    /// Hides the software keyboard if it comes up within `wait` seconds, with the keyboard's own
+    /// hide key, and fails unless it is gone. The terminal takes focus when it connects, and on
+    /// a Simulator whose software keyboard is on the keyboard then raises the QA strip and the
+    /// status bar, so a test that reads their places must not inherit it (testSH154CoreImage
+    /// after testP9Core in one xcodebuild: QA Image and QA Image only read on two rows while
+    /// the keyboard rose, Mac mini 32f1e21).
+    func hideSoftwareKeyboard(in app: XCUIApplication, _ what: String, wait: TimeInterval = 3) {
+        // The keyboard element exists off screen too (frame below the window, height 0), so
+        // a hittable "Hide keyboard" key (the iPad keyboard's last key) is what shows it is up.
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+        let up = { hide.exists && hide.isHittable }
+        let deadline = Date().addingTimeInterval(wait)
+        while !up() && Date() < deadline {
+            usleep(250_000)
+        }
+        guard up() else {
+            print("\(what): no software keyboard")
+            return
+        }
+        hide.tap()
+        let gone = Date().addingTimeInterval(5)
+        while up() && Date() < gone {
+            usleep(250_000)
+        }
+        XCTAssertFalse(up(), "\(what): software keyboard still up")
+        sleep(1)
+        print("\(what): software keyboard hidden")
+    }
+
     func save(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name

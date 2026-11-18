@@ -49,5 +49,7 @@ extension SmokeQA {
         app.typeText("P9-pane1\n")
         save("p9-reattached")
         XCTAssertEqual(app.state, .runningForeground)
+        // Leave no software keyboard for the next test in this xcodebuild (testSH154CoreImage).
+        hideSoftwareKeyboard(in: app, "P9 end", wait: 1)
     }
 }

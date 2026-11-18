@@ -75,7 +75,12 @@ extension SmokeQA {
         // under the tab row's right edge and lists its items in a fixed order, so neither
         // the QA strip nor the menu moves between taps, and p9-check validate_images
         // proves what each tap did.
-        let qaImageOnly = try tapText("QA Image only", in: app, tap: false, attempts: 15).box
+        // Wait for the QA strip (the app is connected), then hide the software keyboard the
+        // terminal's focus raises on some Simulators: it lifts the strip while it rises, and
+        // two boxes read across that move land on two rows. Read both after it is gone.
+        _ = try tapText("QA Image only", in: app, tap: false, attempts: 15)
+        hideSoftwareKeyboard(in: app, "SH154 start")
+        let qaImageOnly = try tapText("QA Image only", in: app, tap: false).box
         let qaImage = try tapText("QA Image", in: app, tap: false, excludingNextWord: "only").box
         // A misread box would otherwise surface only as put/path/text counts at the end:
         // the QA pair is laid out left to right on one row, the menu items one above the
