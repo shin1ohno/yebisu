@@ -22,7 +22,7 @@ pub(crate) struct Action {
     pub shortcuts: &'static [&'static str],
     pub available: bool,
 }
-fn supported(command: Command) -> bool {
+pub(crate) fn supported(command: Command) -> bool {
     use Command::*;
     matches!(
         command,

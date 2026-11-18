@@ -86,6 +86,17 @@ final class P12QA: XCTestCase {
                        "os": ProcessInfo.processInfo.operatingSystemVersionString])
     }
 
+    /// A point that dismisses the open OS menu: low in the window and beside the menu, never on it.
+    /// The fixed (0.5, 0.85) landed inside the menu once Integration 2 (L2b) added New Space and
+    /// the menu reached y 0.86 with its right edge at x 0.52 (run 44220412031, class A twice).
+    private func dismissPoint(clearOf item: XCUIElement) -> XCUICoordinate {
+        let window = app.frame
+        let menuRight = item.exists ? item.frame.maxX / max(window.width, 1) : 0.5
+        let dx: CGFloat = menuRight < 0.75 ? 0.9 : 0.1
+        events.append(["kind": "dismiss-point", "dx": dx, "menuRight": menuRight])
+        return app.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.85))
+    }
+
     private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
         // Recorded before the swipe so a reveal that fails can say which
         // precondition was missing (L17 class B), not only that the bar is absent.
@@ -124,7 +135,7 @@ final class P12QA: XCTestCase {
                            "owner": "com.apple.springboard", "buttonLabel": item.label,
                            "time": Date().timeIntervalSince1970])
             let dismissTime = Date().timeIntervalSince1970
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            dismissPoint(clearOf: item).tap()
             assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
@@ -140,7 +151,7 @@ final class P12QA: XCTestCase {
         let pickStart = Date().timeIntervalSince1970
         let buttonLabel = item.label
         if tapped { item.tap() }
-        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap() }
+        else { dismissPoint(clearOf: item).tap() }
         // A pick or dismiss tap that was lost leaves the menu open, and the next
         // fixture tap would then only close it (L17 class A). Fail here, by name.
         let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
