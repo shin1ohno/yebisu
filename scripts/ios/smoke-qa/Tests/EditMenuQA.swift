@@ -453,9 +453,12 @@ final class EditMenuQA: XCTestCase {
         return try coordinate(label, app, required: required)
     }
 
+    // One snapshot: `exists` then `frame` are two queries, and a keyboard that leaves between
+    // them fails the test ("No matches found ... Keyboard", run 44241460741 job 134590165203).
+    // A keyboard that is not there, or leaves while it is read, is .zero.
     private func keyboardFrame(_ app: XCUIApplication) -> CGRect {
-        let keyboard = app.keyboards.firstMatch
-        return keyboard.exists ? keyboard.frame.integral : .zero
+        guard let snapshot = try? app.keyboards.firstMatch.snapshot() else { return .zero }
+        return snapshot.frame.integral
     }
 
     // The keyboard frame once it stops moving (at most 3 s): the 152 controls move with it,

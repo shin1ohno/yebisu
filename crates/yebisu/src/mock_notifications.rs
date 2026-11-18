@@ -40,10 +40,9 @@ pub(crate) fn respond(
             .create(true)
             .append(true)
             .open(std::path::PathBuf::from(home).join("Documents/p14-sent.jsonl"))?;
-        writeln!(
-            file,
-            "{}",
-            serde_json::json!({"command":command,"message":notification,"disconnect":command=="p14-disconnect"})
+        crate::observation::write_jsonl_line(
+            &mut file,
+            &serde_json::json!({"command":command,"message":notification,"disconnect":command=="p14-disconnect"}),
         )?;
         file.flush()?;
         if command == "p14-disconnect" {
