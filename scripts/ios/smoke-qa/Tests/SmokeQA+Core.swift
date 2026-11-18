@@ -25,26 +25,29 @@ extension SmokeQA {
         try tapText("QA mark", in: app)
         try tapText("QA delete", in: app)
         try tapText("QA commit", in: app)
-        // L8: the Herdr 2 band moved into the tab row's ... menu (patch 07).
+        // L8: the Herdr 2 band moved into the tab row's ... menu (patch 07). The menu
+        // sits below the mock peer's banner "Split · Detach / Reattach" (core_mock.rs),
+        // so the uppermost-match rule would tap the banner: band items are matched only
+        // in the menu's column, right of where its first item starts.
         let more = try openOverflowMenu(in: app)
-        try tapText("Split (2 panes)", in: app)
+        let column = try tapText("Split (2 panes)", in: app).box.minX - 0.02
         sleep(2)
         try openOverflowMenu(in: app, at: more)
-        try tapText("Toggle split direction", in: app)
+        try tapText("Toggle split direction", in: app, minX: column)
         sleep(2)
         try openOverflowMenu(in: app, at: more)
-        try tapText("Pane 2", in: app)
+        try tapText("Pane 2", in: app, minX: column)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-pane2\n")
         save("p9-split")
         try openOverflowMenu(in: app, at: more)
-        try tapText("Detach", in: app)
+        try tapText("Detach", in: app, minX: column)
         sleep(1)
         // The status bar shows Reconnect while the core is detached (L2a).
         try tapText("Reconnect", in: app)
         sleep(3)
         try openOverflowMenu(in: app, at: more)
-        try tapText("Pane 1", in: app)
+        try tapText("Pane 1", in: app, minX: column)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-pane1\n")
         save("p9-reattached")

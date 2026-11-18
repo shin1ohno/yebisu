@@ -119,7 +119,9 @@ final class SmokeQA: XCTestCase {
     /// bands: a busy frame can make Vision drop a whole row of small controls that the
     /// screenshot shows (P11 adds a Settings button above the SH1-154 strip).
     /// `attachAs` keeps the very screenshot the match came from, for a measurement made on it.
-    private func locateText(_ label: String, excludingNextWord: String? = nil, bands: Bool = false, attachAs: String? = nil) throws -> (box: CGRect, matching: Int)? {
+    /// `minX` skips matches left of that normalized x: a control in a column (the ... menu,
+    /// anchored at the right edge) below shell output carrying the same word.
+    private func locateText(_ label: String, excludingNextWord: String? = nil, bands: Bool = false, attachAs: String? = nil, minX: CGFloat? = nil) throws -> (box: CGRect, matching: Int)? {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
         var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
@@ -147,6 +149,7 @@ final class SmokeQA: XCTestCase {
                     let local = observation.boundingBox
                     let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
                                      width: local.width, height: local.height * line.height)
+                    if let minX = minX, box.minX < minX { continue }
                     print("OCR match pass=\(pass) lines=\(matching)")
                     if let name = attachAs {
                         let attachment = XCTAttachment(screenshot: screenshot)
@@ -206,14 +209,14 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
+    func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil, minX: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // The whole screenshot is tried on every attempt, as before; the horizontal
         // bands are only the last resort, so a control the whole-screenshot pass finds
         // is never replaced by a band match.
         for attempt in 0..<attempts {
-            if let found = try locateText(label, excludingNextWord: excludingNextWord, bands: attempt == attempts - 1) {
+            if let found = try locateText(label, excludingNextWord: excludingNextWord, bands: attempt == attempts - 1, minX: minX) {
                 print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
