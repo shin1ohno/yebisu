@@ -214,6 +214,9 @@ pub struct Input {
     pub qa_strip_height: f32,
     /// Panes in the current tab.
     pub pane_count: usize,
+    /// The user collapsed the sidebar to the rail (Command-B, L4): the rail
+    /// takes 72 pt at any width, and M2 stays when it fits beside it.
+    pub sidebar_rail: bool,
 }
 
 /// A mod region that can be withdrawn.
@@ -329,7 +332,12 @@ pub fn compute(input: &Input) -> Layout {
         (input.window.height - top - input.insets.bottom()).max(0.0),
     );
     let mut withdrawn = Vec::new();
-    let columns = width::allocate(usable.width, input.regions.m2, &mut withdrawn);
+    let columns = width::allocate(
+        usable.width,
+        input.regions.m2,
+        input.sidebar_rail,
+        &mut withdrawn,
+    );
     let column_x = left + columns.sidebar + RULE;
     let chrome_width = columns.column + columns.dock;
 

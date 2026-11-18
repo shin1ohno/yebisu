@@ -17,15 +17,15 @@ fn fits_width(column: f32) -> bool {
     column >= TERMINAL_MIN_WIDTH
 }
 
-pub(super) fn allocate(usable_width: f32, m2: ModSlot, withdrawn: &mut Vec<Region>) -> Columns {
-    let beside_sidebar = usable_width - SIDEBAR_WIDTH - RULE;
+/// M2's width beside `beside` of room: it gives up width down to its minimum
+/// before it is withdrawn.
+fn dock_beside(beside: f32, m2: ModSlot, withdrawn: &mut Vec<Region>) -> f32 {
     let mut dock = match m2 {
         ModSlot::Wants(width) => M2_RANGE.clamp(width),
         ModSlot::Empty | ModSlot::VersionMismatch => 0.0,
     };
-    if dock > 0.0 && !fits_width(beside_sidebar - dock) {
-        // M2 gives up width down to its minimum before it is withdrawn.
-        let shrunk = beside_sidebar - TERMINAL_MIN_WIDTH;
+    if dock > 0.0 && !fits_width(beside - dock) {
+        let shrunk = beside - TERMINAL_MIN_WIDTH;
         if shrunk >= M2_RANGE.min {
             dock = shrunk;
         } else {
@@ -33,6 +33,30 @@ pub(super) fn allocate(usable_width: f32, m2: ModSlot, withdrawn: &mut Vec<Regio
             withdrawn.push(Region::M2);
         }
     }
+    dock
+}
+
+pub(super) fn allocate(
+    usable_width: f32,
+    m2: ModSlot,
+    user_rail: bool,
+    withdrawn: &mut Vec<Region>,
+) -> Columns {
+    if user_rail {
+        // The user chose 72: the rail at any width, M2 beside it when it fits.
+        let beside = (usable_width - RAIL_WIDTH - RULE).max(0.0);
+        let dock = dock_beside(beside, m2, withdrawn);
+        let column = beside - dock;
+        return Columns {
+            sidebar: RAIL_WIDTH.min(usable_width),
+            collapsed: true,
+            column,
+            dock,
+            too_narrow: !fits_width(column),
+        };
+    }
+    let beside_sidebar = usable_width - SIDEBAR_WIDTH - RULE;
+    let dock = dock_beside(beside_sidebar, m2, withdrawn);
     if fits_width(beside_sidebar - dock) {
         return Columns {
             sidebar: SIDEBAR_WIDTH,

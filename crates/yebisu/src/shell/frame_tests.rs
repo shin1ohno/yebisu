@@ -71,3 +71,42 @@ fn terminal_receives_allocated_rect() {
         }
     }
 }
+
+#[gpui::test]
+fn forced_rail_reaches_the_entry_model(cx: &mut gpui::TestAppContext) {
+    use crate::shell::{
+        EntryAction, Place, entry_move::LegacyBands, entry_points::chrome_entry_points,
+    };
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        let rail_actions = |this: &Smoke| {
+            let state = this.chrome_state();
+            let found: Vec<EntryAction> = chrome_entry_points(&state, LegacyBands::current())
+                .into_iter()
+                .filter(|e| e.place == Place::Rail)
+                .map(|e| e.action)
+                .collect();
+            (state.sidebar_hidden, found)
+        };
+        // 300 on screen: the rail offers nothing.
+        assert_eq!(rail_actions(this), (false, vec![]));
+        // The width forces the rail while the user still wants 300.
+        this.shell.frame.sidebar_collapsed = true;
+        let (hidden, found) = rail_actions(this);
+        assert!(hidden);
+        for action in [
+            EntryAction::Hosts,
+            EntryAction::Settings,
+            EntryAction::ToggleSidebar,
+        ] {
+            assert!(
+                found.contains(&action),
+                "{action:?} must be reachable in the rail"
+            );
+        }
+        // The user chose the rail in a wide window.
+        this.shell.frame.sidebar_collapsed = false;
+        this.actions.board_hidden = true;
+        assert!(rail_actions(this).0);
+    });
+}

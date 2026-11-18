@@ -8,6 +8,7 @@ mod find_bar;
 mod insets;
 mod minimum;
 mod panes;
+mod rail;
 mod regions;
 mod withdrawal;
 

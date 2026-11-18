@@ -122,6 +122,21 @@ CASES = [
     ("l2b-footer-settings", "shell/footer.rs", "            item: FooterItem::Settings,\n",
      "            item: FooterItem::Hosts,\n",
      "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
+    # L4 (plan v2 7.9). The rail's badge fit comparison: a left badge that is too wide still fits.
+    ("l4-badge-fit", "shell/rail_badges.rs",
+     "    let left_fits = left_right_edge + MIN_GAP <= dot_left;\n",
+     "    let left_fits = left_right_edge + MIN_GAP <= dot_left + 100.0;\n",
+     "shell::rail_badges::tests::fit::rail_badges_fall_back_to_combined_when_too_wide"),
+    # L4: no Combined fallback, two badges are drawn even when they would touch the dot.
+    ("l4-combined-fallback", "shell/rail_badges.rs",
+     "    } else {\n        RailBadges::Combined\n    }\n",
+     "    } else {\n        RailBadges::Two\n    }\n",
+     "shell::rail_badges::tests::fit::rail_badges_fall_back_to_combined_when_too_wide"),
+    # L4: the sidebar collapses when two panes no longer fit, not when one does not (Q2: collapse last).
+    ("l4-collapse-order", "shell/rail.rs",
+     "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + TERMINAL_MIN_WIDTH;",
+     "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + crate::layout::TWO_PANE_MIN_WIDTH;",
+     "shell::rail::tests::collapse::sidebar_collapses_last"),
 ]
 
 
