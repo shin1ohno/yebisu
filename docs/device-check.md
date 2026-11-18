@@ -882,9 +882,13 @@ then start the next. Record device model, iPadOS version and the main SHA.
 4. Without a hardware keyboard the field reads `Filter · hardware keyboard`;
    tapping it does not stop the software keyboard or terminal input. After the
    filter, check the terminal does not stay at `Text input paused · tap
-   terminal to type`.
-5. Status bar: press a hardware key; `Hardware keyboard` appears left of
-   Shortcuts. Narrow the window; it disappears before the connection name and
+   terminal to type`. Then type one letter on a hardware keyboard, detach it,
+   float (or split) the software keyboard, tap the field and type: the text
+   reaches the terminal and the field goes back to `Filter · hardware
+   keyboard` (re-review H1).
+5. Status bar: press a printable hardware key (a letter; arrows, Return and
+   ⌘ shortcuts do not count); `Hardware keyboard` appears left of Shortcuts.
+   Narrow the window; it disappears before the connection name and
    Shortcuts. Type with the software keyboard (including Return and Backspace)
    and close it; `Hardware keyboard` must not appear.
 6. Keyboards: float the software keyboard; the terminal row count does not
