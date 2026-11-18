@@ -291,7 +291,8 @@ impl Smoke {
                         .flex()
                         .items_center()
                         .px_3()
-                        .child(div().flex_1())
+                        // L4: the filter field takes the header's free width.
+                        .child(self.render_filter_field(cx))
                         .child(
                             div()
                                 .id("shell-sidebar-toggle")

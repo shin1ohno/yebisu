@@ -10,6 +10,8 @@ use crate::shell::{
 mod empty;
 #[path = "filter_tests/rows.rs"]
 mod rows;
+#[path = "filter_tests/screen.rs"]
+mod screen;
 
 pub(super) fn agent(host: &str, name: &str, pane: &str) -> AgentRow {
     AgentRow {

@@ -31,6 +31,8 @@ pub(crate) struct RailState {
     pub(super) widths_recorded: bool,
     /// The sidebar filter text (`filter.rs`).
     pub(super) filter: String,
+    /// Focus of the filter field in the sidebar header (`filter.rs`).
+    pub(super) filter_focus: Option<gpui::FocusHandle>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

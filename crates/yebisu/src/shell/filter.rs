@@ -2,13 +2,75 @@
 //!
 //! The magnifier narrows spaces and agents by what the user types. This file
 //! holds the matching rule, the empty-result outcome and the query kept in
-//! `RailState`; the sidebar list (L3) calls them.
-use super::sidebar::AgentRow;
+//! `RailState`; the sidebar list (L3) calls them. The field sits in the
+//! sidebar header: a tap focuses it and hardware keys edit the query
+//! (`filter_edit`); Escape clears it, Return leaves it. The keys stop at the
+//! field, so none reaches the terminal while it has focus.
+use super::sidebar::{AgentRow, model::AgentLine};
 use crate::app::Smoke;
-use gpui::{AnyElement, Context, Role, div, prelude::*, px, rgb};
+use gpui::{
+    AnyElement, Context, KeyDownEvent, Keystroke, MouseButton, Role, Window, div, prelude::*, px,
+    rgb,
+};
 
 /// Label of the button that clears an active filter.
 pub(crate) const CLEAR_LABEL: &str = "Clear filter";
+/// The field's text while the query is empty, and its spoken name.
+pub(crate) const FILTER_PLACEHOLDER: &str = "Filter";
+pub(crate) const FILTER_LABEL: &str = "Filter spaces and agents";
+/// Longest query the field keeps, in characters.
+pub(crate) const MAX_QUERY_CHARS: usize = 64;
+
+/// What one key press in the focused field does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FilterEdit {
+    /// The query becomes this text.
+    Set(String),
+    /// Escape: clear the query and leave the field.
+    Clear,
+    /// Return: keep the query and leave the field.
+    Leave,
+    /// Not the field's key (a shortcut with Command, Control or Option):
+    /// it goes on to the app.
+    Pass,
+}
+
+/// The edit `keystroke` makes to `query`. Backspace removes the last
+/// character; a printable character is appended up to `MAX_QUERY_CHARS`.
+pub(crate) fn filter_edit(query: &str, keystroke: &Keystroke) -> FilterEdit {
+    let modifiers = keystroke.modifiers;
+    if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+        return FilterEdit::Pass;
+    }
+    match keystroke.key.as_str() {
+        "escape" => return FilterEdit::Clear,
+        "enter" => return FilterEdit::Leave,
+        "backspace" => {
+            let mut text = query.to_owned();
+            text.pop();
+            return FilterEdit::Set(text);
+        }
+        _ => {}
+    }
+    let typed = keystroke
+        .key_char
+        .as_deref()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control());
+    let text: String = query.chars().chain(typed).take(MAX_QUERY_CHARS).collect();
+    FilterEdit::Set(text)
+}
+
+/// The AGENTS lines a query leaves, in their order (`filter_rows`).
+pub(crate) fn filter_lines(lines: Vec<AgentLine>, query: &str) -> Vec<AgentLine> {
+    let rows: Vec<AgentRow> = lines.iter().map(|line| line.row.clone()).collect();
+    let kept: Vec<&AgentRow> = filter_rows(&rows, query);
+    lines
+        .into_iter()
+        .filter(|line| kept.iter().any(|row| row.identity == line.row.identity))
+        .collect()
+}
 
 /// True when every word of `query` appears in `text`, ignoring case. An empty
 /// query matches everything.
@@ -62,6 +124,100 @@ impl Smoke {
 
     pub(crate) fn clear_sidebar_filter(&mut self) {
         self.shell.rail.filter.clear();
+    }
+
+    fn filter_focus(&mut self, cx: &mut Context<Self>) -> gpui::FocusHandle {
+        self.shell
+            .rail
+            .filter_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone()
+    }
+
+    /// A hardware key in the focused field. Every key the field takes stops
+    /// here, so it never reaches the terminal or the window's key line.
+    fn filter_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match filter_edit(&self.shell.rail.filter, &event.keystroke) {
+            FilterEdit::Pass => return,
+            FilterEdit::Set(text) => self.set_sidebar_filter(&text),
+            FilterEdit::Clear => {
+                self.clear_sidebar_filter();
+                self.leave_filter(window, cx);
+            }
+            FilterEdit::Leave => self.leave_filter(window, cx),
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Hands the keys back to the terminal.
+    fn leave_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.terminal_focus.focus(window, cx);
+    }
+
+    /// The filter field in the sidebar header: the magnifier, the query (or
+    /// "Filter"), and × while a query is set.
+    pub(crate) fn render_filter_field(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let focus = self.filter_focus(cx);
+        let query = self.shell.rail.filter.clone();
+        let shown = if query.is_empty() {
+            FILTER_PLACEHOLDER.to_owned()
+        } else {
+            query.clone()
+        };
+        div()
+            .id("sidebar-filter")
+            .debug_selector(|| "sidebar-filter".to_owned())
+            .role(Role::SearchInput)
+            .aria_label(FILTER_LABEL)
+            .track_focus(&focus)
+            .flex_1()
+            .min_w_0()
+            .h(px(32.))
+            .flex()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .rounded_md()
+            .bg(rgb(0x1c1c22))
+            .focus(|style| style.bg(rgb(0x2b2933)))
+            .text_color(rgb(if query.is_empty() { 0x6b7280 } else { 0xd8dee9 }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |_, _, window, cx| {
+                    focus.focus(window, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }),
+            )
+            .on_key_down(cx.listener(Self::filter_key))
+            .child(div().flex_none().child("⌕"))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(shown),
+            )
+            .when(!query.is_empty(), |field| {
+                field.child(
+                    div()
+                        .id("sidebar-filter-clear")
+                        .debug_selector(|| "sidebar-filter-clear".to_owned())
+                        .role(Role::Button)
+                        .aria_label(CLEAR_LABEL)
+                        .flex_none()
+                        .px_1()
+                        .child("×")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_sidebar_filter();
+                            cx.notify();
+                        })),
+                )
+            })
+            .into_any_element()
     }
 
     /// The empty-result row: the button that clears the filter. `None` while
