@@ -1,7 +1,8 @@
+use crate::shell::herdr2_frame::panes::{PaneRect, frame_lines, pane_rects};
 use crate::{
     layout::{PaneMode, pane_mode},
     live::Live,
-    shell::single_pane::{ColumnMetrics, column_metrics},
+    shell::single_pane::ColumnMetrics,
 };
 use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
 use sheprd_client::protocol::{CellData, ClientShellSnapshot, PaneSurfaceFrame};
@@ -42,7 +43,16 @@ impl Screen {
 /// Whether the panes cannot share the column (plan v2 6): narrower than two
 /// panes need, or divided so far that a pane would fall under the 280 x 206 pt
 /// minimum. The drawn pane then gets the whole column.
+///
+/// Each pane's size is L8's `pane_rects` rect, which counts the one line
+/// cell between neighbours (plan v2 7.14), so this rule, the size sent and
+/// the rect drawn agree. A frame too small to hold the panes and their lines
+/// is one pane too.
 fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetrics>) -> bool {
+    let rects = pane_rects(size.cols(), size.rows(), count, vertical);
+    if count >= 2 && rects.len() < count {
+        return true;
+    }
     let Some(column) = column else {
         return false;
     };
@@ -50,17 +60,25 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
         return true;
     }
     let (least_cols, least_rows) = column.minimum_cells();
-    let divided = count.clamp(1, usize::from(u16::MAX)) as u16;
+    let Some(each) = rects.first() else {
+        return true;
+    };
     if vertical {
-        size.rows() / divided < least_rows
+        each.rows < least_rows
     } else {
-        size.cols() / divided < least_cols
+        each.cols < least_cols
     }
 }
 /// The size one terminal is given (plan v2 6.3, Herdr 2): the whole column
 /// while one pane is drawn, otherwise the column divided between the panes.
-pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
-    let sizes = pane_sizes(size, count, vertical, 0, column_metrics())?;
+/// `column` is the worker's read of the UI's column mailbox.
+pub(super) fn pane_size(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Size> {
+    let sizes = pane_sizes(size, count, vertical, 0, column)?;
     sizes
         .into_iter()
         .flatten()
@@ -73,15 +91,16 @@ pub(super) fn pane_size_for(
     vertical: bool,
     column: Option<ColumnMetrics>,
 ) -> crate::Result<Size> {
-    let count = count.max(1) as u16;
-    if is_single(size, usize::from(count), vertical, column) {
+    let count = count.max(1);
+    if is_single(size, count, vertical, column) {
         return Ok(size);
     }
-    Ok(if vertical {
-        Size::new(size.cols(), (size.rows() / count).max(1))?
-    } else {
-        Size::new((size.cols() / count).max(1), size.rows())?
-    })
+    // Every pane has the same rect; the line cells are not part of it.
+    let each = pane_rects(size.cols(), size.rows(), count, vertical)
+        .first()
+        .copied()
+        .ok_or(crate::Error::CoreState)?;
+    Ok(Size::new(each.cols, each.rows)?)
 }
 /// What to send each terminal. A pane hidden by the one-pane rule gets `None`:
 /// it keeps the size it last had (plan v2 6.3), so it does not reflow every
@@ -110,14 +129,9 @@ pub(super) fn publish(
     generation: u64,
     revision: u64,
     epoch: u64,
+    column: Option<ColumnMetrics>,
 ) -> Live {
-    publish_for(
-        screens,
-        saved,
-        size,
-        (generation, revision, epoch),
-        column_metrics(),
-    )
+    publish_for(screens, saved, size, (generation, revision, epoch), column)
 }
 /// `publish` for an explicit column measurement. A column too narrow for the
 /// panes draws only `saved.active`, over the whole size.
@@ -145,6 +159,29 @@ pub(super) fn publish_for(
         hyperlinks: vec![],
         graphics: vec![],
     };
+    // One rect per pane (L8), or the whole frame for the one drawn pane.
+    let rects = if single {
+        vec![
+            PaneRect {
+                x: 0,
+                y: 0,
+                cols: size.cols().max(1),
+                rows: size.rows().max(1),
+            };
+            screens.len()
+        ]
+    } else {
+        pane_rects(size.cols(), size.rows(), screens.len(), saved.vertical)
+    };
+    if !single {
+        for line in frame_lines(&rects, saved.vertical, saved.active) {
+            let at = usize::from(line.y) * usize::from(size.cols()) + usize::from(line.x);
+            if let Some(cell) = frame.cells.get_mut(at) {
+                cell.symbol = line.symbol.into();
+                cell.fg = line.fg;
+            }
+        }
+    }
     for (index, screen) in screens.iter().enumerate() {
         let Some(source) = &screen.frame else {
             continue;
@@ -152,15 +189,21 @@ pub(super) fn publish_for(
         if single && index != saved.active {
             continue;
         }
-        let (x, y) = if single {
-            (0, 0)
-        } else if saved.vertical {
-            (0, index as u16 * (size.rows() / screens.len() as u16))
-        } else {
-            (index as u16 * (size.cols() / screens.len() as u16), 0)
+        let Some(rect) = rects.get(index) else {
+            continue;
         };
-        for row in 0..source.height.min(size.rows().saturating_sub(y)) {
-            for col in 0..source.width.min(size.cols().saturating_sub(x)) {
+        let (x, y) = (rect.x, rect.y);
+        // Clip to the pane's rect: it never leaves the frame (pane_rects).
+        for row in 0..source
+            .height
+            .min(rect.rows)
+            .min(size.rows().saturating_sub(y))
+        {
+            for col in 0..source
+                .width
+                .min(rect.cols)
+                .min(size.cols().saturating_sub(x))
+            {
                 if let Some(cell) = source
                     .cells
                     .get(usize::from(row) * usize::from(source.width) + usize::from(col))

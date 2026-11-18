@@ -24,6 +24,18 @@ impl Default for Host {
     }
 }
 
+/// `YEBISU_CORE_QA` (p9, plan v2 7.14): the listed terminals report raw
+/// statuses, so AGENTS shows the Error row and leaves the shells out.
+fn qa_statuses() -> bool {
+    cfg!(target_abi = "sim") && std::env::var_os("YEBISU_CORE_QA").is_some()
+}
+
+/// The QA status of a mock terminal: `t2` reports Error; `t1` and every
+/// spawned pane report nothing (status-less shells, Q4).
+pub(crate) fn qa_status(id: &str) -> Option<Value> {
+    (id == "t2").then(|| json!({"app":"qa","state":"error","title":"QA error agent"}))
+}
+
 type Receipts = mpsc::Receiver<(u32, Vec<u8>)>;
 #[cfg(test)]
 pub(crate) fn recorded(report_all: bool) -> crate::Result<(CoreBackend, Receipts)> {
@@ -183,7 +195,15 @@ impl Host {
                     }
                     let request: Value = serde_json::from_slice(&frame.payload)?;
                     let mut channel = None;
-                    let terminal = |id: &str| json!({"address":id,"labels":{},"argv":["sh"],"cwd":"/tmp","state":"live","created_ms":1,"screen":"","cols":80,"rows":24});
+                    let terminal = |id: &str| {
+                        let mut t = json!({"address":id,"labels":{},"argv":["sh"],"cwd":"/tmp","state":"live","created_ms":1,"screen":"","cols":80,"rows":24});
+                        if qa_statuses()
+                            && let Some(status) = qa_status(id)
+                        {
+                            t["status"] = status;
+                        }
+                        t
+                    };
                     if request["method"] == "terminal.put" {
                         let bytes = STANDARD
                             .decode(request["params"]["data"].as_str().unwrap_or_default())?;

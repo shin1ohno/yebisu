@@ -42,6 +42,7 @@ fn old_tunnel_completion_cannot_replace_new_host_view(cx: &mut TestAppContext) {
                     Err(crate::Error::Ssh("late old tunnel failure".into()))
                 },
                 None,
+                crate::shell::single_pane::Mailbox::detached(),
             )
             .unwrap_or_else(|e| panic!("start: {e}")),
         );
@@ -109,6 +110,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                     this.terminal.link.inbox.clone(),
                     move || Ok(backend),
                     None,
+                    crate::shell::single_pane::Mailbox::detached(),
                 )
                 .unwrap_or_else(|e| panic!("start: {e}")),
             );
@@ -303,6 +305,7 @@ fn split_focus_and_reattach_preserve_ids_and_reject_old_input(cx: &mut TestAppCo
                     this.terminal.link.inbox.clone(),
                     move || Ok(backend),
                     Some(root.clone()),
+                    crate::shell::single_pane::Mailbox::detached(),
                 )
                 .unwrap_or_else(|e| panic!("start: {e}")),
             );

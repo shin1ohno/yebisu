@@ -82,6 +82,12 @@ impl SinglePaneState {
         self.mailbox = mailbox;
     }
 
+    /// The mailbox this frame publishes its column to; the Herdr 2 worker
+    /// it starts reads the same one.
+    pub(crate) fn mailbox(&self) -> Mailbox {
+        self.mailbox.clone()
+    }
+
     fn entry(&self, host: &str, tab: u64) -> Option<&Forced> {
         self.forced.get(&(host.to_owned(), tab))
     }
@@ -247,9 +253,10 @@ impl ColumnMetrics {
 }
 
 /// The latest column, shared between the UI thread (writer) and the Herdr 2
-/// worker (reader). Production code uses the one process-wide mailbox; a test
-/// builds its own with [`Mailbox::detached`] so it never leaks into another
-/// test's worker.
+/// worker (reader). The view hands its mailbox to the worker it starts
+/// (`Session::start`), and the worker reads only that one. Production code
+/// uses the one process-wide mailbox; a test builds its own with
+/// [`Mailbox::detached`] so it never leaks into another test's worker.
 #[derive(Clone, Debug)]
 pub(crate) struct Mailbox(Arc<Mutex<Option<ColumnMetrics>>>);
 
@@ -276,11 +283,6 @@ impl Default for Mailbox {
     fn default() -> Self {
         Self::global()
     }
-}
-
-/// The last published column, `None` until the first frame is measured.
-pub(crate) fn column_metrics() -> Option<ColumnMetrics> {
-    Mailbox::global().latest()
 }
 
 impl Smoke {

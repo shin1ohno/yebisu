@@ -2,13 +2,18 @@ import XCTest
 import Vision
 
 final class SmokeQA: XCTestCase {
-    // P9 normally takes about 60 s. A hang inside it (the app never reports idle, so
-    // every XCUITest query waits its 60 s animation timeout) must fail the test here
-    // instead of running into the 40-minute job timeout. p9-check.py passes
-    // -test-timeouts-enabled YES; XCTest rounds the allowance up to whole minutes.
+    // P9 takes about 72 s on the Mac mini. On a hosted runner it took 96-121 s with the
+    // Herdr 2 band, and 209.8 s in run 44276079121 once L8 moved the band into the ...
+    // menu: about 30 s more for five menu trips (cut by tapMenuItem) and one 60.09 s wait
+    // for an animation (CASDFElementLayer) that did not end, the C-anim signature below.
+    // The allowance keeps room for the body (about 130 s hosted) plus one such 60 s wait,
+    // as the 3 minutes did before L8 (96 + 60 s), while a hang (every query waiting 60 s)
+    // still fails the test here instead of running into the 40-minute job timeout.
+    // p9-check.py passes -test-timeouts-enabled YES; XCTest rounds the allowance up to
+    // whole minutes (210 s is 4 minutes).
     override func setUpWithError() throws {
         if name.contains("testP9Core") {
-            executionTimeAllowance = 150
+            executionTimeAllowance = 210
         }
     }
 
@@ -119,7 +124,9 @@ final class SmokeQA: XCTestCase {
     /// bands: a busy frame can make Vision drop a whole row of small controls that the
     /// screenshot shows (P11 adds a Settings button above the SH1-154 strip).
     /// `attachAs` keeps the very screenshot the match came from, for a measurement made on it.
-    private func locateText(_ label: String, excludingNextWord: String? = nil, bands: Bool = false, attachAs: String? = nil) throws -> (box: CGRect, matching: Int)? {
+    /// `minX` skips matches left of that normalized x: a control in a column (the ... menu,
+    /// anchored at the right edge) below shell output carrying the same word.
+    private func locateText(_ label: String, excludingNextWord: String? = nil, bands: Bool = false, attachAs: String? = nil, minX: CGFloat? = nil) throws -> (box: CGRect, matching: Int)? {
         let screenshot = XCUIScreen.main.screenshot()
         let image = try XCTUnwrap(screenshot.image.cgImage)
         var passes: [(bottom: CGFloat, height: CGFloat)] = [(0, 1)]
@@ -147,6 +154,7 @@ final class SmokeQA: XCTestCase {
                     let local = observation.boundingBox
                     let box = CGRect(x: local.minX, y: line.bottom + local.minY * line.height,
                                      width: local.width, height: local.height * line.height)
+                    if let minX = minX, box.minX < minX { continue }
                     print("OCR match pass=\(pass) lines=\(matching)")
                     if let name = attachAs {
                         let attachment = XCTAttachment(screenshot: screenshot)
@@ -206,14 +214,14 @@ final class SmokeQA: XCTestCase {
     }
 
     @discardableResult
-    func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
+    func tapText(_ label: String, in app: XCUIApplication, tap: Bool = true, attempts: Int = 3, excludingNextWord: String? = nil, dx: CGFloat? = nil, minX: CGFloat? = nil) throws -> (box: CGRect, matching: Int) {
         // GPUI controls have no UIKit accessibility nodes. Match source labels,
         // allowing Vision alternatives and a bounded wait for the next paint.
         // The whole screenshot is tried on every attempt, as before; the horizontal
         // bands are only the last resort, so a control the whole-screenshot pass finds
         // is never replaced by a band match.
         for attempt in 0..<attempts {
-            if let found = try locateText(label, excludingNextWord: excludingNextWord, bands: attempt == attempts - 1) {
+            if let found = try locateText(label, excludingNextWord: excludingNextWord, bands: attempt == attempts - 1, minX: minX) {
                 print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
                 if tap {
                     app.coordinate(withNormalizedOffset: CGVector(dx: dx ?? found.box.midX, dy: 1-found.box.midY)).tap()
@@ -254,9 +262,22 @@ final class SmokeQA: XCTestCase {
     /// L2b retired the toolbar and the handoff band (shell/entry_move.rs). Settings is
     /// the sidebar footer's "Settings" (shell/footer.rs); the caller then taps the page
     /// title in the sheet's left column (settings_pages/sections.rs) and its control.
+    /// The sheet is open when its "Close" (settings_sheet/view.rs) is on screen. A press the
+    /// footer did not take is repeated once, with the reason printed (Mac mini 76c3332: the
+    /// Settings press right after the keyboard was hidden opened nothing, then "Input" was
+    /// missing).
     func openSettings(in app: XCUIApplication) throws {
-        try tapText("Settings", in: app)
-        sleep(2)
+        for press in 0..<2 {
+            try tapText("Settings", in: app)
+            for _ in 0..<4 {
+                sleep(1)
+                if textVisible("Close") { return }
+            }
+            print("Settings sheet not open 4 s after press \(press): the press was not taken")
+        }
+        save("settings-not-open")
+        XCTFail("The Settings sheet did not open after two presses")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 4)
     }
 
     /// Opens the tab row's ... menu (shell/tab_row.rs `shell-more`) and returns the point
@@ -281,6 +302,85 @@ final class SmokeQA: XCTestCase {
         save("missing-overflow-menu")
         XCTFail("The ... menu did not open (no \"Select text\" on screen)")
         throw NSError(domain: "SmokeQA.MissingControl", code: 2)
+    }
+
+    /// Closes the open ... menu by pressing its backdrop at `point` (the place that opened it)
+    /// and fails unless the menu is gone ("Select text" off the screen). A press that the
+    /// menu did not take is repeated once, with the reason printed: in run 44297932478 (job
+    /// 134779801456) the close press left the menu open (screen recording at 47.8 s and
+    /// 48.4 s), and the next tap, meant for QA Image only, only closed it.
+    func closeOverflowMenu(in app: XCUIApplication, at point: CGVector) {
+        for press in 0..<2 {
+            print("overflow menu close \(point) press \(press)")
+            app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+            for _ in 0..<3 {
+                sleep(1)
+                if !textVisible("Select text") { return }
+            }
+            print("overflow menu still open 3 s after close press \(press): the press was not taken")
+        }
+        save("overflow-menu-still-open")
+        XCTFail("The ... menu stayed open after two close presses")
+    }
+
+    /// Opens the ... menu at `point` (from `openOverflowMenu`) and taps `label` in the menu's
+    /// column (`minX`, see `locateText`). One OCR pass per try both shows the menu is open (its
+    /// item is in the column) and finds the item, where `openOverflowMenu` + `tapText` take two:
+    /// on a hosted runner each pass costs about 5 s (run 44276079121, testP9Core).
+    @discardableResult
+    func tapMenuItem(_ label: String, in app: XCUIApplication, at point: CGVector, minX: CGFloat) throws -> CGRect {
+        print("overflow menu tap \(point)")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+        for attempt in 0..<3 {
+            sleep(1)
+            if let found = try locateText(label, bands: attempt == 2, minX: minX) {
+                print("OCR tap \(label) frame=\(app.frame) box=\(found.box)")
+                app.coordinate(withNormalizedOffset: CGVector(dx: found.box.midX, dy: 1 - found.box.midY)).tap()
+                return found.box
+            }
+            print("OCR attempt \(attempt) for \(label)")
+        }
+        save("missing-control")
+        XCTFail("Missing source-defined control in the ... menu: \(label)")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 3)
+    }
+
+    /// Hides the software keyboard if it comes up within `wait` seconds, with the keyboard's own
+    /// hide key, and fails unless it is gone. The terminal takes focus when it connects, and on
+    /// a Simulator whose software keyboard is on the keyboard then raises the QA strip and the
+    /// status bar, so a test that reads their places must not inherit it (testSH154CoreImage
+    /// after testP9Core in one xcodebuild: QA Image and QA Image only read on two rows while
+    /// the keyboard rose, Mac mini 32f1e21).
+    func hideSoftwareKeyboard(in app: XCUIApplication, _ what: String, wait: TimeInterval = 3) {
+        // The keyboard element exists off screen too (frame below the window, height 0), so
+        // a hittable "Hide keyboard" key (the iPad keyboard's last key) is what shows it is up.
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+        let up = { hide.exists && hide.isHittable }
+        let deadline = Date().addingTimeInterval(wait)
+        while !up() && Date() < deadline {
+            usleep(250_000)
+        }
+        guard up() else {
+            print("\(what): no software keyboard")
+            return
+        }
+        // A press the keyboard did not take is repeated once, with the reason printed (Mac
+        // mini f95123d: the keyboard stayed up 5 s after the first press).
+        for press in 0..<2 {
+            hide.tap()
+            let gone = Date().addingTimeInterval(5)
+            while up() && Date() < gone {
+                usleep(250_000)
+            }
+            if !up() { break }
+            print("\(what): software keyboard still up 5 s after hide press \(press): the press was not taken")
+        }
+        guard !up() else {
+            XCTFail("\(what): software keyboard still up after two hide presses")
+            return
+        }
+        sleep(1)
+        print("\(what): software keyboard hidden")
     }
 
     func save(_ name: String) {

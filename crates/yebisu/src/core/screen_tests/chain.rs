@@ -1,10 +1,12 @@
 //! Rule: a column that crosses the one-pane line reaches the Herdr 2 worker
 //! (review B1). `enforce_pane_mode` -> mailbox -> the next paint's Resize ->
-//! the worker's `pane_size`, through a real worker thread.
+//! the worker's `pane_size`, through a real worker thread. The view and its
+//! worker share a mailbox of this test's own, so a test running in parallel
+//! that publishes a column (or none) cannot change what this worker reads.
 use crate::{
     app::Smoke,
     core::{Command, screen::probe},
-    shell::single_pane::column_metrics,
+    shell::single_pane::Mailbox,
 };
 use gpui::{Bounds, TestAppContext, point, px, size};
 use sheprd_backend::Size;
@@ -47,18 +49,13 @@ fn measured(this: &mut Smoke, width: f32) {
     this.terminal.geometry.cell_height = 20.0;
 }
 
-/// Puts the global mailbox back when the test ends, also on a failure.
-struct Reset;
-impl Drop for Reset {
-    fn drop(&mut self) {
-        crate::shell::single_pane::Mailbox::default().publish(None);
-    }
-}
-
 #[gpui::test]
 fn column_change_reaches_the_worker_resize(cx: &mut TestAppContext) {
-    let _reset = Reset;
+    let mailbox = Mailbox::detached();
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.shell.single_pane.set_mailbox(mailbox.clone())
+    });
     let (backend, _wire) =
         crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("peer: {e}"));
     view.update(cx, |this, cx| {
@@ -113,7 +110,8 @@ fn column_change_reaches_the_worker_resize(cx: &mut TestAppContext) {
     // ... and only a size that is sent again can reach the new column.
     frame(cx, 820.0, 82);
     frame(cx, 820.0, 82);
-    let wide = wait_for(whole(82, 29), 2, |last| last == whole(41, 29));
-    assert_eq!(wide, whole(41, 29), "two panes share the widened column");
-    assert!(column_metrics().is_some());
+    // 40 + 1 line cell + 40 (L8 frame line, plan v2 7.14).
+    let wide = wait_for(whole(82, 29), 2, |last| last == whole(40, 29));
+    assert_eq!(wide, whole(40, 29), "two panes share the widened column");
+    assert!(mailbox.latest().is_some());
 }

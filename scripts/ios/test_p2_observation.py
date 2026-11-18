@@ -116,6 +116,27 @@ class LiveReceiptTests(unittest.TestCase):
         self.assertEqual(len(waits), 1)
         self.assertEqual(len(got), len(records))
 
+    def test_a_file_the_app_creates_late_is_waited_for(self):
+        records = ObservationTests.records(None)
+        path = self.write(self.lines(records))
+        text = path.read_text()
+        path.unlink()
+        waits = []
+        def land(_):
+            waits.append(1)
+            path.write_text(text)
+        got, _ = p2.read_until_valid(path, 0, p2.validate_records, sleep=land)
+        self.assertEqual(len(waits), 1)
+        self.assertEqual(len(got), len(records))
+
+    def test_negative_a_file_that_never_appears_fails(self):
+        path = self.write("")
+        path.unlink()
+        waits = []
+        with self.assertRaisesRegex(RuntimeError, "was never created \\(3 reads, 5 s apart\\)"):
+            p2.read_until_valid(path, 0, p2.validate_records, attempts=3, sleep=waits.append)
+        self.assertEqual(waits, [5, 5])
+
     def test_negative_a_copy_receipt_that_never_lands_fails(self):
         records = ObservationTests.records(None)
         path = self.write(self.lines([{**r, "status": "ready"} if r.get("kind") == "setup" else r for r in records]))

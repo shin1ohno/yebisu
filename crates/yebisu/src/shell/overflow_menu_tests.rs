@@ -77,7 +77,18 @@ fn overflow_menu_items_for_herdr2() {
     assert_eq!(
         items(&with_find),
         [
-            Paste, PasteImage, SelectText, Copy, Find, Reconnect, Detach, NewTab
+            Paste,
+            PasteImage,
+            SelectText,
+            Copy,
+            Find,
+            Reconnect,
+            Split,
+            Pane1,
+            Pane2,
+            SplitDirection,
+            Detach,
+            NewTab
         ]
     );
     // Find only when PR 26's `available` is true.
@@ -85,7 +96,17 @@ fn overflow_menu_items_for_herdr2() {
     assert_eq!(
         items(&without_find),
         [
-            Paste, PasteImage, SelectText, Copy, Reconnect, Detach, NewTab
+            Paste,
+            PasteImage,
+            SelectText,
+            Copy,
+            Reconnect,
+            Split,
+            Pane1,
+            Pane2,
+            SplitDirection,
+            Detach,
+            NewTab
         ]
     );
     // No command palette and no Close tab on Herdr 2.
@@ -113,4 +134,40 @@ fn herdr2_overflow_paste_image_enabled() {
             reason: None
         })
     );
+}
+
+/// Review 9c55 S3: with the band controls in the Herdr 2 menu, the band
+/// retires; without any one of them, or with one disabled, it stays.
+#[test]
+fn herdr2_menu_retires_the_band_only_with_every_control() {
+    use crate::shell::herdr2_frame::panes::{band_retired, band_retired_in};
+    let connected = state(HerdrKind::Herdr2, true, false, false);
+    let menu = overflow_menu_items(&connected);
+    assert!(band_retired_in(&menu));
+    assert!(band_retired(&connected));
+    for removed in [Split, Pane1, Pane2, SplitDirection, Detach] {
+        let without = menu
+            .iter()
+            .filter(|e| e.item != removed)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(!band_retired_in(&without), "{removed:?} removed");
+        let mut disabled = menu.clone();
+        for e in &mut disabled {
+            if e.item == removed {
+                e.enabled = false;
+            }
+        }
+        assert!(!band_retired_in(&disabled), "{removed:?} disabled");
+    }
+    // Offline the items are disabled, but homes are judged connected: the
+    // band does not come back while the link is down.
+    assert!(band_retired(&state(HerdrKind::Herdr2, false, false, false)));
+    // Herdr 1's menu never holds them.
+    assert!(!band_retired_in(&overflow_menu_items(&state(
+        HerdrKind::Herdr1,
+        true,
+        false,
+        false
+    ))));
 }

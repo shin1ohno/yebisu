@@ -6,7 +6,7 @@ text changes in the app, or a test that names a text the app never paints, fails
 only on a Simulator run, long after the change. This check runs where the sources
 are, in the check job:
 
-  * every string passed to tapText, tapTextBox, textVisible or waitForRenderedText,
+  * every string passed to tapText, tapTextBox, tapMenuItem, textVisible or waitForRenderedText,
     every string the P15 host screen is matched against (text.contains), and the
     HOSTS header scrollBoard reads, is collected from Tests/SmokeQA*.swift;
   * each must have an entry in SOURCES (the app paints it as a literal) or in
@@ -25,20 +25,20 @@ from pathlib import Path
 import re
 import sys
 
-LABEL_CALLS = ("tapText", "tapTextBox", "textVisible", "waitForRenderedText")
+LABEL_CALLS = ("tapText", "tapTextBox", "tapMenuItem", "textVisible", "waitForRenderedText")
 # `.contains("x")` receivers that are OCR output, and the ones that are not.
 OCR_RECEIVERS = ("text", "string")
 NOT_OCR_RECEIVERS = ("name",)  # setUpWithError: name.contains("testP9Core")
 
 SRC = "crates/yebisu/src/"
 HANDOFF = SRC + "handoff_view.rs"
-CORE_VIEW = SRC + "core_view.rs"
 SETTINGS_VIEW = SRC + "settings_sheet/view.rs"
 HOSTS_SHEET = SRC + "shell/hosts_sheet/view.rs"  # L7 replaced the Keys and hosts page
 P15_VIEW = SRC + "p15_settings_view.rs"
 TERMINAL_CONTROLS = SRC + "terminal_controls.rs"
 EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
 OVERFLOW_MENU = SRC + "shell/overflow_menu.rs"  # L2a ... menu
+HERDR2_PANES = SRC + "shell/herdr2_frame/panes.rs"  # L8 band labels, painted by the ... menu once the band retires
 SETTINGS_SECTIONS = SRC + "settings_pages/sections.rs"
 SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 
@@ -49,7 +49,7 @@ SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
     "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
     "Copy authorized_keys line": [(HOSTS_SHEET, '"Copy authorized_keys line"')],
-    "Detach": [(CORE_VIEW, '"Detach"')],
+    "Detach": [(HERDR2_PANES, 'DETACH: &str = "Detach"'), (OVERFLOW_MENU, "Self::Detach => panes::DETACH")],  # L8: ... menu
     "Display": [(SETTINGS_SECTIONS, 'Self::Display => "Display"')],
     "Double tap": [(SETTINGS_CHOICES, '["Double tap", "Drag"]')],
     "Discard composition": [(SRC + "sh1_156_qa.rs", '"Discard composition"')],
@@ -63,13 +63,14 @@ SOURCES = {
     "Menu select": [(EDIT_MENU_QA, '"Menu select"')],
     "Native matrix collected": [(SRC + "native_observer_qa.rs", '"Native matrix collected"')],
     "Native next": [(SRC + "native_edit_qa.rs", '"Native next"'), (SRC + "native_observer_qa.rs", '"Native next"')],
+    "No public key loaded.": [(HOSTS_SHEET, '"No public key loaded."')],  # L7 key field before a key is read
     "Observer matrix collected": [(SRC + "settings_sheet/observer_qa.rs", '"Observer matrix collected"')],
     "Observer next": [(SRC + "settings_sheet/observer_qa.rs", '"Observer next"')],
     "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],
     "Owner default": [(SRC + "theme_picker/mod.rs", '"Owner default"')],
     "P14 next": [(SRC + "notification_view/qa.rs", '"P14 next"')],
-    "Pane 1": [(CORE_VIEW, '"Pane 1"')],
-    "Pane 2": [(CORE_VIEW, '"Pane 2"')],
+    "Pane 1": [(HERDR2_PANES, 'PANE_1: &str = "Pane 1"'), (OVERFLOW_MENU, "Self::Pane1 => panes::PANE_1")],  # L8: ... menu
+    "Pane 2": [(HERDR2_PANES, 'PANE_2: &str = "Pane 2"'), (OVERFLOW_MENU, "Self::Pane2 => panes::PANE_2")],  # L8: ... menu
     "Paste": [(OVERFLOW_MENU, 'Self::Paste => "Paste"')],  # L2b: the ... menu, not the handoff band
     "Paste image": [(OVERFLOW_MENU, 'Self::PasteImage => "Paste image"')],
     "Probe modal callbacks": [(SRC + "settings_sheet/qa.rs", '"Probe modal callbacks"')],
@@ -84,9 +85,10 @@ SOURCES = {
     "Reconnect": [(SRC + "shell/status_bar.rs", 'RECONNECT: &str = "Reconnect"')],  # L2a status bar chip
     "Select text": [(OVERFLOW_MENU, 'Self::SelectText => "Select text"')],
     "Settings": [(SRC + "shell/footer.rs", 'SETTINGS: &str = "Settings"')],  # L2b sidebar footer
-    "Split (2 panes)": [(CORE_VIEW, '"Split (2 panes)"')],
+    "Split (2 panes)": [(HERDR2_PANES, 'SPLIT: &str = "Split (2 panes)"'), (OVERFLOW_MENU, "Self::Split => panes::SPLIT")],  # L8: ... menu
     "Theme": [(SRC + "settings_pages/sections.rs", 'Self::Theme => "Theme"')],  # L1 canvas section title
-    "Toggle split direction": [(CORE_VIEW, '"Toggle split direction"')],
+    "Toggle split direction": [(HERDR2_PANES, 'ORIENTATION: &str = "Toggle split direction"'),
+                               (OVERFLOW_MENU, "Self::SplitDirection => panes::ORIENTATION")],  # L8: ... menu
     "Type here": [(SRC + "mock_peer.rs", "Type here")],
     "Typing is paused": [(SRC + "shell/edit_bar.rs", 'PAUSED_TYPING_STATUS: &str = "Typing is paused')],  # status bar while selecting
     "daemon-effective state unverified": [(P15_VIEW, "daemon-effective state unverified")],

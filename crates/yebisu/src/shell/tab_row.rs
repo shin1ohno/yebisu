@@ -93,7 +93,8 @@ type TabEntry = (String, String, bool);
 impl Smoke {
     pub(super) fn row_tabs(&self) -> Vec<TabEntry> {
         if self.terminal.core_mode {
-            return Vec::new();
+            // L8: one Herdr 2 session is one tab (q4).
+            return crate::shell::herdr2_frame::session::session_tabs();
         }
         snapshot(&self.terminal.live)
             .map(|s| {
@@ -170,6 +171,8 @@ impl Smoke {
             .map(|s| s.boot_id.clone())
             .unwrap_or_default();
         let (select_host, select_id, select_boot) = (host.clone(), id.clone(), boot.clone());
+        // Herdr 2's one session tab has no Herdr 1 tab to focus or close.
+        let herdr1 = !self.terminal.core_mode;
         div()
             .id(("shell-tab", index))
             .flex()
@@ -189,36 +192,40 @@ impl Smoke {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .child(format!("{} · {label}", index + 1))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Err(e) =
-                            this.focus_tab(&select_host, &select_id, &select_boot, generation)
-                        {
-                            this.terminal.live.status = e.to_string();
-                        }
-                        window.dismiss_virtual_keyboard();
-                        cx.notify();
-                    })),
+                    .when(herdr1, |body| {
+                        body.on_click(cx.listener(move |this, _, window, cx| {
+                            if let Err(e) =
+                                this.focus_tab(&select_host, &select_id, &select_boot, generation)
+                            {
+                                this.terminal.live.status = e.to_string();
+                            }
+                            window.dismiss_virtual_keyboard();
+                            cx.notify();
+                        }))
+                    }),
             )
-            .child(
-                div()
-                    .id(("shell-tab-close", index))
-                    .flex_none()
-                    .w(px(CLOSE_WIDTH))
-                    .h(px(TAB_ROW_HEIGHT))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(rgb(0xacb2bb))
-                    .child("×")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Err(e) = this.close_tab_by_id(&host, &id, &boot, generation) {
-                            this.terminal.live.status = e.to_string();
-                        }
-                        window.dismiss_virtual_keyboard();
-                        cx.stop_propagation();
-                        cx.notify();
-                    })),
-            )
+            .when(herdr1, |tab| {
+                tab.child(
+                    div()
+                        .id(("shell-tab-close", index))
+                        .flex_none()
+                        .w(px(CLOSE_WIDTH))
+                        .h(px(TAB_ROW_HEIGHT))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(rgb(0xacb2bb))
+                        .child("×")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if let Err(e) = this.close_tab_by_id(&host, &id, &boot, generation) {
+                                this.terminal.live.status = e.to_string();
+                            }
+                            window.dismiss_virtual_keyboard();
+                            cx.stop_propagation();
+                            cx.notify();
+                        })),
+                )
+            })
             .into_any_element()
     }
 

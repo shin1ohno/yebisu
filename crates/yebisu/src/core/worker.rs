@@ -3,7 +3,7 @@ use super::{
     screen::{self, Screen},
     store,
 };
-use crate::live::Live;
+use crate::{live::Live, shell::single_pane::Mailbox};
 use sheprd_backend::{Backend as _, Role, Size, Spawn, SurfaceUpdate, Terminal as _};
 use std::{
     path::PathBuf,
@@ -20,11 +20,12 @@ pub(super) fn run(
     host: String,
     generation: u64,
     inbox: &Arc<Mutex<Live>>,
-    controls: (&AtomicBool, &AtomicU64),
+    controls: (&AtomicBool, &AtomicU64, &Mailbox),
     commands: Receiver<Queued>,
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
-    let (stop, input_epoch) = controls;
+    // `column` is the mailbox the UI publishes the measured column to.
+    let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
     let storage = store::LOCK
@@ -46,7 +47,7 @@ pub(super) fn run(
     }
     saved.active = saved.active.min(saved.ids.len() - 1);
     let mut size = Size::new(80, 24)?;
-    let initial = screen::pane_size(size, saved.ids.len(), saved.vertical)?;
+    let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column.latest())?;
     let mut terminals = Vec::new();
     for id in &saved.ids {
         if stop.load(Ordering::Acquire) {
@@ -74,8 +75,15 @@ pub(super) fn run(
             let queued_epoch = command.input_epoch;
             match command.command {
                 Command::Input(destination, event) => {
-                    let current =
-                        screen::publish(&screens, &saved, size, generation, revision, epoch);
+                    let current = screen::publish(
+                        &screens,
+                        &saved,
+                        size,
+                        generation,
+                        revision,
+                        epoch,
+                        column.latest(),
+                    );
                     if queued_epoch == input_epoch.load(Ordering::Acquire)
                         && !screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
@@ -116,8 +124,15 @@ pub(super) fn run(
                     bytes,
                     reply,
                 } => {
-                    let current =
-                        screen::publish(&screens, &saved, size, generation, revision, epoch);
+                    let current = screen::publish(
+                        &screens,
+                        &saved,
+                        size,
+                        generation,
+                        revision,
+                        epoch,
+                        column.latest(),
+                    );
                     if queued_epoch == input_epoch.load(Ordering::Acquire)
                         && !screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
@@ -143,7 +158,7 @@ pub(super) fn run(
                     let info = backend.spawn(&Spawn::default())?;
                     let terminal = backend.attach(
                         &info.id,
-                        screen::pane_size(size, 2, saved.vertical)?,
+                        screen::pane_size(size, 2, saved.vertical, column.latest())?,
                         Role::Active,
                     )?;
                     saved.ids.push(info.id);
@@ -181,7 +196,7 @@ pub(super) fn run(
                 terminals.len(),
                 saved.vertical,
                 saved.active,
-                crate::shell::single_pane::column_metrics(),
+                column.latest(),
             )?;
             for ((terminal, screen), sent) in terminals.iter_mut().zip(&screens).zip(sizes) {
                 if let (false, Some(sent)) = (screen.ended, sent) {
@@ -211,7 +226,15 @@ pub(super) fn run(
                 changed = true;
             }
         }
-        let current = screen::publish(&screens, &saved, size, generation, revision, epoch);
+        let current = screen::publish(
+            &screens,
+            &saved,
+            size,
+            generation,
+            revision,
+            epoch,
+            column.latest(),
+        );
         let destination = if screens[saved.active].ended {
             None
         } else {
@@ -228,7 +251,15 @@ pub(super) fn run(
         }
         if changed {
             revision += 1;
-            let live = screen::publish(&screens, &saved, size, generation, revision, epoch);
+            let live = screen::publish(
+                &screens,
+                &saved,
+                size,
+                generation,
+                revision,
+                epoch,
+                column.latest(),
+            );
             if let Ok(mut inbox) = inbox.lock() {
                 *inbox = live;
             }

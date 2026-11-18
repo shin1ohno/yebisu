@@ -28,7 +28,7 @@ final class EditMenuQA: XCTestCase {
     private static let labels = [
         "152 Begin", "152 Begun", "152 Select", "152 Mutate", "152 Replay", "152 Fresh", "152 End", "152 Ordinary",
         "152 Restore", "152 Second", "152 Two Begin", "152 Two Begun", "152 Two Select", "152 Two End", "152 Two Close",
-        "private wire peer", "yebisu P9", "AAA-152", "BBB-152",
+        "private wire peer", "P9 Herdr", "AAA-152", "BBB-152",
     ]
 
     func testSH1152Basic() throws {
@@ -285,7 +285,15 @@ final class EditMenuQA: XCTestCase {
     // selection the menu is Paste alone; with a selection it is Copy and Paste.
     private func menu(_ app: XCUIApplication, _ name: String, selected: Bool, target: String? = nil) throws {
         let captures = records("sh1-152-capture").count
-        let spot = try point(target ?? (name.contains("core") ? "yebisu P9" : "private wire peer"), app)
+        // The Herdr 2 mock banner is "yebisu P9 Herdr 2" (core_mock.rs). After L8 retired the
+        // band, Vision split it after "yebisu" in 2 of 3 Mac mini E1-core runs and read
+        // "P9 Herdr 2" whole every time, so the spot is found by "P9 Herdr".
+        let label = target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer")
+        // Only the E1 cases, which check what the menu presents, raise the keyboard first: a
+        // tap would clear an E2 selection, and it moves the responder the E3 to E5 cases test
+        // (Mac mini 6f2d709: E3g-key "successful internal switch revoked or did not occur").
+        if name.hasPrefix("E1") { try keyboardUpBeforePress(app, name, label) }
+        let spot = try point(label, app)
         spot.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
         menuOpen = true
@@ -297,6 +305,25 @@ final class EditMenuQA: XCTestCase {
         // The app records the presented commands 150 ms after UIKit builds
         // the menu; a command chosen before that would precede its capture.
         waitFor("\(name) menu capture recorded", seconds: 5) { self.records("sh1-152-capture").count > captures }
+    }
+
+    // The long press focuses the terminal. If the software keyboard was down, it rises and
+    // UIKit dismisses the menu that same press opened: run 44297932478 (edit-menu job
+    // 134779801414), E1-core, the screen recording shows Paste at 205 s and the keyboard up
+    // with no menu at 206 s, while the app recorded one sh1-152-capture; E1-text failed the
+    // same way on a fresh Mac mini Simulator (f95123d, no keyboard at the press). A second press
+    // would be a second presentation, so the keyboard is raised first with a tap and the
+    // spot is read again once it has settled. A Simulator whose keyboard stays down (a
+    // hardware keyboard) is left as it is.
+    private func keyboardUpBeforePress(_ app: XCUIApplication, _ name: String, _ label: String) throws {
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+        if hide.exists && hide.isHittable { return }
+        print("SH1-152 \(name): software keyboard down before the press; tapping the terminal to raise it")
+        try point(label, app).tap()
+        if waitFor("\(name) software keyboard up before the press", seconds: 5, { hide.exists && hide.isHittable }) {
+            sleep(1)
+            located.removeAll()
+        }
     }
 
     // Selects a menu item and waits for its execution receipt; an executed

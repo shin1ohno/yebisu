@@ -66,6 +66,7 @@ fn reproduce(cx: &mut TestAppContext, dequeue: bool) {
                 this.terminal.link.inbox.clone(),
                 move || Ok(backend),
                 None,
+                crate::shell::single_pane::Mailbox::detached(),
             )
             .unwrap_or_else(|e| panic!("session: {e}")),
         );

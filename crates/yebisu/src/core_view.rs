@@ -72,8 +72,16 @@ impl Smoke {
         #[cfg(not(target_os = "ios"))]
         let root = None;
         let target = host.clone();
-        let result =
-            crate::core::Session::start(host, generation, inbox, move || connect(&target), root);
+        // The worker reads the column from the mailbox this frame publishes to.
+        let column = self.shell.single_pane.mailbox();
+        let result = crate::core::Session::start(
+            host,
+            generation,
+            inbox,
+            move || connect(&target),
+            root,
+            column,
+        );
         match result {
             Ok(session) => self.terminal.core = Some(session),
             Err(e) => self.terminal.live.status = e.to_string(),
@@ -153,22 +161,25 @@ impl Smoke {
             .child(
                 div()
                     .id("core-split")
-                    .child("Split (2 panes)")
+                    .child(crate::shell::herdr2_frame::panes::SPLIT)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.core_command(Command::Split);
                         cx.notify();
                     })),
             )
-            .child(div().id("core-first").child("Pane 1").on_click(cx.listener(
-                |this, _, _, cx| {
-                    this.core_command(Command::Focus(0));
-                    cx.notify();
-                },
-            )))
+            .child(
+                div()
+                    .id("core-first")
+                    .child(crate::shell::herdr2_frame::panes::PANE_1)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.core_command(Command::Focus(0));
+                        cx.notify();
+                    })),
+            )
             .child(
                 div()
                     .id("core-second")
-                    .child("Pane 2")
+                    .child(crate::shell::herdr2_frame::panes::PANE_2)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.core_command(Command::Focus(1));
                         cx.notify();
@@ -177,7 +188,7 @@ impl Smoke {
             .child(
                 div()
                     .id("core-orientation")
-                    .child("Toggle split direction")
+                    .child(crate::shell::herdr2_frame::panes::ORIENTATION)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.core_command(Command::Orientation);
                         cx.notify();
@@ -186,7 +197,7 @@ impl Smoke {
             .child(
                 div()
                     .id("core-detach")
-                    .child("Detach")
+                    .child(crate::shell::herdr2_frame::panes::DETACH)
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.detach_core_and_blur(window, cx);
                     })),
