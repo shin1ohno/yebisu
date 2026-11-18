@@ -147,9 +147,9 @@ fn forced_rail_refuses_the_sidebar_toggles_with_a_reason(cx: &mut gpui::TestAppC
                 .all(|e| !e.enabled && e.reason == Some("Window too narrow")),
             "every sidebar toggle is off with its reason: {toggles:?}"
         );
-        let error = this
-            .run_action(Command::ToggleSidebar)
-            .expect_err("Command-B must refuse while the width forces the rail");
+        let Err(error) = this.run_action(Command::ToggleSidebar) else {
+            panic!("Command-B must refuse while the width forces the rail");
+        };
         assert!(
             error.to_string().contains("Window too narrow"),
             "the refusal says why: {error}"

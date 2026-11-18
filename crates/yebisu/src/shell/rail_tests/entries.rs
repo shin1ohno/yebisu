@@ -37,7 +37,7 @@ fn forced_rail_toggle_is_disabled_with_its_reason() {
     let toggle = rail_entry_points(&forced)
         .into_iter()
         .find(|e| e.action == EntryAction::ToggleSidebar)
-        .expect("the rail lists its toggle");
+        .unwrap_or_else(|| panic!("the rail lists its toggle"));
     assert!(!toggle.enabled);
     assert_eq!(toggle.reason, Some("Window too narrow"));
 }
