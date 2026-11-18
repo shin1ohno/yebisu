@@ -70,10 +70,11 @@ Two hosted findings are handled in the harness, not in the checks (task e115109b
   reason `P2 SKIPPED the receiving pasteboard read`; the app's `Copied restricted public key.`
   receipt is still required, and the Mac mini keeps the exact match. `p2-setup.jsonl` is read
   with `live_jsonl.read_records`, so a partly written last line is not a parse error.
-- `p3-check.py` is in `KNOWN_RED` of `ci-layout-smoke.py`: the landscape stage loses the
-  private-peer connection on main aed154e too. p3 still runs and uploads its evidence; its
-  failure is logged as `layout-smoke KNOWN RED`, and a pass fails the job until the entry is
-  removed with the product fix.
+- `KNOWN_RED` of `ci-layout-smoke.py` is empty. Integration 1 listed `p3-check.py` (the
+  landscape stage lost the private-peer connection on main aed154e); on the Integration 2
+  head p3 passed every stage on hosted (run 44214913068, job 134502265733), so the entry was
+  removed. A listed check still runs and uploads its evidence; its failure is logged as
+  `layout-smoke KNOWN RED`, and a pass fails the job until the entry is removed.
 
 The tests moved from `SmokeQA.swift` into `SmokeQA+<unit>.swift` extensions of the same class
 (Terminal, Keys, Handoff, Settings, Theme, Observer, Notifications, Input, Core), each at most 300

@@ -22,12 +22,11 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CHECKS = ["p2-check.py", "p3-check.py", "p10-check.py"]
-# Controller decision 2026-11-18 (SH1-157 Integration 1): the p3 landscape stage loses the
-# private-peer connection on main aed154e too, so it is a known red, not a layout regression.
-KNOWN_RED = {
-    "p3-check.py": "landscape rotation drops the private-peer connection; reproduces on main aed154e "
-                   "(task e115109b440f4304 report-1.md); the product fix is a separate task",
-}
+# Integration 1 (2026-11-18) listed p3 here: its landscape stage lost the private-peer
+# connection on main aed154e. On the Integration 2 head (run 44214913068, job 134502265733)
+# p3 passed every stage, so the entry is gone, as the rule below asks. A check that is red
+# for a known reason goes back in here with that reason.
+KNOWN_RED = {}
 EVIDENCE = ROOT / "target/ios-layout-smoke"
 
 spec = importlib.util.spec_from_file_location("ci_smoke", HERE / "ci-smoke.py")
