@@ -13,6 +13,15 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P10 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def validate(paints, saved):
     expected = {"version": 1, "language": "en-US", "theme": "owner-default", "compact": True,
                 "terminal_priority": True, "board_hidden": False, "drag_select": True, "copy_on_select": False, "terminal_font_size": None, "terminal_font_family": "SauceCodePro Nerd Font Mono"}
@@ -44,6 +53,7 @@ def main():
     app = bundle.stdout.strip().splitlines()[-1]
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
     run("xcrun", "simctl", "install", device, app)
+    terminate(device)  # the baseline count below is read with no app running
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip())
     settings = container / "Library/Application Support/herdr/gpui/p10-qa"
     # Only this test's isolated settings are reset; ordinary app state is retained.
@@ -55,9 +65,13 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
     try:
-        run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
-            "-only-testing:SmokeOracle/SmokeQA/testP10Settings()", "-destination", "id=" + device,
-            "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
+        try:
+            run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
+                "-only-testing:SmokeOracle/SmokeQA/testP10Settings()", "-destination", "id=" + device,
+                "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO")
+        finally:
+            # Stopped before p10-settings.jsonl and the settings file are read.
+            terminate(device)
         export = directory / "attachments"
         run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
         for test in json.loads((export / "manifest.json").read_text()):
@@ -73,7 +87,6 @@ def main():
         print("P10 receiving-system PASS", json.dumps(saved), flush=True)
         print("P10 screenshot", directory / "screenshot.png", flush=True)
     finally:
-        run("xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu")
         if settings.exists():
             shutil.rmtree(settings)
 

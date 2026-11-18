@@ -24,6 +24,15 @@ def run(*args, **kwargs):
         raise
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P3 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def validate_records(records, require_rotation=False):
     paints = [r for r in records if r.get("kind") == "terminal"]
     if not paints or any(r["boot"] != "boot-v1" or r["projection"] != 7 for r in paints):
@@ -89,7 +98,11 @@ def main():
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
-    tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+    try:
+        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+    finally:
+        # Stopped before p0-smoke.jsonl is copied, also when XCTest failed.
+        terminate(device)
     print(tested.stdout, flush=True)
     print(tested.stderr, flush=True)
     # Xcode can exit 0 with an unmatched test filter: require execution too.

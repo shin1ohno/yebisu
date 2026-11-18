@@ -13,6 +13,15 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P9 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def validate(paints, wire):
     core = [p for p in paints if p.get("kind") == "terminal" and p.get("boot", "").startswith("core-")]
     generations = {p["generation"] for p in core}
@@ -113,6 +122,7 @@ def main():
     app = bundle.stdout.strip().splitlines()[-1]
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
     run("xcrun", "simctl", "install", device, app)
+    terminate(device)  # an earlier check's app may still run; the baseline counts are read after it stops
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip())
     wire_path = container / "Documents/p9-core-wire.jsonl"
     previous = len(wire_path.read_text().splitlines()) if wire_path.exists() else 0
@@ -122,22 +132,21 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
     try:
-        try:
-            run(*xcodebuild_test_command(project, device, root / "target/ios-smoke/build", result))
-        finally:
-            collect_evidence(directory, result, paints_path, wire_path)
-        if not (directory / "screenshot.png").is_file():
-            raise ValueError("XCTest did not execute the P9 screenshot step")
-        if not (directory / "sh154-core-image.png").is_file():
-            raise ValueError("XCTest did not execute SH1-154 screenshot step")
-        paints = [json.loads(line) for line in paints_path.read_text().splitlines()[previous_paints:]]
-        wire = [json.loads(line) for line in wire_path.read_text().splitlines()[previous:]]
-        validate(paints, wire)
-        validate_images(wire)
-        (directory / "receipts.json").write_text(json.dumps({"paints": paints, "wire": wire}))
-        print("P9 screenshot", directory / "screenshot.png", flush=True)
+        run(*xcodebuild_test_command(project, device, root / "target/ios-smoke/build", result))
     finally:
-        run("xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu")
+        # The app is stopped before its receipts are copied or read, also when XCTest failed.
+        terminate(device)
+        collect_evidence(directory, result, paints_path, wire_path)
+    if not (directory / "screenshot.png").is_file():
+        raise ValueError("XCTest did not execute the P9 screenshot step")
+    if not (directory / "sh154-core-image.png").is_file():
+        raise ValueError("XCTest did not execute SH1-154 screenshot step")
+    paints = [json.loads(line) for line in paints_path.read_text().splitlines()[previous_paints:]]
+    wire = [json.loads(line) for line in wire_path.read_text().splitlines()[previous:]]
+    validate(paints, wire)
+    validate_images(wire)
+    (directory / "receipts.json").write_text(json.dumps({"paints": paints, "wire": wire}))
+    print("P9 screenshot", directory / "screenshot.png", flush=True)
 
 
 if __name__ == "__main__":
