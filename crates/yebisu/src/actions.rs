@@ -174,6 +174,11 @@ impl Smoke {
         }
         match command {
             Command::ToggleSidebar => {
+                // Command-B and the palette row would change nothing while
+                // the width forces the rail: say why (L4 review F1).
+                if let Some(reason) = crate::shell::rail::toggle_unavailable(&self.chrome_state()) {
+                    return Err(crate::Error::Settings(reason.into()));
+                }
                 self.toggle_sidebar();
                 return Ok(());
             }

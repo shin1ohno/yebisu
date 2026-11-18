@@ -15,7 +15,11 @@ fn user_rail_takes_72_at_any_width() {
         assert!(out.sidebar_collapsed, "width {width}");
         assert_eq!(out.sidebar.width, RAIL_WIDTH, "width {width}");
         assert_eq!(out.tab_row.x, RAIL_WIDTH + RULE, "width {width}");
-        assert_eq!(out.tab_row.width, width - RAIL_WIDTH - RULE, "width {width}");
+        assert_eq!(
+            out.tab_row.width,
+            width - RAIL_WIDTH - RULE,
+            "width {width}"
+        );
         let full = layout(window(width, 834.0));
         assert_eq!(full.sidebar_collapsed, width < SIDEBAR_WIDTH + RULE + 280.0);
     }

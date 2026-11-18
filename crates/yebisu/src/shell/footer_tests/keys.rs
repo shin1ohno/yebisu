@@ -97,6 +97,54 @@ fn hosts_sheet_keys_never_reach_terminal(cx: &mut TestAppContext) {
     assert!(!back.is_empty(), "keys did not return to the terminal");
 }
 
+/// Review 9714586129254e1d F1: the rail's Hosts (L4) is the same entry as
+/// footer Hosts, so a press on it over a live terminal hands the keys to the
+/// sheet too: the window focus moves to the sheet and typed keys never reach
+/// the remote shell. The press goes through the painted rail button.
+#[gpui::test]
+fn rail_hosts_hands_keys_to_the_sheet(cx: &mut TestAppContext) {
+    let (view, cx, wire) = connected(cx);
+    // The user chose the rail (L4 patch 02 draws it at any width).
+    view.update(cx, |this, cx| {
+        this.actions.board_hidden = true;
+        cx.notify();
+    });
+    cx.update(|window, cx| view.update(cx, |this, cx| this.terminal_focus.focus(window, cx)));
+    cx.run_until_parked();
+    drain(&wire, Duration::from_millis(100));
+    cx.simulate_keystrokes("a");
+    assert!(
+        !pane_input(&view, cx, &wire).is_empty(),
+        "positive control: the letter must reach the shell"
+    );
+    let button = cx
+        .debug_bounds("rail-hosts")
+        .unwrap_or_else(|| panic!("the rail's Hosts is not painted"));
+    cx.simulate_click(button.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |this, _| {
+            assert!(
+                this.hosts_sheet_modal(),
+                "the rail's Hosts did not open the sheet"
+            );
+            assert_eq!(this.key_owner(), KeyOwner::HostsSheet);
+            assert!(
+                !this.terminal_focus.is_focused(window),
+                "terminal kept focus"
+            );
+            assert!(this.focus.is_focused(window), "the sheet has no focus");
+        })
+    });
+    cx.simulate_keystrokes("l s enter");
+    cx.run_until_parked();
+    let after = pane_input(&view, cx, &wire);
+    assert!(
+        after.is_empty(),
+        "keys reached the remote shell after the rail's Hosts: {after:?}"
+    );
+}
+
 /// A6 item 2: opening the Hosts sheet over the terminal clears the
 /// terminal's input state as opening Settings does: Select mode and the
 /// handoff stamp end, and no pending focus request takes the keys back.

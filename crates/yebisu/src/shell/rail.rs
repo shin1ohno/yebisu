@@ -94,7 +94,11 @@ pub(crate) fn rail_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
         entry(EntryAction::Hosts, true, None),
         entry(EntryAction::Settings, true, None),
         entry(EntryAction::NewSpace, new_space.is_none(), new_space),
-        entry(EntryAction::ToggleSidebar, true, None),
+        entry(
+            EntryAction::ToggleSidebar,
+            toggle_unavailable(state).is_none(),
+            toggle_unavailable(state),
+        ),
     ]
 }
 
@@ -161,7 +165,15 @@ pub(crate) fn rail_sections(available: f32, content: f32) -> RailSections {
 /// Why the rail's expand button is off: the user wants 300 but the window is
 /// too narrow for it, so expanding would change nothing (S1 of review 1).
 pub(crate) fn expand_unavailable(user: SidebarMode, collapsed: bool) -> Option<&'static str> {
-    (user == SidebarMode::Full && collapsed).then_some("Window too narrow")
+    (user == SidebarMode::Full && collapsed).then_some(WINDOW_TOO_NARROW)
+}
+
+/// Why every sidebar toggle is off while the width forces the rail.
+pub(crate) const WINDOW_TOO_NARROW: &str = "Window too narrow";
+
+/// Whether a sidebar toggle can work, and why not (Integration 2, L4 review F1).
+pub(crate) fn toggle_unavailable(state: &ChromeState) -> Option<&'static str> {
+    state.sidebar_forced.then_some(WINDOW_TOO_NARROW)
 }
 
 impl Smoke {

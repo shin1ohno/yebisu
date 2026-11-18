@@ -180,7 +180,8 @@ fn herdr2_without_a_sidebar_list_keeps_the_footer_column(cx: &mut TestAppContext
         .collect();
     use crate::shell::footer::FooterItem;
     assert!(
-        footer.contains(&(FooterItem::Settings, true)) && footer.contains(&(FooterItem::Hosts, true)),
+        footer.contains(&(FooterItem::Settings, true))
+            && footer.contains(&(FooterItem::Hosts, true)),
         "Herdr 2's footer reaches Settings and Hosts: {footer:?}"
     );
 }

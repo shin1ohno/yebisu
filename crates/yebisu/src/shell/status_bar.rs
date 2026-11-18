@@ -55,7 +55,8 @@ pub(crate) fn status_bar_model(state: &ChromeState, connection: &str) -> StatusB
         kind: state.kind,
         state: status.to_owned(),
         show_reconnect: !state.connected,
-        show_sidebar_hint: state.sidebar_hidden,
+        // While the width forces the rail, "Show sidebar" could not show it.
+        show_sidebar_hint: state.sidebar_hidden && !state.sidebar_forced,
     }
 }
 

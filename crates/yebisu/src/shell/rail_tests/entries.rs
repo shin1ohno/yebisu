@@ -29,6 +29,20 @@ fn rail_offers_hosts_settings_new_space_and_the_toggle() {
 }
 
 #[test]
+fn forced_rail_toggle_is_disabled_with_its_reason() {
+    let forced = ChromeState {
+        sidebar_forced: true,
+        ..hidden(HerdrKind::Herdr1, true)
+    };
+    let toggle = rail_entry_points(&forced)
+        .into_iter()
+        .find(|e| e.action == EntryAction::ToggleSidebar)
+        .expect("the rail lists its toggle");
+    assert!(!toggle.enabled);
+    assert_eq!(toggle.reason, Some("Window too narrow"));
+}
+
+#[test]
 fn rail_entries_exist_only_while_the_rail_is_shown() {
     let shown = ChromeState {
         sidebar_hidden: false,

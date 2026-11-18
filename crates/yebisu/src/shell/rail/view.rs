@@ -178,9 +178,15 @@ impl Smoke {
                     )
                     .child(
                         footer_button("rail-hosts", "Hosts", true).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                // L7's sheet; it redraws itself.
-                                this.open_hosts(cx);
+                            |this, _, window, cx| {
+                                // The footer's path (L2b): open L7's sheet and
+                                // hand the keys to it, so a sheet over a live
+                                // terminal takes the typing (review 9714 F1).
+                                this.footer_tap(
+                                    crate::shell::footer::FooterItem::Hosts,
+                                    window,
+                                    cx,
+                                );
                             },
                         )),
                     )
