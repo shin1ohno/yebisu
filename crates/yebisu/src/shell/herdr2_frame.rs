@@ -17,6 +17,7 @@ use sheprd_core_client::wire::{Status, StatusState, Terminal};
 
 pub(crate) mod panes;
 pub(crate) mod session;
+pub(crate) mod sidebar;
 
 /// The one Herdr 2 session yebisu attaches to (`core::connect`,
 /// `core/store.rs`).
