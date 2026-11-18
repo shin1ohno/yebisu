@@ -254,10 +254,12 @@ impl Smoke {
         let list = match self.render_sidebar_list(cx) {
             Some(list) => Some(list),
             // Herdr 2 had no board in the band either. Until L8 fills its
-            // sidebar, draw no column at all, so frame_geometry gives the
-            // 300 pt back to the terminal (Integration 1 review S3; the
-            // narrowed column hid the core strip's Paste in testSH154CoreImage).
-            None if self.terminal.core_mode => return None,
+            // sidebar the list stays empty, but the column still draws: the
+            // L2b footer is the only place of Hosts, Settings and New space
+            // once the toolbar is retired (Integration 2). Integration 1 S3
+            // dropped the column while it was empty; with the footer in it,
+            // it is not.
+            None if self.terminal.core_mode => None,
             // The body drew the board this frame (a resize just widened the
             // window past the collapse width): never draw it twice.
             None if board_in_band => None,

@@ -40,17 +40,26 @@ extension SmokeQA {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         sleep(3)
-        try tapText("Start: Drag", in: app, tap: false)
-        try tapText("Copy: Manual", in: app, tap: false)
+        // L2b moved both settings from the handoff band to Settings › Input; the
+        // chosen value is the highlighted one, and selection-settings-check.py asserts
+        // the loaded values from the app's receipts.
+        try openSettings(in: app)
+        try tapText("Input", in: app)
+        sleep(1)
+        try tapText("Double tap", in: app, tap: false)
+        try tapText("On selection", in: app, tap: false)
         save("sh1-151-fresh")
-        try tapText("Start: Drag", in: app)
-        try tapText("Copy: Manual", in: app)
+        try tapText("Double tap", in: app)
+        try tapText("On selection", in: app)
         sleep(2)
+        try tapText("Close", in: app)
+        sleep(1)
         app.terminate()
         app.launch()
         sleep(3)
-        try tapText("Start: Select / double tap", in: app, tap: false)
-        try tapText("Copy: On selection", in: app, tap: false)
+        try openSettings(in: app)
+        try tapText("Input", in: app)
+        sleep(1)
         save("sh1-151-restored")
         XCTAssertEqual(app.state, .runningForeground)
     }

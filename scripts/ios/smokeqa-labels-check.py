@@ -38,6 +38,9 @@ HOSTS_SHEET = SRC + "shell/hosts_sheet/view.rs"  # L7 replaced the Keys and host
 P15_VIEW = SRC + "p15_settings_view.rs"
 TERMINAL_CONTROLS = SRC + "terminal_controls.rs"
 EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
+OVERFLOW_MENU = SRC + "shell/overflow_menu.rs"  # L2a ... menu
+SETTINGS_SECTIONS = SRC + "settings_pages/sections.rs"
+SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 
 # label -> locations (file, fragment) where the app paints that text as a literal.
 # Every location must still contain its fragment. Sorted by label.
@@ -46,13 +49,14 @@ SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
     "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
     "Copy authorized_keys line": [(HOSTS_SHEET, '"Copy authorized_keys line"')],
-    "Copy: Manual": [(HANDOFF, '"Copy: Manual"')],
-    "Copy: On selection": [(HANDOFF, '"Copy: On selection"')],
     "Detach": [(CORE_VIEW, '"Detach"')],
+    "Display": [(SETTINGS_SECTIONS, 'Self::Display => "Display"')],
+    "Double tap": [(SETTINGS_CHOICES, '["Double tap", "Drag"]')],
     "Discard composition": [(SRC + "sh1_156_qa.rs", '"Discard composition"')],
     "File path unavailable": [(P15_VIEW, '"File path unavailable"')],
     "HOSTS": [(SRC + "shell/sidebar/view.rs", '"HOSTS"')],
     "High contrast": [(SRC + "theme_picker/mod.rs", '"High contrast"')],
+    "Input": [(SETTINGS_SECTIONS, 'Self::Input => "Input"')],
     "Larger": [(SETTINGS_VIEW, '"font-plus", "Larger"')],
     "Menu execute": [(EDIT_MENU_QA, '"Menu execute"')],
     "Menu prepare": [(EDIT_MENU_QA, '"Menu prepare"')],
@@ -61,12 +65,13 @@ SOURCES = {
     "Native next": [(SRC + "native_edit_qa.rs", '"Native next"'), (SRC + "native_observer_qa.rs", '"Native next"')],
     "Observer matrix collected": [(SRC + "settings_sheet/observer_qa.rs", '"Observer matrix collected"')],
     "Observer next": [(SRC + "settings_sheet/observer_qa.rs", '"Observer next"')],
+    "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],
     "Owner default": [(SRC + "theme_picker/mod.rs", '"Owner default"')],
     "P14 next": [(SRC + "notification_view/qa.rs", '"P14 next"')],
     "Pane 1": [(CORE_VIEW, '"Pane 1"')],
     "Pane 2": [(CORE_VIEW, '"Pane 2"')],
-    "Paste": [(HANDOFF, '("paste", "Paste")')],
-    "Paste image": [(HANDOFF, '("paste-image", "Paste image")')],
+    "Paste": [(OVERFLOW_MENU, 'Self::Paste => "Paste"')],  # L2b: the ... menu, not the handoff band
+    "Paste image": [(OVERFLOW_MENU, 'Self::PasteImage => "Paste image"')],
     "Probe modal callbacks": [(SRC + "settings_sheet/qa.rs", '"Probe modal callbacks"')],
     "QA Image": [(SRC + "handoff_qa.rs", '"QA Image"')],
     "QA Image only": [(SRC + "handoff_qa.rs", 'QA Image only')],
@@ -76,16 +81,14 @@ SOURCES = {
     "QA injected key provider": [(SRC + "settings_view.rs", '"QA injected key provider"')],
     "QA mark": [(TERMINAL_CONTROLS, '"QA mark"')],
     "Read or initialize device key": [(HOSTS_SHEET, '"key-create", "Read or initialize device key"')],
-    "Reconnect": [(SRC + "terminal_view.rs", '"Reconnect"')],
-    "Select": [(HANDOFF, '"Select"')],
-    "Select: On": [(HANDOFF, '"Select: On"')],
-    "Settings": [(SETTINGS_VIEW, '"open-settings", "Settings"')],
+    "Reconnect": [(SRC + "shell/status_bar.rs", 'RECONNECT: &str = "Reconnect"')],  # L2a status bar chip
+    "Select text": [(OVERFLOW_MENU, 'Self::SelectText => "Select text"')],
+    "Settings": [(SRC + "shell/footer.rs", 'SETTINGS: &str = "Settings"')],  # L2b sidebar footer
     "Split (2 panes)": [(CORE_VIEW, '"Split (2 panes)"')],
-    "Start: Drag": [(HANDOFF, '"Start: Drag"')],
-    "Start: Select / double tap": [(HANDOFF, '"Start: Select / double tap"')],
     "Theme": [(SRC + "settings_pages/sections.rs", 'Self::Theme => "Theme"')],  # L1 canvas section title
     "Toggle split direction": [(CORE_VIEW, '"Toggle split direction"')],
     "Type here": [(SRC + "mock_peer.rs", "Type here")],
+    "Typing is paused": [(SRC + "shell/edit_bar.rs", 'PAUSED_TYPING_STATUS: &str = "Typing is paused')],  # status bar while selecting
     "daemon-effective state unverified": [(P15_VIEW, "daemon-effective state unverified")],
     "qa-alpha": [(SRC + "app.rs", '"qa-alpha"')],
     "qa-beta": [(SRC + "app.rs", '"qa-beta"')],
@@ -99,16 +102,16 @@ SOURCES = {
 ALLOWED = {
     "Async counter": ("P0 counter row, painted as format!(\"Async counter: {}\", ticks)",
                       [(SRC + "app.rs", 'format!("Async counter: {}"')]),
-    "Compact 12/17": ("density label composed from the mode name and the font metrics (12 and 17 are the compact face)",
-                      [(SRC + "terminal_view.rs", '"{} {font_size}/{line_height}"'), (SRC + "terminal_view.rs", '"Compact"'),
+    "Compact 12/17": ("Display page density button composed from the Density name and its metrics (12 and 17 are the compact face)",
+                      [(SETTINGS_VIEW, '"{:?} {}/{}"'), (SRC + "settings_pages/fonts.rs", "    Compact,"),
                        (SRC + "settings_pages/fonts.rs", "size_px: 12.0,"), (SRC + "settings_pages/fonts.rs", "line_height_px: 17.0,")]),
     "Host: ": ("prefix of the host line, composed from the selected host name",
                [(P15_VIEW, 'format!("Host: {target}")')]),
+    "Regular 14/20": ("Display page density button composed from the Density name and its metrics (14 and 20 are the regular face)",
+                      [(SETTINGS_VIEW, '"{:?} {}/{}"'), (SRC + "settings_pages/fonts.rs", "    Regular,"),
+                       (SRC + "settings_pages/fonts.rs", "size_px: 14.0,"), (SRC + "settings_pages/fonts.rs", "line_height_px: 20.0,")]),
     "QuietHours": ("status line is \"Notifications: {error:?}\", so the text is the Failure variant name",
                    [(SRC + "notification_view.rs", 'format!("Notifications: {error:?}")'), (SRC + "notifications.rs", "QuietHours,")]),
-    "Standard 14/20": ("density label composed from the mode name and the font metrics (14 and 20 are the regular face)",
-                       [(SRC + "terminal_view.rs", '"{} {font_size}/{line_height}"'), (SRC + "terminal_view.rs", '"Standard"'),
-                        (SRC + "settings_pages/fonts.rs", "size_px: 14.0,"), (SRC + "settings_pages/fonts.rs", "line_height_px: 20.0,")]),
     "Unavailable": ("start of the read-only host settings message for a connection that cannot authorize a read",
                     [(SRC + "host_settings/availability.rs", '"Unavailable \u2014 this connection cannot authorize')]),
     "idle": ("typed by the test itself (typeText) into the P0 input row, which paints the typed text",

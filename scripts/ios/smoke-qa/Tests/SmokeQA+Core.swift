@@ -11,9 +11,15 @@ extension SmokeQA {
         app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
         app.launch()
         sleep(3)
-        // Drag selection consumes the tap that must open native input here.
-        try tapText("Start: Drag", in: app)
-        try tapText("Start: Select / double tap", in: app, tap: false)
+        // Drag selection consumes the tap that must open native input here. L2b moved
+        // the start mode from the handoff band to Settings › Input › Start a selection.
+        try openSettings(in: app)
+        try tapText("Input", in: app)
+        sleep(1)
+        try tapText("Double tap", in: app)
+        sleep(1)
+        try tapText("Close", in: app)
+        sleep(2)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         app.typeText("P9-native\n")
         try tapText("QA mark", in: app)
@@ -29,6 +35,7 @@ extension SmokeQA {
         save("p9-split")
         try tapText("Detach", in: app)
         sleep(1)
+        // The status bar shows Reconnect while the core is detached (L2a).
         try tapText("Reconnect", in: app)
         sleep(3)
         try tapText("Pane 1", in: app)
