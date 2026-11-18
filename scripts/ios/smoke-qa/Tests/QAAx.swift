@@ -112,13 +112,14 @@ struct QAAx {
         }
     }
 
-    /// The element `id`, once it exists (XCTest's own existence wait), and only if exactly one
-    /// control carries `id`.
+    /// The element `id`, once it exists, and only if exactly one control carries `id`. One
+    /// `exists` query comes first: `waitForExistence` took 1.08-1.17 s even for an element that
+    /// was already there (S0 and the first S1 runs), a plain query about 30 ms.
     @discardableResult
     func find(_ id: String, timeout: TimeInterval = 10) throws -> XCUIElement {
         let start = Date()
         let element = element(id)
-        guard element.waitForExistence(timeout: timeout) else {
+        guard element.exists || element.waitForExistence(timeout: timeout) else {
             throw QAAxError.notExposed(id: id, seconds: QAAx.since(start), state: read()?.text ?? "nil")
         }
         if let state = read(), state.duplicates.contains(id) {
