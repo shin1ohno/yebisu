@@ -65,10 +65,14 @@ limit is hit. First hosted runs (PR 72): run 44151000668 job 134279069207 took 1
 24 min 42 s (checks 1284.8 s: p2 772.3, p3 237.4, p10 146.7).
 
 Two hosted findings are handled in the harness, not in the checks (task e115109b440f4304):
-- `simctl pbpaste` times out (exit 60) on GitHub-hosted runners. `p2-check.py` retries it
-  three times and, only when `GITHUB_ACTIONS=true`, skips the pasteboard read with the logged
-  reason `P2 SKIPPED the receiving pasteboard read`; the app's `Copied restricted public key.`
-  receipt is still required, and the Mac mini keeps the exact match. `p2-setup.jsonl` is read
+- `simctl pbpaste` times out (exit 60) on GitHub-hosted runners (run 44151000668 job
+  134279069207), and after a timeout it once returned text that is not the key line (run
+  44247827726 job 134611018720). Owner decision `pr73-p2-hosted-pasteboard-decision.json`: when
+  `GITHUB_ACTIONS=true`, `p2-check.py` skips only the external read of the receiving
+  Simulator pasteboard and logs `P2 SKIPPED the receiving pasteboard read` with that evidence;
+  the app's `Copied restricted public key.` receipt (`validate_records`), the XCTest and the
+  colour check still run. Without `GITHUB_ACTIONS` (the Mac mini) the read is retried three
+  times and must equal the key line exactly; a mismatch or a read failure fails. `p2-setup.jsonl` is read
   with `live_jsonl.read_records`, so a partly written last line is not a parse error.
 - `KNOWN_RED` of `ci-layout-smoke.py` is empty. Integration 1 listed `p3-check.py` (the
   landscape stage lost the private-peer connection on main aed154e); on the Integration 2

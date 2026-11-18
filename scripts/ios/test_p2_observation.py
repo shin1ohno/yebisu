@@ -49,21 +49,35 @@ class PasteboardTests(unittest.TestCase):
         self.assertIsNone(p2.pbpaste("dev", check_output=fails, sleep=lambda _: None))
         self.assertEqual(len(calls), 3)
 
-    def test_hosted_runner_skips_an_unreadable_pasteboard_with_the_reason(self):
+    def test_hosted_runner_skips_only_the_pasteboard_read_with_the_reason(self):
+        reads = []
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertFalse(p2.check_pasteboard(None, self.LINE, hosted=True))
+            self.assertFalse(p2.verify_pasteboard("dev", self.LINE, hosted=True, read=lambda d: reads.append(d) or "x"))
+        self.assertEqual(reads, [], "the hosted runner never reads the receiving pasteboard")
         self.assertIn("P2 SKIPPED the receiving pasteboard read", out.getvalue())
         self.assertIn("job 134279069207", out.getvalue())
+        self.assertIn("job 134611018720", out.getvalue())
 
-    def test_negative_unreadable_pasteboard_fails_off_the_hosted_runner(self):
-        with self.assertRaisesRegex(RuntimeError, "could not be read"):
-            p2.check_pasteboard(None, self.LINE, hosted=False)
+    def test_off_the_hosted_runner_the_exact_line_passes(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(p2.verify_pasteboard("dev", self.LINE, hosted=False, read=lambda d: self.LINE))
 
-    def test_negative_a_wrong_pasteboard_fails_even_on_the_hosted_runner(self):
+    def test_negative_a_wrong_pasteboard_fails_off_the_hosted_runner(self):
         with self.assertRaisesRegex(RuntimeError, "differs"):
-            p2.check_pasteboard("something else", self.LINE, hosted=True)
-        self.assertTrue(p2.check_pasteboard(self.LINE, self.LINE, hosted=True))
+            p2.verify_pasteboard("dev", self.LINE, hosted=False, read=lambda d: "something else")
+
+    def test_negative_a_timed_out_read_fails_off_the_hosted_runner(self):
+        def times_out(*args, **kwargs):
+            raise p2.subprocess.TimeoutExpired(args[0], 30)
+        read = lambda device: p2.pbpaste(device, check_output=times_out, sleep=lambda _: None)
+        with self.assertRaisesRegex(RuntimeError, "could not be read"):
+            p2.verify_pasteboard("dev", self.LINE, hosted=False, read=read)
+
+    def test_main_passes_the_hosted_flag_from_github_actions(self):
+        text = (Path(__file__).with_name("p2-check.py")).read_text()
+        self.assertIn('verify_pasteboard(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")', text)
+        self.assertNotIn("check_pasteboard(pbpaste(", text)
 
 
 class LiveReceiptTests(unittest.TestCase):
