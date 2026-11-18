@@ -1,4 +1,8 @@
-use crate::live::Live;
+use crate::{
+    layout::{PaneMode, pane_mode},
+    live::Live,
+    shell::single_pane::{ColumnMetrics, column_metrics},
+};
 use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
 use sheprd_client::protocol::{CellData, ClientShellSnapshot, PaneSurfaceFrame};
 use std::sync::Arc;
@@ -35,13 +39,69 @@ impl Screen {
         }
     }
 }
+/// Whether the panes cannot share the column (plan v2 6): narrower than two
+/// panes need, or divided so far that a pane would fall under the 280 x 206 pt
+/// minimum. The drawn pane then gets the whole column.
+fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetrics>) -> bool {
+    let Some(column) = column else {
+        return false;
+    };
+    if pane_mode(column.width, count) == PaneMode::Single {
+        return true;
+    }
+    let (least_cols, least_rows) = column.minimum_cells();
+    let divided = count.clamp(1, usize::from(u16::MAX)) as u16;
+    if vertical {
+        size.rows() / divided < least_rows
+    } else {
+        size.cols() / divided < least_cols
+    }
+}
+/// The size one terminal is given (plan v2 6.3, Herdr 2): the whole column
+/// while one pane is drawn, otherwise the column divided between the panes.
 pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
+    let sizes = pane_sizes(size, count, vertical, 0, column_metrics())?;
+    sizes
+        .into_iter()
+        .flatten()
+        .next()
+        .ok_or(crate::Error::CoreState)
+}
+pub(super) fn pane_size_for(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Size> {
     let count = count.max(1) as u16;
+    if is_single(size, usize::from(count), vertical, column) {
+        return Ok(size);
+    }
     Ok(if vertical {
         Size::new(size.cols(), (size.rows() / count).max(1))?
     } else {
         Size::new((size.cols() / count).max(1), size.rows())?
     })
+}
+/// What to send each terminal. A pane hidden by the one-pane rule gets `None`:
+/// it keeps the size it last had (plan v2 6.3), so it does not reflow every
+/// time the column crosses 568 pt.
+pub(super) fn pane_sizes(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    active: usize,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Vec<Option<Size>>> {
+    let count = count.max(1);
+    let sent = pane_size_for(size, count, vertical, column)?;
+    let hidden = is_single(size, count, vertical, column);
+    let sizes: Vec<Option<Size>> = (0..count)
+        .map(|index| (!hidden || index == active).then_some(sent))
+        .collect();
+    #[cfg(test)]
+    probe::record(size, count, active, &sizes);
+    Ok(sizes)
 }
 pub(super) fn publish(
     screens: &[Screen],
@@ -51,6 +111,24 @@ pub(super) fn publish(
     revision: u64,
     epoch: u64,
 ) -> Live {
+    publish_for(
+        screens,
+        saved,
+        size,
+        (generation, revision, epoch),
+        column_metrics(),
+    )
+}
+/// `publish` for an explicit column measurement. A column too narrow for the
+/// panes draws only `saved.active`, over the whole size.
+pub(super) fn publish_for(
+    screens: &[Screen],
+    saved: &super::store::Saved,
+    size: Size,
+    (generation, revision, epoch): (u64, u64, u64),
+    column: Option<ColumnMetrics>,
+) -> Live {
+    let single = is_single(size, screens.len(), saved.vertical, column);
     let blank = CellData {
         symbol: " ".into(),
         fg: 0,
@@ -71,7 +149,12 @@ pub(super) fn publish(
         let Some(source) = &screen.frame else {
             continue;
         };
-        let (x, y) = if saved.vertical {
+        if single && index != saved.active {
+            continue;
+        }
+        let (x, y) = if single {
+            (0, 0)
+        } else if saved.vertical {
             (0, index as u16 * (size.rows() / screens.len() as u16))
         } else {
             (index as u16 * (size.cols() / screens.len() as u16), 0)
@@ -149,7 +232,9 @@ pub(super) fn publish(
         "Herdr 2 · {} pane(s) · active {} · {}",
         screens.len(),
         saved.active + 1,
-        if saved.vertical {
+        if single && screens.len() > 1 {
+            "One pane"
+        } else if saved.vertical {
             "Stacked"
         } else {
             "Side by side"
@@ -167,4 +252,49 @@ pub(super) fn publish(
     }
     live.dirty = true;
     live
+}
+
+#[cfg(test)]
+#[path = "screen_tests.rs"]
+mod tests;
+
+/// Test-only record of what the worker was told to send each terminal,
+/// keyed by the whole size so a test finds its own entries. It records inside
+/// `pane_sizes`, which both `pane_size` and the hidden-size worker patch use.
+#[cfg(test)]
+pub(super) mod probe {
+    use sheprd_backend::Size;
+    use std::sync::{Mutex, PoisonError};
+
+    type Call = (Size, usize, usize, Vec<Option<Size>>);
+    static CALLS: Mutex<Vec<Call>> = Mutex::new(Vec::new());
+
+    pub(super) fn record(whole: Size, count: usize, active: usize, sizes: &[Option<Size>]) {
+        CALLS.lock().unwrap_or_else(PoisonError::into_inner).push((
+            whole,
+            count,
+            active,
+            sizes.to_vec(),
+        ));
+    }
+
+    /// Every `pane_sizes` call for `whole` and `count`: the active pane and
+    /// what each terminal is sent (`None` keeps its size), oldest first.
+    pub(crate) fn calls_for(whole: Size, count: usize) -> Vec<(usize, Vec<Option<Size>>)> {
+        CALLS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(w, c, _, _)| *w == whole && *c == count)
+            .map(|(_, _, active, sizes)| (*active, sizes.clone()))
+            .collect()
+    }
+
+    /// The size the drawn pane was sent in each call.
+    pub(crate) fn sent_for(whole: Size, count: usize) -> Vec<Size> {
+        calls_for(whole, count)
+            .into_iter()
+            .filter_map(|(_, sizes)| sizes.into_iter().flatten().next())
+            .collect()
+    }
 }
