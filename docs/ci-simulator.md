@@ -67,13 +67,21 @@ limit is hit. First hosted runs (PR 72): run 44151000668 job 134279069207 took 1
 Two hosted findings are handled in the harness, not in the checks (task e115109b440f4304):
 - `simctl pbpaste` times out (exit 60) on GitHub-hosted runners (run 44151000668 job
   134279069207), and after a timeout it once returned text that is not the key line (run
-  44247827726 job 134611018720). Owner decision `pr73-p2-hosted-pasteboard-decision.json`: when
-  `GITHUB_ACTIONS=true`, `p2-check.py` skips only the external read of the receiving
-  Simulator pasteboard and logs `P2 SKIPPED the receiving pasteboard read` with that evidence;
-  the app's `Copied restricted public key.` receipt (`validate_records`), the XCTest and the
-  colour check still run. Without `GITHUB_ACTIONS` (the Mac mini) the read is retried three
-  times and must equal the key line exactly; a mismatch or a read failure fails. `p2-setup.jsonl` is read
-  with `live_jsonl.read_records`, so a partly written last line is not a parse error.
+  44247827726 job 134611018720). Since the UI test redesign S2 (owner decision
+  `ui-test-redesign-decision.json`), P2 checks the pasteboard by what the app reads back from
+  its own `UIPasteboard` right after Copy: the SHA-256 and byte length of that text, published in
+  `qa.state` (`copied`, `pasteboard_sha256`, `pasteboard_bytes`, crates/yebisu/src/qa_ax_keys.rs)
+  and recorded as a `p2-pasteboard` receipt. `testP2KeysAndRestart` compares `qa.state` with the
+  digest `p2-check.py` passes (`TEST_RUNNER_P2_PASTEBOARD_SHA256`), and `p2-check.py` compares the
+  receipt, on a hosted runner and on the Mac mini alike. `simctl pbpaste` is a Mac mini aid only:
+  skipped when `GITHUB_ACTIONS=true`, a read failure is logged, other text fails.
+- P2 never reads a file the app may still be writing (runs 44155672313, 44236636053 and
+  44288317467 failed on such reads). XCTest launches the app itself, twice with the same
+  environment (`YEBISU_P2_OBSERVE`, `YEBISU_P11_KEYS_QA`, `YEBISU_QA_AX`), presses the key
+  block's controls by identifier (`qa.keys.provider`, `qa.keys.read`, `qa.keys.copy`) and
+  confirms each press by `qa.state`; `p2-check.py` terminates the app after XCTest and only then
+  reads `p2-setup.jsonl`, whole (a missing file or a partly written line fails by name). `p3`,
+  `p9` and `p10` also terminate the app before they read its files.
 - `KNOWN_RED` of `ci-layout-smoke.py` is empty. Integration 1 listed `p3-check.py` (the
   landscape stage lost the private-peer connection on main aed154e); on the Integration 2
   head p3 passed every stage on hosted (run 44214913068, job 134502265733), so the entry was
