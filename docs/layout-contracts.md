@@ -595,3 +595,11 @@ goes away at the end of Wave 3.
   06; L2c's `size / count` expectations moved by one cell). Patches 02
   (status poll thread) and 03 (Herdr 2 sidebar session) are held by review
   e85e B1, so Herdr 2 keeps the empty list and the footer of Integration 2.
+- **Integration 4 (H and W follow-ups).** Stream H (`layout/h2`) rebuilt
+  patches 02 and 03 on main: the Herdr 2 status poll runs on its own
+  `yebisu-core-status` thread with a bounded join (`core/status.rs`), test
+  builds start without a poll, and `render_sidebar_column` draws the Herdr 2
+  host, session and AGENTS rows only once the session has a list. The column
+  and its footer stay without a list (main d3755cf). Stream W owns
+  `frame_layout` and the sidebar header filter slot; H owns the Herdr 2 arm of
+  `render_sidebar_column`.
