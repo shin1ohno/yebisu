@@ -20,6 +20,8 @@ use gpui::AnyElement;
 
 #[path = "qa_ax_ids.rs"]
 pub(crate) mod ids;
+#[path = "qa_ax_keys.rs"]
+mod keys;
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 #[path = "qa_ax_layer.rs"]
 pub(crate) mod layer;
@@ -65,16 +67,12 @@ pub(crate) fn mark(id: &'static str, label: &'static str) -> Option<AnyElement> 
 }
 
 /// Sets one field of `qa.state` (for a QA mode's own state, such as a key
-/// being ready); it is published with the next frame. Returns false, and
-/// changes nothing, when the layer is off or `key` is one of the layer's own
-/// fields (`layer::RESERVED`).
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "S1 lays the API down; S2 (p2 key and pasteboard state) is its first caller"
-    )
-)]
+/// being ready); it is published with the next frame. Call it on GPUI's
+/// foreground thread (in a render or an event listener): the fields live in
+/// that thread's registry, which the root publisher reads. Returns false, and
+/// changes nothing, when the layer is off, `key` is one of the layer's own
+/// fields (`layer::RESERVED`), or this thread never built the root publisher
+/// (a background task, or before the first frame).
 pub(crate) fn report(key: &'static str, value: impl FnOnce() -> serde_json::Value) -> bool {
     if !enabled() {
         return false;

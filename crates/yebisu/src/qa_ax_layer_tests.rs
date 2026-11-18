@@ -64,9 +64,25 @@ fn qa_state_json_is_flat_and_keeps_its_own_fields() {
 
 #[test]
 fn report_refuses_the_layers_own_fields() {
+    publishing_thread();
     for key in RESERVED {
         assert!(!report(key, json!(1)), "{key}");
     }
+    assert!(report("key_ready", json!(true)));
+}
+
+/// Review F4: the registry is per thread, so a field reported from a thread
+/// that never built the root publisher (a background task) must say it was
+/// not taken, and must not appear in `qa.state`.
+#[test]
+fn report_from_a_thread_without_the_publisher_is_refused() {
+    let elsewhere = std::thread::spawn(|| report("key_ready", json!(true)));
+    assert!(matches!(elsewhere.join(), Ok(false)));
+    assert!(
+        !report("key_ready", json!(true)),
+        "no publisher on this thread yet"
+    );
+    publishing_thread();
     assert!(report("key_ready", json!(true)));
 }
 

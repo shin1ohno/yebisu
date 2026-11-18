@@ -19,6 +19,10 @@ const MUTED: u32 = 0xacb2bb;
 const ACCENT: u32 = 0x88c0d0;
 const GREEN: u32 = 0xa3be8c;
 const FIELD: u32 = 0x101419;
+/// The key block's buttons; each text is also the button's QA accessibility
+/// label (`qa_ax::ids::KEYS_READ`, `KEYS_COPY`).
+const KEY_READ_LABEL: &str = "Read or initialize device key";
+const KEY_COPY_LABEL: &str = "Copy authorized_keys line";
 
 fn button(
     id: impl Into<SharedString>,
@@ -262,12 +266,19 @@ impl Smoke {
             .and_then(|h| h.keys.line())
             .map(str::to_owned);
         let key_ready = line.is_some();
+        crate::qa_ax::report("key_ready", || key_ready.into());
         let qa_label = self.key_qa_label();
         div()
             .flex()
             .flex_col()
             .gap_2()
-            .children(qa_label.map(|label| div().text_sm().text_color(rgb(MUTED)).child(label)))
+            .children(qa_label.map(|label| {
+                div()
+                    .text_sm()
+                    .text_color(rgb(MUTED))
+                    .child(label)
+                    .children(crate::qa_ax::mark(crate::qa_ax::ids::KEYS_PROVIDER, label))
+            }))
             .child(
                 div()
                     .id("device-key-line")
@@ -290,22 +301,26 @@ impl Smoke {
                     .flex_wrap()
                     .gap_2()
                     .child(
-                        button("key-create", "Read or initialize device key", !busy, false)
-                            .on_click(cx.listener(|this, _, _, cx| this.read_device_key(cx))),
+                        button("key-create", KEY_READ_LABEL, !busy, false)
+                            .on_click(cx.listener(|this, _, _, cx| this.read_device_key(cx)))
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::KEYS_READ,
+                                KEY_READ_LABEL,
+                            )),
                     )
                     .child(
-                        button(
-                            "key-copy",
-                            "Copy authorized_keys line",
-                            !busy && key_ready,
-                            false,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if !this.setup.busy && this.copy_device_key(cx) {
-                                this.setup.status = "Copied restricted public key.".into();
-                                cx.notify();
-                            }
-                        })),
+                        button("key-copy", KEY_COPY_LABEL, !busy && key_ready, false)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if !this.setup.busy && this.copy_device_key(cx) {
+                                    this.setup.status = "Copied restricted public key.".into();
+                                    this.qa_ax_key_copied();
+                                    cx.notify();
+                                }
+                            }))
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::KEYS_COPY,
+                                KEY_COPY_LABEL,
+                            )),
                     ),
             )
             .child(

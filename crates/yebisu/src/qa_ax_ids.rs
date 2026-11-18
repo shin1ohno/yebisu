@@ -14,3 +14,11 @@
 pub(crate) const STATE: &str = "qa.state";
 /// The P0 smoke screen's "Tap / type" control (the S1 self-test presses it).
 pub(crate) const P0_TAP: &str = "qa.p0.tap";
+/// The key block's "QA injected key provider" line (shell/hosts_sheet/view.rs,
+/// `key_block`): drawn only after the injected key provider passed its view
+/// preflight, so finding it is the P2 provider check.
+pub(crate) const KEYS_PROVIDER: &str = "qa.keys.provider";
+/// The key block's "Read or initialize device key" button.
+pub(crate) const KEYS_READ: &str = "qa.keys.read";
+/// The key block's "Copy authorized_keys line" button.
+pub(crate) const KEYS_COPY: &str = "qa.keys.copy";

@@ -196,6 +196,10 @@ impl Smoke {
     }
 }
 
+/// The key block's line that says the injected QA key provider is in use;
+/// also its QA accessibility label (`qa_ax::ids::KEYS_PROVIDER`).
+pub(crate) const KEY_QA_LABEL: &str = "QA injected key provider";
+
 impl Smoke {
     pub(crate) fn key_qa_required(&self) -> bool {
         cfg!(test)
@@ -220,8 +224,7 @@ impl Smoke {
         injected && admitted
     }
     pub(crate) fn key_qa_label(&self) -> Option<&'static str> {
-        (self.key_qa_required() && self.key_provider_preflight("view"))
-            .then_some("QA injected key provider")
+        (self.key_qa_required() && self.key_provider_preflight("view")).then_some(KEY_QA_LABEL)
     }
     pub(crate) fn copy_device_key(&self, cx: &mut gpui::Context<Self>) -> bool {
         if !self.key_provider_preflight("copy") {
