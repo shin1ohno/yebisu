@@ -115,8 +115,14 @@ class ObserverPollProbe(unittest.TestCase):
         test = body(self.source, "func testSH154CoreImage(")
         calls = re.findall(r'tapText\("([^"]+)"([^)]*)\)', test)
         located = [(label, rest) for label, rest in calls if "tap: false" in rest and "attempts" not in rest]
-        self.assertEqual([label for label, _ in located], ["QA Image", "Paste", "Paste image"])
+        self.assertEqual([label for label, _ in located], ["QA Image only", "QA Image", "Paste", "Paste image"])
+        # The first "QA Image only" only waits for the strip; the boxes are read once the
+        # software keyboard is hidden (it lifts the strip while it rises, Mac mini 32f1e21).
         self.assertEqual([label for label, rest in calls if "attempts: 15" in rest], ["QA Image only"])
+        hidden = test.index('hideSoftwareKeyboard(in: app, "SH154 start")')
+        self.assertLess(test.index('tapText("QA Image only", in: app, tap: false, attempts: 15)'), hidden)
+        self.assertLess(hidden, test.index('let qaImageOnly = try tapText("QA Image only", in: app, tap: false).box'))
+        self.assertLess(hidden, test.index('let qaImage = try tapText("QA Image"'))
         # A tapText call that taps (no `tap: false`) would be a fresh OCR of the strip.
         self.assertEqual([label for label, rest in calls if "tap: false" not in rest], [])
         self.assertIn('excludingNextWord: "only"', test)
