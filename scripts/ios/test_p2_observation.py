@@ -132,8 +132,10 @@ class LiveReceiptTests(unittest.TestCase):
     def test_negative_a_file_that_never_appears_fails(self):
         path = self.write("")
         path.unlink()
-        with self.assertRaises(FileNotFoundError):
-            p2.read_until_valid(path, 0, p2.validate_records, attempts=2, sleep=lambda _: None)
+        waits = []
+        with self.assertRaisesRegex(RuntimeError, "was never created \\(3 reads, 5 s apart\\)"):
+            p2.read_until_valid(path, 0, p2.validate_records, attempts=3, sleep=waits.append)
+        self.assertEqual(waits, [5, 5])
 
     def test_negative_a_copy_receipt_that_never_lands_fails(self):
         records = ObservationTests.records(None)
