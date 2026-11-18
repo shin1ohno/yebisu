@@ -288,7 +288,9 @@ final class EditMenuQA: XCTestCase {
         // The Herdr 2 mock banner is "yebisu P9 Herdr 2" (core_mock.rs). After L8 retired the
         // band, Vision split it after "yebisu" in 2 of 3 Mac mini E1-core runs and read
         // "P9 Herdr 2" whole every time, so the spot is found by "P9 Herdr".
-        let spot = try point(target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer"), app)
+        let label = target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer")
+        if name.contains("core") { try keyboardUpBeforePress(app, name, label) }
+        let spot = try point(label, app)
         spot.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
         menuOpen = true
@@ -300,6 +302,24 @@ final class EditMenuQA: XCTestCase {
         // The app records the presented commands 150 ms after UIKit builds
         // the menu; a command chosen before that would precede its capture.
         waitFor("\(name) menu capture recorded", seconds: 5) { self.records("sh1-152-capture").count > captures }
+    }
+
+    // The long press focuses the Herdr 2 terminal. If the software keyboard was down, it
+    // rises and UIKit dismisses the menu that same press opened: run 44297932478 (edit-menu
+    // job 134779801414), E1-core, the screen recording shows Paste at 205 s and the keyboard
+    // up with no menu at 206 s, while the app recorded one sh1-152-capture. A second press
+    // would be a second presentation, so the keyboard is raised first with a tap and the
+    // spot is read again once it has settled. A Simulator whose keyboard stays down (a
+    // hardware keyboard) is left as it is.
+    private func keyboardUpBeforePress(_ app: XCUIApplication, _ name: String, _ label: String) throws {
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+        if hide.exists && hide.isHittable { return }
+        print("SH1-152 \(name): software keyboard down before the press; tapping the terminal to raise it")
+        try point(label, app).tap()
+        if waitFor("\(name) software keyboard up before the press", seconds: 5, { hide.exists && hide.isHittable }) {
+            sleep(1)
+            located.removeAll()
+        }
     }
 
     // Selects a menu item and waits for its execution receipt; an executed
