@@ -14,11 +14,12 @@
 //! docked along the window's bottom edge is an L0 inset. The edit bar and the
 //! IME candidates move clear of a floating keyboard instead
 //! (`place_clear_of_keyboard`).
+use super::disconnect::DisconnectClock;
 use crate::{
     app::Smoke,
-    layout::{Rect, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, TerminalFit, TooSmall},
+    layout::{Rect, Regions, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, TerminalFit, TooSmall},
 };
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Edges, Pixels, Window, div, prelude::*, px, rgb};
 
 /// The title shown in place of the terminal.
 pub(crate) const TOO_SMALL_TITLE: &str = "Window too small";
@@ -35,6 +36,14 @@ pub(crate) struct FitState {
     pub(crate) too_small: Option<TooSmall>,
     /// The Mods list is open in overlay O (`mods.rs`).
     pub(crate) mods_open: bool,
+    /// Mod regions the mod runtime asks for. Empty until the runtime lands;
+    /// Simulator builds take a fixed request from `YEBISU_LAYOUT_MODS_QA`.
+    pub(crate) mod_regions: Regions,
+    /// When the line dropped; mod regions go to size 0 after 30 s.
+    pub(crate) disconnect: DisconnectClock,
+    /// A hardware key reached the window since the software keyboard last
+    /// showed (the status bar's Hardware keyboard item).
+    pub(crate) hardware_keyboard: bool,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -121,6 +130,24 @@ pub(crate) fn docked_keyboard_height(window: Size, keyboard: Option<Rect>) -> f3
     } else {
         0.0
     }
+}
+
+/// The keyboard as a rect from the platform's keyboard insets, `None` when
+/// the platform reports none. A keyboard inset from the left or right edge
+/// does not span the window, so `docked_keyboard_height` takes it as floating.
+pub(crate) fn ime_keyboard(window: Size, ime: &Edges<Pixels>) -> Option<Rect> {
+    let height = f32::from(ime.bottom).min(window.height);
+    if height <= 0.0 {
+        return None;
+    }
+    let left = f32::from(ime.left).max(0.0);
+    let right = f32::from(ime.right).max(0.0);
+    Some(Rect::new(
+        left,
+        window.height - height,
+        (window.width - left - right).max(0.0),
+        height,
+    ))
 }
 
 /// Where `item` (the edit bar, or the IME candidate bar) goes so a floating

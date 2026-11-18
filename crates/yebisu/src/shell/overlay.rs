@@ -5,7 +5,11 @@
 //! "O オーバーレイ"). The toast slot sits half that margin above the status
 //! bar and its hairline, so the notification band (PR 45) never lies on the
 //! status bar.
-use crate::layout::{OVERLAY_MARGIN, RULE, STATUS_BAR_HEIGHT, TOAST_SIZE};
+use crate::{
+    app::Smoke,
+    layout::{OVERLAY_MARGIN, RULE, STATUS_BAR_HEIGHT, TOAST_SIZE},
+};
+use gpui::{Pixels, Window, px};
 
 /// Clear space between the status bar's hairline and the toast in O.
 pub(crate) const TOAST_MARGIN: f32 = OVERLAY_MARGIN / 2.0;
@@ -22,6 +26,13 @@ pub(crate) fn toast_width(window_width: f32) -> f32 {
     TOAST_SIZE
         .width
         .min((window_width - OVERLAY_MARGIN).max(0.0))
+}
+
+impl Smoke {
+    /// The notification band's width limit in this window (`toast_width`).
+    pub(crate) fn toast_max_width(&self, window: &Window) -> Pixels {
+        px(toast_width(f32::from(window.viewport_size().width)))
+    }
 }
 
 #[cfg(test)]
