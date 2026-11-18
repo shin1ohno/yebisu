@@ -80,8 +80,10 @@ extension SmokeQA {
         // A misread box would otherwise surface only as put/path/text counts at the end:
         // the QA pair is laid out left to right on one row, the menu items one above the
         // other in one column, so reject a box that is not.
-        XCTAssertTrue(qaImage.minX < qaImageOnly.minX && abs(qaImage.midY - qaImageOnly.midY) < max(qaImage.height, qaImageOnly.height),
-                      "QA Image / QA Image only not located left to right on one row: \(qaImage) \(qaImageOnly)")
+        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only")] {
+            XCTAssertTrue(left.minX < right.minX && abs(left.midY - right.midY) < max(left.height, right.height),
+                          "\(what) not located left to right on one row: \(left) \(right)")
+        }
         let more = try openOverflowMenu(in: app)
         let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
         let pasteImage = try tapText("Paste image", in: app, tap: false).box
@@ -90,21 +92,21 @@ extension SmokeQA {
         // Close the menu; its backdrop takes this press (overflow_menu.rs).
         app.coordinate(withNormalizedOffset: .zero).withOffset(more).tap()
         sleep(1)
-        func menuTap(_ box: CGRect, _ label: String) throws {
-            try openOverflowMenu(in: app, at: more)
-            tapRecorded(box, label, in: app)
-        }
         tapRecorded(qaImageOnly, "QA Image only", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try menuTap(pasteImage, "Paste image")
+        try openOverflowMenu(in: app, at: more)
+        tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        try menuTap(paste, "Paste")
+        try openOverflowMenu(in: app, at: more)
+        tapRecorded(paste, "Paste", in: app)
         try tapText("paste-1.png", in: app, tap: false, attempts: 30)
         tapRecorded(qaImage, "QA Image", in: app)
         try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try menuTap(paste, "Paste")
+        try openOverflowMenu(in: app, at: more)
+        tapRecorded(paste, "Paste", in: app)
         sleep(1)
-        try menuTap(pasteImage, "Paste image")
+        try openOverflowMenu(in: app, at: more)
+        tapRecorded(pasteImage, "Paste image", in: app)
         try tapText("paste-2.png", in: app, tap: false, attempts: 30)
         save("sh154-core-image")
         XCTAssertEqual(app.state, .runningForeground)
