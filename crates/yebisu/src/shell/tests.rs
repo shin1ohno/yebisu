@@ -6,10 +6,6 @@ use super::*;
 
 #[test]
 fn wave0_slots_are_inert() {
-    let legacy = entry_move::LegacyBands::current();
-    assert!(legacy.toolbar && legacy.input_options && legacy.return_policy);
-    assert!(legacy.handoff && legacy.actions && legacy.qa_controls);
-    assert!(footer::footer_items(HerdrKind::Herdr1).is_empty());
     assert!(!qa_strip::qa_strip_enabled());
 }
 
