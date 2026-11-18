@@ -11,6 +11,10 @@ extension SmokeQA {
         app.launchEnvironment["YEBISU_INPUT_QA"] = "1"
         app.launch()
         sleep(3)
+        // The terminal's focus can raise the software keyboard on a fresh Simulator; it lifts
+        // the sidebar footer and covers the Settings page (Mac mini 5977881: Settings read at
+        // y 0.30, then "Double tap" not found). Start from the frame without it.
+        hideSoftwareKeyboard(in: app, "P9 start")
         // Drag selection consumes the tap that must open native input here. L2b moved
         // the start mode from the handoff band to Settings › Input › Start a selection.
         try openSettings(in: app)
