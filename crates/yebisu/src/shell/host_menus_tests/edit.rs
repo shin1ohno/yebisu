@@ -28,6 +28,8 @@ fn menu_edit_host_targets_selected_host(cx: &mut TestAppContext) {
     let (view, cx) = smoke(cx, "studio");
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
+            // Edit waits for the A6 fence over a live terminal (S2).
+            this.terminal.live.connected = false;
             // Another saved host comes first; the menu must not pick it.
             this.setup.hosts = vec!["alpha".into(), "studio".into()];
             this.install_native_menus(window, cx);
@@ -44,6 +46,26 @@ fn menu_edit_host_targets_selected_host(cx: &mut TestAppContext) {
             this.native_command_action(&NativeCommand::named("host.edit"), window, cx);
             assert_eq!(this.shell.shortcuts.edit_host, None);
             assert!(this.terminal.live.status.contains("menu target changed"));
+        })
+    });
+}
+
+#[gpui::test]
+fn edit_waits_for_the_hosts_sheet_fence(cx: &mut TestAppContext) {
+    let (view, cx) = smoke(cx, "studio");
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let state = this.menu_chrome_state();
+            assert!(state.connected, "fixture is live");
+            let edit = host_long_press(&state)
+                .into_iter()
+                .find(|e| e.item == MenuItemId::Host(HostMenuItem::Edit));
+            assert!(edit.is_some_and(|e| !HOSTS_SHEET_FENCED && !e.enabled && e.reason.is_some()));
+            let shown = this.current_menu_scope();
+            let edit = MenuItemId::Host(HostMenuItem::Edit);
+            assert!(this.run_menu_item(edit, &shown, window, cx).is_err());
+            assert!(!this.shell.hosts_sheet.visible());
+            assert_eq!(this.shell.shortcuts.edit_host, None);
         })
     });
 }

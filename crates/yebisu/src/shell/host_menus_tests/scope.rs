@@ -24,6 +24,8 @@ fn app_refuses_host_item_after_host_switch(cx: &mut TestAppContext) {
     let (view, cx) = smoke(cx, "alpha");
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
+            // Edit runs only without a live terminal until A6 (S2).
+            this.terminal.live.connected = false;
             let shown = this.current_menu_scope();
             this.terminal.reconnect.target = "beta".into();
             let edit = MenuItemId::Host(HostMenuItem::Edit);

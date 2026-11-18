@@ -17,6 +17,16 @@ const NOT_CONNECTED: &str = "Not connected";
 const HERDR1_NO_DETACH: &str = "Herdr 1 sessions stay attached";
 const HERDR2_NO_NEW_TAB: &str = "New tab is not available on Herdr 2";
 const NO_SPACE: &str = "No space selected";
+const SHEET_OPEN: &str = "Close the sheet first";
+const EDIT_UNFENCED: &str = "Disconnect first: the Hosts sheet does not hold the keyboard yet";
+const OTHER_HOST: &str = "Select this host first";
+const OTHER_SPACE: &str = "Open this space first";
+
+/// Whether the Hosts sheet fences terminal input while it is open (A6 of
+/// the 2026-11-18 contract amendments, L2b patch 02). Until the integrator
+/// lands A6 and sets this, Host › Edit stays disabled over a live terminal,
+/// because keys typed into the sheet would reach the host (review S2).
+pub(crate) const HOSTS_SHEET_FENCED: bool = false;
 /// Host and space names longer than this end in "…" in menu items.
 pub(crate) const MENU_NAME_MAX: usize = 24;
 
@@ -131,18 +141,24 @@ fn entry(item: MenuItemId, enabled: bool, reason: &'static str) -> MenuEntry {
 
 fn host_entry(item: HostMenuItem, state: &ChromeState) -> MenuEntry {
     let id = MenuItemId::Host(item);
+    if state.sheet_open {
+        return entry(id, false, SHEET_OPEN);
+    }
     match item {
         HostMenuItem::Reconnect => entry(id, !state.connected, ALREADY_CONNECTED),
         HostMenuItem::Detach => match state.kind {
             HerdrKind::Herdr1 => entry(id, false, HERDR1_NO_DETACH),
             HerdrKind::Herdr2 => entry(id, state.connected, NOT_CONNECTED),
         },
-        HostMenuItem::Edit => entry(id, true, NOT_CONNECTED),
+        HostMenuItem::Edit => entry(id, HOSTS_SHEET_FENCED || !state.connected, EDIT_UNFENCED),
     }
 }
 
 fn space_entry(item: SpaceMenuItem, state: &ChromeState, has_space: bool) -> MenuEntry {
     let id = MenuItemId::Space(item);
+    if state.sheet_open {
+        return entry(id, false, SHEET_OPEN);
+    }
     if !has_space {
         return entry(id, false, NO_SPACE);
     }
@@ -191,6 +207,48 @@ pub(crate) fn space_long_press(state: &ChromeState) -> Vec<MenuEntry> {
         .into_iter()
         .map(|item| space_entry(item, state, true))
         .collect()
+}
+
+/// `entries` with every item disabled for `reason`: the row pressed is not
+/// the target the items would run on.
+fn elsewhere(entries: Vec<MenuEntry>, reason: &'static str) -> Vec<MenuEntry> {
+    entries
+        .into_iter()
+        .map(|e| entry(e.item, false, reason))
+        .collect()
+}
+
+/// The long-press menu of the host row for `row` while `current` is the
+/// selected target (review S4). The items run on the selected host, so a
+/// row of another host lists them disabled, with the reason.
+pub(crate) fn host_long_press_for(
+    state: &ChromeState,
+    row: &str,
+    current: &MenuScope,
+) -> Vec<MenuEntry> {
+    let entries = host_long_press(state);
+    if row.is_empty() || row != current.host {
+        return elsewhere(entries, OTHER_HOST);
+    }
+    entries
+}
+
+/// The long-press menu of the space row `row` (its host and space) while
+/// `current` is the selected target: another host's or space's row lists
+/// the items disabled, since they would run on the focused space.
+pub(crate) fn space_long_press_for(
+    state: &ChromeState,
+    row: &MenuScope,
+    current: &MenuScope,
+) -> Vec<MenuEntry> {
+    let entries = space_long_press(state);
+    if row.host.is_empty() || row.host != current.host {
+        return elsewhere(entries, OTHER_HOST);
+    }
+    if row.space.is_none() || row.space != current.space {
+        return elsewhere(entries, OTHER_SPACE);
+    }
+    entries
 }
 
 /// `name` cut to [`MENU_NAME_MAX`] characters, ending in "…" when cut.

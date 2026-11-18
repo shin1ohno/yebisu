@@ -68,3 +68,64 @@ fn long_names_end_in_ellipsis() {
     assert!(menu_name(space).ends_with('…'));
     assert_eq!(menu_name("studio"), "studio");
 }
+
+#[test]
+fn long_press_carries_the_pressed_row() {
+    let state = ChromeState {
+        connected: true,
+        ..ChromeState::default()
+    };
+    let current = MenuScope {
+        host: "alpha".into(),
+        space: Some("w1".into()),
+    };
+    // The selected host's row lists the host items as the menu bar does.
+    assert_eq!(
+        host_long_press_for(&state, "alpha", &current),
+        host_long_press(&state)
+    );
+    // Another host's row would run them on "alpha": disabled, with why.
+    for e in host_long_press_for(&state, "beta", &current) {
+        assert!(
+            !e.enabled && e.reason == Some("Select this host first"),
+            "{e:?}"
+        );
+    }
+    let row = |host: &str, space: &str| MenuScope {
+        host: host.into(),
+        space: Some(space.into()),
+    };
+    assert_eq!(
+        space_long_press_for(&state, &row("alpha", "w1"), &current),
+        space_long_press(&state)
+    );
+    for e in space_long_press_for(&state, &row("alpha", "w2"), &current) {
+        assert!(
+            !e.enabled && e.reason == Some("Open this space first"),
+            "{e:?}"
+        );
+    }
+    for e in space_long_press_for(&state, &row("beta", "w1"), &current) {
+        assert!(
+            !e.enabled && e.reason == Some("Select this host first"),
+            "{e:?}"
+        );
+    }
+}
+
+#[test]
+fn items_are_disabled_while_a_sheet_is_open() {
+    for state in states().into_iter().filter(|s| s.sheet_open) {
+        let all = menu_bar(&state, true)
+            .into_iter()
+            .flat_map(|(_, entries)| entries)
+            .chain(host_long_press(&state))
+            .chain(space_long_press(&state));
+        for e in all {
+            assert!(
+                !e.enabled && e.reason == Some("Close the sheet first"),
+                "{e:?}"
+            );
+        }
+    }
+}

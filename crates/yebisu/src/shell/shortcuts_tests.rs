@@ -9,3 +9,5 @@ mod palette;
 mod rows;
 #[path = "shortcuts_tests/support.rs"]
 mod support;
+#[path = "shortcuts_tests/taps.rs"]
+mod taps;

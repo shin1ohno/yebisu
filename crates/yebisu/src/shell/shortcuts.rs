@@ -5,7 +5,8 @@
 //! each, a tap runs the row, an unavailable row is disabled. Below the rows
 //! it shows the current Command key and Shortcut priority. It replaces the
 //! command palette as the status bar's target; `Command::Palette` stays a
-//! local catalog command (P12QA, the OS menu and the legacy actions band).
+//! local catalog command (P12QA, the OS menu and the legacy actions band)
+//! and, as the canvas shows, a row of the popover that opens the palette.
 use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place, host_menus};
 use crate::{
     actions::{self, Action},
@@ -13,7 +14,7 @@ use crate::{
     native_menus::shortcut_glyphs,
     terminal_view::TerminalView,
 };
-use gpui::Context;
+use gpui::{Context, Window};
 use sheprd_commands::Command;
 
 mod view;
@@ -97,12 +98,6 @@ pub(crate) struct ShortcutRow {
     pub(crate) enabled: bool,
 }
 
-/// Whether the catalog lists `command` in the popover. The palette is the
-/// popover's predecessor, so it is not a row of it.
-fn in_popover(action: &Action) -> bool {
-    action.info.command != Command::Palette
-}
-
 /// The chrome's part of a row's availability: a sheet blocks every row,
 /// local commands need nothing else, Find needs `find::available`, and an
 /// RPC command needs a connected Herdr 1 (the catalog is Herdr 1's).
@@ -135,7 +130,6 @@ fn chrome_reason(command: Command, state: &ChromeState) -> Option<&'static str> 
 fn rows_from(catalog: Vec<Action>, state: &ChromeState, live: bool) -> Vec<(Command, ShortcutRow)> {
     catalog
         .into_iter()
-        .filter(in_popover)
         .map(|action| {
             let command = action.info.command;
             let enabled = chrome_allows(command, state) && (!live || action.available);
@@ -209,7 +203,14 @@ fn point(
 /// L6's entry points: Shortcuts in the status bar, the popover's rows, and
 /// the Host / Space items of the menu bar and of long press.
 pub(crate) fn shortcuts_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
-    let mut out = vec![point(EntryAction::Shortcuts, Place::StatusBar, true, None)];
+    // While a sheet is open the status bar's Shortcuts does nothing (S7).
+    let sheet = state.sheet_open.then_some("Close the sheet first");
+    let mut out = vec![point(
+        EntryAction::Shortcuts,
+        Place::StatusBar,
+        !state.sheet_open,
+        sheet,
+    )];
     let catalog = actions::catalog(&TerminalView::default());
     for (command, row) in rows_from(catalog, state, false) {
         if let Some(action) = entry_action(command) {
@@ -250,13 +251,62 @@ impl Smoke {
     }
 
     /// Status bar Shortcuts. `false` means not handled: the caller falls
-    /// back to the command palette (plan v2 5.2, L2a column).
+    /// back to the command palette (plan v2 5.2, L2a column). Over a sheet
+    /// it is handled and does nothing, so the palette does not open under
+    /// the sheet (review S7).
     pub(crate) fn open_shortcuts(&mut self, cx: &mut Context<Self>) -> bool {
         if self.settings_modal || self.hosts_sheet_modal() {
-            return false;
+            return true;
         }
         self.shell.shortcuts.open ^= true;
-        self.actions.palette = false;
+        if self.shell.shortcuts.open {
+            // The popover and the palette exclude each other (S6); the
+            // terminal stops taking text while it is open (S1, the
+            // L6 part; the key guards are integrator patch 05).
+            self.actions.palette = false;
+            self.terminal.input.detach();
+            self.handoff.select_mode = false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// Whether the popover stays open this frame. A sheet or the palette
+    /// closes it: they exclude each other both ways (S6).
+    pub(crate) fn shortcuts_shown(&mut self) -> bool {
+        if self.settings_modal || self.hosts_sheet_modal() || self.actions.palette {
+            self.shell.shortcuts.open = false;
+        }
+        self.shell.shortcuts.open
+    }
+
+    /// A tap on the popover's `command` row. A row the popover shows
+    /// disabled runs nothing (`false`). Find opens the find bar as the
+    /// legacy button does (`action_view.rs`), since it is not an RPC
+    /// command (review B1); the others go through `run_action`.
+    pub(crate) fn tap_shortcut_row(
+        &mut self,
+        command: Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let enabled = popover_rows(&self.terminal, &self.popover_chrome_state())
+            .into_iter()
+            .any(|(c, row)| c == command && row.enabled);
+        if !self.shortcuts_shown() || !enabled {
+            return false;
+        }
+        self.shell.shortcuts.open = false;
+        if command == Command::Find {
+            self.open_find(window, cx);
+            cx.notify();
+            return true;
+        }
+        if let Err(e) = self.run_action(command) {
+            self.terminal.live.status = e.to_string();
+        }
+        window.notify_text_input_changed(&self.terminal_focus);
+        window.dismiss_virtual_keyboard();
         cx.notify();
         true
     }

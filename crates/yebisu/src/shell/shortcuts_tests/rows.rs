@@ -6,24 +6,19 @@ use sheprd_commands::Command;
 
 #[test]
 fn shortcuts_rows_come_from_catalog() {
-    let catalog: Vec<_> = actions::catalog(&TerminalView::default())
-        .into_iter()
-        .filter(|row| row.info.command != Command::Palette)
-        .collect();
+    let catalog = actions::catalog(&TerminalView::default());
     let rows = shortcut_rows(&connected());
     assert_eq!(rows.len(), catalog.len());
     for (row, action) in rows.iter().zip(&catalog) {
         assert_eq!(row.label, action.label);
         assert_eq!(row.keys, shortcut_glyphs(action.shortcuts));
     }
-    // Every catalog command but the palette has a row, in catalog order.
-    let all = actions::catalog(&TerminalView::default());
-    assert_eq!(rows.len() + 1, all.len());
-    let palette = all
+    // Every catalog command has a row, the palette too (the canvas lists it).
+    let palette = catalog
         .iter()
         .find(|row| row.info.command == Command::Palette)
         .map(|row| row.label.clone());
-    assert!(palette.is_some_and(|label| rows.iter().all(|row| row.label != label)));
+    assert!(palette.is_some_and(|label| rows.iter().any(|row| row.label == label)));
     // The popover of a live terminal lists the same rows.
     let live = popover_rows(&terminal(&["tab.create"]), &connected());
     let live: Vec<_> = live

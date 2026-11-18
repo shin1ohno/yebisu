@@ -39,11 +39,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !self.shell.shortcuts.open {
-            return None;
-        }
-        if self.settings_modal || self.hosts_sheet_modal() {
-            self.shell.shortcuts.open = false;
+        if !self.shortcuts_shown() {
             return None;
         }
         let viewport = window.viewport_size();
@@ -200,14 +196,9 @@ impl Smoke {
                     .text_color(rgb(if row.enabled { MUTED } else { DISABLED }))
                     .child(row.keys),
             )
-            .when(row.enabled, |view| {
-                view.on_click(cx.listener(move |this, _, _, cx| {
-                    this.shell.shortcuts.open = false;
-                    if let Err(e) = this.run_action(command) {
-                        this.terminal.live.status = e.to_string();
-                    }
-                    cx.notify();
-                }))
-            })
+            // `tap_shortcut_row` refuses a disabled row itself.
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.tap_shortcut_row(command, window, cx);
+            }))
     }
 }
