@@ -351,12 +351,21 @@ final class SmokeQA: XCTestCase {
             print("\(what): no software keyboard")
             return
         }
-        hide.tap()
-        let gone = Date().addingTimeInterval(5)
-        while up() && Date() < gone {
-            usleep(250_000)
+        // A press the keyboard did not take is repeated once, with the reason printed (Mac
+        // mini f95123d: the keyboard stayed up 5 s after the first press).
+        for press in 0..<2 {
+            hide.tap()
+            let gone = Date().addingTimeInterval(5)
+            while up() && Date() < gone {
+                usleep(250_000)
+            }
+            if !up() { break }
+            print("\(what): software keyboard still up 5 s after hide press \(press): the press was not taken")
         }
-        XCTAssertFalse(up(), "\(what): software keyboard still up")
+        guard !up() else {
+            XCTFail("\(what): software keyboard still up after two hide presses")
+            return
+        }
         sleep(1)
         print("\(what): software keyboard hidden")
     }

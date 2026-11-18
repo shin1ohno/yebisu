@@ -289,7 +289,8 @@ final class EditMenuQA: XCTestCase {
         // band, Vision split it after "yebisu" in 2 of 3 Mac mini E1-core runs and read
         // "P9 Herdr 2" whole every time, so the spot is found by "P9 Herdr".
         let label = target ?? (name.contains("core") ? "P9 Herdr" : "private wire peer")
-        if name.contains("core") { try keyboardUpBeforePress(app, name, label) }
+        // A tap would clear a selection, so only a menu without one raises the keyboard first.
+        if !selected { try keyboardUpBeforePress(app, name, label) }
         let spot = try point(label, app)
         spot.press(forDuration: 0.8)
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
@@ -304,10 +305,11 @@ final class EditMenuQA: XCTestCase {
         waitFor("\(name) menu capture recorded", seconds: 5) { self.records("sh1-152-capture").count > captures }
     }
 
-    // The long press focuses the Herdr 2 terminal. If the software keyboard was down, it
-    // rises and UIKit dismisses the menu that same press opened: run 44297932478 (edit-menu
-    // job 134779801414), E1-core, the screen recording shows Paste at 205 s and the keyboard
-    // up with no menu at 206 s, while the app recorded one sh1-152-capture. A second press
+    // The long press focuses the terminal. If the software keyboard was down, it rises and
+    // UIKit dismisses the menu that same press opened: run 44297932478 (edit-menu job
+    // 134779801414), E1-core, the screen recording shows Paste at 205 s and the keyboard up
+    // with no menu at 206 s, while the app recorded one sh1-152-capture; E1-text failed the
+    // same way on a fresh Mac mini Simulator (f95123d, no keyboard at the press). A second press
     // would be a second presentation, so the keyboard is raised first with a tap and the
     // spot is read again once it has settled. A Simulator whose keyboard stays down (a
     // hardware keyboard) is left as it is.
