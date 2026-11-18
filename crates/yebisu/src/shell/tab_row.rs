@@ -139,6 +139,10 @@ impl Smoke {
                 }),
             )
             .child(self.pinned_button("shell-more", "…", true, cx, |this, cx| {
+                let open = this.shell.frame.overflow_open;
+                if let Some(record) = crate::qa_ax::note_press(crate::qa_ax::MORE, open) {
+                    this.observation.record(record);
+                }
                 this.shell.frame.overflow_open ^= true;
                 cx.notify();
             }));
@@ -237,6 +241,15 @@ impl Smoke {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
+        // S0 probe: the ... button is the one control the QA layer exposes.
+        let view = cx.entity();
+        let qa = (id == "shell-more")
+            .then(|| {
+                crate::qa_ax::mark(crate::qa_ax::MORE, "More", move |cx| {
+                    view.read(cx).shell.frame.overflow_open
+                })
+            })
+            .flatten();
         div()
             .id(id)
             .flex_none()
@@ -247,6 +260,7 @@ impl Smoke {
             .justify_center()
             .text_color(rgb(if enabled { 0xd8dee9 } else { 0x4c566a }))
             .child(glyph)
+            .children(qa)
             .when(enabled, |view| {
                 view.on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
             })

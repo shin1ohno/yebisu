@@ -164,6 +164,10 @@ mod native_menus_qa;
 #[cfg(any(target_os = "ios", test))]
 mod p15_settings_view;
 #[cfg(any(target_os = "ios", test))]
+mod qa_ax;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod qa_ax_native;
+#[cfg(any(target_os = "ios", test))]
 mod theme_picker;
 
 #[cfg(test)]
