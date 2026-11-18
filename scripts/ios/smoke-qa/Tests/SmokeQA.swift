@@ -262,9 +262,22 @@ final class SmokeQA: XCTestCase {
     /// L2b retired the toolbar and the handoff band (shell/entry_move.rs). Settings is
     /// the sidebar footer's "Settings" (shell/footer.rs); the caller then taps the page
     /// title in the sheet's left column (settings_pages/sections.rs) and its control.
+    /// The sheet is open when its "Close" (settings_sheet/view.rs) is on screen. A press the
+    /// footer did not take is repeated once, with the reason printed (Mac mini 76c3332: the
+    /// Settings press right after the keyboard was hidden opened nothing, then "Input" was
+    /// missing).
     func openSettings(in app: XCUIApplication) throws {
-        try tapText("Settings", in: app)
-        sleep(2)
+        for press in 0..<2 {
+            try tapText("Settings", in: app)
+            for _ in 0..<4 {
+                sleep(1)
+                if textVisible("Close") { return }
+            }
+            print("Settings sheet not open 4 s after press \(press): the press was not taken")
+        }
+        save("settings-not-open")
+        XCTFail("The Settings sheet did not open after two presses")
+        throw NSError(domain: "SmokeQA.MissingControl", code: 4)
     }
 
     /// Opens the tab row's ... menu (shell/tab_row.rs `shell-more`) and returns the point
