@@ -11,7 +11,7 @@ use super::{
 use crate::{
     app::Smoke,
     board::{Target, snapshot},
-    shell::HerdrKind,
+    shell::{HerdrKind, filter},
     terminal_view::TerminalView,
 };
 use gpui::{AnyElement, Context, div, prelude::*, px, rgb};
@@ -151,7 +151,10 @@ impl Smoke {
             return None;
         }
         let hosts = host_entries(&self.shell.sidebar, &self.terminal, &self.board.hidden);
-        let agents = agents_list(&hosts);
+        // L4: the header's filter narrows spaces and AGENTS (`filter.rs`).
+        let query = self.sidebar_filter().to_owned();
+        let agents = filter::filter_lines(agents_list(&hosts), &query);
+        let mut shown = agents.len();
         let mut list = div()
             .id("sidebar-list")
             .flex()
@@ -162,8 +165,15 @@ impl Smoke {
         for (i, host) in hosts.iter().enumerate() {
             list = list.child(self.host_row(i, host, cx));
             for (j, space) in host.spaces.iter().enumerate() {
+                if !filter::matches(&query, &format!("{} {}", space.name, host.host)) {
+                    continue;
+                }
+                shown += 1;
                 list = list.child(self.space_row(i * 4096 + j, host, space, cx));
             }
+        }
+        if let filter::FilterOutcome::Empty { .. } = filter::filter_outcome(&query, shown) {
+            list = list.children(self.render_filter_clear(cx));
         }
         if !agents.is_empty() {
             list = list.child(heading(AGENTS_HEADING));

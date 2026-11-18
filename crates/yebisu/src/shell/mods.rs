@@ -6,13 +6,35 @@
 //! regions in overlay O (ModsMax.dc.html, SplitHalf.dc.html).
 use crate::{
     app::Smoke,
-    layout::{DIALOG_WIDTH, OVERLAY_MARGIN, Region},
+    layout::{DIALOG_WIDTH, OVERLAY_MARGIN, Region, Regions},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 
 /// "Mods n" only when `withdrawn` > 0.
 pub(crate) fn mods_item(withdrawn: usize) -> Option<String> {
     (withdrawn > 0).then(|| format!("Mods {withdrawn}"))
+}
+
+/// The mod regions to lay out: the runtime's `request`. Simulator builds
+/// take a fixed request from `YEBISU_LAYOUT_MODS_QA` (`defaults` for
+/// artboard 11, `maximum` for artboard 10) so the Mods item can be checked
+/// before the mod runtime lands (plan v2 7.15, Simulator).
+pub(crate) fn requested(request: Regions) -> Regions {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    {
+        static QA: std::sync::OnceLock<Option<Regions>> = std::sync::OnceLock::new();
+        let qa = QA.get_or_init(
+            || match std::env::var("YEBISU_LAYOUT_MODS_QA").ok().as_deref() {
+                Some("defaults") => Some(Regions::defaults()),
+                Some("maximum") => Some(Regions::maximum()),
+                _ => None,
+            },
+        );
+        if let Some(qa) = qa {
+            return *qa;
+        }
+    }
+    request
 }
 
 /// A withdrawn region's name, as the canvas' accessibility labels word it.
