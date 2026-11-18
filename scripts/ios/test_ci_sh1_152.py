@@ -115,6 +115,7 @@ UNRELATED = {
     "notifications": "delivery and sound; only notifications/preferences.rs is matched",
     "p11_observer": "outside the checks: P11 responder observer, called from app.rs and terminal_controls.rs callbacks",
     "p15_settings_view": "unreferenced",
+    "qa_ax": "QA accessibility layer (YEBISU_QA_AX), set only by the opt-in S1 self-test (qa-ax-selftest.py); move it to the pattern when a check sets it (S2: p2)",
     "reconnect": "outside the checks: reconnect policy, called from terminal_view.rs",
     "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
     "setup": "outside the checks: pairing setup, called from app.rs",

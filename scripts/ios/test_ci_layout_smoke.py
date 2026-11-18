@@ -155,6 +155,7 @@ UNRELATED = {
     "notifications": "delivery and sound; only notifications/preferences.rs is matched (p10 saves the policy)",
     "p11_observer": "outside the checks: P11 responder observer",
     "p15_settings_view": "unreferenced",
+    "qa_ax": "QA accessibility layer (YEBISU_QA_AX), set only by the opt-in S1 self-test (qa-ax-selftest.py); move it to the pattern when a check sets it (S2: p2)",
     "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
     "sh1_156_qa": "scene: YEBISU_SH1_156_QA, set only by testSH1156PointerClickAfterDiscard",
     "upstream": "referenced only by settings_pages/INTEGRATION.md",

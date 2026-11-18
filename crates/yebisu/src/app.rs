@@ -6,6 +6,8 @@ use gpui::{
 use std::{sync::Arc, time::Duration};
 
 const TITLE: &str = "yebisu · GPUI 0.3.12 · P0";
+/// The P0 tap control's text, also its QA accessibility label.
+const P0_TAP_LABEL: &str = "Tap / type";
 
 pub(crate) struct Smoke {
     pub(crate) find: Option<crate::find_view::FindBar>,
@@ -45,7 +47,7 @@ pub(crate) struct Smoke {
     #[allow(dead_code)]
     pub(crate) shell: crate::shell::ShellState,
     ticks: u64,
-    taps: u64,
+    pub(crate) taps: u64,
     image: Arc<RenderImage>,
     pub(crate) observation: Observation,
 }
@@ -194,6 +196,8 @@ impl Render for Smoke {
             .size_full()
             .on_action(cx.listener(Self::native_command_action))
             .child(screen)
+            // QA accessibility layer: qa.state from the first frame (qa_ax.rs).
+            .children(self.qa_ax_root(cx))
             .into_any_element();
         if self.settings_modal {
             let sheet = self.render_settings_sheet(window, cx);
@@ -294,7 +298,8 @@ impl Smoke {
                         eprintln!("yebisu input click taps={}", this.taps);
                         cx.notify();
                     }))
-                    .child(format!("Tap / type · {}", self.taps))
+                    .child(format!("{P0_TAP_LABEL} · {}", self.taps))
+                    .children(crate::qa_ax::mark(crate::qa_ax::ids::P0_TAP, P0_TAP_LABEL))
                     .into_any_element(),
                 entity.clone(),
             ))
