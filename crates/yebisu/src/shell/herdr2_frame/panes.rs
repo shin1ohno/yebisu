@@ -40,54 +40,46 @@ pub(crate) struct PaneRect {
     pub(crate) rows: u16,
 }
 
-/// The panes of a `cols` x `rows` frame. Two panes leave one cell between
-/// them for the frame line; each pane keeps at least one cell.
+/// The panes of a `cols` x `rows` frame. `count` panes share the span with
+/// one line cell between neighbours; every pane gets the same size, which is
+/// both the size sent to its terminal and the rect drawn, and every rect
+/// stays inside the frame (the cells left over after the last pane stay
+/// blank). A span with less than one cell per pane plus its lines (below 3
+/// for two panes) falls back to one pane over the whole frame.
 pub(crate) fn pane_rects(cols: u16, rows: u16, count: usize, vertical: bool) -> Vec<PaneRect> {
-    let cols = cols.max(1);
-    let rows = rows.max(1);
-    if count < 2 {
-        return vec![PaneRect {
-            x: 0,
-            y: 0,
-            cols,
-            rows,
-        }];
+    let whole = PaneRect {
+        x: 0,
+        y: 0,
+        cols: cols.max(1),
+        rows: rows.max(1),
+    };
+    let span = usize::from(if vertical { rows } else { cols });
+    let count = count.max(1);
+    if count < 2 || span < 2 * count - 1 {
+        return vec![whole];
     }
-    let span = if vertical { rows } else { cols };
-    let first = (span.saturating_sub(1) / 2).max(1);
-    let second = span.saturating_sub(first + 1).max(1);
-    let start = first + 1;
-    if vertical {
-        vec![
-            PaneRect {
-                x: 0,
-                y: 0,
-                cols,
-                rows: first,
-            },
-            PaneRect {
-                x: 0,
-                y: start,
-                cols,
-                rows: second,
-            },
-        ]
-    } else {
-        vec![
-            PaneRect {
-                x: 0,
-                y: 0,
-                cols: first,
-                rows,
-            },
-            PaneRect {
-                x: start,
-                y: 0,
-                cols: second,
-                rows,
-            },
-        ]
-    }
+    let each = (span - (count - 1)) / count;
+    let each = u16::try_from(each).unwrap_or(u16::MAX);
+    (0..count)
+        .map(|index| {
+            let offset = u16::try_from(index * (usize::from(each) + 1)).unwrap_or(u16::MAX);
+            if vertical {
+                PaneRect {
+                    x: 0,
+                    y: offset,
+                    cols: whole.cols,
+                    rows: each,
+                }
+            } else {
+                PaneRect {
+                    x: offset,
+                    y: 0,
+                    cols: each,
+                    rows: whole.rows,
+                }
+            }
+        })
+        .collect()
 }
 
 /// One frame-line cell: position, symbol and colour.
@@ -99,45 +91,47 @@ pub(crate) struct LineCell {
     pub(crate) fg: u32,
 }
 
-/// The line between two panes. The half next to the focused pane takes the
-/// focused colour, the rest the plain edge colour.
+/// The lines between neighbouring panes. On each line, the half next to the
+/// focused pane takes the focused colour, the rest the plain edge colour.
+/// One pane has no line.
 pub(crate) fn frame_lines(rects: &[PaneRect], vertical: bool, active: usize) -> Vec<LineCell> {
-    let [first, second] = rects else {
-        return Vec::new();
-    };
-    if vertical {
-        let y = first.y + first.rows;
-        let half = first.cols / 2;
-        (0..first.cols)
-            .map(|x| LineCell {
+    let mut cells = Vec::new();
+    for (index, pair) in rects.windows(2).enumerate() {
+        let [before, after] = pair else {
+            continue;
+        };
+        // The line's half towards the focused pane: `before` is `index`.
+        let towards_before = active <= index;
+        let touches = active == index || active == index + 1;
+        if vertical {
+            let y = before.y + before.rows;
+            let half = before.cols / 2;
+            cells.extend((0..before.cols).filter(|_| y < after.y).map(|x| LineCell {
                 x,
                 y,
                 symbol: STACKED_LINE,
-                fg: if (active == 0) == (x < half) {
+                fg: if touches && towards_before == (x < half) {
                     FOCUSED_EDGE
                 } else {
                     EDGE
                 },
-            })
-            .filter(|cell| cell.y < second.y)
-            .collect()
-    } else {
-        let x = first.x + first.cols;
-        let half = first.rows / 2;
-        (0..first.rows)
-            .map(|y| LineCell {
+            }));
+        } else {
+            let x = before.x + before.cols;
+            let half = before.rows / 2;
+            cells.extend((0..before.rows).filter(|_| x < after.x).map(|y| LineCell {
                 x,
                 y,
                 symbol: SIDE_BY_SIDE_LINE,
-                fg: if (active == 0) == (y < half) {
+                fg: if touches && towards_before == (y < half) {
                     FOCUSED_EDGE
                 } else {
                     EDGE
                 },
-            })
-            .filter(|cell| cell.x < second.x)
-            .collect()
+            }));
+        }
     }
+    cells
 }
 
 /// The pane under a frame cell (a pane tap), or `None` on the line.
@@ -147,8 +141,9 @@ pub(crate) fn pane_at(rects: &[PaneRect], x: u16, y: u16) -> Option<usize> {
     })
 }
 
-/// Where each band control lives in a ... menu: the entry with the same
-/// label, or `None` while it has no home there yet.
+/// Where each band control lives in a ... menu: the enabled entry with the
+/// same label, or `None` while it has no enabled home there. A disabled
+/// entry is not a home: the control could not be used from it.
 pub(crate) fn band_control_homes(
     menu: &[OverflowEntry],
 ) -> Vec<(&'static str, Option<OverflowItem>)> {
@@ -157,22 +152,28 @@ pub(crate) fn band_control_homes(
         .map(|label| {
             let home = menu
                 .iter()
-                .find(|entry| entry.item.label() == *label)
+                .find(|entry| entry.enabled && entry.item.label() == *label)
                 .map(|entry| entry.item);
             (*label, home)
         })
         .collect()
 }
 
-/// The band stays until every control it holds has a home in the Herdr 2
-/// ... menu of this chrome state.
+/// Whether `menu` gives every band control an enabled home.
+pub(crate) fn band_retired_in(menu: &[OverflowEntry]) -> bool {
+    band_control_homes(menu)
+        .iter()
+        .all(|(_, home)| home.is_some())
+}
+
+/// The band stays until every control it holds has an enabled home in the
+/// Herdr 2 ... menu. Homes are judged while connected: offline the menu
+/// disables its items, and the band does not come back just for that.
 pub(crate) fn band_retired(state: &ChromeState) -> bool {
     let state = ChromeState {
         kind: HerdrKind::Herdr2,
         connected: true,
         ..*state
     };
-    band_control_homes(&overflow_menu_items(&state))
-        .iter()
-        .all(|(_, home)| home.is_some())
+    band_retired_in(&overflow_menu_items(&state))
 }
