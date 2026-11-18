@@ -2,13 +2,16 @@ import XCTest
 import Vision
 
 final class SmokeQA: XCTestCase {
-    // P9 normally takes about 60 s. A hang inside it (the app never reports idle, so
-    // every XCUITest query waits its 60 s animation timeout) must fail the test here
-    // instead of running into the 40-minute job timeout. p9-check.py passes
-    // -test-timeouts-enabled YES; XCTest rounds the allowance up to whole minutes.
+    // P9 takes about 70 s on the Mac mini and about 210 s on a hosted runner since
+    // L8 moved the Herdr 2 band into the ... menu, which the test opens five times
+    // (run 44276079121: 209.8 s; 112-121 s before). A hang inside it (the app never
+    // reports idle, so every XCUITest query waits its 60 s animation timeout) must
+    // still fail the test here instead of running into the 40-minute job timeout.
+    // p9-check.py passes -test-timeouts-enabled YES; XCTest rounds the allowance up
+    // to whole minutes (300 s is 5 minutes).
     override func setUpWithError() throws {
         if name.contains("testP9Core") {
-            executionTimeAllowance = 150
+            executionTimeAllowance = 300
         }
     }
 

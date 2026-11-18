@@ -103,8 +103,9 @@ class P9Timeout(unittest.TestCase):
         setup = body(source, "override func setUpWithError(")
         match = re.search(r'name\.contains\("testP9Core"\)\s*\{\s*executionTimeAllowance = (\d+)', setup)
         self.assertIsNotNone(match)
-        # testP9Core takes about 60 s; the allowance must stay near twice that.
-        self.assertTrue(90 <= int(match.group(1)) <= 180, match.group(1))
+        # testP9Core takes about 210 s on a hosted runner since L8 (run 44276079121);
+        # the allowance must cover that and stay well under the 40-minute job timeout.
+        self.assertTrue(240 <= int(match.group(1)) <= 360, match.group(1))
 
 
 if __name__ == "__main__":
