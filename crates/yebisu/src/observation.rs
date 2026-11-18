@@ -131,10 +131,22 @@ fn write_records(
         .truncate(!append)
         .open(path)?;
     for value in receiver.into_iter().take(8192) {
-        writeln!(file, "{value}")?;
-        file.flush()?;
+        write_line(&mut file, &value)?;
     }
     Ok(())
+}
+
+/// One record as one complete line in one `write`. `writeln!(file, "{value}")`
+/// on an unbuffered `File` issues a `write` per formatter piece (`{`, `"kind"`,
+/// `:`, ...), so two writers appending to the same file interleave inside a
+/// line: Integration 2 run 44236636053 (layout-smoke job 134574290912) read a
+/// complete `p2-setup.jsonl` line that failed at column 8, right after
+/// `{"kind"`. Formatting first makes every line a single append.
+fn write_line(file: &mut impl Write, value: &Value) -> std::io::Result<()> {
+    let mut line = value.to_string();
+    line.push('\n');
+    file.write_all(line.as_bytes())?;
+    file.flush()
 }
 #[cfg(test)]
 impl Observation {
