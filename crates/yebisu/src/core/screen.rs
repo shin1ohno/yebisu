@@ -2,7 +2,7 @@ use crate::shell::herdr2_frame::panes::{PaneRect, frame_lines, pane_rects};
 use crate::{
     layout::{PaneMode, pane_mode},
     live::Live,
-    shell::single_pane::{ColumnMetrics, column_metrics},
+    shell::single_pane::ColumnMetrics,
 };
 use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
 use sheprd_client::protocol::{CellData, ClientShellSnapshot, PaneSurfaceFrame};
@@ -71,8 +71,14 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
 }
 /// The size one terminal is given (plan v2 6.3, Herdr 2): the whole column
 /// while one pane is drawn, otherwise the column divided between the panes.
-pub(super) fn pane_size(size: Size, count: usize, vertical: bool) -> crate::Result<Size> {
-    let sizes = pane_sizes(size, count, vertical, 0, column_metrics())?;
+/// `column` is the worker's read of the UI's column mailbox.
+pub(super) fn pane_size(
+    size: Size,
+    count: usize,
+    vertical: bool,
+    column: Option<ColumnMetrics>,
+) -> crate::Result<Size> {
+    let sizes = pane_sizes(size, count, vertical, 0, column)?;
     sizes
         .into_iter()
         .flatten()
@@ -123,14 +129,9 @@ pub(super) fn publish(
     generation: u64,
     revision: u64,
     epoch: u64,
+    column: Option<ColumnMetrics>,
 ) -> Live {
-    publish_for(
-        screens,
-        saved,
-        size,
-        (generation, revision, epoch),
-        column_metrics(),
-    )
+    publish_for(screens, saved, size, (generation, revision, epoch), column)
 }
 /// `publish` for an explicit column measurement. A column too narrow for the
 /// panes draws only `saved.active`, over the whole size.

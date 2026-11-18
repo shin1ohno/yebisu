@@ -72,8 +72,16 @@ impl Smoke {
         #[cfg(not(target_os = "ios"))]
         let root = None;
         let target = host.clone();
-        let result =
-            crate::core::Session::start(host, generation, inbox, move || connect(&target), root);
+        // The worker reads the column from the mailbox this frame publishes to.
+        let column = self.shell.single_pane.mailbox();
+        let result = crate::core::Session::start(
+            host,
+            generation,
+            inbox,
+            move || connect(&target),
+            root,
+            column,
+        );
         match result {
             Ok(session) => self.terminal.core = Some(session),
             Err(e) => self.terminal.live.status = e.to_string(),

@@ -2,27 +2,24 @@
 //! through `pane_sizes` with the active pane: a pane hidden by the one-pane
 //! rule gets no resize (plan v2 6.3). Without the patch the worker calls
 //! `pane_size`, which always asks for pane 0, so this test fails on the
-//! unpatched branch.
+//! unpatched branch. The view and its worker share this test's own mailbox,
+//! so a parallel test's column cannot reach this worker.
 use crate::{
     app::Smoke,
     core::{Command, screen::probe},
+    shell::single_pane::Mailbox,
 };
 use gpui::{Bounds, TestAppContext, point, px, size};
 use sheprd_backend::Size;
 use sheprd_client::{ConnectOptions, protocol::ClientSurfaceSize};
 use std::time::{Duration, Instant};
 
-struct Reset;
-impl Drop for Reset {
-    fn drop(&mut self) {
-        crate::shell::single_pane::Mailbox::default().publish(None);
-    }
-}
-
 #[gpui::test]
 fn hidden_pane_keeps_its_size_through_the_worker(cx: &mut TestAppContext) {
-    let _reset = Reset;
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.shell.single_pane.set_mailbox(Mailbox::detached())
+    });
     let (backend, _wire) =
         crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("peer: {e}"));
     view.update(cx, |this, cx| {

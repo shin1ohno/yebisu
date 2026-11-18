@@ -72,6 +72,7 @@ impl Session {
         inbox: Arc<Mutex<Live>>,
         connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
         root: Option<std::path::PathBuf>,
+        column: crate::shell::single_pane::Mailbox,
     ) -> crate::Result<Self> {
         let (queue, receive) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
@@ -96,7 +97,7 @@ impl Session {
                         host,
                         generation,
                         &shared,
-                        (&stopped, &worker_epoch),
+                        (&stopped, &worker_epoch, &column),
                         receive,
                         root,
                     )
