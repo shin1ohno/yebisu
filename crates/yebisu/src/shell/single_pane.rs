@@ -375,7 +375,8 @@ impl Smoke {
     fn auto_zoom_would_discard_input(&self) -> bool {
         self.handoff.select_mode
             || self.handoff.selection.is_some()
-            || self.settings_modal
+            // Settings or the Hosts sheet over the terminal (L2c patch 03, A6).
+            || self.input_modal()
             || self.find.is_some()
             || self.actions.palette
             || !self.terminal.input.composition.text.is_empty()

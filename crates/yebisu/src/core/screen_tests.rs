@@ -10,3 +10,5 @@ mod minimum;
 mod narrow;
 #[path = "screen_tests/support.rs"]
 mod support;
+#[path = "screen_tests/worker_hidden.rs"]
+mod worker_hidden;

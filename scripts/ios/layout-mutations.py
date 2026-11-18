@@ -137,6 +137,21 @@ CASES = [
      "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + TERMINAL_MIN_WIDTH;",
      "pub(crate) const FULL_MIN_WINDOW: f32 = SIDEBAR_WIDTH + RULE + crate::layout::TWO_PANE_MIN_WIDTH;",
      "shell::rail::tests::collapse::sidebar_collapses_last"),
+    # L2c (plan v2 6.3): Herdr 1 narrow column, the Zoom request is never sent.
+    ("l2c-zoom-send", "shell/single_pane.rs",
+     "        if available && self.run_action(Command::Zoom).is_ok() {",
+     "        if false && available && self.run_action(Command::Zoom).is_ok() {",
+     "shell::single_pane::tests::zoom::herdr1_narrow_column_requests_zoom_once"),
+    # L2c: Herdr 2 draws every pane in a narrow column instead of the active one.
+    ("l2c-herdr2-active-only", "core/screen.rs",
+     "        if single && index != saved.active {",
+     "        if false && single && index != saved.active {",
+     "core::screen::tests::narrow::herdr2_narrow_column_draws_active_pane_only"),
+    # L2c: a stacked division under the 206 pt minimum is no longer refused.
+    ("l2c-per-pane-minimum", "core/screen.rs",
+     "        size.rows() / divided < least_rows",
+     "        false",
+     "core::screen::tests::minimum::per_pane_size_never_below_minimum"),
 ]
 
 

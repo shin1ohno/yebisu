@@ -48,6 +48,12 @@ fn herdr1_zoom_waits_while_input_would_be_discarded(cx: &mut TestAppContext) {
         this.handoff.select_mode = false;
         this.terminal.input.mark("かな", None);
         this.enforce_herdr1(400.0);
+        // The Hosts sheet over the terminal takes the typing (review S1).
+        this.terminal.input.discard();
+        this.shell.hosts_sheet.open_list();
+        assert!(this.hosts_sheet_modal());
+        this.enforce_herdr1(400.0);
+        this.shell.hosts_sheet.close();
     });
     assert!(zoom_requests(&peer).is_empty(), "nothing is sent meanwhile");
     // Keys typed while the surface is still resizing wait in the input queue.
