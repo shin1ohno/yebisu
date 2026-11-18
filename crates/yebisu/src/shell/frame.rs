@@ -256,13 +256,13 @@ impl Smoke {
         }
         let list = match self.render_sidebar_list(cx) {
             Some(list) => Some(list),
-            // Herdr 2 had no board in the band either. Until L8 fills its
-            // sidebar the list stays empty, but the column still draws: the
-            // L2b footer is the only place of Hosts, Settings and New space
-            // once the toolbar is retired (Integration 2). Integration 1 S3
-            // dropped the column while it was empty; with the footer in it,
-            // it is not.
-            None if self.terminal.core_mode => None,
+            // Herdr 2: L8's sessions (herdr2_frame::sidebar), once a Herdr 2
+            // host has listed them. With no such host the list stays empty,
+            // but the column still draws: the L2b footer is the only place of
+            // Hosts, Settings and New space once the toolbar is retired
+            // (Integration 2). Integration 1 S3 dropped the column while it
+            // was empty; with the footer in it, it is not.
+            None if self.terminal.core_mode => self.render_herdr2_sidebar_list(cx),
             // The body drew the board this frame (a resize just widened the
             // window past the collapse width): never draw it twice.
             None if board_in_band => None,
@@ -303,6 +303,7 @@ impl Smoke {
                 .child(
                     div()
                         .id("shell-sidebar-list")
+                        .debug_selector(|| "shell-sidebar-list".into())
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()

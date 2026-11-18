@@ -10,6 +10,7 @@ pub(crate) mod publication_probe;
 #[cfg(test)]
 mod regression_tests;
 mod screen;
+pub(crate) mod status;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -57,6 +58,8 @@ pub(crate) struct Session {
     queue: SyncSender<Queued>,
     input_epoch: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
+    /// Herdr 2's terminal statuses for the sidebar (`status::StatusPoll`).
+    statuses: status::StatusMailbox,
     #[cfg(test)]
     pub finished: Arc<AtomicBool>,
 }
@@ -74,6 +77,28 @@ impl Session {
         root: Option<std::path::PathBuf>,
         column: crate::shell::single_pane::Mailbox,
     ) -> crate::Result<Self> {
+        Self::start_with(
+            host,
+            generation,
+            inbox,
+            connect,
+            root,
+            column,
+            status::PollPlan::default(),
+        )
+    }
+
+    /// `start` with the status poll `poll`: the application lists through
+    /// the session's connection; tests choose their own listing.
+    pub(crate) fn start_with(
+        host: String,
+        generation: u64,
+        inbox: Arc<Mutex<Live>>,
+        connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
+        root: Option<std::path::PathBuf>,
+        column: crate::shell::single_pane::Mailbox,
+        poll: status::PollPlan,
+    ) -> crate::Result<Self> {
         let (queue, receive) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let input_epoch = Arc::new(AtomicU64::new(0));
@@ -82,6 +107,8 @@ impl Session {
         let finished = Arc::new(AtomicBool::new(false));
         let completed = finished.clone();
         let stopped = stop.clone();
+        let statuses = status::StatusMailbox::default();
+        let mailbox = statuses.clone();
         std::thread::Builder::new()
             .name("yebisu-core".into())
             .spawn(move || {
@@ -92,6 +119,22 @@ impl Session {
                     if stopped.load(Ordering::Acquire) {
                         return Ok(());
                     }
+                    // Its own thread, never the worker loop below. Dropped
+                    // (stopped, joined within status::JOIN_BOUND) when the
+                    // worker returns.
+                    let period = poll.period;
+                    let _statuses = poll.listing(&backend).and_then(|list| {
+                        status::StatusPoll::start(
+                            list,
+                            mailbox,
+                            shared.clone(),
+                            stopped.clone(),
+                            period,
+                        )
+                        // The sidebar loses its statuses, not the session.
+                        .inspect_err(|error| tracing::warn!(%error, "Herdr 2 status poll"))
+                        .ok()
+                    });
                     worker::run(
                         backend,
                         host,
@@ -116,6 +159,7 @@ impl Session {
             queue,
             input_epoch,
             stop,
+            statuses,
             #[cfg(test)]
             finished,
         })
@@ -128,6 +172,14 @@ impl Session {
     #[cfg(test)]
     pub(crate) fn probe_input_epoch(&self) -> u64 {
         self.input_epoch.load(Ordering::Acquire)
+    }
+    /// The statuses the poll listed last; `None` before the first list.
+    pub(crate) fn statuses(&self) -> Option<Vec<crate::shell::herdr2_frame::CoreStatus>> {
+        self.statuses.latest()
+    }
+    #[cfg(test)]
+    pub(crate) fn statuses_mailbox(&self) -> status::StatusMailbox {
+        self.statuses.clone()
     }
     pub fn send(&self, command: Command) -> crate::Result<()> {
         self.queue
