@@ -11,12 +11,18 @@ CASES = [
     ("availability", "actions.rs", "                available,", "                available: true,",
      "native_menus::tests::recognition_survives_capability_loss_but_preserves_policy_exclusions"),
     ("duplicate-dispatch", "native_menus.rs",
-     ".and_then(|command| self.run_catalog_command(command, Some(action), focused));",
-     ".and_then(|command| { self.run_catalog_command(command, Some(action), focused)?; self.run_catalog_command(command, Some(action), focused) });",
+     ".and_then(|command| self.run_catalog_command(command, Some(action), focused))\n",
+     ".and_then(|command| { self.run_catalog_command(command, Some(action), focused)?; self.run_catalog_command(command, Some(action), focused) })\n",
      "native_menus::tests::two_native_local_selections_each_execute_once_and_unknown_ids_refuse"),
     ("recognition-filter", "actions.rs", "            a.shortcuts.iter().any(|s| {",
      "            a.available && a.shortcuts.iter().any(|s| {",
      "native_menus::tests::unavailable_shortcut_adapter_consumes_press_repeat_release_without_wire"),
+    # SH1-157 L6 (plan v2 7.11, S-10): Host / Space picks compare the shown
+    # host and space with the current ones.
+    ("menu-scope-host-space", "shell/host_menus.rs",
+     "        && shown.host == current.host\n        && (shown.space.is_none() || shown.space == current.space)\n",
+     "        && true\n        && true\n",
+     "shell::host_menus::tests::scope::host_menu_item_refused_after_host_switch"),
 ]
 
 
