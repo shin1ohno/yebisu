@@ -242,12 +242,11 @@ impl Smoke {
             .text_color(rgb(if query.is_empty() { 0x6b7280 } else { 0xd8dee9 }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, window, cx| {
-                    // A set query stays visible with its × after the hardware
-                    // keyboard goes; the field takes focus only with one.
-                    if this.shell.fit.hardware_keyboard {
-                        focus.focus(window, cx);
-                    }
+                // Without a hardware keyboard a set query stays visible with
+                // its ×; `release_hidden_filter` gives a focus taken then back
+                // to the terminal in the same frame.
+                cx.listener(move |_, _, window, cx| {
+                    focus.focus(window, cx);
                     cx.stop_propagation();
                     cx.notify();
                 }),

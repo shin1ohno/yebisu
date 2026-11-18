@@ -255,3 +255,26 @@ fn docked_keyboard_shortens_terminal_through_frame_layout(cx: &mut TestAppContex
     );
     assert_eq!(floating, bare, "a floating keyboard resized the terminal");
 }
+
+/// Review F2: the timer `observe_disconnect` starts draws again 30 s after
+/// the line drops, in a window where nothing else draws.
+#[gpui::test]
+fn line_drop_timer_draws_again_after_30s(cx: &mut TestAppContext) {
+    use std::{cell::Cell, rc::Rc};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| this.smoke_mode = false);
+    cx.run_until_parked();
+    let draws = Rc::new(Cell::new(0_usize));
+    let counter = draws.clone();
+    let _observer =
+        cx.update(|_, app| app.observe(&view, move |_, _| counter.set(counter.get() + 1)));
+    view.update(cx, |this, cx| this.observe_disconnect(false, cx));
+    cx.run_until_parked();
+    draws.set(0);
+    cx.executor().advance_clock(Duration::from_secs(29));
+    cx.run_until_parked();
+    assert_eq!(draws.get(), 0, "fixture: something else draws this window");
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(draws.get() > 0, "nothing drew 30 s after the line dropped");
+}
