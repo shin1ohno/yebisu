@@ -59,3 +59,49 @@ fn popover_holds_the_keyboard_and_escape_closes_it(cx: &mut TestAppContext) {
         })
     });
 }
+
+/// Review adf0e048f49b466e SF1: opening the popover clears Select mode, and
+/// closing it by the Shortcuts toggle gives the terminal its focus and text
+/// input back without a tap, as closing Settings does.
+#[gpui::test]
+fn closing_the_popover_returns_the_terminal_keyboard(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let (client, _receipts) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer {e}"));
+    view.update(cx, |this, _| {
+        this.select_host("sandbox");
+        let g = this.terminal.link.reset();
+        this.terminal.link.install(g, Ok(client));
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !view.update(cx, |this, cx| {
+        this.poll_terminal(cx);
+        this.terminal.live.surface.is_some()
+    }) {
+        assert!(Instant::now() < deadline, "peer timeout");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            assert!(this.terminal.input.ready, "positive control: input is live");
+            this.handoff.select_mode = true;
+            assert!(this.toggle_shortcuts(window, cx));
+            assert!(this.shell.shortcuts.open);
+            assert!(!this.handoff.select_mode, "opening ends Select mode");
+            // Something else took the focus while the popover was open.
+            this.focus.focus(window, cx);
+            assert!(this.toggle_shortcuts(window, cx));
+            assert!(!this.shell.shortcuts.open);
+            assert!(this.terminal.input.ready, "text input is live again");
+            assert!(
+                this.terminal_focus.is_focused(window),
+                "closing must give the terminal its focus back"
+            );
+            assert!(this.accepts_text_input(window, cx));
+        })
+    });
+}

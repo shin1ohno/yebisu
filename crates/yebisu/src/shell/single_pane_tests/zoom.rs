@@ -54,6 +54,11 @@ fn herdr1_zoom_waits_while_input_would_be_discarded(cx: &mut TestAppContext) {
         assert!(this.hosts_sheet_modal());
         this.enforce_herdr1(400.0);
         this.shell.hosts_sheet.close();
+        // The Shortcuts popover holds the input too (review adf0 SF2).
+        this.shell.shortcuts.open = true;
+        assert!(this.terminal.input.ready, "the popover is the only blocker");
+        this.enforce_herdr1(400.0);
+        this.shell.shortcuts.open = false;
     });
     assert!(zoom_requests(&peer).is_empty(), "nothing is sent meanwhile");
     // Keys typed while the surface is still resizing wait in the input queue.

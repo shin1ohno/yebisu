@@ -379,6 +379,8 @@ impl Smoke {
             || self.input_modal()
             || self.find.is_some()
             || self.actions.palette
+            // The Shortcuts popover holds the input too (review adf0 SF2).
+            || self.shell.shortcuts.open
             || !self.terminal.input.composition.text.is_empty()
             // Keys typed while the surface is still at the old size wait in
             // the input queue; `detach` would drop them.

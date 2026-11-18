@@ -79,6 +79,11 @@ impl Smoke {
             self.terminal_focus.focus(window, cx);
             self.request_terminal_keyboard(window, "hosts-close");
             self.request_text_retirement();
+        } else if let Some(bar) = &self.find {
+            // The find bar was open under the sheet: its field takes the keys
+            // again, as when the bar opened (find_view.rs; review 87cd S1).
+            bar.focus_handle().focus(window, cx);
+            window.request_virtual_keyboard();
         } else {
             self.focus.focus(window, cx);
         }

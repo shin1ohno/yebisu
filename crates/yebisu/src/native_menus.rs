@@ -56,6 +56,8 @@ pub(crate) struct NativeCommand {
 }
 impl NativeCommand {
     /// The menu item a `NativeCommand` stands for, by catalog or item name.
+    /// Tests only: the app builds its commands in `install_native_menus`.
+    #[cfg(test)]
     pub(crate) fn named(name: impl Into<String>) -> Self {
         Self { name: name.into() }
     }
@@ -161,7 +163,8 @@ impl NativeMenus {
         true
     }
 
-    /// The target the Host and Space menus were last built for.
+    /// The target the Host and Space menus were last built for (tests only).
+    #[cfg(test)]
     pub(crate) fn menu_scope(&self) -> &MenuScope {
         &self.menu_scope
     }

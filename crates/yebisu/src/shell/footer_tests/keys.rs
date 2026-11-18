@@ -145,6 +145,52 @@ fn rail_hosts_hands_keys_to_the_sheet(cx: &mut TestAppContext) {
     );
 }
 
+/// Review 87cd7745778341a0 S1: with the find bar open, the Hosts sheet takes
+/// the keys while it is open and gives them back to the find field, not to
+/// the app's root focus, when it closes.
+#[gpui::test]
+fn hosts_sheet_returns_the_keys_to_an_open_find_bar(cx: &mut TestAppContext) {
+    let (view, cx) = window(cx);
+    cx.simulate_resize(size(px(1200.), px(1000.)));
+    // A peer that offers find (find/peer.rs), as the find bar tests use.
+    let (client, _receipts) = crate::find::peer::connect().unwrap_or_else(|e| panic!("peer: {e}"));
+    view.update(cx, |this, _| {
+        this.select_host("p13-peer");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+        this.terminal.open = true;
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_terminal(cx);
+        crate::find_view::available(&this.terminal) && this.terminal.live.surface.is_some()
+    }) {
+        assert!(Instant::now() < deadline, "find-capable peer never ready");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    cx.update(|window, _| window.activate_window());
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_find(window, cx);
+            let field = this.find.as_ref().map(|bar| bar.focus_handle().clone());
+            let field = field.unwrap_or_else(|| panic!("fixture: the find bar opens"));
+            assert!(
+                field.is_focused(window),
+                "fixture: the find field has the keys"
+            );
+            this.footer_tap(FooterItem::Hosts, window, cx);
+            assert!(this.focus.is_focused(window), "the sheet has no focus");
+            this.hosts_close(cx);
+            this.return_keys_to_terminal(window, cx);
+            assert!(this.find.is_some(), "the find bar stays open");
+            assert!(
+                field.is_focused(window),
+                "closing the sheet must give the keys back to the find field"
+            );
+        })
+    });
+}
+
 /// A6 item 2: opening the Hosts sheet over the terminal clears the
 /// terminal's input state as opening Settings does: Select mode and the
 /// handoff stamp end, and no pending focus request takes the keys back.

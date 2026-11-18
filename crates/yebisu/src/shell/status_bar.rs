@@ -162,10 +162,10 @@ impl Smoke {
                 })
                 .child(
                     chip("shell-status-shortcuts", SHORTCUTS).on_click(cx.listener(
-                        |this, _, _, cx| {
+                        |this, _, window, cx| {
                             // L6 fills the popover; until then Shortcuts opens the
                             // command palette (plan v2 5.2, L2a column).
-                            if !this.open_shortcuts(cx)
+                            if !this.toggle_shortcuts(window, cx)
                                 && let Err(e) = this.run_action(Command::Palette)
                             {
                                 this.terminal.live.status = e.to_string();

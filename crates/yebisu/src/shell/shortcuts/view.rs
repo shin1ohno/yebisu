@@ -162,9 +162,8 @@ impl Smoke {
                 .bottom(px(STATUS_BAR_HEIGHT))
                 .bg(rgba(0x10141973))
                 .occlude()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.shell.shortcuts.open = false;
-                    cx.notify();
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.close_shortcuts(window, cx);
                 }))
                 .child(popover)
                 .into_any_element(),

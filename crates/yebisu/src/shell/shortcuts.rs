@@ -270,10 +270,41 @@ impl Smoke {
             // L6 part; the key guards are integrator patch 05).
             self.actions.palette = false;
             self.terminal.input.detach();
+            // As opening Settings or the Hosts sheet does (Integration 2
+            // review adf0 SF1): no selection or handoff stamp stays behind.
+            self.handoff.sync(None);
+            self.handoff.cancel();
             self.handoff.select_mode = false;
         }
         cx.notify();
         true
+    }
+
+    /// The status bar's Shortcuts: opens the popover, or closes it and gives
+    /// the terminal its keyboard back.
+    pub(crate) fn toggle_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.shell.shortcuts.open {
+            self.close_shortcuts(window, cx);
+            return true;
+        }
+        self.open_shortcuts(cx)
+    }
+
+    /// Closes the popover by the background or the Shortcuts toggle. The
+    /// terminal gets the focus, the keyboard and text input back as after
+    /// closing Settings (`end_settings_modal`) or the Hosts sheet
+    /// (`return_keys_to_terminal`); otherwise keys typed without touching
+    /// the terminal are lost (Integration 2 review adf0 SF1).
+    pub(crate) fn close_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shell.shortcuts.open = false;
+        self.refresh_terminal_input();
+        if self.terminal.open && self.terminal.input.ready {
+            self.terminal_focus.focus(window, cx);
+            self.request_terminal_keyboard(window, "shortcuts-close");
+            self.request_text_retirement();
+        }
+        window.notify_text_input_changed(&self.terminal_focus);
+        cx.notify();
     }
 
     /// Whether the popover stays open this frame. A sheet or the palette
