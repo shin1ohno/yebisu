@@ -1,6 +1,7 @@
 //! L3: draws the sidebar list and routes its taps. Owner: L3.
 use super::{
     AGENT_ROW_HEIGHT, HOST_ROW_HEIGHT, SPACE_ROW_HEIGHT, SidebarState,
+    long_press::{PressedRow, long_press_layer},
     model::{
         AgentLine, HostEntry, HostLink, OfflineReason, SpaceEntry, agents_list, host_link,
         order_hosts, record_live, snapshot_content,
@@ -173,14 +174,17 @@ impl Smoke {
                 list = list.child(self.agent_row(k, line, host, cx));
             }
         }
-        Some(list.into_any_element())
+        let menu = self.render_long_press_menu(cx);
+        Some(list.children(menu).into_any_element())
     }
 
     fn host_row(&self, i: usize, host: &HostEntry, cx: &mut Context<Self>) -> AnyElement {
         let (dot, color) = host_dot(host.link);
         let tap = SidebarTap::Host(host.host.clone());
+        let press = PressedRow::Host(host.host.clone());
         div()
             .id(("sidebar-host", i))
+            .relative()
             .h(px(row_height(HOST_ROW_HEIGHT, TEXT_SCALE)))
             .flex()
             .flex_col()
@@ -197,6 +201,7 @@ impl Smoke {
                     .child(div().min_w_0().truncate().child(host.host.clone())),
             )
             .child(second_line(host.detail().to_owned()))
+            .child(long_press_layer(press, cx))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.tap_row(tap.clone(), window, cx);
             }))
@@ -225,8 +230,14 @@ impl Smoke {
                 .text_color(rgb(0x2e3440))
                 .child(tag)
         });
+        let press = PressedRow::Space {
+            host: host.host.clone(),
+            id: space.id.clone(),
+            name: space.name.clone(),
+        };
         div()
             .id(("sidebar-space", id))
+            .relative()
             .h(px(row_height(SPACE_ROW_HEIGHT, TEXT_SCALE)))
             .flex()
             .flex_col()
@@ -258,6 +269,7 @@ impl Smoke {
                     .children(tags),
             )
             .child(second_line(space.detail.clone()))
+            .child(long_press_layer(press, cx))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.tap_row(tap.clone(), window, cx);
             }))

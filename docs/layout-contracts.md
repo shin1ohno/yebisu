@@ -149,7 +149,7 @@ its module. "New" means the stream creates it.
 | L3 | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_tests/**`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
 | L4 | `shell/rail.rs`, `shell/rail_badges.rs`, `shell/filter.rs` |
 | L5 | `shell/edit_bar.rs`, `shell/edit_bar_tests/**` |
-| L6 | `shell/shortcuts.rs`, `shell/host_menus.rs`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
+| L6 | `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/shortcuts_tests/**`, `shell/host_menus.rs`, `shell/host_menus_tests/**`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
 | L7 | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `shell/hosts_sheet_tests/**`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
 | L8 | `shell/herdr2_frame.rs`, `core.rs`, `core/store.rs`, `core_view.rs`, `core_mock.rs`, `core_mock/**`, `scripts/ios/p9-check.py` |
 | L9 | `shell/fit.rs`, `shell/mods.rs`, `shell/overlay.rs`, `shell/disconnect.rs`, `terminal_input.rs`, `terminal_input_tests.rs` |

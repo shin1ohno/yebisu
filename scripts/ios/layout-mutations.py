@@ -152,6 +152,15 @@ CASES = [
      "        size.rows() / divided < least_rows",
      "        false",
      "core::screen::tests::minimum::per_pane_size_never_below_minimum"),
+    # L6 (plan v2 7.11): the Shortcuts rows are the catalog's; narrowing the catalog drops a row.
+    ("l6-catalog-filter", "shell/shortcuts.rs", "    catalog\n        .into_iter()\n",
+     "    catalog\n        .into_iter()\n        .skip(1)\n",
+     "shell::shortcuts::tests::rows::shortcuts_rows_come_from_catalog"),
+    # L6: long press of a space row lists the Space menu's items (Q8).
+    ("l6-long-press-match", "shell/host_menus.rs",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 1] = [SpaceMenuItem::NewTab];",
+     "shell::host_menus::tests::long_press::menu_items_match_long_press"),
 ]
 
 

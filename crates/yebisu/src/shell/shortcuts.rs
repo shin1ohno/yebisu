@@ -106,7 +106,10 @@ fn chrome_allows(command: Command, state: &ChromeState) -> bool {
         return false;
     }
     match command {
-        Command::ToggleSidebar | Command::Palette => true,
+        // While the width forces the rail the toggle cannot change anything
+        // (Integration 2, L4 review F1).
+        Command::ToggleSidebar => !state.sidebar_forced,
+        Command::Palette => true,
         Command::Find => state.find_available,
         _ => state.connected && state.kind == HerdrKind::Herdr1,
     }
@@ -118,6 +121,8 @@ fn chrome_reason(command: Command, state: &ChromeState) -> Option<&'static str> 
         None
     } else if state.sheet_open {
         Some("Close the sheet first")
+    } else if command == Command::ToggleSidebar {
+        super::rail::toggle_unavailable(state)
     } else if command == Command::Find {
         Some("Find is not available here")
     } else if state.kind != HerdrKind::Herdr1 {

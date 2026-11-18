@@ -103,7 +103,11 @@ impl EntityInputHandler for Smoke {
             if focused && !accepted {
                 self.terminal.input.report_drop(&self.observation);
             }
-            accepted && self.terminal.navigating.is_none() && !self.actions.palette
+            // The Shortcuts popover is modal like the palette (L6 review S1).
+            accepted
+                && self.terminal.navigating.is_none()
+                && !self.actions.palette
+                && !self.shell.shortcuts.open
         } else {
             self.active_focus().is_focused(window) && (self.smoke_mode || !self.setup.busy)
         }

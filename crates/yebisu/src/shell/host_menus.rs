@@ -23,10 +23,10 @@ const OTHER_HOST: &str = "Select this host first";
 const OTHER_SPACE: &str = "Open this space first";
 
 /// Whether the Hosts sheet fences terminal input while it is open (A6 of
-/// the 2026-11-18 contract amendments, L2b patch 02). Until the integrator
-/// lands A6 and sets this, Host › Edit stays disabled over a live terminal,
-/// because keys typed into the sheet would reach the host (review S2).
-pub(crate) const HOSTS_SHEET_FENCED: bool = false;
+/// the 2026-11-18 contract amendments, L2b patch 02). Integration 2 landed
+/// A6 with L2b, so Host › Edit opens the sheet over a live terminal and
+/// hands it the keys (`hand_keys_to_sheet`), as footer Hosts does.
+pub(crate) const HOSTS_SHEET_FENCED: bool = true;
 /// Host and space names longer than this end in "…" in menu items.
 pub(crate) const MENU_NAME_MAX: usize = 24;
 
@@ -378,7 +378,11 @@ impl Smoke {
                 let host = edit_target(shown, &current)
                     .ok_or(crate::Error::NativeMenu("menu target changed"))?;
                 self.shell.shortcuts.edit_host = Some(host);
-                if !self.open_hosts(cx) {
+                if self.open_hosts(cx) {
+                    // The footer's path (L2b): the sheet takes the keys from
+                    // a live terminal (A6 item 2, review 9714 F1).
+                    self.hand_keys_to_sheet(window, cx);
+                } else {
                     // Without the Hosts sheet, Settings holds the hosts page.
                     self.begin_settings_modal(window, cx);
                 }

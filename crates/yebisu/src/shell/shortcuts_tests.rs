@@ -3,6 +3,8 @@
 mod columns;
 #[path = "shortcuts_tests/groups.rs"]
 mod groups;
+#[path = "shortcuts_tests/keys.rs"]
+mod keys;
 #[path = "shortcuts_tests/palette.rs"]
 mod palette;
 #[path = "shortcuts_tests/rows.rs"]

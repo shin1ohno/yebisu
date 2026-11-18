@@ -50,8 +50,11 @@ fn menu_edit_host_targets_selected_host(cx: &mut TestAppContext) {
     });
 }
 
+/// Review 50b7a636e68e4b17 SF3: with A6 in (L2b patch 02), Host › Edit is
+/// enabled over a live terminal, opens the Hosts sheet and hands it the
+/// keys, so typing goes to the sheet and not to the host.
 #[gpui::test]
-fn edit_waits_for_the_hosts_sheet_fence(cx: &mut TestAppContext) {
+fn edit_opens_the_fenced_hosts_sheet_over_a_live_terminal(cx: &mut TestAppContext) {
     let (view, cx) = smoke(cx, "studio");
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
@@ -60,12 +63,23 @@ fn edit_waits_for_the_hosts_sheet_fence(cx: &mut TestAppContext) {
             let edit = host_long_press(&state)
                 .into_iter()
                 .find(|e| e.item == MenuItemId::Host(HostMenuItem::Edit));
-            assert!(edit.is_some_and(|e| !HOSTS_SHEET_FENCED && !e.enabled && e.reason.is_some()));
+            assert!(
+                edit.is_some_and(|e| HOSTS_SHEET_FENCED && e.enabled && e.reason.is_none()),
+                "Edit is enabled once the sheet fences the terminal"
+            );
             let shown = this.current_menu_scope();
             let edit = MenuItemId::Host(HostMenuItem::Edit);
-            assert!(this.run_menu_item(edit, &shown, window, cx).is_err());
-            assert!(!this.shell.hosts_sheet.visible());
-            assert_eq!(this.shell.shortcuts.edit_host, None);
+            this.run_menu_item(edit, &shown, window, cx)
+                .unwrap_or_else(|e| panic!("Edit over a live terminal: {e}"));
+            assert!(this.shell.hosts_sheet.visible());
+            assert_eq!(this.shell.shortcuts.edit_host.as_deref(), Some("studio"));
+            assert!(this.input_modal(), "the sheet fences the terminal");
+            assert!(!this.terminal_owns_text_input());
+            assert!(
+                !this.terminal_focus.is_focused(window),
+                "terminal kept focus"
+            );
+            assert!(this.focus.is_focused(window), "the sheet has no focus");
         })
     });
 }
