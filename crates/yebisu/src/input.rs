@@ -98,7 +98,9 @@ impl EntityInputHandler for Smoke {
             if self.find.is_some() || self.find_handoff.paused {
                 return false;
             }
-            let focused = self.active_focus().is_focused(window);
+            // The filter field holds the keys but not the text: text from the
+            // software keyboard hands them back (`release_filter_for_text_input`).
+            let focused = self.active_focus().is_focused(window) || self.filter_focused(window);
             let accepted = self.terminal.input.accepts(focused, false);
             if focused && !accepted {
                 self.terminal.input.report_drop(&self.observation);
@@ -176,6 +178,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.release_filter_for_text_input(window, cx);
         if self.settings_modal || !self.active_focus().is_focused(window) {
             return;
         }
@@ -217,6 +220,7 @@ impl EntityInputHandler for Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.release_filter_for_text_input(window, cx);
         if self.settings_modal {
             return;
         }

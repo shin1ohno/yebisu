@@ -9,8 +9,8 @@
 use super::sidebar::{AgentRow, model::AgentLine};
 use crate::app::Smoke;
 use gpui::{
-    AnyElement, Context, KeyDownEvent, Keystroke, MouseButton, Role, Window, div, prelude::*, px,
-    rgb,
+    AnyElement, Context, FocusHandle, KeyDownEvent, Keystroke, MouseButton, Role, Window, div,
+    prelude::*, px, rgb,
 };
 
 /// Label of the button that clears an active filter.
@@ -135,7 +135,7 @@ impl Smoke {
         self.shell.rail.filter.clear();
     }
 
-    fn filter_focus(&mut self, cx: &mut Context<Self>) -> gpui::FocusHandle {
+    fn filter_focus(&mut self, cx: &mut Context<Self>) -> FocusHandle {
         self.shell
             .rail
             .filter_focus
@@ -170,14 +170,47 @@ impl Smoke {
     /// send them to no one.
     pub(crate) fn release_hidden_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let drawn = std::mem::take(&mut self.shell.rail.filter_drawn);
-        let focused = self
-            .shell
+        if self.filter_focused(window) && (!drawn || !self.shell.fit.hardware_keyboard) {
+            self.leave_filter(window, cx);
+        }
+    }
+
+    /// Whether the sidebar filter field holds the keys.
+    pub(crate) fn filter_focused(&self, window: &Window) -> bool {
+        self.shell
             .rail
             .filter_focus
             .as_ref()
-            .is_some_and(|focus| focus.is_focused(window));
-        if focused && (!drawn || !self.shell.fit.hardware_keyboard) {
+            .is_some_and(|focus| focus.is_focused(window))
+    }
+
+    /// The focus the terminal's text input is registered under: the filter
+    /// field's while it holds the keys, else the terminal's. The field takes
+    /// only hardware key presses, so text that still comes through the
+    /// platform text input (software keyboard, dictation, IME) reaches
+    /// `release_filter_for_text_input` instead of being dropped.
+    pub(crate) fn text_input_focus(&self, window: &Window) -> FocusHandle {
+        match &self.shell.rail.filter_focus {
+            Some(focus) if focus.is_focused(window) => focus.clone(),
+            _ => self.terminal_focus.clone(),
+        }
+    }
+
+    /// Text arrived through the platform text input while the field held the
+    /// keys (re-review d68b H1): the software keyboard is the input path, so
+    /// the hardware keyboard flag is stale. A keyboard detached after a
+    /// hardware press, with the software keyboard floating or split, leaves
+    /// it set: herdr-uikit reports no inset for an undocked keyboard. Forget
+    /// the flag and hand the keys back to the terminal, which takes the text.
+    pub(crate) fn release_filter_for_text_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.filter_focused(window) {
+            self.shell.fit.hardware_keyboard = false;
             self.leave_filter(window, cx);
+            cx.notify();
         }
     }
 

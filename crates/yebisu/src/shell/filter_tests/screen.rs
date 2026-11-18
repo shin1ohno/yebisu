@@ -3,7 +3,9 @@
 //! through `filter_rows`; Escape clears it and the rows come back. Keys typed
 //! into the field never reach the terminal.
 use crate::{app::Smoke, mock_peer};
-use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px, size};
+use gpui::{
+    Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px, size,
+};
 use sheprd_client::protocol::ClientMessage;
 use std::{
     sync::mpsc::Receiver,
@@ -261,5 +263,82 @@ fn software_keyboard_presses_do_not_unlock_the_field(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("sidebar-filter").is_some(),
         "a hardware press did not unlock the field"
+    );
+}
+
+/// Whether the filter field holds the keys.
+fn field_focused(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
+    let view = view.clone();
+    cx.update(|window, cx| view.read(cx).filter_focused(window))
+}
+
+/// Re-review d68b H1: a hardware keyboard was used, then detached, and the
+/// software keyboard floats (herdr-uikit reports no inset for it, so nothing
+/// clears the flag). Text the software keyboard sends through the platform
+/// text input while the field holds the keys forgets the flag, hands the
+/// keys back and reaches the terminal.
+#[gpui::test]
+fn software_keyboard_text_returns_the_field_keys_to_the_terminal(cx: &mut TestAppContext) {
+    let (view, receipts, cx) = terminal(cx);
+    type_into_field(&view, &receipts, cx);
+    assert!(
+        field_focused(&view, cx),
+        "fixture: the field holds the keys"
+    );
+    let entity = view.clone();
+    cx.update(|window, cx| {
+        entity.update(cx, |this, cx| {
+            this.replace_text_in_range(None, "x", window, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(
+        !view.read_with(cx, |this, _| this.shell.fit.hardware_keyboard),
+        "software keyboard text left the hardware keyboard flag set"
+    );
+    assert!(
+        !field_focused(&view, cx),
+        "software keyboard text left the keys with the field"
+    );
+    assert!(
+        terminal_sent_input(&view, &receipts, cx),
+        "software keyboard text did not reach the terminal"
+    );
+    assert_eq!(query(&view, cx), "z", "the text went into the query");
+    assert!(
+        cx.debug_bounds("sidebar-filter").is_some(),
+        "fixture: a set query keeps the field drawn"
+    );
+}
+
+/// H1 wiring: the frame keeps the terminal's text input registered under the
+/// field's focus, so the window's platform text input (not a direct call)
+/// reaches the handler. Option-E is a key the field passes on, so its text
+/// goes on to whatever text input the window registered.
+#[gpui::test]
+fn the_field_keeps_the_platform_text_input_registered(cx: &mut TestAppContext) {
+    let (view, receipts, cx) = terminal(cx);
+    type_into_field(&view, &receipts, cx);
+    let keystroke = gpui::Keystroke {
+        modifiers: Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        },
+        key: "e".into(),
+        key_char: Some("é".into()),
+    };
+    let taken = cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    cx.run_until_parked();
+    assert!(
+        taken,
+        "no text input was registered while the field held the keys"
+    );
+    assert!(
+        !field_focused(&view, cx),
+        "platform text left the keys with the field"
+    );
+    assert!(
+        terminal_sent_input(&view, &receipts, cx),
+        "platform text did not reach the terminal"
     );
 }

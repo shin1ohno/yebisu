@@ -272,7 +272,10 @@ impl Smoke {
             if !current {
                 return;
             }
-            let focus = input_entity.read(cx).terminal_focus.clone();
+            // While the sidebar filter field holds the keys the terminal's
+            // text input stays registered under the field's focus, so text
+            // from the software keyboard hands the keys back (re-review H1).
+            let focus = input_entity.read(cx).text_input_focus(window);
             window.handle_input(
                 &focus,
                 gpui::ElementInputHandler::new(bounds, input_entity),
