@@ -41,15 +41,19 @@ pub(crate) struct FitState {
     pub(crate) mod_regions: Regions,
     /// When the line dropped; mod regions go to size 0 after 30 s.
     pub(crate) disconnect: DisconnectClock,
-    /// A hardware key reached the window since the software keyboard last
-    /// showed (the status bar's Hardware keyboard item).
+    /// A hardware key (`is_hardware_key`) reached the window since the
+    /// software keyboard last showed docked (the status bar's Hardware
+    /// keyboard item, and the filter field's focus).
     pub(crate) hardware_keyboard: bool,
-    /// The software keyboard showed since the last touch or pointer input:
-    /// key presses until then may be its own keys (Return, Backspace).
-    pub(crate) software_keyboard_since_touch: bool,
+    /// The window's key presses are watched for `is_hardware_key`.
+    pub(crate) watching_keys: bool,
     /// Tests move the fit clock ahead without waiting.
     #[cfg(test)]
     pub(crate) clock_ahead: std::time::Duration,
+    /// Tests give the window these platform insets (GPUI's test platform
+    /// cannot change them from outside the crate).
+    #[cfg(test)]
+    pub(crate) insets: Option<gpui::WindowInsets>,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -156,6 +160,24 @@ pub(crate) fn ime_keyboard(window: Size, ime: &Edges<Pixels>) -> Option<Rect> {
     ))
 }
 
+/// Whether `keystroke` can only have come from a hardware keyboard. The
+/// software keyboard types characters as text, not key presses; the presses
+/// it does send (herdr-uikit 99d7928 `tap_key`, from `keymap::control_keystroke`
+/// and `keymap::backspace`) are Return (`"\n"`), Tab (`"\t"`), Escape,
+/// Backspace and Control-letters, none with a printable character. A press
+/// with a printable character and no Control, Command or Fn is therefore a
+/// physical key; Shift and Option are allowed.
+pub(crate) fn is_hardware_key(keystroke: &gpui::Keystroke) -> bool {
+    let modifiers = keystroke.modifiers;
+    if modifiers.control || modifiers.platform || modifiers.function {
+        return false;
+    }
+    keystroke
+        .key_char
+        .as_deref()
+        .is_some_and(|text| text.chars().any(|c| !c.is_control()))
+}
+
 /// Where `item` (the edit bar, or the IME candidate bar) goes so a floating
 /// keyboard does not cover it: unchanged when they do not overlap, else just
 /// above the keyboard, else just below it, inside `bounds`. `None` when
@@ -209,6 +231,39 @@ impl Smoke {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// The platform's insets for this window (safe area and keyboard).
+    pub(crate) fn platform_insets(&self, window: &Window) -> gpui::WindowInsets {
+        #[cfg(test)]
+        if let Some(insets) = &self.shell.fit.insets {
+            return insets.clone();
+        }
+        window.insets()
+    }
+
+    /// Watches every key press of the window once, so a press only a
+    /// hardware keyboard sends (`is_hardware_key`) marks one in use.
+    pub(crate) fn watch_hardware_keys(&mut self, cx: &mut Context<Self>) {
+        if self.shell.fit.watching_keys {
+            return;
+        }
+        self.shell.fit.watching_keys = true;
+        let weak = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |event, _, app| {
+            if !is_hardware_key(&event.keystroke) {
+                return;
+            }
+            // The view may be gone or busy; the next press tries again.
+            weak.update(app, |this, cx| {
+                if !this.shell.fit.hardware_keyboard {
+                    this.shell.fit.hardware_keyboard = true;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The clock of the mod regions' 30 s fade.

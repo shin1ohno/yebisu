@@ -123,7 +123,7 @@ impl Smoke {
     pub(super) fn frame_layout(&self, window: &Window) -> Layout {
         let viewport = window.viewport_size();
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
-        self.layout_for(size, &window.insets())
+        self.layout_for(size, &self.platform_insets(window))
     }
 
     /// `frame_layout` for a window `size` with the platform's `platform`

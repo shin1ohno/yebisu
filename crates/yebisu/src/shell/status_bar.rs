@@ -133,23 +133,17 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 }
 
 impl Smoke {
-    /// L9: a key press marks a hardware keyboard in use; the software
-    /// keyboard on screen clears it. The software keyboard sends some keys
-    /// as presses too (Return, Backspace), so a key press counts only after
-    /// a touch or pointer input that followed the software keyboard.
-    fn note_hardware_keyboard(&mut self, window: &Window) {
+    /// L9: a press only a hardware keyboard sends marks one in use
+    /// (`fit::watch_hardware_keys`); the software keyboard docked on screen
+    /// clears it.
+    fn note_hardware_keyboard(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.watch_hardware_keys(cx);
         let viewport = window.viewport_size();
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
-        let docked =
-            fit::docked_keyboard_height(size, fit::ime_keyboard(size, &window.insets().ime));
-        let fit = &mut self.shell.fit;
+        let ime = self.platform_insets(window).ime;
+        let docked = fit::docked_keyboard_height(size, fit::ime_keyboard(size, &ime));
         if docked > SOFTWARE_KEYBOARD_MIN_HEIGHT {
-            fit.hardware_keyboard = false;
-            fit.software_keyboard_since_touch = true;
-        } else if !window.last_input_was_keyboard() {
-            fit.software_keyboard_since_touch = false;
-        } else if !fit.software_keyboard_since_touch {
-            fit.hardware_keyboard = true;
+            self.shell.fit.hardware_keyboard = false;
         }
     }
 
@@ -161,7 +155,7 @@ impl Smoke {
         let state = self.chrome_state();
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
-        self.note_hardware_keyboard(window);
+        self.note_hardware_keyboard(window, cx);
         // L4: the sidebar filter field was not drawn (rail, hidden sidebar):
         // the keys go back to the terminal.
         self.release_hidden_filter(window, cx);

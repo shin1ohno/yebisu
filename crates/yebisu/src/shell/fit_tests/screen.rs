@@ -278,3 +278,70 @@ fn line_drop_timer_draws_again_after_30s(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(draws.get() > 0, "nothing drew 30 s after the line dropped");
 }
+
+fn docked(height: f32) -> gpui::WindowInsets {
+    gpui::WindowInsets {
+        ime: gpui::Edges {
+            bottom: px(height),
+            ..gpui::Edges::default()
+        },
+        ..gpui::WindowInsets::default()
+    }
+}
+
+/// Review G3: `frame_layout` passes the window's own insets on
+/// (`platform_insets`), so a docked keyboard shortens the terminal on screen
+/// and a floating one does not.
+#[gpui::test]
+fn docked_keyboard_shortens_terminal_on_screen(cx: &mut TestAppContext) {
+    let (view, cx) = terminal(cx, 1376., 1032.);
+    let bare = bounds(cx, "shell-terminal");
+    view.update(cx, |this, _| this.shell.fit.insets = Some(docked(320.)));
+    redraw(&view, cx);
+    let shortened = bounds(cx, "shell-terminal");
+    assert!(
+        (f32::from(bare.size.height - shortened.size.height) - 320.).abs() < 1.,
+        "a docked 320 pt keyboard left the terminal {shortened:?} (bare {bare:?})"
+    );
+    let mut floating = docked(320.);
+    floating.ime.left = px(500.);
+    floating.ime.right = px(400.);
+    view.update(cx, |this, _| this.shell.fit.insets = Some(floating));
+    redraw(&view, cx);
+    assert_eq!(
+        bounds(cx, "shell-terminal"),
+        bare,
+        "a floating keyboard resized the terminal"
+    );
+}
+
+/// Review G2 (the F5 fix): the docked software keyboard clears Hardware
+/// keyboard, and its own presses (Return, Backspace) do not bring it back
+/// after it closes; a printable hardware press does.
+#[gpui::test]
+fn software_keyboard_clears_hardware_keyboard_on_screen(cx: &mut TestAppContext) {
+    let (view, cx) = terminal(cx, 1200., 1000.);
+    let item = |cx: &mut VisualTestContext| painted(cx, "shell-status-hardware-keyboard").is_some();
+    cx.simulate_keystrokes("a");
+    redraw(&view, cx);
+    assert!(item(cx), "fixture: a hardware press shows the item");
+    view.update(cx, |this, _| this.shell.fit.insets = Some(docked(320.)));
+    redraw(&view, cx);
+    assert!(
+        !item(cx),
+        "the docked software keyboard kept Hardware keyboard"
+    );
+    view.update(cx, |this, _| this.shell.fit.insets = None);
+    cx.simulate_keystrokes("enter backspace");
+    redraw(&view, cx);
+    assert!(
+        !item(cx),
+        "the software keyboard's Return or Backspace showed the item"
+    );
+    cx.simulate_keystrokes("b");
+    redraw(&view, cx);
+    assert!(
+        item(cx),
+        "a hardware press after the software keyboard was not counted"
+    );
+}

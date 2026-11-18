@@ -239,3 +239,27 @@ fn herdr2_field_takes_no_keys(cx: &mut TestAppContext) {
     });
     assert!(!reason, "the Herdr 2 field was drawn as a key target");
 }
+
+/// Review G1: with a floating software keyboard (height 0) its Return,
+/// Backspace, Tab, Escape and Control presses do not unlock the field; only a
+/// printable hardware press does.
+#[gpui::test]
+fn software_keyboard_presses_do_not_unlock_the_field(cx: &mut TestAppContext) {
+    let (view, _receipts, cx) = bare_terminal(cx);
+    cx.simulate_keystrokes("enter backspace tab escape ctrl-a");
+    view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(
+        !view.read_with(cx, |this, _| this.shell.fit.hardware_keyboard),
+        "a software keyboard press counted as a hardware keyboard"
+    );
+    assert!(cx.debug_bounds("sidebar-filter-unavailable").is_some());
+    assert!(cx.debug_bounds("sidebar-filter").is_none());
+    cx.simulate_keystrokes("a");
+    view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("sidebar-filter").is_some(),
+        "a hardware press did not unlock the field"
+    );
+}
