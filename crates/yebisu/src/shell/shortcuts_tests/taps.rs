@@ -3,13 +3,13 @@
 //! disabled row runs nothing.
 use super::super::*;
 use crate::{live::Live, mock_peer};
-use gpui::{AppContext, Entity, TestAppContext, VisualTestContext};
+use gpui::{Entity, TestAppContext, VisualTestContext};
 use sheprd_client::{ClientEvent, protocol::ClientShellSnapshot};
 use sheprd_commands::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn connected<'a>(cx: &'a mut TestAppContext) -> (Entity<Smoke>, &'a mut VisualTestContext) {
+fn connected(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.update(|window, _| window.activate_window());
     cx.run_until_parked();
