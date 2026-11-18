@@ -52,6 +52,7 @@ fn herdr1_zoom_waits_while_input_would_be_discarded(cx: &mut TestAppContext) {
     assert!(zoom_requests(&peer).is_empty(), "nothing is sent meanwhile");
     // Keys typed while the surface is still resizing wait in the input queue.
     peer.view.update(cx, |this, _| {
+        this.terminal.input.discard();
         this.terminal.input.ready = false;
         this.enforce_herdr1(400.0);
     });
