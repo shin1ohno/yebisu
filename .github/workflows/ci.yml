@@ -283,7 +283,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.check == 'true'
     runs-on: macos-26
-    timeout-minutes: 40
+    # 32-33 min with 32 layout mutations (PR 73); run 44276079121 reached 40 min at
+    # 33 of 35 (layout-mutations alone took 22 min), so 40 left no room.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
