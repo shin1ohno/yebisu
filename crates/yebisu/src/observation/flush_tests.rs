@@ -84,33 +84,106 @@ fn the_writer_counts_written_and_discarded_records() {
     assert_eq!(progress.written.load(Ordering::Acquire), 4);
 }
 
-/// Inactive (the callback before a suspension) waits for the writer; a
-/// writer that does not finish is reported in the file.
-#[gpui::test]
-fn inactive_flushes_and_reports_a_stalled_writer(cx: &mut gpui::TestAppContext) {
+/// Runs one lifecycle callback on a fresh view whose writer never writes,
+/// after `prepare`; returns how long the callback took and what it sent.
+fn lifecycle_with_stalled_writer(
+    cx: &mut gpui::TestAppContext,
+    phase: gpui::AppLifecyclePhase,
+    prepare: impl FnOnce(&mut crate::app::Smoke),
+) -> (Duration, Vec<Value>) {
     let (sender, records) = sync_channel(64);
     let view = cx.new(crate::app::Smoke::new);
-    let started = Instant::now();
+    let mut elapsed = Duration::ZERO;
     view.update(cx, |this, cx| {
         this.observation =
             Observation::injected_with_progress(sender, Arc::new(Progress::default()));
-        this.lifecycle(gpui::AppLifecyclePhase::Inactive, cx);
+        prepare(this);
+        let started = Instant::now();
+        this.lifecycle(phase, cx);
+        elapsed = started.elapsed();
     });
+    (elapsed, records.try_iter().collect())
+}
+
+/// The callback waited for the writer and reported, for `phase`, the
+/// records the writer had not written.
+fn assert_flushed_and_reported(elapsed: Duration, records: &[Value], phase: &str) {
     assert!(
-        started.elapsed() >= LIFECYCLE_FLUSH,
-        "Inactive did not wait for the writer"
+        elapsed >= LIFECYCLE_FLUSH,
+        "{phase} did not wait for the writer ({elapsed:?})"
     );
-    let kinds: Vec<Value> = records.try_iter().collect();
-    let timeout = kinds
+    let timeout = records
         .iter()
         .find(|record| record["kind"] == "observation-flush-timeout")
-        .unwrap_or_else(|| panic!("no flush timeout record: {kinds:?}"));
-    assert_eq!(timeout["phase"], "Inactive");
+        .unwrap_or_else(|| panic!("no flush timeout record at {phase}: {records:?}"));
+    assert_eq!(timeout["phase"], phase);
     assert!(
         timeout["pending"]
             .as_u64()
             .is_some_and(|pending| pending >= 1)
     );
+}
+
+/// Inactive (the callback before a suspension) waits for the writer; a
+/// writer that does not finish is reported in the file.
+#[gpui::test]
+fn inactive_flushes_and_reports_a_stalled_writer(cx: &mut gpui::TestAppContext) {
+    let (elapsed, records) =
+        lifecycle_with_stalled_writer(cx, gpui::AppLifecyclePhase::Inactive, |_| {});
+    assert_flushed_and_reported(elapsed, &records, "Inactive");
+}
+
+/// Background, the phase the hosted p10 lost with Inactive, waits too.
+#[gpui::test]
+fn background_flushes_and_reports_a_stalled_writer(cx: &mut gpui::TestAppContext) {
+    let (elapsed, records) =
+        lifecycle_with_stalled_writer(cx, gpui::AppLifecyclePhase::Background, |_| {});
+    assert_flushed_and_reported(elapsed, &records, "Background");
+}
+
+/// A disconnected scene can be the last callback before the process ends.
+#[gpui::test]
+fn disconnected_flushes_and_reports_a_stalled_writer(cx: &mut gpui::TestAppContext) {
+    let (elapsed, records) =
+        lifecycle_with_stalled_writer(cx, gpui::AppLifecyclePhase::Disconnected, |_| {});
+    assert_flushed_and_reported(elapsed, &records, "Disconnected");
+}
+
+/// A second Background without an Active in between (Background, Foreground,
+/// Background) finds the terminal already suspended; the handler returns
+/// early, and the records it sent before that still have to reach the file.
+#[gpui::test]
+fn background_while_suspended_still_flushes(cx: &mut gpui::TestAppContext) {
+    let (elapsed, records) =
+        lifecycle_with_stalled_writer(cx, gpui::AppLifecyclePhase::Background, |this| {
+            this.terminal.reconnect.suspended = true;
+            // Stands in for the `settings-lifecycle` record the handler sends
+            // before its early return (a test view has no settings host).
+            this.observation
+                .record(serde_json::json!({"kind": "settings-lifecycle", "phase": "Background"}));
+        });
+    assert!(
+        records.iter().all(|record| record["kind"] != "lifecycle"),
+        "the handler did not take its early return for a suspended terminal: {records:?}"
+    );
+    assert_flushed_and_reported(elapsed, &records, "Background");
+}
+
+/// The timeout report does not wait for room: the writer already failed to
+/// keep up, so a full queue drops it at once and counts the drop.
+#[test]
+fn a_record_without_waiting_does_not_wait_for_room() {
+    let (sender, _receiver) = sync_channel(1);
+    let observation = Observation::injected_with_wait(sender, Duration::from_secs(5));
+    assert!(observation.try_record(serde_json::json!({"kind": "fills the queue"})));
+    let started = Instant::now();
+    observation.record_without_waiting(serde_json::json!({"kind": "observation-flush-timeout"}));
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "waited for room: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(observation.dropped.load(Ordering::Acquire), 1);
 }
 
 /// Active (no suspension follows) does not wait.

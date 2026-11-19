@@ -33,7 +33,36 @@ impl Reconnect {
 }
 impl Smoke {
     pub(crate) fn lifecycle(&mut self, phase: AppLifecyclePhase, cx: &mut Context<Self>) {
-        self.input_transition(|this| this.lifecycle_inner(phase, cx))
+        self.input_transition(|this| this.lifecycle_inner(phase, cx));
+        // Outside `lifecycle_inner`: its early return for a second Background
+        // or a Disconnected while already suspended must not skip the flush.
+        self.flush_before_suspension(phase);
+    }
+
+    /// UIKit may suspend the process right after Inactive or Background, and
+    /// a suspended app can be killed or terminated: records still queued die
+    /// with it and the next process cannot tell. Put them in the file first;
+    /// a writer that is not done in time is said, in stderr and in a record
+    /// sent without waiting for room. QA writers only (`Observation::flush`).
+    fn flush_before_suspension(&self, phase: AppLifecyclePhase) {
+        if !matches!(
+            phase,
+            AppLifecyclePhase::Inactive
+                | AppLifecyclePhase::Background
+                | AppLifecyclePhase::Disconnected
+        ) {
+            return;
+        }
+        if let Err(pending) = self.observation.flush(crate::observation::LIFECYCLE_FLUSH) {
+            eprintln!(
+                "smoke observation flush timed out: {pending} records unwritten at {phase:?}"
+            );
+            self.observation.record_without_waiting(serde_json::json!({
+                "kind": "observation-flush-timeout",
+                "phase": format!("{phase:?}"),
+                "pending": pending,
+            }));
+        }
     }
     fn lifecycle_inner(&mut self, phase: AppLifecyclePhase, cx: &mut Context<Self>) {
         self.settings_lifecycle(phase);
@@ -122,25 +151,6 @@ impl Smoke {
             AppLifecyclePhase::Inactive | AppLifecyclePhase::Foreground => {}
         }
         self.observation.record(serde_json::json!({"kind":"lifecycle","phase":format!("{phase:?}"),"generation":self.terminal.link.generation,"suspended":self.terminal.reconnect.suspended,"connected":self.terminal.live.connected,"herdr1":self.terminal.link.handle.is_some(),"core":self.terminal.core.is_some()}));
-        // UIKit may suspend the process right after Inactive or Background, and
-        // a suspended app can be killed or terminated: records still queued
-        // die with it and the next process cannot tell (hosted p10, run
-        // 44406830068 job 135164241872, lost Inactive and Background). Put
-        // them in the file first; a writer that is not done in time is said.
-        if matches!(
-            phase,
-            AppLifecyclePhase::Inactive
-                | AppLifecyclePhase::Background
-                | AppLifecyclePhase::Disconnected
-        ) && let Err(pending) = self.observation.flush(crate::observation::LIFECYCLE_FLUSH)
-        {
-            eprintln!(
-                "smoke observation flush timed out: {pending} records unwritten at {phase:?}"
-            );
-            self.observation
-                .record(serde_json::json!({"kind":"observation-flush-timeout",
-                "phase":format!("{phase:?}"),"pending":pending}));
-        }
         cx.notify();
     }
 }

@@ -16,13 +16,14 @@ use std::{
 /// Mac mini (2026-11-19, 20 runs).
 const QUEUE: usize = 4096;
 /// How long a record waits for room in a full queue before it is dropped.
-/// QA builds only: without a QA variable there is no sender at all.
+/// Only with `YEBISU_SMOKE_OBSERVE` or `YEBISU_P2_OBSERVE` at launch: without
+/// them there is no sender at all.
 const FULL_WAIT: Duration = Duration::from_millis(250);
 /// Records one app writer puts in its file; it then writes one
 /// `observation-limit` record and discards the rest.
 const WRITE_LIMIT: usize = 8192;
 /// How long a lifecycle callback that may precede a suspension waits for the
-/// writer (`flush`). QA builds only.
+/// writer (`flush`). Only with a QA writer (see `FULL_WAIT`).
 pub(crate) const LIFECYCLE_FLUSH: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
@@ -148,6 +149,17 @@ impl Observation {
 
     pub(crate) fn record(&self, value: Value) {
         let _ = self.try_record(value);
+    }
+
+    /// Like `record`, but a full queue drops the record at once (counted and
+    /// reported like any drop) instead of waiting `full_wait` for room. For
+    /// a report written after the writer already failed to keep up.
+    pub(crate) fn record_without_waiting(&self, value: Value) {
+        let observation = Self {
+            full_wait: Duration::ZERO,
+            ..self.clone()
+        };
+        observation.record(value);
     }
 
     // Admission is not durable delivery. QA runners must also observe the sink.
