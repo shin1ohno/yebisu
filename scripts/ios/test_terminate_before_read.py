@@ -1,4 +1,5 @@
-"""p3, p9 and p10 read the app's files only after the app was terminated (UI test redesign S2).
+"""p3, p9 and p10 (S2) and the edit-menu job's sh1-153, p8-native, selection-settings and sh1-156
+(S4) read the app's files only after the app was terminated (UI test redesign).
 
 They used to read p0-smoke.jsonl, p9-core-wire.jsonl and p10-settings.jsonl right after XCTest,
 with the app possibly still writing (plan 1.3: the same risk that failed p2 three times on 11-18)."""
@@ -11,7 +12,8 @@ import unittest
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
-DRIVERS = {"p3-check.py": "P3", "p9-check.py": "P9", "p10-check.py": "P10"}
+DRIVERS = {"p3-check.py": "P3", "p9-check.py": "P9", "p10-check.py": "P10", "sh1-153-check.py": "SH1-153",
+           "p8-native-check.py": "P8", "selection-settings-check.py": "SH1-151", "sh1-156-check.py": "SH1-156"}
 
 
 def load(file):
@@ -28,7 +30,9 @@ def main_text(file):
 
 class OrderTests(unittest.TestCase):
     def test_xctest_then_terminate_then_the_first_read(self):
-        reads = {"p3-check.py": "collect(result", "p9-check.py": "collect_evidence(", "p10-check.py": "observations.read_text().splitlines()[previous:]"}
+        reads = {"p3-check.py": "collect(result", "p9-check.py": "collect_evidence(", "p10-check.py": "observations.read_text().splitlines()[previous:]",
+                 "sh1-153-check.py": "shutil.copyfile(container", "p8-native-check.py": "shutil.copyfile(container",
+                 "selection-settings-check.py": "live_jsonl.read_records(observations", "sh1-156-check.py": "shutil.copyfile(container"}
         for file, read in reads.items():
             with self.subTest(driver=file):
                 text = main_text(file)
@@ -45,7 +49,11 @@ class OrderTests(unittest.TestCase):
                 self.assertIn("finally:", text[text.rindex("\n", 0, at) - 120:at])
 
     def test_baseline_counts_are_read_with_no_app_running(self):
-        for file, baseline in {"p9-check.py": "previous = len(", "p10-check.py": "previous = len("}.items():
+        for file, baseline in {"p9-check.py": "previous = len(", "p10-check.py": "previous = len(",
+                               "selection-settings-check.py": "previous = live_jsonl.count_lines(",
+                               "sh1-153-check.py": '(container / "Documents/p4-peer.jsonl").unlink(',
+                               "p8-native-check.py": '(container / "Documents/p4-peer.jsonl").unlink(',
+                               "sh1-156-check.py": '(container / "Documents" / name).unlink('}.items():
             with self.subTest(driver=file):
                 text = main_text(file)
                 self.assertLess(text.index("terminate(device)"), text.index(baseline))
