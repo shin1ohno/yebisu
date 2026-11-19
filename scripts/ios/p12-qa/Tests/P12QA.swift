@@ -90,8 +90,9 @@ final class P12QA: XCTestCase {
         for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
             try recordHeldFrames([local, "release"])
             try fixture(remote)
-            let hold = (reads: qa.session.reads, seconds: qa.session.readSeconds, started: Date().timeIntervalSince1970)
             try choose("Split Right", caseName: remote, negative: false)
+            // The request is held from that pick (pane.split waits at the peer) until Release.
+            let hold = (reads: qa.session.reads, seconds: qa.session.readSeconds, started: Date().timeIntervalSince1970)
             try fixture(local, held: true)
             try choose(name, caseName: local, negative: false)
             try fixture("release", held: true)

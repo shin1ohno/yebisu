@@ -151,8 +151,8 @@ HOLD_WARNING_SECONDS = 40
 
 def hold_queries(ui):
     """The qa.state reads P12QA made while each request was held, with their seconds and the
-    hold window's length (from the Remote/Rearm fixture's confirmation to Release's; it contains
-    the request's hold). UI test redesign S6, S5 follow-up S6-1: fewer queries inside a hold make
+    hold window's length (from the end of the Remote/Rearm pick, which sends the held pane.split,
+    to Release's confirmation). UI test redesign S6, S5 follow-up S6-1: fewer queries inside a hold make
     an XCTest idle wait (60-80 s on an old runner image) less likely to land there, but one such
     wait still would push the request past the 60 s COMMAND_TIMEOUT, so the reads are measured,
     and a window above HOLD_WARNING_SECONDS is named in `warning`. Reported, not judged."""
