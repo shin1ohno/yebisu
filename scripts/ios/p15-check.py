@@ -405,6 +405,10 @@ def main():
     parser.add_argument("--own-root", type=Path)
     parser.add_argument("--expected-head")
     parser.add_argument("--simulator")
+    # The watchdog stops XCTest at the first FIFO marker the peer has not received after 10 s
+    # (TODO.md: P15-start has not reached the board peer on the Mac mini). --no-watch lets the
+    # test run to its end so its other steps are exercised; the oracle below still judges FIFO.
+    parser.add_argument("--no-watch", action="store_true")
     args = parser.parse_args()
     environment = os.environ.copy()
     provenance = None
@@ -475,7 +479,8 @@ def main():
              "-derivedDataPath", str(derived),
              "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
              "-only-testing:SmokeOracle/SmokeQA/testP15Theme"], ROOT, environment,
-            lambda process: watch_fifo(process, records_path, previous, peer_path, peer_previous))
+            (lambda process: process.wait()) if args.no_watch else
+            (lambda process: watch_fifo(process, records_path, previous, peer_path, peer_previous)))
     finally:
         terminate(device)
         # The app is stopped first (UI test redesign S2, S6 for P15), so no file is read while it
