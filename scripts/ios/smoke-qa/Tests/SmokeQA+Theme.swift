@@ -30,7 +30,7 @@ extension SmokeQA {
         // Real UIKit typing brackets the modal operations in the peer's FIFO. Before S6 an OCR tap
         // on the terminal's last row focused it (TODO.md: in one run that tap landed outside the
         // terminal and P15-start never arrived); now the terminal's input area by identifier.
-        try typeIntoTerminal(qa, app, "P15-start")
+        try typeP15(qa, app, "P15-start", ui: &ui)
         try openSettingsSheet(qa)
         try tapAppearance(qa, ui: &ui)
         try p15Host(qa, "qa-alpha", stale: "qa-beta", stage: "alpha", ui: &ui)
@@ -44,7 +44,7 @@ extension SmokeQA {
         }
         try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
         save("p15-closed")
-        try typeIntoTerminal(qa, app, "P15-end")
+        try typeP15(qa, app, "P15-end", ui: &ui)
         // Use the existing production board host buttons, not direct actions.
         try pressBoardHost(qa, QAIds.boardHostBeta, host: "qa-beta")
         try openSettingsSheet(qa)
@@ -72,14 +72,27 @@ extension SmokeQA {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// Focuses the terminal by its input area and types `text`, then waits until the private peer
-    /// received one more input message (qa.state `peer.inputs`; before S6: sleep(1)).
-    private func typeIntoTerminal(_ qa: QAAx, _ app: XCUIApplication, _ text: String) throws {
+    /// Focuses the terminal by its input area and types `text`, then waits up to 10 s until the
+    /// private peer received one more input message (qa.state `peer.inputs`; before S6: sleep(1)).
+    /// Whether it arrived is recorded (`typed`), not asserted: p15-check.py's FIFO gate judges the
+    /// peer's transcript, as before S6, so the rest of the test still runs when it did not (TODO.md:
+    /// P15-start has not reached the peer on the Mac mini; the app queues it with input not ready).
+    private func typeP15(_ qa: QAAx, _ app: XCUIApplication, _ text: String,
+                                  ui: inout [[String: Any]]) throws {
         try qa.settleIfMoved("before typing \(text)")
         let before = try qa.press(QAIds.terminalInput, what: "the terminal took the tap")
         qa.keyboardMayMove("the terminal tap may raise the keyboard")
         app.typeText(text)
-        try qa.waitState("the peer received '\(text)'", timeout: 10) { $0.peerInputs > before.peerInputs }
+        let start = Date()
+        var received = true
+        do {
+            try qa.waitState("the peer received '\(text)'", timeout: 10) { $0.peerInputs > before.peerInputs }
+        } catch QAAxError.timeout(_, _, _, let last) {
+            received = false
+            print("P15 the private peer received no input within 10 s of typing '\(text)'; p15-check.py's FIFO gate decides. last qa.state=\(last)")
+        }
+        ui.append(["kind": "typed", "text": text, "peer_received": received,
+                   "waited": Date().timeIntervalSince(start), "time": Date().timeIntervalSince1970])
     }
 
     /// Presses the board row of `host` (a 180 pt list that scrolls, board.rs). A row below the

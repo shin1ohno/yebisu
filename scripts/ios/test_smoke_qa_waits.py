@@ -221,7 +221,7 @@ class S6Identifiers(unittest.TestCase):
         self.assertIn('XCTAssertLessThanOrEqual(frame.maxY, keyboardTop + 2, "toast is covered by the software keyboard")', p14)
         p15 = body(self.source, "func testP15Theme(")
         self.assertEqual(re.findall(r"tapAppearance\(qa", p15), ["tapAppearance(qa"] * 3)
-        self.assertEqual(re.findall(r'typeIntoTerminal\(qa, app, "([^"]+)"\)', p15), ["P15-start", "P15-end"])
+        self.assertEqual(re.findall(r'typeP15\(qa, app, "([^"]+)", ui: &ui\)', p15), ["P15-start", "P15-end"])
         self.assertIn('try pressBoardHost(qa, QAIds.boardHostBeta, host: "qa-beta")', p15)
 
     def test_vision_is_left_only_for_the_p15_host_text(self):

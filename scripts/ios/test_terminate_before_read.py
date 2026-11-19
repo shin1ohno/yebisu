@@ -45,7 +45,7 @@ class OrderTests(unittest.TestCase):
                  "sh1-153-check.py": "shutil.copyfile(container", "p8-native-check.py": "shutil.copyfile(container",
                  "selection-settings-check.py": "live_jsonl.read_records(observations", "sh1-156-check.py": "shutil.copyfile(container",
                  "sh1-152-check.py": "shutil.copyfile(path, directory", "p12-check.py": "shutil.copyfile(documents / source",
-                 "smoke-check.py": "shutil.copyfile(receipts", "p11-check.py": 'positive_records=[r for line in (container/"Documents/p0-smoke.jsonl")',
+                 "smoke-check.py": "shutil.copyfile(receipts", "p11-check.py": 'records=[record for line in (container/"Documents/p0-smoke.jsonl")',
                  "p14-check.py": '(out / name).write_bytes(path.read_bytes())', "p15-check.py": "records = [json.loads(line)"}
         for file, read in reads.items():
             with self.subTest(driver=file):
