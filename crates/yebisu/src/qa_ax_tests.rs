@@ -54,7 +54,22 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
         this.qa_ax_fields()
     });
     let names: Vec<&str> = fields.iter().map(|(key, _)| *key).collect();
-    assert_eq!(names, ["screen", "sheet", "menu", "taps"]);
+    assert_eq!(
+        names,
+        [
+            "screen",
+            "sheet",
+            "menu",
+            "taps",
+            "settings_page",
+            "compact",
+            "drag_select",
+            "connected",
+            "surface",
+            "pane",
+            "core",
+        ]
+    );
     assert_eq!(fields[0].1, "p0");
     assert!(fields[1].1.is_null() && fields[2].1.is_null());
     assert_eq!(fields[3].1, 0);
@@ -68,4 +83,54 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
     });
     assert_eq!(fields[1].1, "settings");
     assert_eq!(fields[2].1, "overflow");
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value.clone())
+    };
+    // The open sheet's page (Page::id); the terminal starts disconnected,
+    // with no surface, no pane and no core layout.
+    assert_eq!(
+        field("settings_page"),
+        Some(serde_json::json!(crate::settings_pages::Page::Fonts.id()))
+    );
+    assert_eq!(field("compact"), Some(serde_json::json!(false)));
+    assert_eq!(
+        field("drag_select"),
+        Some(serde_json::json!(true)),
+        "the product default"
+    );
+    assert_eq!(field("connected"), Some(serde_json::json!(false)));
+    for name in ["surface", "pane", "core"] {
+        assert_eq!(field(name), Some(serde_json::Value::Null), "{name}");
+    }
+}
+
+#[test]
+fn start_selection_comes_from_launch_only_in_a_simulator() {
+    assert!(start_drag_select(true, None), "the product default is Drag");
+    assert!(!start_drag_select(true, Some("double-tap")));
+    assert!(start_drag_select(true, Some("drag")));
+    assert!(
+        start_drag_select(true, Some("Double tap")),
+        "only the exact value"
+    );
+    assert!(
+        start_drag_select(false, Some("double-tap")),
+        "a device or host build ignores the variable"
+    );
+    assert_eq!(START_SELECTION_ENV, "YEBISU_QA_START_SELECTION");
+    assert!(launch_drag_select(), "host tests are not a Simulator build");
+}
+
+#[gpui::test]
+fn qa_ax_window_fields_name_the_keyboard_and_viewport(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    let fields = view.update_in(cx, |this, window, _| this.qa_ax_window_fields(window));
+    let names: Vec<&str> = fields.iter().map(|(key, _)| *key).collect();
+    assert_eq!(names, ["keyboard", "viewport"]);
+    assert_eq!(fields[0].1, 0.0, "no keyboard in a test window");
+    let viewport = fields[1].1.as_array().map(Vec::len);
+    assert_eq!(viewport, Some(2), "{:?}", fields[1].1);
 }

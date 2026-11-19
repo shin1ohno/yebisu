@@ -129,6 +129,7 @@ impl Smoke {
                     destination,
                     event: sheprd_backend::ClientPaneInputEvent::Paste(text),
                 });
+                crate::qa_ax::core::count("pasted_texts");
             }
             Ok(payload @ crate::handoff::Payload::Image(_)) => self.start_core_image(payload, cx),
             Ok(_) => {

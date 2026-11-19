@@ -15,6 +15,8 @@ use gpui::{prelude::*, *};
 
 /// Hidden by design until a supported installed-font picker is proven.
 const FAMILY_PICKER: bool = false;
+/// The sheet's Close button.
+pub(crate) const CLOSE_LABEL: &str = "Close";
 
 pub(crate) fn button(
     id: impl Into<SharedString>,
@@ -120,30 +122,36 @@ impl Smoke {
             Some(SaveStatus::Saved) => "Saved".to_owned(),
             Some(SaveStatus::Failed { reason, .. }) => format!("Not saved: {reason}"),
         };
-        let header =
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_2()
-                .flex_shrink_0()
-                .child("Settings")
-                .child(status)
-                .child(self.notifications.status.clone())
-                .when(retry, |header| {
-                    header.child(
-                        button("settings-retry", "Retry", true).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                if let Some(host) = &mut this.settings {
-                                    host.retry();
-                                }
-                                cx.notify();
-                            },
-                        )),
+        let header = div()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .flex_shrink_0()
+            .child("Settings")
+            .child(status)
+            .child(self.notifications.status.clone())
+            .when(retry, |header| {
+                header.child(
+                    button("settings-retry", "Retry", true).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            if let Some(host) = &mut this.settings {
+                                host.retry();
+                            }
+                            cx.notify();
+                        },
+                    )),
+                )
+            })
+            .child(
+                button("settings-close", CLOSE_LABEL, true)
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
                     )
-                })
-                .child(button("settings-close", "Close", true).on_click(
-                    cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
-                ));
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::SETTINGS_CLOSE,
+                        CLOSE_LABEL,
+                    )),
+            );
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let header = header.children(self.settings_qa_controls(cx));
         let body = div()
@@ -216,17 +224,21 @@ impl Smoke {
     fn settings_fonts(&self, values: &Values, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
         let mut view = div().flex().flex_col().gap_2().child("Terminal font");
         for density in Density::ALL {
-            let metrics = density.metrics();
-            let label = format!(
-                "{:?} {}/{}",
-                density, metrics.size_px, metrics.line_height_px
-            );
+            let label = density.label();
+            let qa_mark = match density {
+                Density::Regular => {
+                    crate::qa_ax::mark(crate::qa_ax::ids::SETTINGS_DENSITY_REGULAR, label)
+                }
+                Density::Compact => {
+                    crate::qa_ax::mark(crate::qa_ax::ids::SETTINGS_DENSITY_COMPACT, label)
+                }
+            };
             view = view.child(
-                button(format!("density-{density:?}"), label, enabled).on_click(cx.listener(
-                    move |this, _, _, cx| {
+                button(format!("density-{density:?}"), label, enabled)
+                    .on_click(cx.listener(move |this, _, _, cx| {
                         this.select_settings_density(density, cx);
-                    },
-                )),
+                    }))
+                    .children(qa_mark),
             );
         }
         let (size, height) = values.font.metrics(values.compact);
@@ -318,6 +330,7 @@ impl Smoke {
             this.settings_page = page;
             cx.notify();
         }))
+        .children(section_mark(section))
     }
     /// Radio rows: one title, its explanation and two choices each.
     fn settings_choices(
@@ -424,5 +437,21 @@ impl Smoke {
                 })));
         }
         view.into_any_element()
+    }
+}
+
+/// A section button's QA accessibility mark, labelled with its title.
+fn section_mark(section: Section) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    let title = section.title();
+    match section {
+        Section::Display => crate::qa_ax::mark(ids::SETTINGS_PAGE_DISPLAY, title),
+        Section::Theme => crate::qa_ax::mark(ids::SETTINGS_PAGE_THEME, title),
+        Section::Input => crate::qa_ax::mark(ids::SETTINGS_PAGE_INPUT, title),
+        Section::Shortcuts => crate::qa_ax::mark(ids::SETTINGS_PAGE_SHORTCUTS, title),
+        Section::Connection => crate::qa_ax::mark(ids::SETTINGS_PAGE_CONNECTION, title),
+        Section::Notifications => crate::qa_ax::mark(ids::SETTINGS_PAGE_NOTIFICATIONS, title),
+        Section::HostsAndKeys => crate::qa_ax::mark(ids::SETTINGS_PAGE_HOSTS_AND_KEYS, title),
+        Section::About => crate::qa_ax::mark(ids::SETTINGS_PAGE_ABOUT, title),
     }
 }

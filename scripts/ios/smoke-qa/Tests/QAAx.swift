@@ -28,6 +28,20 @@ struct QAState: CustomStringConvertible {
     func bool(_ key: String) -> Bool? { raw[key] as? Bool }
     /// True when `key` is present and JSON null (for example `menu` with no menu open).
     func isNull(_ key: String) -> Bool { raw[key] is NSNull }
+    /// The docked keyboard's height in points (0 without one); `keyboardUp` is the software
+    /// keyboard (above 120 pt, as the status bar tells it from a hardware keyboard's bar).
+    var keyboard: Double { raw["keyboard"] as? Double ?? (raw["keyboard"] as? Int).map(Double.init) ?? -1 }
+    var keyboardUp: Bool { keyboard > 120 }
+    /// Herdr 2's pane layout (`core`: panes, active, vertical, terminals), nil before the
+    /// core worker published one.
+    var core: [String: Any]? { raw["core"] as? [String: Any] }
+    var corePanes: Int? { core?["panes"] as? Int }
+    var coreActive: Int? { core?["active"] as? Int }
+    var coreVertical: Bool? { core?["vertical"] as? Bool }
+    func coreTerminal(_ index: Int) -> String? {
+        guard let terminals = core?["terminals"] as? [String], terminals.indices.contains(index) else { return nil }
+        return terminals[index]
+    }
 
     /// The root fields that say what is on screen and what covers it; a press that changes one
     /// of them was taken by the app.
@@ -46,6 +60,25 @@ struct QAState: CustomStringConvertible {
             .subtracting([id])
         moved += others.sorted().filter { after.presses($0) > presses($0) }.map { "presses[\($0)]" }
         return moved
+    }
+}
+
+/// What a press whose `presses[id]` did not grow ran into, from the state before it and the
+/// state read after the wait (nil when it could not be read). Pure, so QAAxLogicTests checks
+/// each branch without an app (review SF3).
+enum PressVerdict: Equatable {
+    /// `launch` changed: the app restarted and its counts began again.
+    case relaunched
+    /// A screen field changed or another control's presses grew: something else took it.
+    case takenElsewhere([String])
+    /// Nothing that says what is on screen moved: the touch was lost; press once more.
+    case lost
+
+    static func of(before: QAState, after: QAState?, id: String) -> PressVerdict {
+        guard let after else { return .lost }
+        if after.launch != before.launch { return .relaunched }
+        let moved = before.takenElsewhere(after, by: id)
+        return moved.isEmpty ? .lost : .takenElsewhere(moved)
     }
 }
 
@@ -190,14 +223,13 @@ struct QAAx {
                 }
             } catch QAAxError.timeout {
                 let after = read()
-                if let after {
-                    if after.launch != before.launch {
-                        throw QAAxError.relaunched(id: id, before: before.text, after: after.text)
-                    }
-                    let moved = before.takenElsewhere(after, by: id)
-                    if !moved.isEmpty {
-                        throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: after.text)
-                    }
+                switch PressVerdict.of(before: before, after: after, id: id) {
+                case .relaunched:
+                    throw QAAxError.relaunched(id: id, before: before.text, after: after?.text ?? "nil")
+                case let .takenElsewhere(moved):
+                    throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: after?.text ?? "nil")
+                case .lost:
+                    break
                 }
                 if attempt == 2 {
                     throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: after?.text ?? "nil")
@@ -206,5 +238,51 @@ struct QAAx {
             }
         }
         throw QAAxError.pressNotDelivered(id: id, attempts: 2, before: before.text, after: read()?.text ?? "nil")
+    }
+
+    /// Waits until the docked keyboard's height in `qa.state` reads the same twice 0.4 s apart,
+    /// so a press does not land while a rising or falling keyboard still moves the controls
+    /// above it (Mac mini 32f1e21, 5977881). Returns the settled state.
+    @discardableResult
+    func settledKeyboard(_ what: String, timeout: TimeInterval = 10) throws -> QAState {
+        let start = Date()
+        var last = try waitState("qa.state before the keyboard settles (\(what))", timeout: timeout) { _ in true }
+        while true {
+            usleep(400_000)
+            let now = try waitState("qa.state while the keyboard settles (\(what))", timeout: timeout) { _ in true }
+            if now.keyboard == last.keyboard {
+                print(String(format: "QAAX keyboard settled at %.0f pt after %.3f s (%@)", now.keyboard, QAAx.since(start), what))
+                return now
+            }
+            last = now
+            if QAAx.since(start) >= timeout {
+                throw QAAxError.timeout(what: "keyboard settles (\(what))", seconds: QAAx.since(start), reads: 0, last: now.text)
+            }
+        }
+    }
+
+    /// Hides the software keyboard if `qa.state` shows it up, with the keyboard's own hide key
+    /// (a UIKit element), and waits until `qa.state` shows it down. A press the keyboard did not
+    /// take is repeated once (Mac mini f95123d).
+    func hideKeyboard(_ what: String) throws {
+        let state = try settledKeyboard(what)
+        guard state.keyboardUp else {
+            print("QAAX \(what): no software keyboard (keyboard \(state.keyboard) pt)")
+            return
+        }
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hide keyboard'")).firstMatch
+        for press in 1...2 {
+            guard hide.exists else {
+                throw QAAxError.timeout(what: "\(what): the keyboard's hide key", seconds: 0, reads: 1, last: state.text)
+            }
+            hide.tap()
+            do {
+                try waitState("\(what): software keyboard down", timeout: 5) { !$0.keyboardUp }
+                try settledKeyboard(what)
+                return
+            } catch QAAxError.timeout where press == 1 {
+                print("QAAX \(what): software keyboard still up 5 s after hide press 1; pressing once more")
+            }
+        }
     }
 }

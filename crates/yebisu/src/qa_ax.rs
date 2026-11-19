@@ -18,6 +18,8 @@
 //! is not compiled and UIKit is never touched from here.
 use gpui::AnyElement;
 
+#[path = "qa_ax_core.rs"]
+pub(crate) mod core;
 #[path = "qa_ax_ids.rs"]
 pub(crate) mod ids;
 #[path = "qa_ax_keys.rs"]
@@ -44,6 +46,23 @@ pub(crate) fn allowed(simulator: bool, env_set: impl Fn(&str) -> bool) -> bool {
 /// True only in a Simulator build with `YEBISU_QA_AX` set.
 pub(crate) fn enabled() -> bool {
     allowed(BUILD, |name| std::env::var_os(name).is_some())
+}
+
+/// The launch variable that sets how a selection starts (UI test redesign
+/// S3): P9 launches with `double-tap` instead of opening Settings › Input ›
+/// Start a selection before its test, and checks `drag_select` in `qa.state`.
+pub(crate) const START_SELECTION_ENV: &str = "YEBISU_QA_START_SELECTION";
+
+/// The rule: a selection starts by dragging (the product default) unless a
+/// Simulator build was launched with `YEBISU_QA_START_SELECTION=double-tap`.
+pub(crate) fn start_drag_select(simulator: bool, value: Option<&str>) -> bool {
+    !(simulator && value == Some("double-tap"))
+}
+
+/// The start mode at launch (`start_drag_select` for this build).
+pub(crate) fn launch_drag_select() -> bool {
+    let value = std::env::var(START_SELECTION_ENV).ok();
+    start_drag_select(BUILD, value.as_deref())
 }
 
 /// The mark for a control: add the returned element as a child of the

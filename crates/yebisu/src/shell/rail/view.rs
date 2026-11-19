@@ -190,9 +190,16 @@ impl Smoke {
                             },
                         )),
                     )
-                    .child(footer_button("rail-settings", "Settings", true).on_click(
-                        cx.listener(|this, _, window, cx| this.begin_settings_modal(window, cx)),
-                    ))
+                    .child(
+                        footer_button("rail-settings", crate::shell::footer::SETTINGS, true)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.begin_settings_modal(window, cx)
+                            }))
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::RAIL_SETTINGS,
+                                crate::shell::footer::SETTINGS,
+                            )),
+                    )
                     .child(
                         footer_button("rail-expand", "»", expand_reason.is_none())
                             .aria_label(match expand_reason {

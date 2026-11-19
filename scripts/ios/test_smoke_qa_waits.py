@@ -108,5 +108,55 @@ class P9Timeout(unittest.TestCase):
         self.assertTrue(180 <= int(match.group(1)) <= 240, match.group(1))
 
 
+class S3Identifiers(unittest.TestCase):
+    """UI test redesign S3: P9, SH1-154 and P3 press QA identifiers and wait on qa.state."""
+    TESTS = ("func testP9Core(", "func testSH154CoreImage(", "func testP3Terminal(")
+    OCR = ("tapText(", "tapTextBox(", "tapMenuItem(", "textVisible(", "waitForRenderedText(", "tapRecorded(",
+           "openSettings(in:", "openOverflowMenu(", "closeOverflowMenu(", "recognize(", "hideSoftwareKeyboard(")
+
+    def setUp(self):
+        self.source = swift_source()
+
+    def test_no_ocr_coordinate_or_fixed_sleep(self):
+        for signature in self.TESTS:
+            function = "\n".join(statements(body(self.source, signature)))
+            with self.subTest(test=signature):
+                for call in self.OCR:
+                    self.assertNotIn(call, function)
+                self.assertNotRegex(function, r"\bsleep\(")
+                self.assertNotIn("withNormalizedOffset", function)
+                self.assertIn('launchEnvironment["YEBISU_QA_AX"] = "1"', function)
+                self.assertIn("continueAfterFailure = false", function)
+
+    def test_helpers_press_by_identifier(self):
+        for signature in ("func openMenu(", "func menuItem(", "func typeIntoTerminal(", "func openSettingsSheet(",
+                          "func setDensity("):
+            function = body(self.source, signature)
+            with self.subTest(helper=signature):
+                self.assertIn("qa.press(", function)
+                for call in self.OCR:
+                    self.assertNotIn(call, function)
+
+    def test_p9_sets_its_start_mode_at_launch(self):
+        function = body(self.source, "func testP9Core(")
+        self.assertIn('launchEnvironment["YEBISU_QA_START_SELECTION"] = "double-tap"', function)
+        self.assertIn('start.bool("drag_select"), false', function)
+        self.assertNotIn("Settings", "\n".join(line for line in statements(function)
+                                                 if not line.startswith(("//", "app.launchEnvironment"))))
+
+    def test_oracle_stages_are_unchanged(self):
+        # p9-check and p3-check read these screenshots by name.
+        for signature, stages in (("func testP9Core(", ['save("p9-split")', 'save("p9-reattached")']),
+                                  ("func testSH154CoreImage(", ['save("sh154-core-image")']),
+                                  ("func testP3Terminal(", ['save("p3-standard")', 'save("p3-compact")',
+                                                            'save("p3-landscape")', 'save("p3-returned")'])):
+            saved = [line for line in statements(body(self.source, signature)) if line.startswith("save(")]
+            self.assertEqual(saved, stages, signature)
+
+    def test_p9_runs_the_press_logic_checks(self):
+        command = p9.xcodebuild_test_command(Path("project"), "DEVICE", Path("derived"), Path("result.xcresult"))
+        self.assertIn("-only-testing:SmokeOracle/QAAxLogicTests", command)
+
+
 if __name__ == "__main__":
     unittest.main()

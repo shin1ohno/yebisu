@@ -214,6 +214,11 @@ fn footer_button(entry: &FooterEntry, cx: &mut Context<Smoke>) -> AnyElement {
         .h(px(FOOTER_ROW_HEIGHT))
         .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x6b7280 }))
         .child(item.label())
+        .children(
+            (item == FooterItem::Settings)
+                .then(|| crate::qa_ax::mark(crate::qa_ax::ids::FOOTER_SETTINGS, SETTINGS))
+                .flatten(),
+        )
         .children(entry.reason.map(|reason| {
             div()
                 .min_w_0()

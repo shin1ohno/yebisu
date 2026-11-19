@@ -4,7 +4,7 @@ use gpui::{AnyElement, Context, div, prelude::*, rgb};
 impl Smoke {
     pub(crate) fn handoff_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_HANDOFF_QA")?;
-        Some(div().flex().gap_2().px_4().children([("qa-image","QA Image"),("qa-image-only","QA Image only")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).on_click(cx.listener(move |this,_,_,cx| {
+        Some(div().flex().gap_2().px_4().children([("qa-image","QA Image"),("qa-image-only","QA Image only")].into_iter().map(|(id,label)|div().id(id).p_2().bg(rgb(0x3b4252)).child(label).children(if id == "qa-image-only" { crate::qa_ax::mark(crate::qa_ax::ids::BAND_IMAGE_ONLY, label) } else { crate::qa_ax::mark(crate::qa_ax::ids::BAND_IMAGE, label) }).on_click(cx.listener(move |this,_,_,cx| {
             this.handoff.qa_image_ready=false;
             let work=cx.background_executor().spawn(async move {
                 let mut state=1u32;
@@ -23,6 +23,7 @@ impl Smoke {
                         this.observation.record(serde_json::json!({"kind":"p8-image-source","bytes":bytes.len(),"width":2200,"height":2200}));
                         seed_representation(&bytes, id == "qa-image-only");
                         this.handoff.qa_image_ready=true;
+                        crate::qa_ax::core::count("qa_images");
                         this.terminal.live.status="QA image ready".into(); cx.notify();
                     }
                 });

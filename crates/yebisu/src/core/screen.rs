@@ -222,6 +222,7 @@ pub(super) fn publish_for(
             });
         }
     }
+    crate::qa_ax::core::layout(screens.len(), saved.active, saved.vertical, &saved.ids);
     let boot = format!("core-{generation}");
     let id = saved
         .ids

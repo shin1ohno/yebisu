@@ -144,7 +144,7 @@ impl Render for Probe {
                         }),
                     )
             }))
-            .child(publisher(move |cx| {
+            .child(publisher(move |_, cx| {
                 let probe = view.read(cx);
                 vec![
                     ("clicks", json!(probe.clicks)),
@@ -234,7 +234,7 @@ fn a_press_is_published_even_when_the_control_draws_nothing_new(cx: &mut TestApp
                         .h(px(40.))
                         .child(marker(ID, "Inert")),
                 )
-                .child(publisher(|_| Vec::new()))
+                .child(publisher(|_, _| Vec::new()))
         }
     }
     let (_, cx) = cx.add_window_view(|_, _| Inert);

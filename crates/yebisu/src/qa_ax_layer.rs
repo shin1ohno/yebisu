@@ -8,7 +8,7 @@
 //! with the root fields and hands the result to UIKit when it changed.
 use gpui::{
     AnyElement, App, Bounds, DispatchPhase, HitboxBehavior, MouseDownEvent, MouseUpEvent, Pixels,
-    canvas, deferred, prelude::*,
+    Window, canvas, deferred, prelude::*,
 };
 use serde_json::Value;
 use std::{
@@ -193,16 +193,17 @@ pub(crate) fn marker(id: &'static str, label: &'static str) -> AnyElement {
 
 /// The root publisher: a deferred canvas drawn after every other element
 /// (including other deferred ones), so it sees every mark of the frame.
-/// `fields` reads the root's own `qa.state` fields.
+/// `fields` reads the root's own `qa.state` fields (it is given the window
+/// for what only the window knows, such as the keyboard).
 pub(crate) fn publisher(
-    fields: impl Fn(&App) -> Vec<(&'static str, Value)> + 'static,
+    fields: impl Fn(&Window, &App) -> Vec<(&'static str, Value)> + 'static,
 ) -> AnyElement {
     publishing_thread();
     deferred(
         canvas(
             |_, _, _| (),
             move |_, _, window, cx| {
-                if !publish(fields(cx)) {
+                if !publish(fields(window, cx)) {
                     // No window to attach the layer to yet: try next frame.
                     window.refresh();
                 }

@@ -9,6 +9,9 @@ use crate::{
 use gpui::{AnyElement, ClipboardItem, Context, div, font, prelude::*, rgb};
 use sheprd_client::{ConnectOptions, ConnectTarget};
 
+/// The accessibility label of the terminal input area's QA mark.
+const TERMINAL_INPUT_LABEL: &str = "Terminal";
+
 #[derive(Default)]
 pub(crate) struct TerminalView {
     pub link: Link,
@@ -473,7 +476,12 @@ impl Smoke {
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
-                    .child(self.edit_menu_canvas(cx)),
+                    .child(self.edit_menu_canvas(cx))
+                    // Last, so no other child's hitbox lies over it.
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::TERMINAL_INPUT,
+                        TERMINAL_INPUT_LABEL,
+                    )),
             )
             .into_any_element();
         self.shell_frame(body, window, cx)

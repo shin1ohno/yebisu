@@ -137,7 +137,7 @@ impl Smoke {
             retirement: Default::default(),
             shell: Default::default(),
             handoff: crate::handoff::Handoff {
-                drag_select: true,
+                drag_select: crate::qa_ax::launch_drag_select(),
                 ..Default::default()
             },
             edit_menu: Default::default(),
