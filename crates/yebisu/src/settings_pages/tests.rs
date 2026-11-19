@@ -41,6 +41,16 @@ fn font_density_keeps_owner_metrics_and_persisted_field() {
 }
 
 #[test]
+fn density_label_is_its_name_and_metrics() {
+    // The button paints `label()`; the QA mark carries the same constant.
+    for density in Density::ALL {
+        let metrics = density.metrics();
+        let composed = format!("{density:?} {}/{}", metrics.size_px, metrics.line_height_px);
+        assert_eq!(density.label(), composed);
+    }
+}
+
+#[test]
 fn device_key_copy_is_the_formatted_public_line_only() {
     let formatted = "restrict ssh-ed25519 YWJjZA== yebisu-M5".to_owned();
     let key = KeyView::from_formatted_worker_line(formatted.clone());

@@ -49,6 +49,31 @@ impl OverflowItem {
     }
 }
 
+impl OverflowItem {
+    /// The item's QA accessibility mark (`qa_ax::mark`), labelled with the
+    /// text it paints; `None` unless the QA layer is on.
+    fn qa_mark(self) -> Option<AnyElement> {
+        use crate::qa_ax::ids;
+        let label = self.label();
+        match self {
+            Self::Paste => crate::qa_ax::mark(ids::MENU_PASTE, label),
+            Self::PasteImage => crate::qa_ax::mark(ids::MENU_PASTE_IMAGE, label),
+            Self::SelectText => crate::qa_ax::mark(ids::MENU_SELECT_TEXT, label),
+            Self::Copy => crate::qa_ax::mark(ids::MENU_COPY, label),
+            Self::Find => crate::qa_ax::mark(ids::MENU_FIND, label),
+            Self::CommandPalette => crate::qa_ax::mark(ids::MENU_COMMAND_PALETTE, label),
+            Self::Reconnect => crate::qa_ax::mark(ids::MENU_RECONNECT, label),
+            Self::CloseTab => crate::qa_ax::mark(ids::MENU_CLOSE_TAB, label),
+            Self::Detach => crate::qa_ax::mark(ids::MENU_DETACH, label),
+            Self::NewTab => crate::qa_ax::mark(ids::MENU_NEW_TAB, label),
+            Self::Split => crate::qa_ax::mark(ids::MENU_SPLIT, label),
+            Self::Pane1 => crate::qa_ax::mark(ids::MENU_PANE_1, label),
+            Self::Pane2 => crate::qa_ax::mark(ids::MENU_PANE_2, label),
+            Self::SplitDirection => crate::qa_ax::mark(ids::MENU_SPLIT_DIRECTION, label),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OverflowEntry {
     pub(crate) item: OverflowItem,
@@ -156,6 +181,7 @@ impl Smoke {
                         .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x777777 }))
                         .child(item.label())
                         .children(entry.reason.map(|reason| div().text_xs().child(reason)))
+                        .children(item.qa_mark())
                         .when(entry.enabled, |view| {
                             view.on_click(cx.listener(move |this, _, window, cx| {
                                 this.shell.frame.overflow_open = false;

@@ -13,6 +13,8 @@ use sheprd_commands::Command;
 pub(crate) const CLOSE_WIDTH: f32 = 32.0;
 /// Width of each pinned action (+, split, ...), canvas Main.dc.html.
 pub(crate) const PINNED_ACTION_WIDTH: f32 = 44.0;
+/// The glyph of the button that opens the ... menu.
+pub(crate) const MORE_GLYPH: &str = "…";
 /// The pinned actions, left to right.
 pub(crate) const PINNED_ACTIONS: [TabHit; 3] = [TabHit::NewTab, TabHit::Split, TabHit::Overflow];
 /// A tab never grows past this; a longer name is cut with an ellipsis so it
@@ -129,19 +131,26 @@ impl Smoke {
             .flex_none()
             .h_full()
             .child(
-                self.pinned_button("shell-new-tab", "+", herdr1, cx, |this, cx| {
+                self.pinned_button("shell-new-tab", "+", herdr1, None, cx, |this, cx| {
                     this.tab_row_command(Command::Tab, cx)
                 }),
             )
             .child(
-                self.pinned_button("shell-split", "◫", herdr1, cx, |this, cx| {
+                self.pinned_button("shell-split", "◫", herdr1, None, cx, |this, cx| {
                     this.tab_row_command(Command::SplitRight, cx)
                 }),
             )
-            .child(self.pinned_button("shell-more", "…", true, cx, |this, cx| {
-                this.shell.frame.overflow_open ^= true;
-                cx.notify();
-            }));
+            .child(self.pinned_button(
+                "shell-more",
+                MORE_GLYPH,
+                true,
+                crate::qa_ax::mark(crate::qa_ax::ids::TABS_MORE, MORE_GLYPH),
+                cx,
+                |this, cx| {
+                    this.shell.frame.overflow_open ^= true;
+                    cx.notify();
+                },
+            ));
         Some(
             div()
                 .id("shell-tab-row")
@@ -234,6 +243,7 @@ impl Smoke {
         id: &'static str,
         glyph: &'static str,
         enabled: bool,
+        qa_mark: Option<AnyElement>,
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
@@ -250,6 +260,7 @@ impl Smoke {
             .when(enabled, |view| {
                 view.on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
             })
+            .children(qa_mark)
             .into_any_element()
     }
 

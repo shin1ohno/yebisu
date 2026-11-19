@@ -26,6 +26,15 @@ impl Density {
         }
     }
 
+    /// The density button's text: the name and its size / line height in
+    /// px, as `metrics` gives them ("Regular 14/20", "Compact 12/17").
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Regular => "Regular 14/20",
+            Self::Compact => "Compact 12/17",
+        }
+    }
+
     pub(crate) const fn metrics(self) -> TerminalFont {
         match self {
             Self::Regular => TerminalFont {

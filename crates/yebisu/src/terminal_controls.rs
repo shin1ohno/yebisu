@@ -533,6 +533,7 @@ impl Smoke {
                             .p_2()
                             .bg(rgb(0x3b4252))
                             .child("QA mark")
+                            .children(crate::qa_ax::mark(crate::qa_ax::ids::BAND_MARK, "QA mark"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.terminal_focus.focus(window, cx);
                                 this.replace_and_mark_text_in_range(
@@ -550,6 +551,10 @@ impl Smoke {
                             .p_2()
                             .bg(rgb(0x3b4252))
                             .child("QA commit")
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::BAND_COMMIT,
+                                "QA commit",
+                            ))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.replace_text_in_range(None, "かな😀変換", window, cx);
                             })),
@@ -560,6 +565,10 @@ impl Smoke {
                             .p_2()
                             .bg(rgb(0x3b4252))
                             .child("QA delete")
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::BAND_DELETE,
+                                "QA delete",
+                            ))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let selected =
                                     this.selected_text_range(false, window, cx).map(|s| s.range);
@@ -572,6 +581,10 @@ impl Smoke {
                             .p_2()
                             .bg(rgb(0x3b4252))
                             .child("QA cancel")
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::BAND_CANCEL,
+                                "QA cancel",
+                            ))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 // UIKit control_input's composing Esc callback.
                                 let marked = this.marked_text_range(window, cx);

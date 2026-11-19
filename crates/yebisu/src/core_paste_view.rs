@@ -151,10 +151,12 @@ impl Smoke {
                         for event in std::mem::take(&mut this.handoff.held) {
                             this.send_terminal(event);
                         }
+                        crate::qa_ax::core::count("pasted_images");
                     }
                     Err(error) => {
                         this.handoff.cancel();
                         this.terminal.live.status = error;
+                        crate::qa_ax::core::count("paste_failures");
                     }
                 }
             });

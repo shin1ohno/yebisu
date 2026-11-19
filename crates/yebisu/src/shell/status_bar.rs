@@ -205,12 +205,15 @@ impl Smoke {
                 )
                 .when(model.show_reconnect, |view| {
                     view.child(
-                        chip("shell-status-reconnect", RECONNECT).on_click(cx.listener(
-                            |this, _, _, cx| {
+                        chip("shell-status-reconnect", RECONNECT)
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 this.reconnect_from_chrome(cx);
                                 cx.notify();
-                            },
-                        )),
+                            }))
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::STATUS_RECONNECT,
+                                RECONNECT,
+                            )),
                     )
                 })
                 .when(hardware_keyboard, |view| {
