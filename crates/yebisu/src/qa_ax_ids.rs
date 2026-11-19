@@ -241,3 +241,22 @@ pub(crate) const SETTINGS_START_DOUBLE_TAP: &str = "qa.settings.start-selection.
 pub(crate) const SETTINGS_START_DRAG: &str = "qa.settings.start-selection.drag";
 pub(crate) const SETTINGS_COPY_MANUAL: &str = "qa.settings.copy.manual";
 pub(crate) const SETTINGS_COPY_ON_SELECTION: &str = "qa.settings.copy.on-selection";
+/// P12's fixture controls (native_menus_qa.rs, `YEBISU_P12_QA`), one per
+/// setup step, in the order the panel draws them (UI test redesign S5).
+pub(crate) const P12_REMOTE: &str = "qa.p12.remote";
+pub(crate) const P12_REARM: &str = "qa.p12.rearm";
+pub(crate) const P12_SIDEBAR: &str = "qa.p12.sidebar";
+pub(crate) const P12_PALETTE: &str = "qa.p12.palette";
+pub(crate) const P12_RELEASE: &str = "qa.p12.release";
+pub(crate) const P12_HOST: &str = "qa.p12.host";
+pub(crate) const P12_PANE: &str = "qa.p12.pane";
+pub(crate) const P12_BOOT: &str = "qa.p12.boot";
+pub(crate) const P12_FOCUS: &str = "qa.p12.focus";
+pub(crate) const P12_CURRENT: &str = "qa.p12.current";
+pub(crate) const P12_CAPABILITY: &str = "qa.p12.capability";
+pub(crate) const P12_RESET: &str = "qa.p12.reset";
+pub(crate) const P12_FINISH: &str = "qa.p12.finish";
+/// An empty strip at the foot of P12's fixture panel: no handler, and the
+/// panel stops the touch, so a tap there changes nothing in the app. P12
+/// taps it to close an open OS menu (it replaced a fixed window point).
+pub(crate) const P12_EMPTY: &str = "qa.p12.empty";
