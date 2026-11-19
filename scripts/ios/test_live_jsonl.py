@@ -93,5 +93,35 @@ class LiveJsonlTests(unittest.TestCase):
         self.assertEqual(live_jsonl.read_records(path, previous)[0], live_jsonl.read_records(path)[previous])
 
 
+class GapTests(unittest.TestCase):
+    """The app writes observation-dropped (and observation-limit) in place of records it lost
+    (crates/yebisu/src/observation.rs); a file holding one is incomplete and must not pass."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "app.jsonl"
+
+    def test_a_dropped_record_fails_the_read(self):
+        self.path.write_bytes(b'{"kind":"launch"}\n{"kind":"observation-dropped","count":3,"time":1.0}\n{"kind":"paint"}\n')
+        with self.assertRaisesRegex(ValueError, "observation gap.*observation-dropped"):
+            live_jsonl.read_records(self.path)
+        with self.assertRaisesRegex(ValueError, "observation gap"):
+            live_jsonl.parse(self.path.read_bytes())
+
+    def test_the_writer_limit_fails_the_read(self):
+        self.path.write_bytes(b'{"kind":"paint"}\n{"kind":"observation-limit","written":8192}\n')
+        with self.assertRaisesRegex(ValueError, "observation-limit"):
+            live_jsonl.read_records(self.path)
+
+    def test_a_gap_before_the_offset_is_not_this_run(self):
+        self.path.write_bytes(b'{"kind":"observation-dropped","count":1}\n{"kind":"paint"}\n')
+        self.assertEqual(live_jsonl.read_records(self.path, 1), [{"kind": "paint"}])
+
+    def test_complete_records_pass_unchanged(self):
+        records = [{"kind": "settings-lifecycle", "phase": "Inactive"}, {"kind": "paint"}]
+        self.assertIs(live_jsonl.reject_gaps(records), records)
+
+
 if __name__ == "__main__":
     unittest.main()

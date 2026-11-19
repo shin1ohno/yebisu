@@ -149,6 +149,8 @@ mod front_layer;
 mod native_menus;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 mod p11_observer;
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+mod qa_stderr;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_native;

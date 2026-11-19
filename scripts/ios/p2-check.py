@@ -11,6 +11,9 @@ import importlib.util
 _live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
 live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
+_stderr_spec = importlib.util.spec_from_file_location("app_stderr", Path(__file__).with_name("app_stderr.py"))
+app_stderr = importlib.util.module_from_spec(_stderr_spec)
+_stderr_spec.loader.exec_module(app_stderr)
 
 # simctl pbpaste times out (NSPOSIXErrorDomain code=60, exit 60) on GitHub-hosted macOS runners:
 # run 44151000668 job 134279069207. The Mac mini keeps the exact pasteboard match.
@@ -128,6 +131,8 @@ def main():
     run("bash", "scripts/ios/sim.sh", "--wait", "3", "--out", str(destination / "launch"), app_path, env=environment)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
     preflight_container=Path(subprocess.check_output(["xcrun","simctl","get_app_container",device,"com.shin1ohno.yebisu","data"],text=True).strip())
+    # The preflight launch's own stderr is in launch/stderr.log (sim.sh); this covers XCTest's launches.
+    stderr_start = app_stderr.offset(preflight_container / "Documents")
     preflight, _ = read_until_valid(preflight_container / "Documents/p2-setup.jsonl", start, validate_preflight)
     (destination/"provider-preflight.json").write_text(json.dumps(preflight,indent=2))
     spec = root / "scripts/ios/smoke-qa"
@@ -146,6 +151,7 @@ def main():
     # The first-run frame and sheet (SH1-157 L7) are #101419 and #1c1c22, not the old setup page color.
     run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
     container = subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()
+    app_stderr.require_no_loss(app_stderr.collect(Path(container) / "Documents", destination, stderr_start))
     records, expected_line = read_until_valid(Path(container) / "Documents/p2-setup.jsonl", start, validate_records)
     verify_pasteboard(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")
     # Negative controls use the actual app's receipt shape, not invented output.

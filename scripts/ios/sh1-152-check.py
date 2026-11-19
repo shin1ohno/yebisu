@@ -21,6 +21,9 @@ scene_spec.loader.exec_module(scenes)
 _live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
 live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
+_stderr_spec = importlib.util.spec_from_file_location("app_stderr", Path(__file__).with_name("app_stderr.py"))
+app_stderr = importlib.util.module_from_spec(_stderr_spec)
+_stderr_spec.loader.exec_module(app_stderr)
 
 
 def run(*args, **kwargs):
@@ -47,6 +50,7 @@ def main():
     container = Path(run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data").stdout.strip()) / "Documents"
     for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
         path.unlink(missing_ok=True)
+    stderr_start = app_stderr.offset(container)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     methods = ["testSH1152Basic", "testSH1152Transitions", "testSH1152DismissAndSystemEdit", "testSH1152TwoScenes"]
@@ -64,11 +68,25 @@ def main():
             if path.exists():
                 shutil.copyfile(path, directory / path.name)
     read = lambda path: live_jsonl.read_records(path) if path.exists() else []
-    records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
-    peer, core = read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl")
+    try:
+        records = [row for path in directory.glob("sh1-152-*.jsonl") for row in read(path)]
+        peer, core = read(directory / "p4-peer.jsonl"), read(directory / "p9-core-wire.jsonl")
+        gap = None
+    except ValueError as error:
+        # An observation-dropped record (live_jsonl.reject_gaps): every oracle below
+        # would read an incomplete file, so the receipts check reports why.
+        records, peer, core, gap = [], [], [], error
     verdicts, failures = {"xctest": {m: f"{m}]' passed" in result.stdout for m in methods}}, []
     failures += [f"XCTest did not execute and pass: {m}" for m, ok in verdicts["xctest"].items() if not ok]
+
+    def receipts():
+        app_stderr.require_no_loss(app_stderr.collect(container, directory, stderr_start))
+        if gap is not None:
+            raise gap
+        return "SH1-152 receipts complete: no lost-record line or record"
+
     checks = {
+        "receipts": receipts,
         "basic": lambda: oracle.validate_basic(records, peer, core),
         "menus": lambda: oracle.visible_menus(result.stdout, [*oracle.BASIC_CASES, *transitions.CASES, "E4-text", "E4-key", "E7", *scenes.CASES]),
         "transitions": lambda: transitions.validate(records, peer, core, result.stdout),
