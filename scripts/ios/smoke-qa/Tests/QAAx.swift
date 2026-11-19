@@ -135,7 +135,22 @@ struct QAAx {
     /// Pause between two direct reads of `qa.state`.
     static let readInterval: useconds_t = 50_000
 
+    /// What one QAAx (one launch) remembers between calls; a class, so the copies of the struct
+    /// that tests pass around share it.
+    final class Session {
+        /// Something since the last settled read may have moved the software keyboard (UI test
+        /// redesign S5, PR 81 review S2): `settleIfMoved` waits only then. True at launch.
+        var keyboardMayMove = true
+        /// Why each press that was lost was sent once more, as `id: reason` (P12 logs these as its
+        /// `fixture-retry` records).
+        var retries: [String] = []
+        /// Negative controls: the first press of these identifiers is not sent, so the lost-press
+        /// path (press once more) runs (P12's `drop-tap:<step>`). Each is spent once.
+        var dropFirstPress: Set<String> = []
+    }
+
     let app: XCUIApplication
+    let session = Session()
 
     init(_ app: XCUIApplication) {
         self.app = app
@@ -216,7 +231,9 @@ struct QAAx {
         for attempt in 1...2 {
             // The element's own coordinate: XCTest resolves the frame, and no hittability check runs.
             let centre = element.coordinate(withNormalizedOffset: offset)
-            if let duration {
+            if attempt == 1 && session.dropFirstPress.remove(id) != nil {
+                print("QAAX press \(id): injected fault, the first press is not sent")
+            } else if let duration {
                 centre.press(forDuration: duration)
             } else {
                 centre.tap()
@@ -249,7 +266,9 @@ struct QAAx {
                 if attempt == 2 {
                     throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: after?.text ?? "nil")
                 }
-                print("QAAX press \(id) lost (presses[\(id)] and the screen fields did not move); pressing once more")
+                let reason = String(format: "presses[%@] and the screen fields did not move within %.0f s of the press", id, timeout)
+                session.retries.append("\(id): \(reason)")
+                print("QAAX press \(id) lost (\(reason)); pressing once more")
             }
         }
         throw QAAxError.pressNotDelivered(id: id, attempts: 2, before: before.text, after: read()?.text ?? "nil")
@@ -267,6 +286,7 @@ struct QAAx {
             let now = try waitState("qa.state while the keyboard settles (\(what))", timeout: timeout) { _ in true }
             if now.keyboard == last.keyboard {
                 print(String(format: "QAAX keyboard settled at %.0f pt after %.3f s (%@)", now.keyboard, QAAx.since(start), what))
+                session.keyboardMayMove = false
                 return now
             }
             last = now
@@ -274,6 +294,28 @@ struct QAAx {
                 throw QAAxError.timeout(what: "keyboard settles (\(what))", seconds: QAAx.since(start), reads: 0, last: now.text)
             }
         }
+    }
+
+    /// Notes that `why` (a launch, a focus change, a new scene, a gesture) may move the software
+    /// keyboard, so the next `settleIfMoved` waits for it to stop.
+    func keyboardMayMove(_ why: String) {
+        session.keyboardMayMove = true
+        print("QAAX keyboard may move: \(why)")
+    }
+
+    /// `settledKeyboard`, but only when something since the last settled read may have moved the
+    /// keyboard (`keyboardMayMove`). PR 81 review S2: the edit-menu job settled before all 227 of
+    /// its presses, about 115 s of its 768 s, and in the three Mac mini runs of 48c8b55 (681
+    /// settles) no settle ever saw the keyboard move; between settles it moved only after a
+    /// launch, Begin, Fresh, Mutate, Restore, the E1 raise and a long press. Returns nil when
+    /// nothing could have moved it.
+    @discardableResult
+    func settleIfMoved(_ what: String, timeout: TimeInterval = 10) throws -> QAState? {
+        guard session.keyboardMayMove else {
+            print("QAAX keyboard settle not needed (\(what)): nothing since the last settle moves it")
+            return nil
+        }
+        return try settledKeyboard(what, timeout: timeout)
     }
 
     /// Hides the software keyboard if `qa.state` shows it up, with the keyboard's own hide key

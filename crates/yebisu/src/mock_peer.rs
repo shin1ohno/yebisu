@@ -528,6 +528,16 @@ fn record(
             ClientMessage::ClientShellResize { .. } => serde_json::json!({"geometry":true}),
             _ => serde_json::json!({"other_message":true}),
         };
+        // qa.state's `peer` (UI test redesign S5): P12 waits for its FIFO
+        // fence here, inside the Finish step. Only the fence text is passed,
+        // as the trace above keeps no other pasted text.
+        #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+        if let ClientMessage::ClientShellPaneInput { events, .. } = message {
+            crate::qa_ax::peer::input(events.iter().filter_map(|event| match event {
+                ClientPaneInputEvent::Paste(text) if text == "p12-fence" => Some(text.as_str()),
+                _ => None,
+            }));
+        }
         return record_peer(
             serde_json::json!({"kind":"p12-peer-ingress", "transport":transport,
             "sequence":sequence,"message":safe}),

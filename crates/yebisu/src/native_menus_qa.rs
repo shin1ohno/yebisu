@@ -3,9 +3,52 @@ use crate::app::Smoke;
 use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_client::protocol::ClientPaneInputEvent;
 use std::{
+    collections::BTreeMap,
     sync::{Arc, mpsc::SyncSender},
     time::{Duration, Instant},
 };
+
+/// The fixture controls: the text each paints (also its QA accessibility
+/// label) and the setup step it prepares, in the order the panel draws them.
+const FIXTURES: [(&str, &str); 13] = [
+    ("P12 Remote", "remote"),
+    ("P12 Rearm", "rearm"),
+    ("P12 Sidebar", "sidebar"),
+    ("P12 Palette", "palette"),
+    ("P12 Release", "release"),
+    ("P12 Host", "host"),
+    ("P12 Pane", "pane"),
+    ("P12 Boot", "boot"),
+    ("P12 Focus", "focus"),
+    ("P12 Current", "current"),
+    ("P12 Capability", "capability"),
+    ("P12 Reset", "reset"),
+    ("P12 Finish", "finish"),
+];
+/// The QA label of the panel's empty strip (`ids::P12_EMPTY`); it paints nothing.
+const EMPTY: &str = "P12 empty space";
+
+/// The QA mark of the fixture control for `step` (UI test redesign S5):
+/// XCTest finds the control by identifier instead of reading its text.
+fn fixture_mark(step: &str, label: &'static str) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match step {
+        "remote" => crate::qa_ax::mark(ids::P12_REMOTE, label),
+        "rearm" => crate::qa_ax::mark(ids::P12_REARM, label),
+        "sidebar" => crate::qa_ax::mark(ids::P12_SIDEBAR, label),
+        "palette" => crate::qa_ax::mark(ids::P12_PALETTE, label),
+        "release" => crate::qa_ax::mark(ids::P12_RELEASE, label),
+        "host" => crate::qa_ax::mark(ids::P12_HOST, label),
+        "pane" => crate::qa_ax::mark(ids::P12_PANE, label),
+        "boot" => crate::qa_ax::mark(ids::P12_BOOT, label),
+        "focus" => crate::qa_ax::mark(ids::P12_FOCUS, label),
+        "current" => crate::qa_ax::mark(ids::P12_CURRENT, label),
+        "capability" => crate::qa_ax::mark(ids::P12_CAPABILITY, label),
+        "reset" => crate::qa_ax::mark(ids::P12_RESET, label),
+        "finish" => crate::qa_ax::mark(ids::P12_FINISH, label),
+        _ => None,
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct MenuQa {
@@ -22,10 +65,22 @@ pub(crate) struct MenuQa {
     /// OS menu rebuilds so far, and how many the last step record accounted for.
     rebuilds: u64,
     noted_rebuilds: u64,
+    /// `p12-setup-end` records so far, per step: `qa.state`'s `p12.setup`,
+    /// which XCTest waits on instead of reading the record file (S5).
+    setup_ends: BTreeMap<&'static str, u64>,
 }
 impl Smoke {
     pub(crate) fn p12_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_P12_QA")?;
+        let pending = self.terminal.navigating.is_some();
+        // qa.state `p12` (UI test redesign S5): what the panel shows ("P12
+        // Pending" / "P12 Idle" from the same `pending`) and the setup steps
+        // the app finished, so XCTest waits on them instead of reading text
+        // off the screen or the app's record file.
+        crate::qa_ax::report("p12", || {
+            serde_json::json!({"pending":pending,"case":self.p12_qa.case,
+                "mutated":self.p12_qa.mutated,"setup":self.p12_qa.setup_ends})
+        });
         Some(
             div()
                 .id("p12-qa-controls")
@@ -43,36 +98,24 @@ impl Smoke {
                 .p_2()
                 .bg(rgb(0x3b4252))
                 .text_color(rgb(0xeceff4))
-                .child(if self.terminal.navigating.is_some() {
-                    "P12 Pending"
-                } else {
-                    "P12 Idle"
-                })
-                .children(
-                    [
-                        ("P12 Remote", "remote"),
-                        ("P12 Rearm", "rearm"),
-                        ("P12 Sidebar", "sidebar"),
-                        ("P12 Palette", "palette"),
-                        ("P12 Release", "release"),
-                        ("P12 Host", "host"),
-                        ("P12 Pane", "pane"),
-                        ("P12 Boot", "boot"),
-                        ("P12 Focus", "focus"),
-                        ("P12 Current", "current"),
-                        ("P12 Capability", "capability"),
-                        ("P12 Reset", "reset"),
-                        ("P12 Finish", "finish"),
-                    ]
-                    .into_iter()
-                    .map(|(label, case)| {
-                        div().id(label).p_1().child(label).on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.p12_prepare(case, window, cx);
-                            },
-                        ))
-                    }),
+                .child(if pending { "P12 Pending" } else { "P12 Idle" })
+                .children(FIXTURES.into_iter().map(|(label, case)| {
+                    div()
+                        .id(label)
+                        .p_1()
+                        .child(label)
+                        .children(fixture_mark(case, label))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.p12_prepare(case, window, cx);
+                        }))
+                }))
+                // Empty space with no handler; the panel stops the touch.
+                .child(
+                    div()
+                        .id("p12-empty")
+                        .h(px(56.))
+                        .children(crate::qa_ax::mark(crate::qa_ax::ids::P12_EMPTY, EMPTY)),
                 )
                 .into_any_element(),
         )
@@ -211,6 +254,7 @@ impl Smoke {
             .record(serde_json::json!({"kind":"p12-setup-end", "step":case,
             "before":before,"after":[self.actions.board_hidden,self.actions.palette],
             "state":self.p12_state(window)}));
+        *self.p12_qa.setup_ends.entry(case).or_default() += 1;
         cx.notify();
     }
     pub(crate) fn p12_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {

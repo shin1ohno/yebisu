@@ -9,7 +9,6 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
-import time
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("p12_oracle", Path(__file__).with_name("p12-oracle.py"))
@@ -20,14 +19,23 @@ live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
 
 
-def xctest_env(documents, fault=""):
+def xctest_env(fault=""):
     """xcodebuild hands TEST_RUNNER_-prefixed variables to the UI test runner without
-    the prefix. P12QA waits on the app's own records in `documents` (a tap or a
-    reveal with no receipt is repeated once) and reads `fault`, a negative control."""
-    env = {**os.environ, "TEST_RUNNER_P12_DOCUMENTS": str(documents)}
+    the prefix. P12QA reads `fault`, a negative control. It waits on the app's qa.state
+    (UI test redesign S5), so it no longer gets the app's Documents directory."""
+    env = dict(os.environ)
     if fault:
         env["TEST_RUNNER_P12_QA_FAULT"] = fault
     return env
+
+
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2/S4/S5:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P12 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
 def main():
@@ -96,6 +104,7 @@ def main():
     container = Path(run("container", ["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"]).stdout.strip())
     documents = container / "Documents"
     documents.mkdir(exist_ok=True)
+    terminate(device)  # an earlier run's app may still write the peer log reset here
     # Preserve previous QA log before starting a new, unambiguous peer stream.
     peer = documents / "p4-peer.jsonl"
     if peer.exists():
@@ -103,24 +112,27 @@ def main():
     peer.write_text("")
     project = directory / "project"
     shutil.copytree(ROOT / "scripts/ios/p12-qa", project)
+    # P12QA finds the fixture controls and reads qa.state with SmokeQA's QA layer helper.
+    shutil.copyfile(ROOT / "scripts/ios/smoke-qa/Tests/QAAx.swift", project / "Tests/QAAx.swift")
     run("xcodegen", ["xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project)])
     result_path = directory / "result.xcresult"
     derived = directory / "xcode-derived"
     fault = os.environ.get("P12_QA_FAULT", "")
     oracle.require(oracle.valid_fault(fault), f"P12_QA_FAULT must be drop-tap:<step> or skip-swipe:<case> items, got {fault!r}")
-    tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
-        "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
-        "-resultBundlePath", str(result_path), "CODE_SIGNING_ALLOWED=NO",
-        "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu"], guarded=True, check=False,
-        env=xctest_env(documents, fault))
-    # Collect receiving evidence even on XCTest failure; never replace it with a model.
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and "fifo_fence" not in peer.read_text():
-        time.sleep(0.1)
+    try:
+        tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
+            "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
+            "-resultBundlePath", str(result_path), "CODE_SIGNING_ALLOWED=NO",
+            "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu"], guarded=True, check=False,
+            env=xctest_env(fault))
+    finally:
+        terminate(device)
+    # Collect receiving evidence even on XCTest failure; never replace it with a model. The app
+    # has stopped, so neither file is still being written; P12QA's Finish step already waited in
+    # qa.state until the FIFO fence reached the peer (before S5 this polled the live file 5 s).
     for source, target in [("p0-smoke.jsonl", "app.jsonl"), ("p4-peer.jsonl", "peer.jsonl")]:
         if (documents / source).exists():
             shutil.copyfile(documents / source, directory / target)
-    run("terminate", ["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], check=False)
     export = directory / "attachments"
     run("attachments", ["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_path), "--output-path", str(export)])
     screenshots, ui = set(), None

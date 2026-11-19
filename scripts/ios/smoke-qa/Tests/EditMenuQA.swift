@@ -44,6 +44,7 @@ final class EditMenuQA: XCTestCase {
                     if hide.exists && hide.isHittable {
                         let rows = ax.read()?.raw["rows"] as? Int
                         hide.tap()
+                        ax.keyboardMayMove("E3h hide key")
                         wait("E3h keyboard hidden", ax) { $0.raw["rows"] as? Int != rows }
                     } else {
                         print("SH1-152 E3h keyboard hide key unavailable; independent switch inputs still recorded")
@@ -64,7 +65,7 @@ final class EditMenuQA: XCTestCase {
                 try fresh(app, ax)
                 // Ask the real delegate for an unrelated configuration, then replay its ordinary commands.
                 try menu(app, ax, name, selected: false)
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+                dismissTap(app, ax)
                 dismissed(app, name)
                 try replay(QAIds.sh152Ordinary, ordinary: true, app, ax)
                 try end(QAIds.sh152End, app, ax)
@@ -82,7 +83,7 @@ final class EditMenuQA: XCTestCase {
             let (app, ax) = try launch(name)
             try begin(QAIds.sh152Begin, ax)
             try menu(app, ax, name, selected: false)
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+            dismissTap(app, ax)
             dismissed(app, name)
             if name == "E7" {
                 let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
@@ -117,7 +118,7 @@ final class EditMenuQA: XCTestCase {
             if name == "E5a" { choose("Paste", app, ax) }
             else if name == "E5b" { choose("Copy", app, ax) }
             else {
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+                dismissTap(app, ax)
                 dismissed(app, name)
             }
             try end(QAIds.sh152End, app, ax)
@@ -207,14 +208,17 @@ final class EditMenuQA: XCTestCase {
         }
     }
 
-    // Presses the control `id` (QAAx.press: the press must reach it, once more if it was lost)
-    // after the keyboard settled, since the QA strip moves with it. If an open edit menu lies over
+    // Presses the control `id` (QAAx.press: the press must reach it, once more if it was lost).
+    // The QA strip moves with the keyboard, so the press waits for the keyboard to settle when
+    // something since the last settle may have moved it (`keyboardMayMove`: a launch, Begin, Fresh,
+    // Mutate, Restore, the E1 raise, a long press, a dismiss tap, Home, Control Center, a scene
+    // opened or closed; S5, PR 81 review S2). If an open edit menu lies over
     // the control's centre, the end of the control outside the menu is pressed instead (runs
     // 43564245188, 43613569523 saw the menu cover the start of "152 Mutate").
     @discardableResult
     private func press(_ id: String, _ app: XCUIApplication, _ ax: QAAx, what: String = "the press's effect",
                        until: ((QAState) -> Bool)? = nil) throws -> QAState {
-        try ax.settledKeyboard("before \(id)")
+        try ax.settleIfMoved("before \(id)")
         let element = try ax.find(id)
         let offset = visiblePart(element.frame, app, id)
         return try ax.press(id, at: offset, what: what, until: until)
@@ -243,11 +247,14 @@ final class EditMenuQA: XCTestCase {
         // would clear an E2 selection, and it moves the responder the E3 to E5 cases test
         // (Mac mini 6f2d709: E3g-key "successful internal switch revoked or did not occur").
         if name.hasPrefix("E1") { try keyboardUpBeforePress(app, ax, name) }
-        try ax.settledKeyboard("\(name) before the long press")
+        try ax.settleIfMoved("\(name) before the long press")
         let before = try ax.waitState("\(name) qa.state before the long press", timeout: 5) { _ in true }
         let terminal = try ax.find(QAIds.terminalInput)
         // Upper third: the menu opens above the press, away from the QA strip under the terminal.
         terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.8)
+        // The long press focuses the terminal; the keyboard moved after it in 6 of 126 Mac mini
+        // long presses (48c8b55).
+        ax.keyboardMayMove("\(name) long press")
         XCTAssertTrue(app.menuItems["Paste"].waitForExistence(timeout: 4), "real menu missing: \(name)\n\(app.debugDescription)")
         let labels = app.menuItems.allElementsBoundByIndex.map { $0.label }
         print("SH1-152 VISIBLE \(name) selected=\(selected) labels=\(labels.joined(separator: ","))")
@@ -271,6 +278,7 @@ final class EditMenuQA: XCTestCase {
         if try ax.settledKeyboard("\(name) keyboard before the press").keyboardUp { return }
         print("SH1-152 \(name): software keyboard down before the press; tapping the terminal to raise it")
         try ax.press(QAIds.terminalInput)
+        ax.keyboardMayMove("\(name) terminal tap to raise the keyboard")
         wait("\(name) software keyboard up before the press", ax, seconds: 5) { $0.keyboardUp }
     }
 
@@ -281,6 +289,13 @@ final class EditMenuQA: XCTestCase {
         app.menuItems[item].tap()
         let after = wait("\(caseName) \(item) execution recorded", ax) { $0.count("menu_exec") > (before?.count("menu_exec") ?? 0) }
         if let after, after.count("menu_paste_executed") > (before?.count("menu_paste_executed") ?? 0) { pasted(ax) }
+    }
+
+    // Closes the edit menu with a tap beside it, on the terminal's right edge; the tap can reach
+    // the terminal and focus it.
+    private func dismissTap(_ app: XCUIApplication, _ ax: QAAx) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        ax.keyboardMayMove("tap beside the edit menu")
     }
 
     private func dismissed(_ app: XCUIApplication, _ name: String) {
@@ -298,6 +313,7 @@ final class EditMenuQA: XCTestCase {
         let before = try ax.waitState("qa.state before \(id)", timeout: 5) { _ in true }
         do {
             try press(id, ax.app, ax, what: "start marker recorded") { $0.count("sh152_start") > before.count("sh152_start") }
+            ax.keyboardMayMove("\(id)")
         } catch {
             save("missing-\(id)")
             XCTFail("\(id) was not acknowledged: \(error)")
@@ -309,6 +325,7 @@ final class EditMenuQA: XCTestCase {
     private func fresh(_ app: XCUIApplication, _ ax: QAAx) throws {
         let before = try ax.waitState("qa.state before Fresh", timeout: 5) { _ in true }
         try press(QAIds.sh152Fresh, app, ax)
+        ax.keyboardMayMove("Fresh")
         if wait("Fresh start marker recorded", ax, { $0.count("sh152_start") > before.count("sh152_start") }) != nil {
             marked("start", ax)
         }
@@ -345,6 +362,7 @@ final class EditMenuQA: XCTestCase {
     private func mutate(_ name: String, _ app: XCUIApplication, _ ax: QAAx) throws {
         let before = try ax.waitState("qa.state before Mutate", timeout: 5) { _ in true }
         try press(QAIds.sh152Mutate, app, ax)
+        ax.keyboardMayMove("\(name) Mutate")
         let field = { (state: QAState, key: String) in "\(state.raw[key] ?? "none")" }
         switch name {
         case "E3a", "E3i", "E3a-core":
@@ -381,6 +399,7 @@ final class EditMenuQA: XCTestCase {
         let before = try ax.waitState("E3e qa.state before the overlay", timeout: 5) { _ in true }
         frame("E3e before overlay", app)
         screenPoint(app, 0.97, 0.002).press(forDuration: 0.1, thenDragTo: screenPoint(app, 0.97, 0.5))
+        ax.keyboardMayMove("E3e Control Center")
         let opened = wait("E3e overlay open (scene inactive)", ax, seconds: 8) {
             !$0.active || $0.count("lifecycle_inactive") > before.count("lifecycle_inactive")
         } != nil
@@ -407,6 +426,7 @@ final class EditMenuQA: XCTestCase {
     private func leaveAndReturn(_ app: XCUIApplication, _ ax: QAAx, _ step: String) {
         let before = ax.read()
         XCUIDevice.shared.press(.home)
+        ax.keyboardMayMove("\(step) Home and back")
         if app.wait(for: .runningBackground, timeout: 10) || app.state == .runningBackgroundSuspended {
             print("SH1-152 WAIT \(step) Background: reached (\(app.state.rawValue))")
         } else {
@@ -425,6 +445,7 @@ final class EditMenuQA: XCTestCase {
     private func second(_ app: XCUIApplication, _ ax: QAAx) throws {
         let before = try ax.waitState("qa.state before Second", timeout: 5) { _ in true }
         try press(QAIds.sh152Second, app, ax)
+        ax.keyboardMayMove("second scene")
         wait("second scene on w1:p3 and Active", ax, seconds: 15) {
             $0.count("sh152_second_ready") > before.count("sh152_second_ready")
                 && $0.bool("second") == true && $0.active && $0.string("input_pane") == "w1:p3"
@@ -434,6 +455,7 @@ final class EditMenuQA: XCTestCase {
     private func closeOther(_ app: XCUIApplication, _ ax: QAAx) throws {
         let before = try ax.waitState("qa.state before Two Close", timeout: 5) { _ in true }
         try press(QAIds.sh152TwoClose, app, ax)
+        ax.keyboardMayMove("first scene closed")
         wait("first scene close recorded", ax) { $0.count("sh152_close_other") > before.count("sh152_close_other") }
     }
 
