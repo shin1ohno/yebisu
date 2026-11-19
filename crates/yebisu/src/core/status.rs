@@ -28,6 +28,10 @@ const STOP_CHECK: Duration = Duration::from_millis(50);
 /// it; one that does not within this bound is left to end on its own
 /// (bounded by herdr-core's call timeout) so the session's thread finishes.
 pub(crate) const JOIN_BOUND: Duration = Duration::from_millis(500);
+/// Failed lists in a row after which the last statuses are dropped rather
+/// than shown as current (review 0df6 SF3). Each failure can take the call
+/// timeout (10 s), so one failure alone is not taken as the end of a list.
+pub(crate) const STALE_AFTER: u32 = 2;
 
 /// One listing: every terminal's raw status, or `None` when it failed.
 pub(crate) type List = Box<dyn FnMut() -> Option<Vec<CoreStatus>> + Send>;
@@ -102,6 +106,15 @@ impl StatusMailbox {
             .clone()
     }
 
+    /// Forgets the statuses (the list keeps failing); true when there were some.
+    pub(crate) fn clear(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
     /// Stores `next`; true when it differs from what was there.
     pub(crate) fn publish(&self, next: Vec<CoreStatus>) -> bool {
         let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -123,7 +136,9 @@ pub(crate) struct StatusPoll {
 
 impl StatusPoll {
     /// Lists every `period` until the guard drops or `session_stop` is set.
-    /// A change goes into `mailbox` and marks `inbox` dirty.
+    /// A change goes into `mailbox` and marks `inbox` dirty; `STALE_AFTER`
+    /// failed lists in a row empty the mailbox, so the sidebar stops showing
+    /// statuses nobody can confirm.
     pub(crate) fn start(
         mut list: List,
         mailbox: StatusMailbox,
@@ -140,12 +155,19 @@ impl StatusPoll {
             .spawn(move || {
                 // Dropped when this thread ends: the guard's bounded wait.
                 let _ended = ended_tx;
+                let mut failures = 0;
                 while !stopped() {
-                    if let Some(next) = list()
-                        && !stopped()
-                        && mailbox.publish(next)
-                        && let Ok(mut live) = inbox.lock()
-                    {
+                    let changed = match list() {
+                        Some(next) => {
+                            failures = 0;
+                            !stopped() && mailbox.publish(next)
+                        }
+                        None => {
+                            failures += 1;
+                            failures >= STALE_AFTER && !stopped() && mailbox.clear()
+                        }
+                    };
+                    if changed && let Ok(mut live) = inbox.lock() {
                         live.dirty = true;
                     }
                     let mut waited = Duration::ZERO;
@@ -183,6 +205,9 @@ impl Drop for StatusPoll {
     }
 }
 
+#[cfg(test)]
+#[path = "status_stale_tests.rs"]
+mod stale_tests;
 #[cfg(test)]
 #[path = "status_tests.rs"]
 mod tests;
