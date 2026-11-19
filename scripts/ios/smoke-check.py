@@ -63,7 +63,10 @@ def main():
         receipts = Path(container)/'Documents/p0-smoke.jsonl'
         if receipts.is_file():
             shutil.copyfile(receipts, destination/'app.jsonl')
-            idle_report(smoke_oracle.live_jsonl.read_records(destination/'app.jsonl'))
+            try:
+                idle_report(smoke_oracle.live_jsonl.read_records(destination/'app.jsonl'))
+            except (OSError, ValueError) as error:  # never hide XCTest's own failure (PR 84 review N3)
+                print('P0 animations-running records unreadable:', error, flush=True)
     export = destination/'attachments'
     run('xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(result), '--output-path', str(export))
     stages = []

@@ -144,14 +144,27 @@ def validate(records, messages, ui, screenshots):
             "retries": retries, "hold_queries": hold_queries(ui)}
 
 
+# A hold window longer than this leaves under 20 s of the 60 s COMMAND_TIMEOUT: the S5 follow-up
+# said to act once a hold passes 40 s, so the verdict says so by name.
+HOLD_WARNING_SECONDS = 40
+
+
 def hold_queries(ui):
     """The qa.state reads P12QA made while each request was held, with their seconds and the
-    hold's length (UI test redesign S6, S5 follow-up S6-1). A read waits for the app to idle, so a
-    long one inside a hold is what could push the held request past the 60 s COMMAND_TIMEOUT; the
-    verdict shows them beside the hold. Reported, not judged."""
-    return [{"case": r.get("case"), "reads": r.get("reads"), "read_seconds": round(r.get("readSeconds", 0), 2),
-             "hold_seconds": round(r.get("ended", 0) - r.get("started", 0), 2)}
-            for r in ui if r.get("kind") == "hold-queries"]
+    hold window's length (from the Remote/Rearm fixture's confirmation to Release's; it contains
+    the request's hold). UI test redesign S6, S5 follow-up S6-1: fewer queries inside a hold make
+    an XCTest idle wait (60-80 s on an old runner image) less likely to land there, but one such
+    wait still would push the request past the 60 s COMMAND_TIMEOUT, so the reads are measured,
+    and a window above HOLD_WARNING_SECONDS is named in `warning`. Reported, not judged."""
+    result = []
+    for r in (r for r in ui if r.get("kind") == "hold-queries"):
+        hold = round(r.get("ended", 0) - r.get("started", 0), 2)
+        entry = {"case": r.get("case"), "reads": r.get("reads"), "read_seconds": round(r.get("readSeconds", 0), 2),
+                 "hold_seconds": hold}
+        if hold > HOLD_WARNING_SECONDS:
+            entry["warning"] = f"hold window {hold} s is above {HOLD_WARNING_SECONDS} s of the 60 s COMMAND_TIMEOUT"
+        result.append(entry)
+    return result
 
 
 def scope_text(record):

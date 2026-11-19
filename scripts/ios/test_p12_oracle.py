@@ -419,7 +419,8 @@ class P12HoldQueriesTests(unittest.TestCase):
         data[2].append(dict(kind="hold-queries", case="rearm", reads=4, readSeconds=61.0, started=40.0, ended=101.0))
         self.assertEqual(p12.validate(*data)["hold_queries"],
                          [dict(case="remote", reads=5, read_seconds=0.25, hold_seconds=16.5),
-                          dict(case="rearm", reads=4, read_seconds=61.0, hold_seconds=61.0)])
+                          dict(case="rearm", reads=4, read_seconds=61.0, hold_seconds=61.0,
+                               warning="hold window 61.0 s is above 40 s of the 60 s COMMAND_TIMEOUT")])
 
 
 class P12RetryTests(unittest.TestCase):

@@ -7,7 +7,7 @@ import XCTest
 final class SmokeQA: XCTestCase {
     // P9 takes about 72 s on the Mac mini. On a hosted runner it took 96-121 s with the
     // Herdr 2 band, and 209.8 s in run 44276079121 once L8 moved the band into the ...
-    // menu: about 30 s more for five menu trips (cut by tapMenuItem) and one 60.09 s wait
+    // menu: about 30 s more for five menu trips (OCR, removed in S6) and one 60.09 s wait
     // for an animation (CASDFElementLayer) that did not end, the C-anim signature below.
     // The allowance keeps room for the body (about 130 s hosted) plus one such 60 s wait,
     // as the 3 minutes did before L8 (96 + 60 s), while a hang (every query waiting 60 s)

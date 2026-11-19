@@ -218,6 +218,10 @@ class S6Identifiers(unittest.TestCase):
         p14 = body(self.source, "func testP14ConnectedNotifications(")
         self.assertEqual(re.findall(r"(?:qa\.press\(|p14Next\(qa, step: )(QAIds\.\w+|\d)", p14),
                          ["QAIds.terminalInput", "1", "QAIds.toast", "2", "3", "4", "5"])
+        # PR 84 review F3: nothing slow between the toast's appearance and its press.
+        shown, pressed = p14.index('"the toast is up"'), p14.index("try qa.press(QAIds.toast")
+        self.assertNotIn("save(", p14[shown:pressed])
+        self.assertLess(pressed, p14.index('save("p14-toast")'))
         self.assertIn('XCTAssertLessThanOrEqual(frame.maxY, keyboardTop + 2, "toast is covered by the software keyboard")', p14)
         p15 = body(self.source, "func testP15Theme(")
         self.assertEqual(re.findall(r"tapAppearance\(qa", p15), ["tapAppearance(qa"] * 3)

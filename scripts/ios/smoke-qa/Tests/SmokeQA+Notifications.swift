@@ -38,16 +38,19 @@ extension SmokeQA {
         let keyboardTop = keyboard.exists ? keyboard.frame.minY : app.frame.height
         XCTAssertLessThan(keyboardTop, app.frame.height - 100, "the software keyboard must be up for this measurement")
         try p14Next(qa, step: 1)
-        // The toast lives five seconds: it is found, measured and pressed at once.
+        // The toast lives five seconds (STATUS_TTL): its frame is read and it is pressed at once,
+        // and the screenshot comes after the press (PR 84 review F3: a screenshot before the press
+        // could use up the lifetime). The app's own p14-paint receipts prove the toast was drawn.
         try qa.waitState("the toast is up", timeout: 5) { self.p14($0)?.toast == "Agent needs attention" }
-        let toast = try qa.find(QAIds.toast, timeout: 2)
-        let frame = toast.frame
+        let shown = Date()
+        let frame = try qa.find(QAIds.toast, timeout: 2).frame
+        try qa.press(QAIds.toast, what: "the toast's tap focused pane w1:p3") { $0.string("pane") == "w1:p3" }
+        print(String(format: "P14 toast pressed and confirmed %.2f s after it was shown", Date().timeIntervalSince(shown)))
         save("p14-toast")
         // Before S6 the bottom of the OCR text box was measured; now the toast's own frame, which
         // holds that text, so the check is at least as strict.
         print("P14 keyboard top=\(keyboardTop) toast frame=\(frame)")
         XCTAssertLessThanOrEqual(frame.maxY, keyboardTop + 2, "toast is covered by the software keyboard")
-        try qa.press(QAIds.toast, what: "the toast's tap focused pane w1:p3") { $0.string("pane") == "w1:p3" }
         save("p14-focus")
         // Step 2: a quiet interval suppresses the notification; its status line lives five
         // seconds like the toast (STATUS_TTL).
