@@ -14,7 +14,7 @@ fn f24_actual_observation_sinks_and_queue_diagnostics_have_negative_control() {
         serde_json::json!({"private":"FAKE_PRIVATE_SENTINEL","key":"FAKE_PUBLIC_KEY_SENTINEL"}),
     );
     let record = records
-        .recv_timeout(std::time::Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(1))
         .unwrap_or_else(|e| panic!("{e}"));
     let mut jsonl = Vec::new();
     writeln!(&mut jsonl, "{record}").unwrap_or_else(|e| panic!("{e}"));

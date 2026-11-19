@@ -378,6 +378,11 @@ pub(crate) fn run() {
     if crate::p11_observer::capture::start().is_err() {
         return; // A requested capture that failed cannot run QA.
     }
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    if let Err(error) = crate::qa_stderr::start() {
+        // The checks fail on a missing app-stderr.log, so this is not silent.
+        eprintln!("yebisu QA stderr capture failed: {error}");
+    }
     if let Err(error) = crate::diagnostics::init() {
         eprintln!("yebisu diagnostics initialization failed: {error}");
     }

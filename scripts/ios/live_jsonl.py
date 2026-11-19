@@ -9,6 +9,18 @@ Line counts used as offsets must use the same rule, so use count_lines.
 import json
 from pathlib import Path
 
+# Records the app writes in place of records it could not deliver
+# (crates/yebisu/src/observation.rs): a file holding one is incomplete.
+GAP_KINDS = ("observation-dropped", "observation-limit")
+
+
+def reject_gaps(records):
+    """Raise ValueError if the app reported a dropped or unwritten record; else return records."""
+    for record in records:
+        if isinstance(record, dict) and record.get("kind") in GAP_KINDS:
+            raise ValueError(f"app observation gap: {json.dumps(record, sort_keys=True)}")
+    return records
+
 
 def complete_lines(data):
     """Return the newline-terminated lines of data (bytes or str), without newlines."""
@@ -19,7 +31,7 @@ def complete_lines(data):
 
 def parse(data):
     """Parse every complete line as JSON; an unterminated final fragment is dropped."""
-    return [json.loads(line) for line in complete_lines(data)]
+    return reject_gaps([json.loads(line) for line in complete_lines(data)])
 
 
 def read_records(path, skip=0):
@@ -27,7 +39,7 @@ def read_records(path, skip=0):
 
     Reads bytes so a fragment that stops inside a multi-byte character is never decoded.
     """
-    return [json.loads(line) for line in complete_lines(Path(path).read_bytes())[skip:]]
+    return reject_gaps([json.loads(line) for line in complete_lines(Path(path).read_bytes())[skip:]])
 
 
 def count_lines(path):
