@@ -141,7 +141,17 @@ def validate(records, messages, ui, screenshots):
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes,
-            "retries": retries}
+            "retries": retries, "hold_queries": hold_queries(ui)}
+
+
+def hold_queries(ui):
+    """The qa.state reads P12QA made while each request was held, with their seconds and the
+    hold's length (UI test redesign S6, S5 follow-up S6-1). A read waits for the app to idle, so a
+    long one inside a hold is what could push the held request past the 60 s COMMAND_TIMEOUT; the
+    verdict shows them beside the hold. Reported, not judged."""
+    return [{"case": r.get("case"), "reads": r.get("reads"), "read_seconds": round(r.get("readSeconds", 0), 2),
+             "hold_seconds": round(r.get("ended", 0) - r.get("started", 0), 2)}
+            for r in ui if r.get("kind") == "hold-queries"]
 
 
 def scope_text(record):

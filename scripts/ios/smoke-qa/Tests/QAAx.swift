@@ -147,6 +147,10 @@ struct QAAx {
         /// Negative controls: the first press of these identifiers is not sent, so the lost-press
         /// path (press once more) runs (P12's `drop-tap:<step>`). Each is spent once.
         var dropFirstPress: Set<String> = []
+        /// Direct reads of `qa.state` since launch and the seconds they took (UI test redesign S6,
+        /// S5 follow-up S6-1: P12 counts the reads it makes while a request is held).
+        var reads = 0
+        var readSeconds = 0.0
     }
 
     let app: XCUIApplication
@@ -164,6 +168,11 @@ struct QAAx {
 
     /// One direct read of `qa.state`, or nil when the element is not there or its value is not JSON.
     func read() -> QAState? {
+        let start = Date()
+        defer {
+            session.reads += 1
+            session.readSeconds += QAAx.since(start)
+        }
         let element = element(QAAx.state)
         guard element.exists, let value = element.value as? String else { return nil }
         return QAState(value)

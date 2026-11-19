@@ -41,6 +41,13 @@ final class P12QA: XCTestCase {
     private static let emptySpace = "qa.p12.empty"
     /// Presses on the empty strip `touchReady` may make, 3 s apart, before it fails.
     private static let touchReadyPresses = 8
+    /// The pause between two reads of qa.state while a request is held (S6-1; elsewhere QAAx
+    /// reads every 50 ms).
+    private static let heldReadInterval: useconds_t = 250_000
+    /// The frames of the fixture controls pressed while a request is held, found just before the
+    /// hold starts (S6-1), and the app window's origin they are measured from.
+    private var heldFrames: [String: CGRect] = [:]
+    private var appOrigin = CGPoint.zero
 
     /// A failed assertion ends the test method without running its `defer`, so the
     /// events are attached here: a failed run keeps them as evidence too.
@@ -81,11 +88,18 @@ final class P12QA: XCTestCase {
         try locateFixtures()
         try touchReady()
         for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
+            try recordHeldFrames([local, "release"])
             try fixture(remote)
+            let hold = (reads: qa.session.reads, seconds: qa.session.readSeconds, started: Date().timeIntervalSince1970)
             try choose("Split Right", caseName: remote, negative: false)
-            try fixture(local)
+            try fixture(local, held: true)
             try choose(name, caseName: local, negative: false)
-            try fixture("release")
+            try fixture("release", held: true)
+            // S5 follow-up S6-1: how many qa.state reads the hold carried and how long they took, so
+            // the oracle can put them beside the hold (a read waits for the app to idle).
+            events.append(["kind": "hold-queries", "case": remote, "reads": qa.session.reads - hold.reads,
+                           "readSeconds": qa.session.readSeconds - hold.seconds,
+                           "started": hold.started, "ended": Date().timeIntervalSince1970])
             try idle()
         }
         for step in ["host", "pane", "boot", "focus", "capability"] {
@@ -366,7 +380,7 @@ final class P12QA: XCTestCase {
     /// `fixture-retry`; a press that something else took, or one that reached the control without
     /// its setup step, fails by name. Finish also waits until its FIFO fence reached the private
     /// peer (qa.state `peer`), which p12-check.py used to poll the peer's file for after XCTest.
-    private func fixture(_ step: String) throws {
+    private func fixture(_ step: String, held: Bool = false) throws {
         let id = try fixtureId(step)
         let setupStart = Date().timeIntervalSince1970
         let before = try qa.waitState("qa.state before the \(step) fixture", timeout: Self.receiptTimeout) { _ in true }
@@ -376,7 +390,11 @@ final class P12QA: XCTestCase {
         let retries = qa.session.retries.count
         var failure = ""
         do {
-            try qa.press(id, timeout: Self.receiptTimeout, what: "p12-setup-end for \(step)") { self.setupEnds($0, step) > ended }
+            if held {
+                try heldPress(id, step: step, before: before, ended: ended)
+            } else {
+                try qa.press(id, timeout: Self.receiptTimeout, what: "p12-setup-end for \(step)") { self.setupEnds($0, step) > ended }
+            }
             if step == "finish" {
                 try qa.waitState("the FIFO fence reached the private peer", timeout: Self.receiptTimeout) {
                     $0.peerPastes.contains("p12-fence")
@@ -397,6 +415,64 @@ final class P12QA: XCTestCase {
         sleep(1)
         events.append(["kind": "fixture-control", "step": step, "received": received,
                        "started": setupStart, "ended": Date().timeIntervalSince1970])
+    }
+
+    /// Finds the controls `steps` press while the next request is held, before it is held (S5
+    /// follow-up S6-1). The panel does not move during a hold: no keyboard rises over it and no
+    /// sheet opens, and a press that misses its control is caught by qa.state as before.
+    private func recordHeldFrames(_ steps: [String]) throws {
+        appOrigin = app.frame.origin
+        for step in steps {
+            let id = try fixtureId(step)
+            heldFrames[id] = try qa.find(id, timeout: 5).frame
+        }
+    }
+
+    /// The fixture press while a request is held (S5 follow-up S6-1, review F2 of PR 83). QAAx.press
+    /// queries the app about 15 times per press (an element query, a duplicate check, reads every
+    /// 50 ms), and each query can wait for the app to idle (60-80 s on an old runner image), which
+    /// would push the hold past the client's 60 s COMMAND_TIMEOUT. Here the control's frame was found
+    /// before the hold, and qa.state is read every 250 ms until `presses[id]` and the step's
+    /// p12-setup-end both grew. The decisions are QAAx.press's: a press that moved nothing is sent
+    /// once more (logged as a retry), one that something else took or that never arrives fails.
+    private func heldPress(_ id: String, step: String, before: QAState, ended: Int) throws {
+        let frame = try XCTUnwrap(heldFrames[id], "no frame recorded before the hold for \(id)")
+        let point = CGVector(dx: frame.midX - appOrigin.x, dy: frame.midY - appOrigin.y)
+        let start = Date()
+        for attempt in 1...2 {
+            if attempt == 1 && qa.session.dropFirstPress.remove(id) != nil {
+                print("P12 held press \(id): injected fault, the first press is not sent")
+            } else {
+                app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
+            }
+            var last: QAState?
+            while Date().timeIntervalSince(start) < Double(attempt) * Self.receiptTimeout {
+                usleep(Self.heldReadInterval)
+                guard let state = qa.read() else { continue }
+                last = state
+                if state.presses(id) > before.presses(id) && setupEnds(state, step) > ended {
+                    print(String(format: "P12 held press %@ confirmed after %.3f s (attempt %ld)", id, Date().timeIntervalSince(start), attempt))
+                    return
+                }
+            }
+            if let last, last.presses(id) > before.presses(id) {
+                throw QAAxError.pressWithoutEffect(id: id, what: "p12-setup-end for \(step)", seconds: Date().timeIntervalSince(start), last: last.text)
+            }
+            switch PressVerdict.of(before: before, after: last, id: id) {
+            case .relaunched:
+                throw QAAxError.relaunched(id: id, before: before.text, after: last?.text ?? "nil")
+            case let .takenElsewhere(moved):
+                throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: last?.text ?? "nil")
+            case .lost:
+                break
+            }
+            if attempt == 2 {
+                throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: last?.text ?? "nil")
+            }
+            let reason = String(format: "presses[%@] and the screen fields did not move within %.0f s of the press", id, Self.receiptTimeout)
+            qa.session.retries.append("\(id): \(reason)")
+            print("P12 held press \(id) lost (\(reason)); pressing once more")
+        }
     }
 
     /// "P12 Idle": the held request was answered. Before S5 OCR looked for the panel's text (up to 8
