@@ -1,12 +1,14 @@
 # TestFlight 配布
 
-SH1-170 の TestFlight 経路は `.github/workflows/testflight.yml` です。`main` に含まれる `vMAJOR.MINOR.PATCH` タグの push、または `main` を選んだ `workflow_dispatch` で、Rust の release device bundle をビルドし、App Store 配布署名を付け、App Store Connect にアップロードします。タグは workspace の Cargo version と一致する必要があります。PR や任意の作業ブランチでは署名ジョブを実行しません。既存の CI workflow は変更していません。
+SH1-170 の TestFlight 経路は `.github/workflows/testflight.yml` です。`main` を選んだ手動実行（`workflow_dispatch`）だけで、Rust の release device bundle をビルドし、App Store 配布署名を付け、App Store Connect にアップロードします。タグの push では動きません。PR、タグ、その他のブランチでは署名ジョブを実行しません。既存の CI workflow は変更していません。
 
 ## 所有者の準備
 
 1. App Store Connect で **`com.shin1ohno.yebisu` を登録**し、app record の数値 Apple ID を控えます。
 2. App Store Connect の **API キーを作成**します。team issuer を持ち、対象アプリへのアップロード権限があるキーを使います。
-3. API キーを GitHub の **environment `testflight` に secrets として保存**します。次の署名用 secrets も同じ environment に保存します。
+3. API キーを GitHub の **environment `testflight` に secrets として保存**します。次の署名用 secrets も同じ environment に保存します。environment の設定は次の 2 つです。
+   - 配置できるブランチは `main` だけにします（deployment branch policy）。
+   - required reviewer に所有者（shin1ohno）を設定します。配布の run は毎回、所有者の承認を待ってから secrets を受け取ります。Claude は承認しません。
 4. 初回アップロード後、App Store Connect で processing の結果と internal group への追加を確認します。**外部テスターには Beta App Review が必要**です。テスト情報を入力し、外部グループ用のビルドを審査に提出します。
 
 | Environment secret | 内容 |
@@ -22,13 +24,33 @@ SH1-170 の TestFlight 経路は `.github/workflows/testflight.yml` です。`ma
 
 API キーはコード署名証明書とは別です。Mac mini の開発用 profile はそのまま TestFlight 用には使いません。App Store 配布 profile は有効期限内、対象 Team/App ID と一致、`get-task-allow=false`、登録端末リストなしである必要があります。helper がこれらと証明書の一致を検査します。証明書・秘密鍵・profile は所有者が準備します。この変更は Mac mini、Apple 側の登録、secrets の設定を実行しません。
 
-environment は `main` と承認済み release タグに限定し、必要なら reviewer を設定します。タグを作成できる人を制限してください。workflow 内でも対象 repository、ref、main への包含を検査します。手動実行時は必ず `main` を選びます。
+workflow 自身も次を検査します。
+
+- job の条件: repository が `shin1ohno/yebisu`、イベントが `workflow_dispatch`、ref が `refs/heads/main` のときだけ job が動きます。
+- `Require the origin/main tip`: `origin/main` を取り直し、checkout した HEAD が `main` の先端と一致しなければ失敗します。古い `main` のコミットからは配布しません。
+- `testflight-secrets.py validate`: `GITHUB_REF` が `refs/heads/main` でなければ失敗します。
 
 ## 実行と確認
 
-所有者の準備と PR のマージ後に、GitHub Actions の TestFlight を `main` から手動実行できます。通常のリリースでは Cargo version を更新して CI を通し、そのコミットに一致する version タグを push します。本 PR の検証ではタグ作成・push・署名・アップロードを行いません。
+所有者の準備の後、GitHub Actions の TestFlight を `main` から手動実行します（`gh workflow run testflight.yml --ref main`）。所有者が environment `testflight` の承認をすると job が始まります。
 
-macos-26 上で Xcode/SDK を記録し、repository の Rust pin と `aarch64-apple-ios` を使います。ビルドは既存の 6 GiB ディスク guard を通し、Cargo jobs は1です。専用 target を使い、署名情報や IPA を cache/artifact に保存しません。秘密情報不足はビルド前に名前だけを表示して失敗します。秘密ファイルは private directory に mode 600、directory は700で作成し、`always()` で除去します。署名 helper は一時専用 Keychain を削除し、検索リストを復元してから IPA を確定します。ホスト停止時の cleanup は保証できないため、使い捨て GitHub hosted runner のみを対象とします。
+## 段の順番と秘密ファイル
+
+job の段は次の順に動きます。秘密ファイル（`.p12`、profile、`.p8`）がディスクにあるのは、ビルドの後から最後の削除までです。cargo の build.rs や Homebrew の formula など、ビルドと第三者のコードが動く間は、秘密ファイルはまだありません。また、それらの段には secrets を渡しません。
+
+1. `Require the origin/main tip`: HEAD が `main` の先端と一致するかを確かめます。
+2. `Validate environment secrets`（`testflight-secrets.py validate`）: 8 つの secrets の有無と形式、ref、run number、Cargo version を検査します。ファイルは書きません。brew・rustup・cargo より前に動き、不足は名前だけを表示して失敗します。
+3. Xcode と SDK の記録、Rust と just の導入、`cargo fetch`、release device bundle のビルド。
+4. `Write private signing and upload files`（`testflight-secrets.py materialize`）: `ASC_KEY_P8`・`IOS_P12_BASE64`・`IOS_PROFILE_BASE64` の 3 つだけを受け取り、`$RUNNER_TEMP/yebisu-testflight` を mode 700 で新しく作り、3 つのファイルを mode 600 で書きます。ディレクトリが既にあれば（ビルドが先に作った symlink を含む）失敗します。
+5. `Sign and package for TestFlight`（`distribution.py package`）。
+6. `Upload to App Store Connect`（`distribution.py upload`）。
+7. `Remove private files`: `always()` で秘密ファイルのディレクトリを消します。
+
+package と upload は、外部ツール（`security`、`codesign`、`ditto`、`xcrun altool`）の stdout と stderr を、成功時も失敗時も表示します。altool は `--output-format json` の JSON を出します。表示の前に、パスワード、一時 Keychain のパスワード、secrets の値、秘密ファイルのパス、`.p8` の中身を `[redacted]` に置き換えます。altool は `.p8` で JWT を署名します。JWT は key ID と issuer から作る派生値で、secrets の値とは一致しません。また、改行や `\n` で分かれると形でも見つけきれません。そのため altool の出力は、許可した項目だけを表示します。stdout の JSON からは `tool-version`・`os-version`・`success-message` と、`product-errors` の各項目の `code`・`message`・`userInfo` の `NSLocalizedDescription`・`NSLocalizedFailureReason`・`NSLocalizedRecoverySuggestion`・`underlying-errors` だけを出します。それ以外の行（JSON でない出力と stderr）は、エスケープした改行を行に分けた後、`eyJ` も `bearer`（大文字小文字を問わない）も含まず、32 文字以上の base64url のような連続（UUID を除く）も含まない行だけを出し、ほかは `[withheld: line may carry a credential]` に置き換えます。表示する文字列も、さらに上の伏せ字を通します。ツールの引数は表示しません。altool の引数は Xcode 27.2 の `xcrun altool --upload-package <file>` と API キー認証（`--api-key`・`--api-issuer`・`--p8-file-path`）で、`--apple-id` は渡しません。
+
+本 PR の検証では、署名・アップロード・environment と secrets の作成・workflow の実行を行いません。
+
+macos-26 上で Xcode/SDK を記録し、repository の Rust pin と `aarch64-apple-ios` を使います。ビルドは既存の 6 GiB ディスク guard を通し、Cargo jobs は1です。専用 target を使い、署名情報や IPA を cache/artifact に保存しません。署名 helper は一時専用 Keychain を削除し、検索リストを復元してから IPA を確定します。ホスト停止時の cleanup は保証できないため、使い捨て GitHub hosted runner のみを対象とします。ビルドの段が起動したまま残るプロセスは、同じ job の後の段で秘密ファイルを読めます。この危険は、使い捨て runner と、ビルド対象が `main` の先端だけであることで抑えています。
 
 marketing version は Cargo version、`CFBundleVersion` は workflow run number です。1..9999 を許容し、10000 到達前には採番方式の変更が必要です。再実行は同じ build number なので、既に ASC が受理した run の再送は重複になります。新しい手動 run を開始してください。手動配布後も marketing version は同じまま新しい build number を付けられます。
 

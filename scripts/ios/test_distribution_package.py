@@ -1,7 +1,9 @@
 """Signing lifecycle fixtures; no certificates, keychain or codesign processes."""
 import argparse
+import contextlib
 import hashlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import plistlib
@@ -46,7 +48,7 @@ class PackageTests(unittest.TestCase):
         self.args = argparse.Namespace(app=self.app, output=self.root / "output.ipa",
                                         build_number="2", method="testflight")
         self.calls = []
-        self.fail = None
+        self.failing = None
         self.collide = False
 
     def fake_run(self, argv, **kwargs):
@@ -56,7 +58,7 @@ class PackageTests(unittest.TestCase):
             label = "verify"
         if argv[0] == "security" and argv[1] == "list-keychains" and "-s" in argv:
             label = "restore-list"
-        if label == self.fail:
+        if label == self.failing:
             raise subprocess.CalledProcessError(1, argv)
         if argv[0] == "codesign" and "--sign" in argv:
             staged = Path(argv[-1])
@@ -117,7 +119,7 @@ class PackageTests(unittest.TestCase):
                       "find-identity", "codesign", "verify", "ditto", "delete-keychain", "restore-list"]:
             with self.subTest(stage=label):
                 self.calls = []
-                self.fail = label
+                self.failing = label
                 with self.assertRaises(subprocess.CalledProcessError):
                     self.package()
                 self.assertEqual(snapshot(self.app), original)
@@ -149,6 +151,55 @@ class PackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.package()
         self.assertFalse(self.calls)
+
+    def echoing_run(self, argv, **kwargs):
+        """Tools echo the keychain and .p12 passwords on both streams."""
+        secret = argv[argv.index("-P") + 1] if "-P" in argv else argv[argv.index("-p") + 1] if "-p" in argv else ""
+        label = argv[1] if argv[0] == "security" else argv[0]
+        try:
+            result = self.fake_run(argv, **kwargs)
+        except subprocess.CalledProcessError as error:
+            raise subprocess.CalledProcessError(error.returncode, argv, f"OUT-{label} {secret}\n",
+                                                f"ERR-{label} {secret}\n") from None
+        if label in {"list-keychains", "find-identity"}:
+            return result
+        return subprocess.CompletedProcess(argv, 0, f"OUT-{label} {secret}\n", f"ERR-{label} {secret}\n")
+
+    def package_output(self):
+        stderr = io.StringIO()
+        with patch.dict(os.environ, dict(IOS_P12_FILE=str(self.secret),
+                IOS_PROFILE_FILE=str(self.secret), IOS_P12_PASSWORD="fixture only"), clear=True), \
+                patch.object(d, "profile_helper", return_value=self.helper), \
+                patch.object(d, "run", side_effect=self.echoing_run), contextlib.redirect_stderr(stderr):
+            try:
+                d.package(self.args)
+            finally:
+                self.output = stderr.getvalue()
+
+    def assert_passwords_hidden(self):
+        keychain_password = next(argv[3] for argv in self.calls if argv[:2] == ["security", "create-keychain"])
+        for value in ("fixture only", keychain_password, str(self.secret)):
+            self.assertNotIn(value, self.output)
+
+    def test_success_shows_every_tool_output_without_passwords(self):
+        self.package_output()
+        for label in ("import", "codesign", "ditto", "delete-keychain"):
+            self.assertIn(f"OUT-{label}", self.output)
+            self.assertIn(f"ERR-{label}", self.output)
+        self.assertIn("[security import] exit status 0", self.output)
+        self.assertIn("OUT-import [redacted]", self.output)
+        self.assertIn("ERR-create-keychain [redacted]", self.output)
+        self.assert_passwords_hidden()
+
+    def test_failure_shows_the_failing_tool_output_without_passwords(self):
+        self.failing = "import"
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.package_output()
+        self.assertIn("[security import] exit status 1", self.output)
+        self.assertIn("OUT-import [redacted]", self.output)
+        self.assertIn("ERR-import [redacted]", self.output)
+        self.assert_passwords_hidden()
+        self.assert_cleanup()
 
     def test_output_collision_never_overwrites_another_writer(self):
         self.collide = True

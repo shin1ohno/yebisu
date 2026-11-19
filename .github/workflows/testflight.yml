@@ -1,7 +1,7 @@
 name: TestFlight
+# Manual runs from main only. Environment testflight allows only main and
+# needs the owner's approval for every run (docs/testflight.md).
 on:
-  push:
-    tags: ['v[0-9]*']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,7 +12,8 @@ jobs:
   testflight:
     if: >-
       github.repository == 'shin1ohno/yebisu' &&
-      (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
     environment: testflight
     runs-on: macos-26
     timeout-minutes: 90
@@ -27,9 +28,17 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Require a revision on main
-        run: git merge-base --is-ancestor HEAD origin/main
-      - name: Validate environment secrets and prepare private files
+      - name: Require the origin/main tip
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          head=$(git rev-parse HEAD)
+          tip=$(git rev-parse refs/remotes/origin/main)
+          if [ "$head" != "$tip" ]; then
+            echo "::error::HEAD $head is not the origin/main tip $tip; start a new run from main"
+            exit 1
+          fi
+      # Checks only; writes no files. Runs before brew, rustup and cargo.
+      - name: Validate environment secrets
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -39,7 +48,7 @@ jobs:
           IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
           IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
           IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
-        run: python3 -I -B scripts/ios/testflight-secrets.py
+        run: python3 -I -B scripts/ios/testflight-secrets.py validate
       - name: Record Xcode and SDK
         run: |
           xcodebuild -version
@@ -54,6 +63,13 @@ jobs:
         run: just guarded cargo fetch --locked
       - name: Build release device bundle
         run: just guarded python3 -I -B scripts/ios/distribution.py build
+      # The .p12, profile and .p8 exist only from here, after the build.
+      - name: Write private signing and upload files
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: python3 -I -B scripts/ios/testflight-secrets.py materialize
       - name: Sign and package for TestFlight
         env:
           IOS_P12_FILE: ${{ runner.temp }}/yebisu-testflight/distribution.p12
