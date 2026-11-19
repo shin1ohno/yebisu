@@ -319,19 +319,54 @@ under an 8-core CPU load.)
   `settings_lifecycle`), so the lifecycle reached the app; `p10-check.py`
   then found no Inactive and Background `settings-lifecycle` records. A p10 run
   writes 258 to 294 records, at most 107 in one second, so the old 256-slot
-  queue never filled. What fits: the first process queued its records and
-  died (suspended in the background, then terminated) before its writer
-  thread wrote them; the second process records only Foreground and Active.
-  Not proven: the artifact kept neither the records nor the stderr.
+  queue never filled. Cause unknown; the artifact kept neither the records
+  nor the stderr.
+  - Hypothesis (unproven): the first process queued Inactive and Background
+    and was killed while suspended, before its writer thread wrote them. The
+    flush below guards against exactly this.
+  - Against it: in a passing p10 (Mac mini, a40b435, 10 runs) the first
+    process records Inactive 1.83 to 2.01 s before Background, and Inactive
+    alone does not suspend, so a writer that is alive has had about 2 s to
+    write Inactive. The same process then records Foreground and Active
+    again: activate resumes it, it is not relaunched (two `launch` pids per
+    run). Losing Inactive needs the writer stalled or dead for those 2 s, or
+    a kill while suspended followed by a third launch.
+  - Other candidate: the writer thread died or never opened the file. An
+    open or write error says `smoke observation writer: <error>`; a missing
+    `HOME` ends the thread without a line. Either way the records already
+    queued are gone, every later record says `smoke observation dropped:
+    disconnected`, and the flush cannot help.
+  - A Mac mini negative control (writer delayed 2 ms a record, Settings
+    brought to the front, `simctl terminate` 3 s later) kept Background in
+    5/10 rounds with the flush and 7/10 without; no round showed a flush
+    timeout, so Background had not reached the app in the missing rounds.
+    It does not decide whether the flush helps.
   - Now: every check reads gap records through `live_jsonl`; p10 and sh1-152
     keep `app-stderr.log` and fail on a lost-record line; p10 keeps
-    `p10-settings.jsonl`; the app waits up to 500 ms at Inactive, Background
-    and Disconnected for its writer (`Observation::flush`) and says
-    `smoke observation flush timed out: N records unwritten` when it cannot;
-    every `launch` record carries the pid.
-  - Next time: read `app-stderr.log` (a flush timeout or a drop names the
-    cause) and count `launch` pids in `p10-settings.jsonl` (two pids where
-    three launches happened means one process wrote nothing).
+    `p10-settings.jsonl`; every `launch` record carries the pid. The app waits
+    for its writer at Inactive, Background and Disconnected
+    (`Observation::flush`, at most 500 ms, also when the handler returns
+    early for a terminal already suspended) and says `smoke observation flush
+    timed out: N records unwritten` when it cannot. A flush timeout alone does
+    not fail a check: the oracle fails on the phase that is missing.
+  - Main-thread bound (QA writer only, from `YEBISU_SMOKE_OBSERVE` or
+    `YEBISU_P2_OBSERVE` at launch; without them there is no writer and
+    nothing waits): the flush waits at most 500 ms a phase and its timeout
+    record does not wait. Each record the handler itself sends
+    (`settings-lifecycle`, `lifecycle`) waits only when the 4,096-record
+    queue is full: up to 250 ms, or 500 ms when a drop notice goes first. So
+    a phase blocks the main thread for at most 500 ms with room in the queue
+    and about 1.5 s with a full queue; Active to Background delivers Inactive
+    and Background in one callback, so twice that (1 s, about 3 s). A run
+    queues at most 107 records a second, so the full-queue case needs a
+    writer that has stopped. The wait runs in GPUI's lifecycle callback on
+    the main queue, after the UIKit delegate returned, inside herdr-uikit's
+    background task for a transition that reaches Background.
+  - Next time: read `app-stderr.log` (a writer error, a drop or a flush
+    timeout names the cause) and count `launch` pids in `p10-settings.jsonl`:
+    two means activate resumed the first process, three means it was killed
+    and relaunched; a pid followed by no records means its writer wrote
+    nothing.
 - **SH1-152-click (not an observation loss).** In E5d stage 1 the `152 Two
   End` tap was synthesized at the button's centre at t=174.43 s; the app drew a
   frame 0.07 s before (the same place as the pressed frame in the passing E5c,
