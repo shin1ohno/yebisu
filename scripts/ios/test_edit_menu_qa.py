@@ -65,7 +65,8 @@ class EditMenuQAIdentifiers(unittest.TestCase):
 
     def test_controls_are_pressed_by_identifier_through_qa_press(self):
         press = body(self.code, "private func press(")
-        self.assertIn("ax.settledKeyboard(", press)
+        self.assertIn("ax.settleIfMoved(", press)
+        self.assertNotIn("ax.settledKeyboard(", press)
         self.assertIn("ax.press(id, at: offset", press)
         for control in ("QAIds.sh152Begin", "QAIds.sh152Select", "QAIds.sh152Mutate", "QAIds.sh152Replay",
                         "QAIds.sh152Fresh", "QAIds.sh152End", "QAIds.sh152Ordinary", "QAIds.sh152Restore",
@@ -152,6 +153,69 @@ class SmokeQAEditMenuIdentifiers(unittest.TestCase):
         self.assertIn('save("sh1-153-case-\\(step)")', sh153)
         self.assertIn("for step in 0..<10", sh153)
         self.assertIn("for step in 0..<25", body(self.code, "func testP8NativeEditing("))
+
+
+class S4FollowUps(unittest.TestCase):
+    """UI test redesign S5 does the S4 follow-ups of PR 81's reviews (S4 report section 7.1)."""
+
+    def setUp(self):
+        self.edit = code(EDIT_MENU)
+        self.smoke = code(SMOKE)
+        self.qaax = code((TESTS / "QAAx.swift").read_text())
+
+    def test_review_s2_the_keyboard_settles_only_after_a_step_that_may_move_it(self):
+        settle = body(self.qaax, "func settleIfMoved(")
+        self.assertIn("guard session.keyboardMayMove else", settle)
+        self.assertIn("settledKeyboard(what", settle)
+        self.assertIn("session.keyboardMayMove = false", body(self.qaax, "func settledKeyboard("))
+        # Every press and the long press go through settleIfMoved; no plain settle before a press.
+        self.assertIn("ax.settleIfMoved(", body(self.edit, "private func menu("))
+        self.assertIn("qa.settleIfMoved(", body(self.smoke, "func pressSettled("))
+        self.assertNotIn("settledKeyboard(", body(self.smoke, "func pressSettled("))
+        # Each step that moved the keyboard between two settles in the 681 settles of the three Mac
+        # mini runs of 48c8b55 (launch, Begin, Fresh, Mutate, Restore, the E1 raise, a long press)
+        # marks it, and so do the gestures and scene changes that can.
+        for signature in ("private func begin(", "private func fresh(", "private func mutate(", "private func menu(",
+                          "private func keyboardUpBeforePress(", "private func dismissTap(", "private func overlay(",
+                          "private func leaveAndReturn(", "private func second(", "private func closeOther("):
+            with self.subTest(step=signature):
+                self.assertIn("keyboardMayMove(", body(self.edit, signature))
+        self.assertIn('try ax.settledKeyboard("\\(name) after Restore")', self.edit)
+        self.assertIn("var keyboardMayMove = true", self.qaax, "a launch may move the keyboard")
+        prepare = body(self.smoke, "func editPrepare(")
+        self.assertIn("movesKeyboard: true", prepare)
+        self.assertIn("QAIds.nativeNext, movesKeyboard: true", self.smoke)
+        self.assertIn("QAIds.editSelect, movesKeyboard: false", self.smoke)
+        self.assertIn("QAIds.editExecute, movesKeyboard: false", self.smoke)
+
+    def test_review_s1_the_scheduled_selector_and_the_paste_are_two_waits(self):
+        ran = body(self.smoke, "func scheduledActionsRan(")
+        waits = re.findall(r"logWait\(", ran)
+        self.assertEqual(len(waits), 2, "one wait for the selector, one for the paste")
+        self.assertNotRegex(ran, r"native_actions.*&&.*pasting|pasting.*&&.*native_actions",
+                            "the combined predicate that ran out at 5 s in six cases is gone")
+        self.assertIn('seconds: reachesApp ? 5 : 1', ran)
+        self.assertIn('logWait(qa, "\\(what): no paste pending", seconds: 5) { $0.bool("pasting") == false }', ran)
+        self.assertIn("step % 5 != 4", body(self.smoke, "static func editSelectorReachesApp("))
+        self.assertIn("step % 6 != 3", body(self.smoke, "static func nativeSelectorReachesApp("))
+        self.assertIn("reachesApp: Self.editSelectorReachesApp(step)", self.smoke)
+        self.assertIn("reachesApp: Self.nativeSelectorReachesApp(step)", self.smoke)
+
+    def test_review_s2_selector_cases_match_the_app(self):
+        # P8 schedules selectAll: at step % 6 == 3, SH1-153 clears the selection at step % 5 == 4.
+        native = (Path(__file__).resolve().parents[2] / "crates/yebisu/src/native_edit_qa.rs").read_text()
+        self.assertIn('["paste:","copy:","cut:","selectAll:","physical-v","physical-c"][step%6]', native)
+        menu = (Path(__file__).resolve().parents[2] / "crates/yebisu/src/edit_menu_qa.rs").read_text()
+        self.assertIn("if step % 5 == 4 {\n                                this.handoff.selection = None;", menu)
+
+    def test_rereview_s1_the_image_put_comment_claims_only_what_was_measured(self):
+        handoff = (TESTS / "SmokeQA+Handoff.swift").read_text()
+        comment = handoff[handoff.index("// An image put"):handoff.index("let imagePut")]
+        self.assertNotIn("each\n        // time", comment)
+        self.assertNotIn("finished each", comment)
+        self.assertNotIn("three times the slowest", comment)
+        for fact in ("Whether those two finished is not known", "9.14 s", "44523467982", "not a measured bound"):
+            self.assertIn(fact, comment)
 
 
 if __name__ == "__main__":

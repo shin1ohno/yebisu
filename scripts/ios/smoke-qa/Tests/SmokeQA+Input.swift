@@ -13,7 +13,8 @@ extension SmokeQA {
         let qa = QAAx(app)
         try launchPeerTerminal(app, qa, "YEBISU_SH1_156_QA")
         let start = try qa.waitState("qa.state before Discard composition", timeout: 5) { _ in true }
-        try pressSettled(qa, QAIds.sh156Discard, what: "the composition was discarded") {
+        // The pointer click below waits for the keyboard on its own.
+        try pressSettled(qa, QAIds.sh156Discard, movesKeyboard: false, what: "the composition was discarded") {
             $0.count("sh156_discarded") > start.count("sh156_discarded")
         }
         save("sh1-156-discarded")

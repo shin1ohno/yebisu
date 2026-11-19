@@ -3,12 +3,17 @@ import Vision
 
 // SH1-153 edit menu, P8 native editing, SH1-154 core image.
 extension SmokeQA {
-    /// Presses `id` once the keyboard stopped moving (the QA strip moves with it) and waits for
-    /// `until` (UI test redesign S4).
+    /// Presses `id` and waits for `until` (UI test redesign S4). The QA strip moves with the keyboard,
+    /// so the press first waits for the keyboard to settle when something since the last settle may
+    /// have moved it (`QAAx.settleIfMoved`). `movesKeyboard`: the press itself may move it (Menu
+    /// prepare and Native next focus the terminal and ask for the keyboard), so the next press waits.
     @discardableResult
-    func pressSettled(_ qa: QAAx, _ id: String, what: String, until: @escaping (QAState) -> Bool) throws -> QAState {
-        try qa.settledKeyboard("before \(id)")
-        return try qa.press(id, what: what, until: until)
+    func pressSettled(_ qa: QAAx, _ id: String, movesKeyboard: Bool, what: String,
+                      until: @escaping (QAState) -> Bool) throws -> QAState {
+        try qa.settleIfMoved("before \(id)")
+        let state = try qa.press(id, what: what, until: until)
+        if movesKeyboard { qa.keyboardMayMove("\(id) focuses the terminal") }
+        return state
     }
 
     /// Logs whether `condition` held within `seconds`: the receiving-system oracle decides the case
@@ -30,15 +35,35 @@ extension SmokeQA {
         logWait(qa, "markers \(markers) at the peer") { state in markers.allSatisfy { state.peerPastes.contains($0) } }
     }
 
-    /// A UIKit selector the press scheduled (performSelector afterDelay 0.1, `scheduled` grew) ran
-    /// through the app's native edit action, and no paste is still being prepared, so the next
-    /// case's end marker follows its effect at the peer. Before S4 the tests slept 1 s here.
-    func scheduledActionsRan(_ qa: QAAx, _ what: String, before: QAState, after: QAState, scheduled: String) {
-        let ran = after.count(scheduled) > before.count(scheduled)
-        logWait(qa, "\(what): \(ran ? "the scheduled selector ran and " : "")no paste pending", seconds: 5) {
-            (!ran || $0.count("native_actions") > before.count("native_actions")) && $0.bool("pasting") == false
+    /// Waits until a UIKit selector the press scheduled (performSelector afterDelay 0.1, `scheduled`
+    /// grew) had its turn, and then until no paste is being prepared, so the next case's end marker
+    /// follows its effect at the peer. Before S4 the tests slept 1 s here.
+    ///
+    /// Two waits, not one predicate (PR 81 review S1): S4 waited for both at once, and in the six
+    /// cases whose selector never reaches the app's native edit action (`reachesApp` false: P8's
+    /// `selectAll:`, and SH1-153's Copy after the selection was cleared, which UIKit refuses) that
+    /// wait ran out at 5 s every time, so "no paste pending" was never checked there. Now those
+    /// cases give the selector the old 1 s (it ends early if the selector did reach the app), and
+    /// "no paste pending" is a wait of its own in every case.
+    func scheduledActionsRan(_ qa: QAAx, _ what: String, before: QAState, after: QAState, scheduled: String,
+                             reachesApp: Bool) {
+        if after.count(scheduled) > before.count(scheduled) {
+            let ran = "\(what): the scheduled selector reached the app's native edit action"
+            logWait(qa, reachesApp ? ran : ran + " (not expected)", seconds: reachesApp ? 5 : 1) {
+                $0.count("native_actions") > before.count("native_actions")
+            }
         }
+        logWait(qa, "\(what): no paste pending", seconds: 5) { $0.bool("pasting") == false }
     }
+
+    /// Whether SH1-153 case `step`'s scheduled selector reaches the app's native edit action: in
+    /// cases 4 and 9 (step % 5 == 4) Execute validated Copy with a selection and then cleared it,
+    /// so UIKit refuses Copy (the oracle checks the clipboard did not change).
+    static func editSelectorReachesApp(_ step: Int) -> Bool { step % 5 != 4 }
+
+    /// Whether P8 case `step`'s scheduled selector reaches the app's native edit action: cases 3, 9,
+    /// 15 and 21 (step % 6 == 3) schedule `selectAll:`, which does not (S4, 3 of 3 Mac mini runs).
+    static func nativeSelectorReachesApp(_ step: Int) -> Bool { step % 6 != 3 }
 
     /// Launches the private-peer terminal with `qaMode` and waits until it can take input.
     func launchPeerTerminal(_ app: XCUIApplication, _ qa: QAAx, _ qaMode: String) throws {
@@ -58,7 +83,9 @@ extension SmokeQA {
     /// Menu prepare: ends case `step - 1` (its result and end marker) and starts case `step`.
     func editPrepare(_ qa: QAAx, _ step: Int) throws {
         let before = try qa.waitState("before Menu prepare \(step)", timeout: 5) { _ in true }
-        try pressSettled(qa, QAIds.editPrepare, what: "Menu prepare ran") { $0.count("edit_prepare") > before.count("edit_prepare") }
+        try pressSettled(qa, QAIds.editPrepare, movesKeyboard: true, what: "Menu prepare ran") {
+            $0.count("edit_prepare") > before.count("edit_prepare")
+        }
         markersAtPeer(qa, (step > 0 ? ["edit-end-\(step - 1)"] : []) + (step < 10 ? ["edit-start-\(step)"] : []))
     }
 
@@ -71,15 +98,16 @@ extension SmokeQA {
             try editPrepare(qa, step)
             if step % 5 == 1 || step % 5 == 4 {
                 let before = try qa.waitState("before Menu select \(step)", timeout: 5) { _ in true }
-                try pressSettled(qa, QAIds.editSelect, what: "edit-selection recorded") {
+                try pressSettled(qa, QAIds.editSelect, movesKeyboard: false, what: "edit-selection recorded") {
                     $0.count("edit_selection") > before.count("edit_selection")
                 }
             }
             let before = try qa.waitState("before Menu execute \(step)", timeout: 5) { _ in true }
-            let after = try pressSettled(qa, QAIds.editExecute, what: "edit-validation recorded") {
+            let after = try pressSettled(qa, QAIds.editExecute, movesKeyboard: false, what: "edit-validation recorded") {
                 $0.count("edit_validation") > before.count("edit_validation")
             }
-            scheduledActionsRan(qa, "SH1-153 case \(step)", before: before, after: after, scheduled: "edit_scheduled")
+            scheduledActionsRan(qa, "SH1-153 case \(step)", before: before, after: after, scheduled: "edit_scheduled",
+                                reachesApp: Self.editSelectorReachesApp(step))
             save("sh1-153-case-\(step)")
             if step == 1 || step == 6 {
                 print("SH1-153 MENU HIERARCHY case=\(step)\n\(app.debugDescription)")
@@ -91,6 +119,7 @@ extension SmokeQA {
                     print("SH1-153 OPEN MENU case=\(step)\n\(app.debugDescription)")
                     // Dismiss without choosing an extra command outside the receipt cases.
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                    qa.keyboardMayMove("tap beside the system Edit menu")
                     _ = app.menuItems.firstMatch.waitForNonExistence(timeout: 2)
                 } else {
                     print("SH1-153 system Edit menu is not exposed to XCTest in case \(step)")
@@ -109,12 +138,13 @@ extension SmokeQA {
         // Each Native next ends case step - 1 and starts case step (24 cases, then the last end).
         for step in 0..<25 {
             let before = try qa.waitState("before Native next \(step)", timeout: 5) { _ in true }
-            let after = try pressSettled(qa, QAIds.nativeNext, what: "Native next ran") {
+            let after = try pressSettled(qa, QAIds.nativeNext, movesKeyboard: true, what: "Native next ran") {
                 $0.count("native_step") > before.count("native_step")
             }
             markersAtPeer(qa, (step > 0 ? ["native-end-\(step - 1)"] : []) + (step < 24 ? ["native-start-\(step)"] : []))
             if step < 24 {
-                scheduledActionsRan(qa, "P8 case \(step)", before: before, after: after, scheduled: "native_scheduled")
+                scheduledActionsRan(qa, "P8 case \(step)", before: before, after: after, scheduled: "native_scheduled",
+                                    reachesApp: Self.nativeSelectorReachesApp(step))
             }
         }
         save("p8-native")
@@ -153,10 +183,14 @@ extension SmokeQA {
         var pastedTexts = count(start, "pasted_texts")
         func noFailure(_ state: QAState) -> Bool { count(state, "paste_failures") == 0 }
         // An image put (a 2200x2200 PNG, about 950 KB, to the core mock and back) took 6.1-7.8 s on
-        // hosted runners when S3 landed and 7.7-9.1 s, and twice more than 10 s, in PR 81's runs
-        // (44500184824 attempts 1 and 2, jobs 135478189932 and 135514978584): the put finished each
-        // time, after the old 10 s deadline. 30 s keeps three times the slowest finished put; a
-        // press that never arrives is still noticed within 10 s.
+        // hosted runners when S3 landed. In PR 81's run 44500184824 the puts that finished took
+        // 7.7-9.1 s, and twice one was still running at the old 10 s deadline (attempt 1, job
+        // 135478189932; attempt 2, job 135514978584). Whether those two finished is not known:
+        // attempt 1's wire record shows only that the put's request reached the core after the test
+        // had failed, and attempt 2 kept no artifact. So the measured fact is only that 10 s
+        // left too little margin (the slowest put measured to its end took 9.14 s; run 44523467982
+        // took 7.1-8.7 s). 30 s is a margin, not a measured bound; a press that never arrives is
+        // still noticed within 10 s.
         let imagePut: TimeInterval = 30
         // 1. An image-only item; Paste image and Paste both put it (paste-0.png, paste-1.png).
         try qa.press(QAIds.bandImageOnly, timeout: 30, what: "QA image ready (image only)") {
