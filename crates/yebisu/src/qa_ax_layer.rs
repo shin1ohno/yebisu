@@ -104,6 +104,40 @@ pub(crate) fn collapse(painted: Vec<Control>) -> (Vec<Control>, Vec<&'static str
     )
 }
 
+/// Which window owns the layer (UI test redesign S4, the two E5 scenes).
+/// There is one layer and one `qa.state`, so XCTest never sees two elements
+/// with one identifier; it lives in the owner's UIWindow, and only the owner's
+/// marks and root fields are published. A window is numbered when it first
+/// draws. The first window to draw owns the layer; a newer window takes it
+/// over when it draws while active, so the second scene owns the layer once
+/// it is focused. Ownership never moves back to an older window: a test that
+/// closes the newest window ends with no state to read, by name.
+#[derive(Debug, Default)]
+pub(crate) struct Windows {
+    order: BTreeMap<u64, u64>,
+    numbered: u64,
+    owner: Option<u64>,
+}
+
+impl Windows {
+    /// Window `id` drew a frame (`active`: its scene is foreground-active);
+    /// true when it owns the layer after this frame.
+    pub(crate) fn draw(&mut self, id: u64, active: bool) -> bool {
+        let numbered = &mut self.numbered;
+        let order = *self.order.entry(id).or_insert_with(|| {
+            *numbered += 1;
+            *numbered
+        });
+        let owner = match self.owner {
+            None => id,
+            Some(owner) if owner != id && active && order > self.order[&owner] => id,
+            Some(owner) => owner,
+        };
+        self.owner = Some(owner);
+        owner == id
+    }
+}
+
 #[derive(Default)]
 struct Registry {
     painted: Vec<Control>,
@@ -113,6 +147,9 @@ struct Registry {
     published: Option<(Vec<Control>, State)>,
     /// This thread built the root publisher, so its fields are published.
     publishing: bool,
+    windows: Windows,
+    /// The window the published layer belongs to.
+    published_by: Option<u64>,
 }
 
 thread_local! {
@@ -203,7 +240,11 @@ pub(crate) fn publisher(
         canvas(
             |_, _, _| (),
             move |_, _, window, cx| {
-                if !publish(fields(window, cx)) {
+                let id = window.window_handle().window_id().as_u64();
+                if !owns(id, window.is_window_active()) {
+                    return;
+                }
+                if !publish(id, native_view(window), fields(window, cx)) {
                     // No window to attach the layer to yet: try next frame.
                     window.refresh();
                 }
@@ -216,6 +257,36 @@ pub(crate) fn publisher(
     .into_any_element()
 }
 
+/// Whether window `id` owns the layer after this frame (`Windows::draw`). A
+/// window that does not drops the marks it painted, so they never reach the
+/// owner's layer.
+fn owns(id: u64, active: bool) -> bool {
+    REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let owns = registry.windows.draw(id, active);
+        if !owns {
+            registry.painted.clear();
+        }
+        owns
+    })
+}
+
+/// The GPUI view of `window` (herdr-uikit's UIView), whose UIWindow the
+/// layer is attached to.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+fn native_view(window: &Window) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match HasWindowHandle::window_handle(window).ok()?.as_raw() {
+        RawWindowHandle::UiKit(handle) => Some(handle.ui_view),
+        _ => None,
+    }
+}
+
+#[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+fn native_view(_: &Window) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+    None
+}
+
 /// Marks this thread as the one whose registry the root publisher reads.
 fn publishing_thread() {
     REGISTRY.with(|registry| registry.borrow_mut().publishing = true);
@@ -223,9 +294,17 @@ fn publishing_thread() {
 
 /// Publishes this frame's marks and fields if they changed; false when the
 /// UIKit layer could not be attached (nothing is recorded as published).
-fn publish(root: Vec<(&'static str, Value)>) -> bool {
+fn publish(
+    window: u64,
+    view: Option<std::ptr::NonNull<std::ffi::c_void>>,
+    root: Vec<(&'static str, Value)>,
+) -> bool {
     REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
+        // A new owner: publish even an unchanged state, so the layer moves to
+        // its window (`native::apply` rebuilds the elements there); `seq`
+        // keeps growing.
+        let new_owner = registry.published_by != Some(window);
         for (key, value) in root {
             if !RESERVED.contains(&key) {
                 registry.fields.insert(key, value);
@@ -239,20 +318,25 @@ fn publish(root: Vec<(&'static str, Value)>) -> bool {
             duplicates,
             fields: registry.fields.clone(),
         };
-        let Some((controls, state)) = next(registry.published.as_ref(), controls, state) else {
+        let fresh = next(registry.published.as_ref(), controls, state);
+        let Some((controls, state)) =
+            fresh.or_else(|| new_owner.then(|| registry.published.clone()).flatten())
+        else {
             return true;
         };
-        let layout_changed = registry
-            .published
-            .as_ref()
-            .is_none_or(|(old, _)| *old != controls);
+        let layout_changed = new_owner
+            || registry
+                .published
+                .as_ref()
+                .is_none_or(|(old, _)| *old != controls);
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        if !super::native::apply(&controls, &state_json(&state), layout_changed) {
+        if !super::native::apply(view, &controls, &state_json(&state), layout_changed) {
             return false;
         }
         #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
-        let _ = layout_changed;
+        let _ = (layout_changed, view);
         registry.published = Some((controls, state));
+        registry.published_by = Some(window);
         true
     })
 }

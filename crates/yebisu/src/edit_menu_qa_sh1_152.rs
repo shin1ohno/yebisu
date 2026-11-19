@@ -15,6 +15,53 @@ pub(crate) struct MenuQa {
     pub begun: Option<usize>,
 }
 
+/// The text a control paints, which is also its accessibility label. The
+/// second E5 scene's labels never contain the first scene's ("152 Begin" is
+/// not in "152 Two Begin"), and Begin reads "Begun" once its stage began, so
+/// a lost tap stays visible on a screenshot.
+fn label(second: bool, command: &str, begun: bool) -> &'static str {
+    match (second, command, begun) {
+        (false, "Begin", false) => "152 Begin",
+        (false, "Begin", true) => "152 Begun",
+        (false, "Select", _) => "152 Select",
+        (false, "Mutate", _) => "152 Mutate",
+        (false, "Replay", _) => "152 Replay",
+        (false, "Fresh", _) => "152 Fresh",
+        (false, "End", _) => "152 End",
+        (false, "Ordinary", _) => "152 Ordinary",
+        (false, "Restore", _) => "152 Restore",
+        (false, "Second", _) => "152 Second",
+        (true, "Begin", false) => "152 Two Begin",
+        (true, "Begin", true) => "152 Two Begun",
+        (true, "Select", _) => "152 Two Select",
+        (true, "End", _) => "152 Two End",
+        (true, "Close", _) => "152 Two Close",
+        _ => "152 ?",
+    }
+}
+
+/// The QA mark of one control (UI test redesign S4): EditMenuQA presses
+/// each control by this identifier instead of reading its label off the screen.
+fn mark(second: bool, command: &str, label: &'static str) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match (second, command) {
+        (false, "Begin") => crate::qa_ax::mark(ids::SH1_152_BEGIN, label),
+        (false, "Select") => crate::qa_ax::mark(ids::SH1_152_SELECT, label),
+        (false, "Mutate") => crate::qa_ax::mark(ids::SH1_152_MUTATE, label),
+        (false, "Replay") => crate::qa_ax::mark(ids::SH1_152_REPLAY, label),
+        (false, "Fresh") => crate::qa_ax::mark(ids::SH1_152_FRESH, label),
+        (false, "End") => crate::qa_ax::mark(ids::SH1_152_END, label),
+        (false, "Ordinary") => crate::qa_ax::mark(ids::SH1_152_ORDINARY, label),
+        (false, "Restore") => crate::qa_ax::mark(ids::SH1_152_RESTORE, label),
+        (false, "Second") => crate::qa_ax::mark(ids::SH1_152_SECOND, label),
+        (true, "Begin") => crate::qa_ax::mark(ids::SH1_152_TWO_BEGIN, label),
+        (true, "Select") => crate::qa_ax::mark(ids::SH1_152_TWO_SELECT, label),
+        (true, "End") => crate::qa_ax::mark(ids::SH1_152_TWO_END, label),
+        (true, "Close") => crate::qa_ax::mark(ids::SH1_152_TWO_CLOSE, label),
+        _ => None,
+    }
+}
+
 pub(crate) fn case() -> String {
     std::env::var("YEBISU_SH1_152_CASE").unwrap_or_default()
 }
@@ -31,32 +78,25 @@ impl Smoke {
                 "Begin", "Select", "Mutate", "Replay", "Fresh", "End", "Ordinary", "Restore",
             ]
         };
-        // OCR finds a label by substring, so the second scene's labels never
-        // contain the first scene's ("152 Begin" is not in "152 Two Begin").
-        let prefix = if self.menu_qa.second {
-            "152 Two"
-        } else {
-            "152"
-        };
         let begun = self.menu_qa.begun == Some(self.menu_qa.stage);
+        let second = self.menu_qa.second;
         Some(
             div()
                 .flex()
                 .flex_wrap()
                 .gap_2()
                 .children(commands.iter().map(|&command| {
+                    let label = label(second, command, command == "Begin" && begun);
                     div()
                         .id(format!("sh1-152-{command}"))
                         .p_2()
                         .bg(rgb(0x3b4252))
-                        .child(if command == "Begin" && begun {
-                            format!("{prefix} Begun")
-                        } else {
-                            format!("{prefix} {command}")
-                        })
+                        .child(label)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.sh1_152_command(command, window, cx)
                         }))
+                        // Last, so the mark lies over the whole control.
+                        .children(mark(second, command, label))
                 }))
                 .into_any_element(),
         )
@@ -88,6 +128,7 @@ impl Smoke {
             let replay = capture.as_ref().and_then(|capture| crate::edit_menu_qa_scenes::captured(capture.clone(), stage));
             let _ = weak.update(cx, |this, _| {
                 this.observation.record(serde_json::json!({"kind":"sh1-152-capture", "case":case(), "stage":this.menu_qa.stage, "count":capture.as_ref().map(|c| c.commands.len()), "responder":capture.as_ref().and_then(|c| native::responder(&c.window)), "scene":capture.as_ref().and_then(|c| native::scene_id(&c.window)), "token":token.value(), "generation":this.terminal.link.generation, "destination":this.handoff.stamp.as_ref().map(|s| format!("{:?}",s.destination.target))}));
+                crate::qa_ax::count("sh152_capture");
                 if let Some(replay) = replay {
                     this.observation.record(serde_json::json!({"kind":"sh1-152-cross-scene-replay", "sent":replay}));
                 }
@@ -111,6 +152,15 @@ impl Smoke {
             self.terminal.link.send_verified(&destination, event)
         };
         self.observation.record(serde_json::json!({"kind":"sh1-152-marker", "edge":edge, "case":case(), "stage":self.menu_qa.stage,"sent":result.is_ok()}));
+        // qa.state: the stage of the last marker and one count per edge, so a
+        // test waits for the marker it pressed for and then for that text at the peer.
+        let stage = self.menu_qa.stage;
+        crate::qa_ax::report("sh152_stage", || stage.into());
+        crate::qa_ax::count(if edge == "start" {
+            "sh152_start"
+        } else {
+            "sh152_end"
+        });
     }
 
     fn sh1_152_command(&mut self, command: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -122,10 +172,12 @@ impl Smoke {
                 let closed = crate::edit_menu_qa_scenes::close_first(cx);
                 self.observation
                     .record(serde_json::json!({"kind":"sh1-152-close-other", "closed":closed}));
+                crate::qa_ax::count("sh152_close_other");
             }
             "Begin" | "Fresh" => {
                 if command == "Begin" && self.menu_qa.begun == Some(self.menu_qa.stage) {
                     self.observation.record(serde_json::json!({"kind":"sh1-152-begin-repeat", "case":case(), "stage":self.menu_qa.stage}));
+                    crate::qa_ax::count("sh152_begin_repeat");
                     return;
                 }
                 if command == "Fresh" {
@@ -191,6 +243,7 @@ impl Smoke {
                     });
                 }
                 self.observation.record(serde_json::json!({"kind":"sh1-152-selection", "case":case(), "stage":self.menu_qa.stage, "text":self.handoff.selection.as_ref().and_then(Selection::text)}));
+                crate::qa_ax::count("sh152_selection");
             }
             "Restore" => {
                 self.terminal_focus.focus(window, cx);
@@ -222,7 +275,10 @@ impl Smoke {
                     let commands = if case() == "E3i" || ordinary { native::delegate(&capture, !ordinary) } else { Some(capture.commands.clone()) };
                     let count = commands.as_ref().map(|c| c.len());
                     let sent = commands.as_ref().map(|c| native::replay(c));
-                    let _ = weak.update(cx, |this,_| this.observation.record(serde_json::json!({"kind":"sh1-152-replay", "case":case(), "stage":this.menu_qa.stage,"ordinary":ordinary,"count":count,"sent":sent})));
+                    let _ = weak.update(cx, |this,_| {
+                        this.observation.record(serde_json::json!({"kind":"sh1-152-replay", "case":case(), "stage":this.menu_qa.stage,"ordinary":ordinary,"count":count,"sent":sent}));
+                        crate::qa_ax::count("sh152_replay");
+                    });
                 }).detach();
             }
             "Mutate" => self.sh1_152_mutate(window, cx),
@@ -248,6 +304,7 @@ impl Smoke {
                     result
                 };
                 self.observation.record(serde_json::json!({"kind":"sh1-152-destination-change", "accepted":result.is_ok()}));
+                crate::qa_ax::count("sh152_destination_change");
             }
             "E3c" => {
                 self.handoff.selection = None;
@@ -266,7 +323,10 @@ impl Smoke {
                 cx.spawn(async move |weak, cx| {
                     let Some(capture) = capture else { return; };
                     let result = native::external_round_trip(&capture);
-                    let _ = weak.update(cx, |this,_| this.observation.record(serde_json::json!({"kind":"sh1-152-external","case":case(),"result":result})));
+                    let _ = weak.update(cx, |this,_| {
+                        this.observation.record(serde_json::json!({"kind":"sh1-152-external","case":case(),"result":result}));
+                        crate::qa_ax::count("sh152_external");
+                    });
                 }).detach();
             }
             "E3g-text" => window.dismiss_virtual_keyboard(),
@@ -279,7 +339,10 @@ impl Smoke {
                     cx.background_executor().timer(Duration::from_millis(300)).await;
                     let (dropped, samples) = herdr_uikit::take_native_edit_menu_switch_observations(handle);
                     let samples: Vec<_> = samples.into_iter().map(|s| serde_json::json!({"restart_reached":s.restart_reached,"acquire_returns":s.acquire_returns,"drawing_owned":s.drawing_owned,"text_owned":s.text_owned})).collect();
-                    let _ = weak.update(cx, |this,_| this.observation.record(serde_json::json!({"kind":"sh1-152-switch","dropped":dropped,"samples":samples,"status":this.menu_qa.token.map(|t| format!("{:?}",herdr_uikit::native_edit_menu_status(handle,t)))})));
+                    let _ = weak.update(cx, |this,_| {
+                        this.observation.record(serde_json::json!({"kind":"sh1-152-switch","dropped":dropped,"samples":samples,"status":this.menu_qa.token.map(|t| format!("{:?}",herdr_uikit::native_edit_menu_status(handle,t)))}));
+                        crate::qa_ax::count("sh152_switch");
+                    });
                 }).detach();
             }
             _ => {}

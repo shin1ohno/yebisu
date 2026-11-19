@@ -46,6 +46,7 @@ fn create_second(stage: usize, cx: &mut App) {
                         // (PR run 43625878438, E5d).
                         this.terminal.size = None;
                         this.observation.record(serde_json::json!({"kind":"sh1-152-second-ready", "accepted":result.is_ok(), "attempt":attempt}));
+                        crate::qa_ax::count("sh152_second_ready");
                         cx.notify();
                         true
                     });

@@ -354,7 +354,8 @@ impl Smoke {
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_settings_choice(choice, value, cx);
-                        })),
+                        }))
+                        .children(choice_mark(choice, value, label)),
                 );
             }
             // Canvas row: title and explanation left, the two choices right;
@@ -437,6 +438,21 @@ impl Smoke {
                 })));
         }
         view.into_any_element()
+    }
+}
+
+/// The QA accessibility mark of an Input page choice that SH1-151 sets
+/// (UI test redesign S4), labelled with the text the button paints.
+fn choice_mark(choice: Choice, value: bool, label: &'static str) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match (choice, value) {
+        (Choice::StartSelection, false) => {
+            crate::qa_ax::mark(ids::SETTINGS_START_DOUBLE_TAP, label)
+        }
+        (Choice::StartSelection, true) => crate::qa_ax::mark(ids::SETTINGS_START_DRAG, label),
+        (Choice::Copy, false) => crate::qa_ax::mark(ids::SETTINGS_COPY_MANUAL, label),
+        (Choice::Copy, true) => crate::qa_ax::mark(ids::SETTINGS_COPY_ON_SELECTION, label),
+        _ => None,
     }
 }
 

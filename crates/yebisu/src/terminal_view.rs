@@ -181,6 +181,8 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        // A qa.state counter or the mock peer moved: publish it (QA only).
+        crate::qa_ax::refresh_if_wanted(cx);
         let mut pending = self
             .board
             .hidden

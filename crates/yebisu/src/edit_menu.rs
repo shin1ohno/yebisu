@@ -180,6 +180,7 @@ impl Smoke {
         {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             self.observation.record(serde_json::json!({"kind":"edit-menu-revoked", "reason":revoked.unwrap_or_else(|| "ConsumerStateChanged".into())}));
+            crate::qa_ax::count("menu_revoked");
             self.dismiss_edit_menu(window);
         }
     }
@@ -235,7 +236,14 @@ impl Smoke {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if let Some(token) = token {
             self.observation.record(serde_json::json!({"kind":"edit-menu-exec", "action":format!("{action:?}"), "token":format!("{token:?}"), "result":if allowed {"executed"} else {"rejected"}}));
+            crate::qa_ax::count("menu_exec");
+            if allowed && action == EditAction::Paste {
+                crate::qa_ax::count("menu_paste_executed");
+            }
         }
+        // Every native edit action, with or without a menu (SH1-153 and P8
+        // schedule UIKit selectors): a test waits until the one it scheduled ran.
+        crate::qa_ax::count("native_actions");
         if allowed {
             match action {
                 EditAction::Paste => self.start_paste(false, cx),

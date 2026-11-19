@@ -165,6 +165,9 @@ impl Host {
                                     );
                                 }
                             }
+                            // qa.state's `peer` (S4): bracketed pastes on the wire.
+                            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                            crate::qa_ax::peer::wire(&frame.payload);
                             if channels.contains_key(&frame.channel) {
                                 if frame.payload == b"exit\r" {
                                     server.write_all(&encode(

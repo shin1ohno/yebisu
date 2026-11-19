@@ -15,6 +15,7 @@ impl Smoke {
         }
         #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
         {
+            count_lifecycle(cx);
             let view = cx.entity();
             Some(super::layer::publisher(move |window, cx| {
                 let this = view.read(cx);
@@ -60,6 +61,21 @@ impl Smoke {
         };
         let live = &self.terminal.live;
         let pane = crate::board::snapshot(live).and_then(|s| s.focused_pane_id.clone());
+        let input_pane = self
+            .terminal
+            .input
+            .destination
+            .as_ref()
+            .and_then(|d| match &d.target {
+                crate::terminal::InputTarget::Pane(id) => Some(id.clone()),
+                crate::terminal::InputTarget::Popup(_) => None,
+            });
+        // The second E5 scene's root (edit_menu_qa_scenes.rs); host tests
+        // have no SH1-152 scenes.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let second = self.menu_qa.second;
+        #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+        let second = false;
         vec![
             ("screen", json!(screen)),
             ("sheet", sheet),
@@ -89,6 +105,48 @@ impl Smoke {
             ("pane", pane.map_or(Value::Null, Value::from)),
             // Herdr 2's pane layout as the core worker last published it.
             ("core", super::core::layout_field()),
+            // UI test redesign S4 (the edit-menu tests): where typed input
+            // goes, the link generation and the terminal rows (a changed
+            // keyboard resizes them), whether typing is paused for a
+            // selection (the status bar's "Typing is paused"), the copy
+            // setting, which E5 scene this is, and what the mock peers got.
+            ("input_pane", input_pane.map_or(Value::Null, Value::from)),
+            ("generation", json!(self.terminal.link.generation)),
+            (
+                "rows",
+                live.surface
+                    .as_ref()
+                    .map_or(Value::Null, |s| json!(s.frame.height)),
+            ),
+            (
+                "selecting",
+                json!(self.handoff.select_mode || self.handoff.selection.is_some()),
+            ),
+            ("copy_on_select", json!(self.handoff.copy_on_select)),
+            // The settings worker wrote the current draft (the sheet's
+            // "Saved"); null without a settings store.
+            (
+                "settings_saved",
+                self.settings
+                    .as_ref()
+                    .map_or(Value::Null, |host| json!(host.ready())),
+            ),
+            // A paste is being prepared or sent (a test waits for it to end
+            // before the next case's marker, which the old tests slept for).
+            (
+                "pasting",
+                json!(
+                    self.handoff.preparing
+                        || self.handoff.workers != 0
+                        || self
+                            .handoff
+                            .core_ticket
+                            .as_ref()
+                            .is_some_and(|ticket| !ticket.is_finished())
+                ),
+            ),
+            ("second", json!(second)),
+            ("peer", super::peer::field()),
         ]
     }
 
@@ -110,6 +168,25 @@ impl Smoke {
         vec![
             ("keyboard", json!(keyboard.round())),
             ("viewport", json!([size.width.round(), size.height.round()])),
+            // The window's scene is foreground-active (not behind Control
+            // Center, a system alert or another focused scene).
+            ("active", json!(window.is_window_active())),
         ]
     }
+}
+
+/// Counts each app lifecycle phase in `qa.state` (`lifecycle_active`, ...),
+/// once per process, so a test sees the app went to the background and came
+/// back without reading the receipt file. Each count is published with the
+/// first frame after it, so `lifecycle_background` shows up after the return.
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+fn count_lifecycle(cx: &mut Context<Smoke>) {
+    thread_local! {
+        static COUNTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if COUNTING.with(|counting| counting.replace(true)) {
+        return;
+    }
+    cx.on_app_lifecycle(|phase, _| super::count(super::lifecycle_key(phase)))
+        .detach();
 }

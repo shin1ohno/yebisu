@@ -534,6 +534,14 @@ fn record(
         );
     }
     record_peer(serde_json::to_value(message)?)?;
+    // qa.state's `peer` (UI test redesign S4): the edit-menu tests wait for
+    // a marker or a pasted text here instead of reading p4-peer.jsonl.
+    if let ClientMessage::ClientShellPaneInput { events, .. } = message {
+        crate::qa_ax::peer::input(events.iter().filter_map(|event| match event {
+            ClientPaneInputEvent::Paste(text) => Some(text.as_str()),
+            _ => None,
+        }));
+    }
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
     if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {
         observer_received(message);
