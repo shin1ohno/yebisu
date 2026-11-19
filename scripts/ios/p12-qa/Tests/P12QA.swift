@@ -1,36 +1,44 @@
 // Source pattern: SH1-153 visual probe (cbdc150400a04524, attempt 3).
-// Only native OS menu buttons execute commands. OCR is for fixture controls only.
+// Only native OS menu buttons execute commands. UI test redesign S5: the fixture controls are found
+// by QA identifier (qa.p12.*, crates/yebisu/src/qa_ax_ids.rs) and pressed with a real touch, and
+// each press is confirmed by the app's qa.state (`p12.setup` counts the p12-setup-end records), so
+// nothing reads text off the screen or the app's files while it runs. QAAx.swift is the SmokeQA
+// helper; p12-check.py copies it next to this file. The OS menu (Springboard) part is unchanged.
 import XCTest
-import Vision
 
 final class P12QA: XCTestCase {
     private var events: [[String: Any]] = []
     private let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    /// Tap points of the fixture controls, found by OCR before any RPC is held.
-    private var fixturePoints: [String: CGVector] = [:]
+    private lazy var qa = QAAx(app)
     /// When the previous OS menu was last observed closed; the time between a close
     /// and the next swipe is one suspected reveal precondition.
     private var lastMenuClosed: Date?
     /// The reveal-precondition record of the swipe in progress, quoted by its failures.
     private var preReveal: [String: Any] = [:]
-    /// The app's Documents directory on the host; p12-check.py passes it as
-    /// TEST_RUNNER_P12_DOCUMENTS (xcodebuild strips the prefix), as sh1-152-check.py does.
-    private let documents = ProcessInfo.processInfo.environment["P12_DOCUMENTS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     /// Negative controls (TEST_RUNNER_P12_QA_FAULT, comma separated, empty in CI):
     /// `drop-tap:<step>` skips the first tap of that fixture step, `skip-swipe:<case>`
     /// skips the first reveal swipe of that case. Each fault is spent once, and the
     /// retry it forces must be logged and accepted by the oracle.
     private var faults = Set((ProcessInfo.processInfo.environment["P12_QA_FAULT"] ?? "").split(separator: ",").map(String.init))
-    /// How long the app gets to log a fixture tap before it is tapped once more.
+    /// How long a fixture press gets to reach its control (`presses`) before it is pressed once
+    /// more, and then to show its setup step in `p12.setup`.
     private static let receiptTimeout: TimeInterval = 5
     /// How long a swipe gets to reveal the OS menu bar before it is repeated once.
     private static let revealTimeout: TimeInterval = 10
     /// What the reveal of the case in progress needed, quoted by its failure.
     private var revealNote = ""
-    private static let fixtureControls = ["Remote", "Rearm", "Sidebar", "Palette", "Release", "Host", "Pane",
-                                          "Boot", "Focus", "Current", "Capability", "Reset", "Finish"]
-                                          .map { "P12 " + $0 }
+    /// The fixture controls in panel order: the setup step each prepares and its QA identifier.
+    private static let fixtureControls: [(step: String, id: String)] = [
+        ("remote", "qa.p12.remote"), ("rearm", "qa.p12.rearm"), ("sidebar", "qa.p12.sidebar"),
+        ("palette", "qa.p12.palette"), ("release", "qa.p12.release"), ("host", "qa.p12.host"),
+        ("pane", "qa.p12.pane"), ("boot", "qa.p12.boot"), ("focus", "qa.p12.focus"),
+        ("current", "qa.p12.current"), ("capability", "qa.p12.capability"), ("reset", "qa.p12.reset"),
+        ("finish", "qa.p12.finish"),
+    ]
+    /// The empty strip at the foot of the fixture panel: GPUI space with no handler, where a tap
+    /// closes an open OS menu and changes nothing in the app.
+    private static let emptySpace = "qa.p12.empty"
 
     /// A failed assertion ends the test method without running its `defer`, so the
     /// events are attached here: a failed run keeps them as evidence too.
@@ -50,34 +58,43 @@ final class P12QA: XCTestCase {
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_P12_QA"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        sleep(3)
-        XCTAssertNotNil(setupEnds("remote"), "P12 app log unreadable: p12-check.py passes the app's Documents directory as TEST_RUNNER_P12_DOCUMENTS")
+        // Before S5: sleep(3), then a check that the app's p0-smoke.jsonl was readable.
+        do {
+            try qa.waitState("the P12 fixture is up: the terminal is connected and the panel idle", timeout: 60) {
+                $0.string("screen") == "terminal" && $0.bool("connected") == true && self.pending($0) == false
+            }
+        } catch {
+            XCTFail("P12 qa.state never showed the connected terminal and the idle fixture panel "
+                    + "(YEBISU_QA_AX, YEBISU_P12_QA): \(error)")
+            throw error
+        }
         // A remote pick holds pane.split at the peer until "P12 Release", and the
         // pinned sheprd-client fails the link once a request is 60 s old
         // (limits.rs COMMAND_TIMEOUT). One native menu session took up to 44 s on
-        // hosted runners, so each hold covers exactly one local case, and no OCR
-        // search (3-31 s) runs inside a hold: every control is located first.
+        // hosted runners, so each hold covers exactly one local case, and every
+        // control is found before the first hold.
         try locateFixtures()
-        for (remote, local, name) in [("Remote", "Sidebar", "Toggle Sidebar"), ("Rearm", "Palette", "Command Palette")] {
-            try fixture("P12 " + remote)
-            try choose("Split Right", caseName: remote.lowercased(), negative: false)
-            try fixture("P12 " + local)
-            try choose(name, caseName: local.lowercased(), negative: false)
-            try fixture("P12 Release")
-            try fixture("P12 Idle", tap: false)
+        for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
+            try fixture(remote)
+            try choose("Split Right", caseName: remote, negative: false)
+            try fixture(local)
+            try choose(name, caseName: local, negative: false)
+            try fixture("release")
+            try idle()
         }
-        for label in ["Host", "Pane", "Boot", "Focus", "Capability"] {
-            try fixture("P12 " + label)
-            try choose("Split Right", caseName: label.lowercased(), negative: true)
-            if label == "Focus" {
-                try fixture("P12 Current")
+        for step in ["host", "pane", "boot", "focus", "capability"] {
+            try fixture(step)
+            try choose("Split Right", caseName: step, negative: true)
+            if step == "focus" {
+                try fixture("current")
                 try choose("Split Right", caseName: "focus-current", negative: false, observeOnly: true)
             }
-            try fixture("P12 Reset")
+            try fixture("reset")
         }
-        try fixture("P12 Finish")
+        try fixture("finish")
         sleep(2)
         screenshot("p12-finished")
         // Real hardware Command-hold is a separate owner gate. This test proves
@@ -86,15 +103,22 @@ final class P12QA: XCTestCase {
                        "os": ProcessInfo.processInfo.operatingSystemVersionString])
     }
 
-    /// A point that dismisses the open OS menu: low in the window and beside the menu, never on it.
-    /// The fixed (0.5, 0.85) landed inside the menu once Integration 2 (L2b) added New Space and
-    /// the menu reached y 0.86 with its right edge at x 0.52 (run 44220412031, class A twice).
-    private func dismissPoint(clearOf item: XCUIElement) -> XCUICoordinate {
-        let window = app.frame
-        let menuRight = item.exists ? item.frame.maxX / max(window.width, 1) : 0.5
-        let dx: CGFloat = menuRight < 0.75 ? 0.9 : 0.1
-        events.append(["kind": "dismiss-point", "dx": dx, "menuRight": menuRight])
-        return app.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.85))
+    /// A point that dismisses the open OS menu: the centre of the fixture panel's empty strip
+    /// (qa.p12.empty), beside the menu, never on it. A fixed window point landed inside the menu once
+    /// Integration 2 (L2b) added New Space and the menu reached y 0.86 with its right edge at x 0.52
+    /// (run 44220412031, class A twice); 2958a1a then computed a point from the menu's right edge,
+    /// and S5 takes the app's own empty space by identifier. The strip must lie clear of the menu's
+    /// column (its frame plus the 24 pt of the menu's bubble); a strip under the menu fails by name.
+    private func dismissPoint(clearOf item: XCUIElement, caseName: String) throws -> XCUICoordinate {
+        let empty = try qa.find(Self.emptySpace, timeout: 5)
+        let strip = empty.frame
+        let menu = item.exists ? item.frame : CGRect.null
+        let clear = menu.isNull || strip.minX > menu.maxX + 24 || strip.maxX < menu.minX - 24
+        events.append(["kind": "dismiss-point", "case": caseName, "id": Self.emptySpace, "clear": clear,
+                       "strip": [strip.minX, strip.minY, strip.width, strip.height],
+                       "menuItem": menu.isNull ? [] : [menu.minX, menu.minY, menu.width, menu.height]])
+        XCTAssertTrue(clear, "P12's empty strip \(strip) lies in the open OS menu's column \(menu) in case \(caseName)")
+        return empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
     }
 
     private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
@@ -134,8 +158,9 @@ final class P12QA: XCTestCase {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
                            "owner": "com.apple.springboard", "buttonLabel": item.label,
                            "time": Date().timeIntervalSince1970])
+            let point = try dismissPoint(clearOf: item, caseName: "focus-current")
             let dismissTime = Date().timeIntervalSince1970
-            dismissPoint(clearOf: item).tap()
+            point.tap()
             assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
@@ -151,7 +176,7 @@ final class P12QA: XCTestCase {
         let pickStart = Date().timeIntervalSince1970
         let buttonLabel = item.label
         if tapped { item.tap() }
-        else { dismissPoint(clearOf: item).tap() }
+        else { try dismissPoint(clearOf: item, caseName: caseName).tap() }
         // A pick or dismiss tap that was lost leaves the menu open, and the next
         // fixture tap would then only close it (L17 class A). Fail here, by name.
         let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
@@ -201,34 +226,6 @@ final class P12QA: XCTestCase {
                            "swipeSeconds": swipeSeconds, "waited": waited, "time": Date().timeIntervalSince1970])
             attempt += 1
         }
-    }
-
-    /// Number of `p12-setup-end` records the app has logged for one step, or nil when
-    /// its observation log cannot be read. Only newline-terminated lines count: the
-    /// app may be writing the last one, as scripts/ios/live_jsonl.py also assumes.
-    private func setupEnds(_ step: String) -> Int? {
-        guard let url = documents?.appendingPathComponent("p0-smoke.jsonl"),
-              let data = try? Data(contentsOf: url) else { return nil }
-        let marker = Data("p12-setup-end".utf8)
-        var count = 0
-        for slice in data.split(separator: 0x0A, omittingEmptySubsequences: false).dropLast() {
-            let line = Data(slice)
-            guard line.range(of: marker) != nil,
-                  let row = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  row["kind"] as? String == "p12-setup-end", row["step"] as? String == step else { continue }
-            count += 1
-        }
-        return count
-    }
-
-    /// Waits until the app has logged one more `p12-setup-end` for `step` than `before`.
-    private func awaitSetupEnd(_ step: String, after before: Int) -> Bool {
-        let deadline = Date().addingTimeInterval(Self.receiptTimeout)
-        while Date() < deadline {
-            if (setupEnds(step) ?? 0) > before { return true }
-            Thread.sleep(forTimeInterval: 0.25)
-        }
-        return false
     }
 
     /// Records what Springboard and the app window looked like just before a
@@ -295,84 +292,90 @@ final class P12QA: XCTestCase {
         return closed
     }
 
-    /// Finds every fixture control on screen. The panel is absolutely positioned
-    /// and its rows never move, so the points stay valid for the whole test.
+    /// The app's `p12` field in qa.state (native_menus_qa.rs): `pending`, `case`, `mutated`, and
+    /// `setup` (step -> p12-setup-end records so far).
+    private func p12(_ state: QAState) -> [String: Any]? { state.raw["p12"] as? [String: Any] }
+    /// Whether a request is held ("P12 Pending" on the panel), nil before the field is published.
+    private func pending(_ state: QAState) -> Bool? { p12(state)?["pending"] as? Bool }
+    /// The p12-setup-end records the app counted for `step`.
+    private func setupEnds(_ state: QAState, _ step: String) -> Int {
+        (p12(state)?["setup"] as? [String: Any])?[step] as? Int ?? 0
+    }
+
+    private func fixtureId(_ step: String) throws -> String {
+        try XCTUnwrap(Self.fixtureControls.first { $0.step == step }?.id, "no fixture control for step \(step)")
+    }
+
+    /// Finds every fixture control by identifier before the first held request, so a missing one
+    /// fails by name before any hold (as the OCR search of all 13 did before S5).
     private func locateFixtures() throws {
         let started = Date().timeIntervalSince1970
-        for _ in 0..<8 {
-            let missing = Self.fixtureControls.filter { fixturePoints[$0] == nil }
-            for (label, bounds) in try recognize(missing) {
-                fixturePoints[label] = CGVector(dx: bounds.midX, dy: 1 - bounds.midY)
-            }
-            if fixturePoints.count == Self.fixtureControls.count {
-                events.append(["kind": "fixture-located", "count": fixturePoints.count,
-                               "started": started, "ended": Date().timeIntervalSince1970])
-                return
-            }
-            sleep(1)
+        var missing: [String] = []
+        for control in Self.fixtureControls {
+            do { try qa.find(control.id, timeout: 10) } catch { missing.append("\(control.id) (\(error))") }
         }
-        let missing = Self.fixtureControls.filter { fixturePoints[$0] == nil }
+        if missing.isEmpty {
+            events.append(["kind": "fixture-located", "count": Self.fixtureControls.count,
+                           "started": started, "ended": Date().timeIntervalSince1970])
+            return
+        }
         screenshot("p12-missing-fixture")
         XCTFail("Missing fixture controls: \(missing.joined(separator: ", "))")
         throw NSError(domain: "P12.MissingFixture", code: 1)
     }
 
-    private func fixture(_ label: String, tap: Bool = true) throws {
-        if tap {
-            // No OCR here: this may run while the Remote case holds pane.split.
-            let point = try XCTUnwrap(fixturePoints[label], "Fixture control not located: \(label)")
-            let step = String(label.dropFirst(4)).lowercased()
-            let setupStart = Date().timeIntervalSince1970
-            let before = setupEnds(step) ?? 0
-            // The app's own `p12-setup-end` record, not a fixed delay, says the tap
-            // arrived. In job 134059155142 the first tap (Remote) never reached the
-            // app and nothing in the test noticed until the oracle ran. A tap with no
-            // record is repeated once, with its reason logged (`fixture-retry`).
-            let injected = faults.remove("drop-tap:" + step) != nil
-            if !injected { app.coordinate(withNormalizedOffset: point).tap() }
-            var received = awaitSetupEnd(step, after: before)
-            if !received {
-                var reason = injected ? "injected fault: the first tap was skipped; " : ""
-                reason += "the app logged no p12-setup-end for '\(step)' within \(Int(Self.receiptTimeout)) s of the tap; tapping once more"
-                events.append(["kind": "fixture-retry", "step": step, "reason": reason, "injected": injected,
-                               "time": Date().timeIntervalSince1970])
-                app.coordinate(withNormalizedOffset: point).tap()
-                received = awaitSetupEnd(step, after: before)
-            }
-            XCTAssertTrue(received, "Fixture tap on '\(label)' not received by the app, also after one retry (class P12-fixture)")
-            sleep(1)
-            events.append(["kind": "fixture-control", "step": step, "received": received,
-                           "started": setupStart, "ended": Date().timeIntervalSince1970])
-            return
-        }
-        for _ in 0..<8 {
-            if try recognize([label])[label] != nil { return }
-            sleep(1)
-        }
-        screenshot("p12-missing-fixture")
-        XCTFail("Missing fixture control/state: \(label)")
-        throw NSError(domain: "P12.MissingFixture", code: 1)
-    }
-
-    /// Normalized Vision bounds (origin bottom-left) of each label found in one screenshot.
-    private func recognize(_ labels: [String]) throws -> [String: CGRect] {
-        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.customWords = labels
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        var found: [String: CGRect] = [:]
-        for result in (request.results ?? []).sorted(by: { $0.boundingBox.maxY > $1.boundingBox.maxY }) {
-            for text in result.topCandidates(5) {
-                for label in labels where found[label] == nil {
-                    guard let range = text.string.range(of: label),
-                          let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
-                    found[label] = bounds
+    /// Presses the fixture control of `step` and waits until the app counted one more
+    /// p12-setup-end for it (qa.state `p12.setup`), not a fixed delay. In job 134059155142 the first
+    /// tap (Remote) never reached the app and nothing in the test noticed until the oracle ran. A
+    /// press that reaches nothing is pressed once more (QAAx.press), and the reason is logged as a
+    /// `fixture-retry`; a press that something else took, or one that reached the control without
+    /// its setup step, fails by name. Finish also waits until its FIFO fence reached the private
+    /// peer (qa.state `peer`), which p12-check.py used to poll the peer's file for after XCTest.
+    private func fixture(_ step: String) throws {
+        let id = try fixtureId(step)
+        let setupStart = Date().timeIntervalSince1970
+        let before = try qa.waitState("qa.state before the \(step) fixture", timeout: Self.receiptTimeout) { _ in true }
+        let ended = setupEnds(before, step)
+        let injected = faults.remove("drop-tap:" + step) != nil
+        if injected { qa.session.dropFirstPress.insert(id) }
+        let retries = qa.session.retries.count
+        var failure = ""
+        do {
+            try qa.press(id, timeout: Self.receiptTimeout, what: "p12-setup-end for \(step)") { self.setupEnds($0, step) > ended }
+            if step == "finish" {
+                try qa.waitState("the FIFO fence reached the private peer", timeout: Self.receiptTimeout) {
+                    $0.peerPastes.contains("p12-fence")
                 }
             }
+        } catch {
+            failure = "\(error)"
         }
-        return found
+        for (index, reason) in qa.session.retries.dropFirst(retries).enumerated() {
+            let prefix = injected && index == 0 ? "injected fault: the first tap was skipped; " : ""
+            events.append(["kind": "fixture-retry", "step": step, "injected": injected && index == 0,
+                           "reason": prefix + reason + "; pressing once more", "time": Date().timeIntervalSince1970])
+        }
+        let received = failure.isEmpty
+        XCTAssertTrue(received, "Fixture tap on '\(id)' not received by the app, also after one retry (class P12-fixture): \(failure)")
+        // Kept from before S5: the release's re-layout (geometry on the wire) and the finish fence
+        // must land inside this step's window, which the oracle checks.
+        sleep(1)
+        events.append(["kind": "fixture-control", "step": step, "received": received,
+                       "started": setupStart, "ended": Date().timeIntervalSince1970])
     }
+
+    /// "P12 Idle": the held request was answered. Before S5 OCR looked for the panel's text (up to 8
+    /// reads, 1 s apart); the app draws that text from the same `pending` it reports.
+    private func idle() throws {
+        do {
+            try qa.waitState("P12 Idle (p12.pending false)", timeout: 30) { self.pending($0) == false }
+        } catch {
+            screenshot("p12-missing-fixture")
+            XCTFail("Missing fixture control/state: P12 Idle: \(error)")
+            throw error
+        }
+    }
+
     /// Takes the screenshot only when the check that the assertions after it make
     /// failed, so the failure keeps its picture and a pass takes none.
     private func screenshotOnFailure(_ name: String, _ passed: Bool) {

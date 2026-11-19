@@ -19,30 +19,112 @@ oracle = load("p12_oracle", "p12-oracle.py")
 SWIFT = (HERE / "p12-qa/Tests/P12QA.swift").read_text()
 
 
+def code(text):
+    """The lines that are not comments."""
+    return "\n".join(line for line in text.splitlines() if line.strip() and not line.strip().startswith("//"))
+
+
+def body(source, signature):
+    """The brace-balanced body of the first function starting with signature."""
+    start = source.index(signature)
+    open_at = source.index("{", source.index(")", start))
+    depth = 0
+    for at in range(open_at, len(source)):
+        depth += {"{": 1, "}": -1}.get(source[at], 0)
+        if depth == 0:
+            return source[open_at : at + 1]
+    raise AssertionError("unbalanced function body: " + signature)
+
+
 class P12CheckEnvTests(unittest.TestCase):
-    def test_documents_reach_the_runner_without_a_fault_by_default(self):
-        env = check.xctest_env(Path("/sim/data/Documents"))
-        self.assertEqual(env["TEST_RUNNER_P12_DOCUMENTS"], "/sim/data/Documents")
+    def test_no_documents_and_no_fault_by_default(self):
+        # S5: P12QA waits on qa.state, so the runner no longer gets the app's Documents directory.
+        env = check.xctest_env()
+        self.assertNotIn("TEST_RUNNER_P12_DOCUMENTS", env)
         self.assertNotIn("TEST_RUNNER_P12_QA_FAULT", env)
 
     def test_fault_reaches_the_runner_only_when_asked_for(self):
-        env = check.xctest_env(Path("/d"), "drop-tap:remote")
+        env = check.xctest_env("drop-tap:remote")
         self.assertEqual(env["TEST_RUNNER_P12_QA_FAULT"], "drop-tap:remote")
 
     def test_swift_reads_the_names_the_prefix_strips_to(self):
         # xcodebuild strips TEST_RUNNER_, so the test reads the bare names.
-        self.assertIn('environment["P12_DOCUMENTS"]', SWIFT)
+        self.assertNotIn('environment["P12_DOCUMENTS"]', SWIFT)
         self.assertIn('environment["P12_QA_FAULT"]', SWIFT)
         self.assertNotIn('environment["TEST_RUNNER_', SWIFT)
+
+    def test_the_qa_layer_helper_is_built_into_the_p12_bundle(self):
+        driver = (HERE / "p12-check.py").read_text()
+        self.assertIn('shutil.copyfile(ROOT / "scripts/ios/smoke-qa/Tests/QAAx.swift", project / "Tests/QAAx.swift")', driver)
+        self.assertLess(driver.index("QAAx.swift"), driver.index('run("xcodegen"'))
+        self.assertNotIn("fifo_fence", driver.split("def main():")[1], "no live poll of the peer file")
 
 
 class P12QASourceTests(unittest.TestCase):
     """P12QA.swift cannot run off a Mac; these pin the parts the oracle relies on."""
 
-    def test_fixture_labels_are_the_oracle_steps(self):
-        labels = re.search(r"fixtureControls = \[(.*?)\]", SWIFT, re.S).group(1)
-        steps = {label.lower() for label in re.findall(r'"(\w+)"', labels)}
-        self.assertEqual(steps, set(oracle.STEPS))
+    def test_fixture_controls_are_the_oracle_steps_with_their_identifiers(self):
+        table = re.search(r"fixtureControls: \[\(step: String, id: String\)\] = \[(.*?)\n    \]", SWIFT, re.S).group(1)
+        pairs = re.findall(r'\("(\w+)", "(qa\.p12\.\w+)"\)', table)
+        self.assertEqual([step for step, _ in pairs], ["remote", "rearm", "sidebar", "palette", "release", "host", "pane",
+                                                       "boot", "focus", "current", "capability", "reset", "finish"])
+        self.assertEqual({step for step, _ in pairs}, set(oracle.STEPS))
+        self.assertTrue(all(identifier == "qa.p12." + step for step, identifier in pairs))
+        ids = (HERE.parents[1] / "crates/yebisu/src/qa_ax_ids.rs").read_text()
+        for _, identifier in pairs + [("empty", "qa.p12.empty")]:
+            self.assertIn('= "%s";' % identifier, ids)
+
+    def test_no_ocr_no_file_reads_and_no_fixed_window_point(self):
+        swift = code(SWIFT)
+        for gone in ("import Vision", "VNRecognizeTextRequest", "recognize(", "fixturePoints", "P12_DOCUMENTS",
+                     "p0-smoke.jsonl", "Data(contentsOf:", "dy: 0.85", "menuRight"):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, swift)
+        self.assertIn('app.launchEnvironment["YEBISU_QA_AX"] = "1"', swift)
+
+    def test_each_fixture_press_is_confirmed_by_qa_state(self):
+        fixture = body(code(SWIFT), "private func fixture(")
+        self.assertIn("qa.press(id, timeout: Self.receiptTimeout", fixture)
+        self.assertIn("self.setupEnds($0, step) > ended", fixture)
+        self.assertIn('$0.peerPastes.contains("p12-fence")', fixture)
+        self.assertIn("qa.session.dropFirstPress.insert(id)", fixture)
+        self.assertIn("qa.session.retries.dropFirst(retries)", fixture)
+        idle = body(code(SWIFT), "private func idle(")
+        self.assertIn("self.pending($0) == false", idle)
+        self.assertIn("Missing fixture control/state: P12 Idle", idle)
+
+    def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
+        rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
+        table = re.search(r"const FIXTURES: \[\(&str, &str\); 13\] = \[(.*?)\];", rust, re.S).group(1)
+        rows = re.findall(r'\("P12 (\w+)", "(\w+)"\)', table)
+        self.assertEqual([step for _, step in rows], re.findall(r'\("(\w+)", "qa\.p12\.\w+"\)', SWIFT),
+                         "the panel order is the test's order")
+        self.assertTrue(all(label.lower() == step for label, step in rows))
+        for _, step in rows:
+            with self.subTest(step=step):
+                self.assertIn('"%s" => crate::qa_ax::mark(ids::P12_%s, label),' % (step, step.upper()), rust)
+        self.assertIn(".children(fixture_mark(case, label))", rust)
+        self.assertIn("crate::qa_ax::mark(crate::qa_ax::ids::P12_EMPTY, EMPTY)", rust)
+        # p12.setup counts exactly the p12-setup-end records, right after the record is written.
+        end = rust.index('"kind":"p12-setup-end"')
+        self.assertLess(end, rust.index("*self.p12_qa.setup_ends.entry(case).or_default() += 1;"))
+        self.assertEqual(rust.count("setup_ends.entry("), 1)
+        self.assertIn('crate::qa_ax::report("p12"', rust)
+        self.assertIn('"pending":pending', rust)
+        self.assertIn('if pending { "P12 Pending" } else { "P12 Idle" }', rust)
+
+    def test_the_peer_reports_only_the_fence_to_qa_state(self):
+        peer = (HERE.parents[1] / "crates/yebisu/src/mock_peer.rs").read_text()
+        branch = peer[peer.index("if p12_observing() {"):peer.index('return record_peer(')]
+        self.assertIn("crate::qa_ax::peer::input(", branch)
+        self.assertIn('ClientPaneInputEvent::Paste(text) if text == "p12-fence" => Some(text.as_str())', branch)
+
+    def test_the_dismiss_point_is_the_empty_strip_found_by_identifier(self):
+        point = body(code(SWIFT), "private func dismissPoint(")
+        self.assertIn("qa.find(Self.emptySpace", point)
+        self.assertIn("empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))", point)
+        self.assertIn("XCTAssertTrue(clear,", point)
+        self.assertIn('emptySpace = "qa.p12.empty"', SWIFT)
 
     def test_the_reveal_and_receipt_waits_are_not_shortened(self):
         self.assertIn("revealTimeout: TimeInterval = 10", SWIFT)
@@ -57,7 +139,11 @@ class P12QASourceTests(unittest.TestCase):
     def test_a_fixture_tap_is_repeated_once_and_must_then_be_received(self):
         self.assertEqual(SWIFT.count('"kind": "fixture-retry"'), 1)
         self.assertIn("XCTAssertTrue(received,", SWIFT)
-        self.assertEqual(SWIFT.count("awaitSetupEnd(step, after: before)"), 2)
+        # QAAx.press presses once more only when the first press reached nothing, and logs why.
+        qaax = (HERE / "smoke-qa/Tests/QAAx.swift").read_text()
+        self.assertIn("for attempt in 1...2 {", qaax)
+        self.assertIn('session.retries.append("\\(id): \\(reason)")', qaax)
+        self.assertIn("session.dropFirstPress.remove(id) != nil", qaax)
 
     def test_events_survive_a_failed_assertion(self):
         # A failed assertion skips `defer`; the events are attached in tearDown.
