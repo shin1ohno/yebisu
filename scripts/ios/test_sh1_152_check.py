@@ -114,10 +114,11 @@ class DriverTests(unittest.TestCase):
         driver_spec.loader.exec_module(driver)
         env = driver.xctest_env(Path("/sim/data/Documents"))
         self.assertEqual(env["TEST_RUNNER_SH1_152_DOCUMENTS"], "/sim/data/Documents")
-        # xcodebuild strips TEST_RUNNER_; EditMenuQA must read the stripped name.
+        # UI test redesign S4: EditMenuQA waits on qa.state and reads none of the app's files while
+        # the app runs; the driver reads them after the app was terminated.
         swift = (Path(__file__).parent / "smoke-qa/Tests/EditMenuQA.swift").read_text()
-        self.assertIn('environment["SH1_152_DOCUMENTS"]', swift)
-        self.assertNotIn('environment["TEST_RUNNER_SH1_152_DOCUMENTS"]', swift)
+        for reader in ("SH1_152_DOCUMENTS", "contentsOfDirectory", "String(contentsOf", "p4-peer.jsonl\")", "FileManager"):
+            self.assertNotIn(reader, swift)
 
 
 if __name__ == "__main__":

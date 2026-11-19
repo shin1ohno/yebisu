@@ -43,9 +43,19 @@ struct QAState: CustomStringConvertible {
         return terminals[index]
     }
 
+    /// A count a QA mode reported (`sh152_start`, `lifecycle_active`, ...), 0 before the first.
+    func count(_ key: String) -> Int { raw[key] as? Int ?? 0 }
+    /// The window's scene is foreground-active (S4: false behind Control Center).
+    var active: Bool { raw["active"] as? Bool ?? false }
+    /// What the in-process mock peers received (S4, crates/yebisu/src/qa_ax_peer.rs): input
+    /// messages, and the last pasted texts (markers and clipboard texts).
+    var peerInputs: Int { (raw["peer"] as? [String: Any])?["inputs"] as? Int ?? 0 }
+    var peerPastes: [String] { (raw["peer"] as? [String: Any])?["pastes"] as? [String] ?? [] }
+
     /// The root fields that say what is on screen and what covers it; a press that changes one
-    /// of them was taken by the app.
-    static let screenFields = ["screen", "sheet", "menu"]
+    /// of them was taken by the app, or by the system when `active` went false (S4: Control
+    /// Center over the app, run 44226480108).
+    static let screenFields = ["screen", "sheet", "menu", "active"]
 
     /// What in `after` shows that a press meant for `id` reached something else: a changed
     /// screen field, or another marked control's presses growing. A QA mode's own reported
@@ -192,15 +202,18 @@ struct QAAx {
     /// (a sheet, a menu backdrop) took the press, and it fails without pressing again, because a
     /// second press would land on a changed screen. A changed `launch` fails by name too (the app
     /// restarted and its counts began again).
+    /// `at` is the point in the element's frame (normalized; the centre by default), for a long press
+    /// on the terminal or a control part of which an edit menu covers (S4).
     @discardableResult
-    func press(_ id: String, duration: TimeInterval? = nil, timeout: TimeInterval = 5,
-               what: String = "the press's effect", until: ((QAState) -> Bool)? = nil) throws -> QAState {
+    func press(_ id: String, duration: TimeInterval? = nil, at offset: CGVector = CGVector(dx: 0.5, dy: 0.5),
+               timeout: TimeInterval = 5, what: String = "the press's effect",
+               until: ((QAState) -> Bool)? = nil) throws -> QAState {
         let before = try waitState("qa.state before pressing \(id)", timeout: timeout) { _ in true }
         let element = try find(id, timeout: timeout)
         let start = Date()
         for attempt in 1...2 {
             // The element's own coordinate: XCTest resolves the frame, and no hittability check runs.
-            let centre = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let centre = element.coordinate(withNormalizedOffset: offset)
             if let duration {
                 centre.press(forDuration: duration)
             } else {

@@ -58,6 +58,29 @@ final class QAAxLogicTests: XCTestCase {
         XCTAssertEqual(PressVerdict.of(before: before, after: nil, id: "qa.tabs.more"), .lost, "no state read: press once more")
     }
 
+    func testTakenElsewhereNamesTheSystemTakingTheWindow() throws {
+        // S4 (F10, run 44226480108): Control Center over the app made the scene inactive and took
+        // the press meant for 152 Begin; the verdict names it instead of pressing once more.
+        let before = try state(#"{"seq":4,"launch":10,"screen":"terminal","sheet":null,"menu":null,"active":true,"presses":{}}"#)
+        let after = try state(#"{"seq":5,"launch":10,"screen":"terminal","sheet":null,"menu":null,"active":false,"presses":{}}"#)
+        XCTAssertEqual(before.takenElsewhere(after, by: "qa.sh1-152.begin"), ["active"])
+        XCTAssertEqual(PressVerdict.of(before: before, after: after, id: "qa.sh1-152.begin"), .takenElsewhere(["active"]))
+        XCTAssertTrue(before.active)
+        XCTAssertFalse(after.active)
+    }
+
+    func testCountsAndPeerFields() throws {
+        let value = try state(#"{"seq":2,"launch":3,"sh152_start":2,"peer":{"inputs":4,"pastes":["sh1-152-start-E1-text-0","sh1-152-clip-E1-text-0"]}}"#)
+        XCTAssertEqual(value.count("sh152_start"), 2)
+        XCTAssertEqual(value.count("sh152_end"), 0, "a counter never reported is 0")
+        XCTAssertEqual(value.peerInputs, 4)
+        XCTAssertEqual(value.peerPastes.last, "sh1-152-clip-E1-text-0")
+        let empty = try state(#"{"seq":1,"launch":3}"#)
+        XCTAssertEqual(empty.peerInputs, 0)
+        XCTAssertEqual(empty.peerPastes, [])
+        XCTAssertFalse(empty.active)
+    }
+
     func testCoreAndKeyboardFields() throws {
         let value = try state(#"{"seq":1,"launch":3,"keyboard":398.0,"core":{"panes":2,"active":1,"vertical":true,"terminals":["t1","t2"]}}"#)
         XCTAssertEqual(value.keyboard, 398)
