@@ -118,7 +118,7 @@ unsafe fn target_window(view: Option<NonNull<c_void>>) -> Option<Retained<AnyObj
 
 unsafe fn new_view(window: &AnyObject) -> Retained<AnyObject> {
     unsafe {
-        let bounds: Rect = msg_send![&*window, bounds];
+        let bounds: Rect = msg_send![window, bounds];
         let view: Allocated<AnyObject> = msg_send![class!(UIView), alloc];
         let view: Retained<AnyObject> = msg_send![view, initWithFrame: bounds];
         let _: () = msg_send![&*view, setUserInteractionEnabled: false];

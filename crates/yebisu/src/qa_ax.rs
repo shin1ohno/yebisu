@@ -30,6 +30,7 @@ pub(crate) mod layer;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 #[path = "qa_ax_native.rs"]
 mod native;
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 #[path = "qa_ax_peer.rs"]
 pub(crate) mod peer;
 #[path = "qa_ax_root.rs"]
@@ -141,6 +142,7 @@ pub(crate) fn count(key: &'static str) {
 }
 
 /// The `qa.state` counter for a lifecycle phase (`lifecycle_active`, ...).
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 pub(crate) fn lifecycle_key(phase: gpui::AppLifecyclePhase) -> &'static str {
     use gpui::AppLifecyclePhase as Phase;
     match phase {
