@@ -114,6 +114,9 @@ class ObserverPollProbe(unittest.TestCase):
         # order of the presses and the state each one must produce stay as before S3.
         test = body(self.source, "func testSH154CoreImage(")
         presses = re.findall(r"(?:qa\.press|menuItem\(qa,) ?\(?(QAIds\.\w+)", test)
+        # The layout checks the OCR boxes had are kept on the identifiers' frames.
+        self.assertIn("qaImage.minX < qaImageOnly.minX", test)
+        self.assertIn("paste.midY < pasteImage.midY", test)
         self.assertEqual(presses, ["QAIds.bandImageOnly", "QAIds.menuPasteImage", "QAIds.menuPaste",
                                    "QAIds.bandImage", "QAIds.menuPaste", "QAIds.menuPasteImage"])
         # Before the first press the band is found and the software keyboard is down

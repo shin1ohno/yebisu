@@ -78,9 +78,13 @@ extension SmokeQA {
             $0.string("screen") == "terminal" && $0.bool("connected") == true && !$0.isNull("surface")
         }
         try qa.find(QAIds.bandImageOnly, timeout: 30)
-        try qa.find(QAIds.bandImage)
         // The terminal's focus raises the software keyboard on some Simulators; it lifts the band.
         try qa.hideKeyboard("SH154 start")
+        // The QA pair is laid out left to right on one row (as the OCR boxes were checked before S3).
+        let qaImage = try qa.find(QAIds.bandImage).frame
+        let qaImageOnly = try qa.find(QAIds.bandImageOnly).frame
+        XCTAssertTrue(qaImage.minX < qaImageOnly.minX && abs(qaImage.midY - qaImageOnly.midY) < max(qaImage.height, qaImageOnly.height),
+                      "QA Image / QA Image only not left to right on one row: \(qaImage) \(qaImageOnly)")
         func count(_ state: QAState, _ key: String) -> Int { state.int(key) ?? 0 }
         var images = count(start, "qa_images")
         var pastedImages = count(start, "pasted_images")
@@ -91,8 +95,14 @@ extension SmokeQA {
             count($0, "qa_images") == images + 1
         }
         images += 1
-        try menuItem(qa, QAIds.menuPasteImage, what: "Paste image put paste-0.png") {
-            count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
+        // Paste and Paste image sit one above the other in the menu's column.
+        try openMenu(qa)
+        let paste = try qa.find(QAIds.menuPaste).frame
+        let pasteImage = try qa.find(QAIds.menuPasteImage).frame
+        XCTAssertTrue(paste.midY < pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
+                      "Paste / Paste image not one above the other in the ... menu: \(paste) \(pasteImage)")
+        try qa.press(QAIds.menuPasteImage, timeout: 10, what: "Paste image put paste-0.png") {
+            $0.isNull("menu") && count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         pastedImages += 1
         try menuItem(qa, QAIds.menuPaste, what: "Paste put paste-1.png (the item has no text)") {
