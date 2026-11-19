@@ -103,7 +103,8 @@ The UI test redesign plan referenced below is chief-of-staff task
 repeating it.
 
 - SH1-157 layout device check on the iPad awaits the owner. Description: main
-  with the layout frame, the sidebar filter field, the status bar fit rules and
+  with the layout frame, the sidebar filter field (shown, takes no input), the
+  status bar fit rules and
   the Herdr 2 sessions in the sidebar has not been installed on M5; the owner
   chose not to install it on 2026-11-19. Reason: hardware-keyboard detection,
   floating/docked keyboards, touch feel and the Herdr 2 poll against a real
@@ -180,10 +181,30 @@ repeating it.
   so drop versus suspension is unproven. Hosted record rates (1.4 to 1.8 per
   second, at most 40 in one second, runs 44356754798 to 44406830068) do not
   support a full queue. Reason: not in docs/ci-simulator.md's known classes, and
-  0 earlier p10 failures since 2026-11-17. First step: land branch
-  `fix/observation-drop` (in-band `observation-dropped` records, bounded
-  backpressure, the app's stderr in `Documents/app-stderr.log` collected by
-  p2/p3/p10/sh1-152, `live_jsonl` failing on a gap) after its Mac mini checks.
-  Close condition: that branch merged and the next p10 failure, if any, is
+  0 earlier p10 failures since 2026-11-17. First step: make a lost record
+  visible: in `observation.rs`, write an `observation-dropped` record (with the
+  count) before the next record that gets in and stop the writer's 8192-record
+  cutoff from closing the queue; copy the app's stderr into
+  `Documents/app-stderr.log` and have p10 (and p2, p3, sh1-152) put it and
+  `p10-settings.jsonl` in the artifact; make `live_jsonl` fail on a gap record.
+  Close condition: that change merged and the next p10 failure, if any, is
   classified from its artifact; or 10 green layout-smoke runs with it; delete in
   the resolving commit.
+- Rebuild the sidebar filter field as a UIKit text-input target with IME
+  support. Description: since PR 77 the field in the sidebar header takes no
+  keyboard focus and shows `Filter · not available yet`
+  (`shell/filter.rs` `render_filter_field`); the query, matching and the
+  `Clear filter` row are kept but nothing sets the query. Reason: four review
+  rounds of the GPUI field (G1 hardware-keyboard detection, H1 detached
+  keyboard, SF1/S1 Option and Control routing, F1 in review
+  67c755ff05614a56: with a Japanese input source, printable keys go to UIKit
+  composition and the text lands in the terminal) each found keys reaching the
+  remote shell; the owner chose no input for now (2026-11-19,
+  `pr77-filter-no-input-decision.json`). First step: in herdr-uikit, add a
+  text-input target a GPUI element can own (its own `UITextInput` responder
+  with marked text, so composition and commit go to the field and never to
+  the terminal's input handler), then write a host test and a Simulator check
+  that Japanese composition, Option keys, Control-C and the software keyboard
+  each reach only the intended target. Close condition: the field takes text
+  through that target with those tests green and the device check passed;
+  delete in the resolving commit.

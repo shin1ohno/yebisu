@@ -873,25 +873,17 @@ then start the next. Record device model, iPadOS version and the main SHA.
    footer (Hosts, Settings, New space); the status bar shows the connection
    name and `Shortcuts`. Rotate once and use narrow Split View; the sidebar
    becomes a rail and the terminal keeps at least 8 rows on the 13-inch screen.
-3. Herdr 1 filter field with a hardware keyboard: tap `⌕ Filter`, type part of
-   an agent name; only matching rows stay and the terminal receives nothing.
-   Type a string that matches nothing: `Clear filter` appears. Escape restores
-   the rows and the next keys reach the terminal. Repeat, then press ⌘B instead
-   of Escape: the next keys reach the terminal. Repeat with narrow Split View
-   forcing the rail. Then, with the field focused and holding a query, check
-   one key at a time (PR 77 routing rule; refocus the field before each):
-   Option-E then E: record what the query shows (`é`, or `e` if the dead key
-   was dropped) and that the shell received nothing;
-   Control-C interrupts a running `sleep 30` in the terminal; an arrow key, Tab
-   and a function key reach the terminal (shell history, completion); Return
-   leaves the field with the query kept; ⌘-Return types nothing in the shell.
-4. Without a hardware keyboard the field reads `Filter · hardware keyboard`;
-   tapping it does not stop the software keyboard or terminal input. After the
-   filter, check the terminal does not stay at `Text input paused · tap
-   terminal to type`. Then type one letter on a hardware keyboard, detach it,
-   float (or split) the software keyboard, tap the field and type: the text
-   reaches the terminal and the field goes back to `Filter · hardware
-   keyboard` (re-review H1).
+3. Filter field: in every state (no hardware keyboard, after a hardware key,
+   Herdr 1 and Herdr 2) the sidebar header reads `Filter · not available yet`.
+   Tap it, then type with the hardware keyboard (a letter, Option-E then E,
+   Control-C during `sleep 30`, an arrow, Tab, Return, ⌘-Return) and with the
+   software keyboard (a letter, Return), and with a Japanese input source
+   (compose and commit one word): each reaches the terminal exactly as it does
+   without the tap, the field never highlights, and the sidebar list is never
+   narrowed (PR 77 owner decision: the field takes no input yet).
+4. Terminal input after the tap: the terminal does not stay at `Text input
+   paused · tap terminal to type`, and ⌘B, hiding the sidebar and narrow
+   Split View change nothing about where keys go.
 5. Status bar: press a printable hardware key (a letter; arrows, Return and
    ⌘ shortcuts do not count); `Hardware keyboard` appears left of Shortcuts.
    Narrow the window; it disappears before the connection name and
@@ -904,7 +896,7 @@ then start the next. Record device model, iPadOS version and the main SHA.
 8. Herdr 2 host: within about one second of connecting, the sidebar shows
    `HOSTS`, the host row (`SSH · Herdr 2`), the session row `default`, and under
    `AGENTS` only terminals that report a status (shells are absent). The filter
-   field reads `Filter · Herdr 1 only` and tapping it leaves keys with the
+   field reads `Filter · not available yet` and tapping it leaves keys with the
    terminal.
 9. Herdr 2 frame: the tab row shows `1 · default`; Split (2 panes), Pane 1,
    Pane 2, Toggle split direction and Detach are in the `…` menu; two panes
