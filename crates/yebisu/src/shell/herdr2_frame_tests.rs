@@ -15,6 +15,8 @@ mod entry;
 mod panes_tests;
 #[path = "herdr2_frame_tests/session.rs"]
 mod session;
+#[path = "herdr2_frame_tests/sidebar.rs"]
+mod sidebar;
 #[path = "herdr2_frame_tests/status.rs"]
 mod status;
 

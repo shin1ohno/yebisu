@@ -6,7 +6,7 @@
 //! bar). L0 `layout::compute` decides every size; the frame only places the
 //! slots in that order. The legacy toolbar and bands stay inside the
 //! terminal body until L2b retires them (plan v2 5.1 rule 1).
-use super::{ChromeState, HerdrKind, rail::SidebarMode};
+use super::{ChromeState, HerdrKind, fit, rail::SidebarMode};
 use crate::{
     app::Smoke,
     layout::{self, Insets, Layout, RULE, Rect, Size},
@@ -122,19 +122,30 @@ impl Smoke {
 
     pub(super) fn frame_layout(&self, window: &Window) -> Layout {
         let viewport = window.viewport_size();
-        let safe = window.insets().safe_area;
-        let keyboard = viewport.height - window.fully_visible_bounds().bottom();
+        let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
+        self.layout_for(size, &self.platform_insets(window))
+    }
+
+    /// `frame_layout` for a window `size` with the platform's `platform`
+    /// insets (safe area and keyboard).
+    pub(crate) fn layout_for(&self, size: Size, platform: &gpui::WindowInsets) -> Layout {
+        let safe = platform.safe_area;
         let insets = Insets {
             safe_top: f32::from(safe.top),
             safe_left: f32::from(safe.left),
             safe_right: f32::from(safe.right),
             safe_bottom: f32::from(safe.bottom),
-            keyboard: f32::from(keyboard),
+            // L9: only a keyboard docked along the bottom edge is an inset; a
+            // floating one (or a smaller visual viewport) never resizes the
+            // terminal.
+            keyboard: fit::docked_keyboard_height(size, fit::ime_keyboard(size, &platform.ime)),
         };
-        let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
         layout::compute(&layout::Input {
             // Command-B and the rail's button collapse to 72 at any width (L4).
             sidebar_rail: self.sidebar_user_mode() == SidebarMode::Rail,
+            // L9: the requested mod regions, size 0 once the line has been
+            // down for 30 s.
+            regions: self.requested_mod_regions(self.fit_now()),
             ..frame_input(size, insets, self.find.is_some())
         })
     }
@@ -256,13 +267,13 @@ impl Smoke {
         }
         let list = match self.render_sidebar_list(cx) {
             Some(list) => Some(list),
-            // Herdr 2 had no board in the band either. Until L8 fills its
-            // sidebar the list stays empty, but the column still draws: the
-            // L2b footer is the only place of Hosts, Settings and New space
-            // once the toolbar is retired (Integration 2). Integration 1 S3
-            // dropped the column while it was empty; with the footer in it,
-            // it is not.
-            None if self.terminal.core_mode => None,
+            // Herdr 2: L8's sessions (herdr2_frame::sidebar), once a Herdr 2
+            // host has listed them. With no such host the list stays empty,
+            // but the column still draws: the L2b footer is the only place of
+            // Hosts, Settings and New space once the toolbar is retired
+            // (Integration 2). Integration 1 S3 dropped the column while it
+            // was empty; with the footer in it, it is not.
+            None if self.terminal.core_mode => self.render_herdr2_sidebar_list(cx),
             // The body drew the board this frame (a resize just widened the
             // window past the collapse width): never draw it twice.
             None if board_in_band => None,
@@ -284,7 +295,8 @@ impl Smoke {
                         .flex()
                         .items_center()
                         .px_3()
-                        .child(div().flex_1())
+                        // L4: the filter field takes the header's free width.
+                        .child(self.render_filter_field())
                         .child(
                             div()
                                 .id("shell-sidebar-toggle")
@@ -303,6 +315,7 @@ impl Smoke {
                 .child(
                     div()
                         .id("shell-sidebar-list")
+                        .debug_selector(|| "shell-sidebar-list".into())
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()

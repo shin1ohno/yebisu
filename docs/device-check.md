@@ -858,3 +858,53 @@ and unavailable/disconnected state must follow current selection; no remote valu
 or guessed path may appear. The current provider cannot supply retained read
 authority, so no remote read is dispatched. This check does not satisfy two-host
 SSH read or R01-R16 receiving acceptance; those require separately reviewed APIs.
+
+## SH1-157 layout (owner, physical M5, one step at a time)
+
+Simulator and host tests cover the layout geometry and wiring, not touch feel,
+the hardware-keyboard detection or the floating keyboard. Do one step, write its
+result (pass, fail with a screenshot, or not possible with the reason) and only
+then start the next. Record device model, iPadOS version and the main SHA.
+
+1. Unlock the Mac mini login keychain locally, connect/unlock M5 and run
+   `just ipad` from an up-to-date main checkout in an interactive login shell.
+   Never send the password to an agent. Confirm the app launches.
+2. Frame: the left sidebar shows `HOSTS`, the host rows, `Hide sidebar` and the
+   footer (Hosts, Settings, New space); the status bar shows the connection
+   name and `Shortcuts`. Rotate once and use narrow Split View; the sidebar
+   becomes a rail and the terminal keeps at least 8 rows on the 13-inch screen.
+3. Filter field: in every state (no hardware keyboard, after a hardware key,
+   Herdr 1 and Herdr 2) the sidebar header reads `Filter · not available yet`.
+   Tap it, then type with the hardware keyboard (a letter, Option-E then E,
+   Control-C during `sleep 30`, an arrow, Tab, Return, ⌘-Return) and with the
+   software keyboard (a letter, Return), and with a Japanese input source
+   (compose and commit one word): each reaches the terminal exactly as it does
+   without the tap, the field never highlights, and the sidebar list is never
+   narrowed (PR 77 owner decision: the field takes no input yet).
+4. Terminal input after the tap: the terminal does not stay at `Text input
+   paused · tap terminal to type`, and ⌘B, hiding the sidebar and narrow
+   Split View change nothing about where keys go.
+5. Status bar: press a printable hardware key (a letter; arrows, Return and
+   ⌘ shortcuts do not count); `Hardware keyboard` appears left of Shortcuts.
+   Narrow the window; it disappears before the connection name and
+   Shortcuts. Type with the software keyboard (including Return and Backspace)
+   and close it; `Hardware keyboard` must not appear.
+6. Keyboards: float the software keyboard; the terminal row count does not
+   change. Dock it; the terminal gets shorter and is not covered.
+7. Notifications: a toast is 340 pt wide in a wide window and stays inside a
+   narrow one.
+8. Herdr 2 host: within about one second of connecting, the sidebar shows
+   `HOSTS`, the host row (`SSH · Herdr 2`), the session row `default`, and under
+   `AGENTS` only terminals that report a status (shells are absent). The filter
+   field reads `Filter · not available yet` and tapping it leaves keys with the
+   terminal.
+9. Herdr 2 frame: the tab row shows `1 · default`; Split (2 panes), Pane 1,
+   Pane 2, Toggle split direction and Detach are in the `…` menu; two panes
+   have a one-cell divider with the focused half highlighted. With the software
+   keyboard up, check whether the lowest `…` menu items are hidden.
+10. Switch from the Herdr 2 host to another host and back, and Detach: no row or
+    `AGENTS` entry of the old host stays. Disconnect: the session row and
+    `AGENTS` disappear.
+11. Long press in the terminal with the software keyboard down: record whether
+    the edit menu stays open (the Simulator check E1 raises the keyboard first,
+    so only the device sees this path).

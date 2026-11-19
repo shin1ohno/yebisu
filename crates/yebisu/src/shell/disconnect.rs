@@ -3,6 +3,8 @@
 //! When the line drops, a mod region stops taking input, keeps its last
 //! screen dimmed for 30 s, then goes to size 0. Drafts stay (nothing here
 //! clears them). The clock is passed in, so tests replace it.
+use crate::{app::Smoke, layout::Regions};
+use gpui::Context;
 use std::time::{Duration, Instant};
 
 /// How long the last screen stays, dimmed, after the line drops.
@@ -69,6 +71,35 @@ impl DisconnectClock {
             None => DisconnectFade::Visible,
             Some(since) => disconnect_fade(now.saturating_duration_since(since)),
         }
+    }
+}
+
+impl Smoke {
+    /// The mod regions L0 lays out at `now`: the runtime's request while the
+    /// line is up or dropped less than 30 s ago, none after that.
+    pub(crate) fn requested_mod_regions(&self, now: Instant) -> Regions {
+        if self.shell.fit.disconnect.fade(now).keeps_size() {
+            super::mods::requested(self.shell.fit.mod_regions)
+        } else {
+            Regions::default()
+        }
+    }
+
+    /// Records the line state for the mod regions' 30 s fade, and draws
+    /// again when the 30 s end so the regions go to size 0 without input.
+    pub(crate) fn observe_disconnect(&mut self, connected: bool, cx: &mut Context<Self>) {
+        let was = self.shell.fit.disconnect;
+        let now = self.fit_now();
+        self.shell.fit.disconnect.observe(connected, now);
+        if was == self.shell.fit.disconnect || connected {
+            return;
+        }
+        cx.spawn(async |weak, cx| {
+            cx.background_executor().timer(DISCONNECT_HOLD).await;
+            // The view may be gone; nothing to draw then.
+            weak.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
     }
 }
 

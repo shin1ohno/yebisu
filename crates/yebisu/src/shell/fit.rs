@@ -14,11 +14,12 @@
 //! docked along the window's bottom edge is an L0 inset. The edit bar and the
 //! IME candidates move clear of a floating keyboard instead
 //! (`place_clear_of_keyboard`).
+use super::disconnect::DisconnectClock;
 use crate::{
     app::Smoke,
-    layout::{Rect, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, TerminalFit, TooSmall},
+    layout::{Rect, Regions, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, TerminalFit, TooSmall},
 };
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Edges, Pixels, Window, div, prelude::*, px, rgb};
 
 /// The title shown in place of the terminal.
 pub(crate) const TOO_SMALL_TITLE: &str = "Window too small";
@@ -35,6 +36,24 @@ pub(crate) struct FitState {
     pub(crate) too_small: Option<TooSmall>,
     /// The Mods list is open in overlay O (`mods.rs`).
     pub(crate) mods_open: bool,
+    /// Mod regions the mod runtime asks for. Empty until the runtime lands;
+    /// Simulator builds take a fixed request from `YEBISU_LAYOUT_MODS_QA`.
+    pub(crate) mod_regions: Regions,
+    /// When the line dropped; mod regions go to size 0 after 30 s.
+    pub(crate) disconnect: DisconnectClock,
+    /// A hardware key (`is_hardware_key`) reached the window since the
+    /// software keyboard last showed docked (the status bar's Hardware
+    /// keyboard item, and the filter field's focus).
+    pub(crate) hardware_keyboard: bool,
+    /// The window's key presses are watched for `is_hardware_key`.
+    pub(crate) watching_keys: bool,
+    /// Tests move the fit clock ahead without waiting.
+    #[cfg(test)]
+    pub(crate) clock_ahead: std::time::Duration,
+    /// Tests give the window these platform insets (GPUI's test platform
+    /// cannot change them from outside the crate).
+    #[cfg(test)]
+    pub(crate) insets: Option<gpui::WindowInsets>,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -123,6 +142,42 @@ pub(crate) fn docked_keyboard_height(window: Size, keyboard: Option<Rect>) -> f3
     }
 }
 
+/// The keyboard as a rect from the platform's keyboard insets, `None` when
+/// the platform reports none. A keyboard inset from the left or right edge
+/// does not span the window, so `docked_keyboard_height` takes it as floating.
+pub(crate) fn ime_keyboard(window: Size, ime: &Edges<Pixels>) -> Option<Rect> {
+    let height = f32::from(ime.bottom).min(window.height);
+    if height <= 0.0 {
+        return None;
+    }
+    let left = f32::from(ime.left).max(0.0);
+    let right = f32::from(ime.right).max(0.0);
+    Some(Rect::new(
+        left,
+        window.height - height,
+        (window.width - left - right).max(0.0),
+        height,
+    ))
+}
+
+/// Whether `keystroke` can only have come from a hardware keyboard. The
+/// software keyboard types characters as text, not key presses; the presses
+/// it does send (herdr-uikit 99d7928 `tap_key`, from `keymap::control_keystroke`
+/// and `keymap::backspace`) are Return (`"\n"`), Tab (`"\t"`), Escape,
+/// Backspace and Control-letters, none with a printable character. A press
+/// with a printable character and no Control, Command or Fn is therefore a
+/// physical key; Shift and Option are allowed.
+pub(crate) fn is_hardware_key(keystroke: &gpui::Keystroke) -> bool {
+    let modifiers = keystroke.modifiers;
+    if modifiers.control || modifiers.platform || modifiers.function {
+        return false;
+    }
+    keystroke
+        .key_char
+        .as_deref()
+        .is_some_and(|text| text.chars().any(|c| !c.is_control()))
+}
+
 /// Where `item` (the edit bar, or the IME candidate bar) goes so a floating
 /// keyboard does not cover it: unchanged when they do not overlap, else just
 /// above the keyboard, else just below it, inside `bounds`. `None` when
@@ -176,6 +231,47 @@ impl Smoke {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// The platform's insets for this window (safe area and keyboard).
+    pub(crate) fn platform_insets(&self, window: &Window) -> gpui::WindowInsets {
+        #[cfg(test)]
+        if let Some(insets) = &self.shell.fit.insets {
+            return insets.clone();
+        }
+        window.insets()
+    }
+
+    /// Watches every key press of the window once, so a press only a
+    /// hardware keyboard sends (`is_hardware_key`) marks one in use.
+    pub(crate) fn watch_hardware_keys(&mut self, cx: &mut Context<Self>) {
+        if self.shell.fit.watching_keys {
+            return;
+        }
+        self.shell.fit.watching_keys = true;
+        let weak = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |event, _, app| {
+            if !is_hardware_key(&event.keystroke) {
+                return;
+            }
+            // The view may be gone or busy; the next press tries again.
+            weak.update(app, |this, cx| {
+                if !this.shell.fit.hardware_keyboard {
+                    this.shell.fit.hardware_keyboard = true;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The clock of the mod regions' 30 s fade.
+    pub(crate) fn fit_now(&self) -> std::time::Instant {
+        let now = std::time::Instant::now();
+        #[cfg(test)]
+        let now = now + self.shell.fit.clock_ahead;
+        now
     }
 
     /// False while the window is too small: no size or input reaches the

@@ -1,14 +1,36 @@
 //! L4: the sidebar filter. Owner: L4.
 //!
-//! The magnifier narrows spaces and agents by what the user types. This file
-//! holds the matching rule, the empty-result outcome and the query kept in
+//! The magnifier narrows spaces and agents by a query. This file holds the
+//! matching rule, the empty-result outcome and the query kept in
 //! `RailState`; the sidebar list (L3) calls them.
-use super::sidebar::AgentRow;
+//!
+//! The field in the sidebar header takes no keyboard focus and no keys (owner
+//! decision 2026-11-19, `pr77-filter-no-input-decision.json`): four review
+//! rounds (G1, H1, SF1/S1, F1) each found a way for keys typed into a GPUI
+//! field to reach the remote shell, the last one through UIKit composition of
+//! a Japanese input source. It shows that filtering is not available yet,
+//! and terminal input is exactly what it was without the field. TODO.md
+//! tracks rebuilding it as a UIKit text-input target with IME support.
+use super::sidebar::{AgentRow, model::AgentLine};
 use crate::app::Smoke;
 use gpui::{AnyElement, Context, Role, div, prelude::*, px, rgb};
 
 /// Label of the button that clears an active filter.
 pub(crate) const CLEAR_LABEL: &str = "Clear filter";
+/// The field's text, and its spoken name with the reason, while filtering
+/// is not available.
+pub(crate) const FILTER_UNAVAILABLE: &str = "Filter · not available yet";
+pub(crate) const FILTER_UNAVAILABLE_LABEL: &str = "Filter spaces and agents, not available yet: typing into it is being rebuilt with input method support";
+
+/// The AGENTS lines a query leaves, in their order (`filter_rows`).
+pub(crate) fn filter_lines(lines: Vec<AgentLine>, query: &str) -> Vec<AgentLine> {
+    let rows: Vec<AgentRow> = lines.iter().map(|line| line.row.clone()).collect();
+    let kept: Vec<&AgentRow> = filter_rows(&rows, query);
+    lines
+        .into_iter()
+        .filter(|line| kept.iter().any(|row| row.identity == line.row.identity))
+        .collect()
+}
 
 /// True when every word of `query` appears in `text`, ignoring case. An empty
 /// query matches everything.
@@ -62,6 +84,30 @@ impl Smoke {
 
     pub(crate) fn clear_sidebar_filter(&mut self) {
         self.shell.rail.filter.clear();
+    }
+
+    /// The filter field in the sidebar header: shown as not available yet,
+    /// with its reason. It has no focus handle, no key or mouse handler and
+    /// registers no text input, so neither a tap nor a key changes terminal
+    /// input or focus.
+    pub(crate) fn render_filter_field(&self) -> AnyElement {
+        div()
+            .id("sidebar-filter-unavailable")
+            .debug_selector(|| "sidebar-filter-unavailable".to_owned())
+            .role(Role::SearchInput)
+            .aria_label(FILTER_UNAVAILABLE_LABEL)
+            .flex_1()
+            .min_w_0()
+            .h(px(32.))
+            .flex()
+            .items_center()
+            .px_2()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
+            .text_color(rgb(0x6b7280))
+            .child(FILTER_UNAVAILABLE)
+            .into_any_element()
     }
 
     /// The empty-result row: the button that clears the filter. `None` while
