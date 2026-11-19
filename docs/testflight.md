@@ -46,7 +46,7 @@ job の段は次の順に動きます。秘密ファイル（`.p12`、profile、
 6. `Upload to App Store Connect`（`distribution.py upload`）。
 7. `Remove private files`: `always()` で秘密ファイルのディレクトリを消します。
 
-package と upload は、外部ツール（`security`、`codesign`、`ditto`、`xcrun altool`）の stdout と stderr を、成功時も失敗時も表示します。altool は `--output-format json` の JSON を出します。表示の前に、パスワード、一時 Keychain のパスワード、secrets の値、秘密ファイルのパス、`.p8` の中身を `[redacted]` に置き換えます。`.p8` で署名した JWT（`eyJ` で始まる 3 区切りの文字列）と、`Bearer` の後の値も、形で見つけて `[redacted]` にします。JWT は key ID と issuer から作る派生値で、secrets の値とは一致しないためです。ツールの引数は表示しません。altool の引数は Xcode 27.2 の `xcrun altool --upload-package <file>` と API キー認証（`--api-key`・`--api-issuer`・`--p8-file-path`）で、`--apple-id` は渡しません。
+package と upload は、外部ツール（`security`、`codesign`、`ditto`、`xcrun altool`）の stdout と stderr を、成功時も失敗時も表示します。altool は `--output-format json` の JSON を出します。表示の前に、パスワード、一時 Keychain のパスワード、secrets の値、秘密ファイルのパス、`.p8` の中身を `[redacted]` に置き換えます。altool は `.p8` で JWT を署名します。JWT は key ID と issuer から作る派生値で、secrets の値とは一致しません。また、改行や `\n` で分かれると形でも見つけきれません。そのため altool の出力は、許可した項目だけを表示します。stdout の JSON からは `tool-version`・`os-version`・`success-message` と、`product-errors` の各項目の `code`・`message`・`userInfo` の `NSLocalizedDescription`・`NSLocalizedFailureReason`・`NSLocalizedRecoverySuggestion`・`underlying-errors` だけを出します。それ以外の行（JSON でない出力と stderr）は、エスケープした改行を行に分けた後、`eyJ` も `bearer`（大文字小文字を問わない）も含まず、32 文字以上の base64url のような連続（UUID を除く）も含まない行だけを出し、ほかは `[withheld: line may carry a credential]` に置き換えます。表示する文字列も、さらに上の伏せ字を通します。ツールの引数は表示しません。altool の引数は Xcode 27.2 の `xcrun altool --upload-package <file>` と API キー認証（`--api-key`・`--api-issuer`・`--p8-file-path`）で、`--apple-id` は渡しません。
 
 本 PR の検証では、署名・アップロード・environment と secrets の作成・workflow の実行を行いません。
 

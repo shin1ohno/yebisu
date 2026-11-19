@@ -56,9 +56,9 @@ def secret_values(*extra):
 
 
 # Derived credentials never equal an injected value: a JWT signed with the .p8
-# wraps the key ID and issuer in base64url, so it is matched by shape instead.
-JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
-BEARER = re.compile(r"(?i)\b(bearer)\s+[^\s\"',;]+")
+# wraps the key ID and issuer in base64url. Bounded runs keep matching linear.
+JWT = re.compile(r"eyJ[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{0,4096}")
+BEARER = re.compile(r"(?i)\b(bearer)(?:\s|\\[nrt]){1,64}[^\s\"',;]{1,4096}")
 
 
 def redact(text, secrets):
@@ -68,24 +68,85 @@ def redact(text, secrets):
     return BEARER.sub(r"\1 [redacted]", text)
 
 
-def shown(argv, secrets, **kwargs):
+# altool signs a JWT with the .p8, so its output is shown by allow-list rather
+# than by matching every shape a token could take. A line is withheld when it
+# names a token (eyJ, bearer) or carries a long base64url-like run, which is
+# what the pieces of a JWT split across lines look like. UUIDs stay visible.
+WITHHELD = "[withheld: line may carry a credential]"
+TOKEN_WORD = re.compile(r"(?i)eyj|bearer")
+LONG_RUN = re.compile(r"[A-Za-z0-9_.=+-]{32,}")
+UUID_TEXT = re.compile(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}")
+ALTOOL_TOP = ("tool-version", "os-version", "success-message")
+ALTOOL_ERROR = ("code", "message")
+ALTOOL_USER_INFO = ("NSLocalizedDescription", "NSLocalizedFailureReason", "NSLocalizedRecoverySuggestion")
+
+
+def safe_lines(text):
+    """Keep lines that name no token, after turning escaped newlines into lines."""
+    joined = re.sub(r"\\r\\n|\\[nr]", "\n", text.replace("\r\n", "\n"))
+    kept = []
+    for line in joined.split("\n"):
+        unsafe = TOKEN_WORD.search(line) or any(
+            not UUID_TEXT.fullmatch(run) for run in LONG_RUN.findall(line))
+        if not unsafe:
+            kept.append(line)
+        elif not kept or kept[-1] != WITHHELD:
+            kept.append(WITHHELD)
+    return "\n".join(kept)
+
+
+def altool_errors(errors, depth=0):
+    view = []
+    for entry in errors if isinstance(errors, list) and depth < 4 else []:
+        if not isinstance(entry, dict):
+            continue
+        item = {key: entry[key] for key in ALTOOL_ERROR if isinstance(entry.get(key), (int, str))}
+        info = entry.get("userInfo")
+        if isinstance(info, dict):
+            item.update({key: info[key] for key in ALTOOL_USER_INFO if isinstance(info.get(key), str)})
+        nested = altool_errors(entry.get("underlying-errors"), depth + 1)
+        if nested:
+            item["underlying-errors"] = nested
+        view.append({key: safe_lines(value) if isinstance(value, str) else value
+                     for key, value in item.items()})
+    return view
+
+
+def altool_view(stream, text):
+    """Reduce altool's JSON to the fields that diagnose an upload; filter the rest."""
+    if stream == "stdout":
+        try:
+            body = json.loads(text)
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            view = {key: safe_lines(body[key]) for key in ALTOOL_TOP if isinstance(body.get(key), str)}
+            errors = altool_errors(body.get("product-errors"))
+            if errors:
+                view["product-errors"] = errors
+            return json.dumps(view, indent=1, ensure_ascii=False)
+    return safe_lines(text)
+
+
+def shown(argv, secrets, view=None, **kwargs):
     """Run a tool and show its redacted stdout and stderr, never its arguments."""
     label = " ".join(argv[:2]) if argv[0] in {"security", "xcrun"} else argv[0]
     try:
         result = run(argv, capture_output=True, text=True, errors="replace", **kwargs)
     except subprocess.CalledProcessError as error:
-        show_output(label, error.returncode, error.stdout, error.stderr, secrets)
+        show_output(label, error.returncode, error.stdout, error.stderr, secrets, view)
         raise
-    show_output(label, result.returncode, result.stdout, result.stderr, secrets)
+    show_output(label, result.returncode, result.stdout, result.stderr, secrets, view)
     return result
 
 
-def show_output(label, status, stdout, stderr, secrets):
+def show_output(label, status, stdout, stderr, secrets, view=None):
     print(f"[{label}] exit status {status}", file=sys.stderr)
     for name, text in (("stdout", stdout), ("stderr", stderr)):
         if isinstance(text, bytes):
             text = text.decode(errors="replace")
         if text and text.strip():
+            text = view(name, text) if view else text
             print(f"[{label}] {name}:\n{redact(text, secrets).rstrip()}", file=sys.stderr)
     sys.stderr.flush()
 
@@ -257,9 +318,9 @@ def upload_ipa(ipa):
         os.environ.get("ASC_ISSUER_ID", ""), os.environ.get("ASC_APP_ID", ""),
         os.environ.get("ASC_PROVIDER_PUBLIC_ID"))
     # An explicit file path avoids searching shared directories or copying keys.
-    # altool prints JSON (--output-format json) on success and failure; show it
-    # with every injected value and the key file content redacted.
-    shown(command, secret_values(key_file.read_text(errors="replace")))
+    # altool prints JSON (--output-format json) on success and failure. Show
+    # only its diagnostic fields (altool_view), with injected values redacted.
+    shown(command, secret_values(key_file.read_text(errors="replace")), view=altool_view)
     print("Upload accepted by tool; processing, group delivery and device update are pending")
 
 
