@@ -1,36 +1,27 @@
-//! The filter field on the real screen (layout follow-up W1, L4 review S4):
-//! a tap on the header field and hardware keys narrow the sidebar list
-//! through `filter_rows`; Escape clears it and the rows come back. Keys typed
-//! into the field never reach the terminal.
+//! The filter field on the real screen (owner decision 2026-11-19,
+//! `pr77-filter-no-input-decision.json`): it says filtering is not available
+//! yet, takes no keyboard focus, and a tap on it never changes what the
+//! terminal receives or which element has focus.
 use crate::{app::Smoke, mock_peer};
 use gpui::{
-    Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px, size,
+    Entity, EntityInputHandler, FocusHandle, Keystroke, Modifiers, TestAppContext,
+    VisualTestContext, point, px, size,
 };
-use sheprd_client::protocol::ClientMessage;
+use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
 use std::{
     sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
 
-pub(super) type Receipts = Receiver<ClientMessage>;
+type Receipts = Receiver<ClientMessage>;
 
 /// A Herdr 1 terminal on the private peer (one agent, "reviewer", in the
-/// space "repo"), drawn at 1200×1000 with the sidebar list open, on an iPad
-/// with a hardware keyboard.
-pub(super) fn terminal(
+/// space "repo"), drawn at 1200×1000 with the sidebar list open; `hardware`
+/// sets whether a hardware keyboard is known.
+fn terminal(
     cx: &mut TestAppContext,
+    hardware: bool,
 ) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
-    let (view, receipts, cx) = bare_terminal(cx);
-    view.update(cx, |this, cx| {
-        this.shell.fit.hardware_keyboard = true;
-        cx.notify();
-    });
-    cx.run_until_parked();
-    (view, receipts, cx)
-}
-
-/// As `terminal`, with no hardware keyboard known yet.
-fn bare_terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1200.), px(1000.)));
     let (client, receipts) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
@@ -51,14 +42,49 @@ fn bare_terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, Receipts, &mut Visu
         );
         std::thread::sleep(Duration::from_millis(5));
     }
+    view.update(cx, |this, cx| {
+        this.shell.fit.hardware_keyboard = hardware;
+        cx.notify();
+    });
     cx.run_until_parked();
+    sent(&view, &receipts, cx);
     (view, receipts, cx)
 }
 
-pub(super) fn tap(cx: &mut VisualTestContext, selector: &'static str) {
+/// The pane input events the terminal sent since the last call.
+fn sent(view: &Entity<Smoke>, receipts: &Receipts, cx: &mut VisualTestContext) -> Vec<String> {
+    for _ in 0..10 {
+        view.update(cx, |this, cx| this.poll_terminal(cx));
+        cx.run_until_parked();
+    }
+    let mut events = Vec::new();
+    while let Ok(message) = receipts.recv_timeout(Duration::from_millis(50)) {
+        if let ClientMessage::ClientShellPaneInput { events: input, .. } = message {
+            events.extend(
+                input
+                    .iter()
+                    .map(|event: &ClientPaneInputEvent| format!("{event:?}")),
+            );
+        }
+    }
+    events
+}
+
+/// Whether the terminal has the keys (focus handles differ between
+/// windows, so two runs compare this, not the handle).
+fn terminal_focused(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
+    let view = view.clone();
+    cx.update(|window, cx| view.read(cx).terminal_focus.is_focused(window))
+}
+
+fn focused(cx: &mut VisualTestContext) -> Option<FocusHandle> {
+    cx.update(|window, cx| window.focused(cx))
+}
+
+fn tap_field(cx: &mut VisualTestContext) {
     let at = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("{selector} not painted"));
+        .debug_bounds("sidebar-filter-unavailable")
+        .unwrap_or_else(|| panic!("the filter field is not painted"));
     cx.simulate_click(
         point(
             at.origin.x + at.size.width / 2.,
@@ -69,286 +95,147 @@ pub(super) fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
 }
 
-/// Whether the list offers "Clear filter" (the query left no row).
-fn empty_result(cx: &mut VisualTestContext) -> bool {
-    cx.debug_bounds("filter-clear").is_some()
+/// One input: a hardware key press, or text from the software keyboard
+/// through the platform text input.
+#[derive(Clone)]
+enum Input {
+    Key(Keystroke),
+    Text(&'static str),
 }
 
-pub(super) fn query(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
-    view.read_with(cx, |this, _| this.sidebar_filter().to_owned())
+fn with(modifiers: Modifiers, key: &str, key_char: Option<&str>) -> Input {
+    Input::Key(Keystroke {
+        modifiers,
+        key: key.into(),
+        key_char: key_char.map(Into::into),
+    })
 }
 
-/// Whether the terminal sent pane input to the peer since the last call.
-fn terminal_sent_input(
-    view: &Entity<Smoke>,
-    receipts: &Receipts,
-    cx: &mut VisualTestContext,
-) -> bool {
-    for _ in 0..10 {
-        view.update(cx, |this, cx| this.poll_terminal(cx));
-        cx.run_until_parked();
-    }
-    let mut sent = false;
-    while let Ok(message) = receipts.recv_timeout(Duration::from_millis(50)) {
-        sent |= matches!(message, ClientMessage::ClientShellPaneInput { .. });
-    }
-    sent
-}
-
-#[gpui::test]
-fn typing_in_the_filter_field_narrows_the_list(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = terminal(cx);
-    assert!(!empty_result(cx), "fixture: the list has rows");
-    terminal_sent_input(&view, &receipts, cx);
-
-    // A query that matches no space and no agent.
-    tap(cx, "sidebar-filter");
-    cx.simulate_keystrokes("z q x");
-    assert_eq!(query(&view, cx), "zqx");
-    assert!(empty_result(cx), "a query matching nothing kept rows");
-    assert!(
-        !terminal_sent_input(&view, &receipts, cx),
-        "a key typed into the filter field reached the terminal"
-    );
-
-    // Backspace edits the query; the agent's name matches again.
-    cx.simulate_keystrokes("backspace backspace backspace r e v");
-    assert_eq!(query(&view, cx), "rev");
-    assert!(!empty_result(cx), "the agent reviewer was filtered out");
-
-    // A query matching nothing, then Escape: cleared, rows back, and the
-    // keys go to the terminal again.
-    cx.simulate_keystrokes("z z");
-    assert!(empty_result(cx));
-    cx.simulate_keystrokes("escape");
-    assert_eq!(query(&view, cx), "");
-    assert!(!empty_result(cx), "clearing did not restore the rows");
-    cx.simulate_keystrokes("a");
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "after Escape a key should reach the terminal again"
-    );
-}
-
-#[gpui::test]
-fn filter_field_clear_button_restores_the_list(cx: &mut TestAppContext) {
-    let (view, _receipts, cx) = terminal(cx);
-    tap(cx, "sidebar-filter");
-    cx.simulate_keystrokes("n o p e");
-    assert!(empty_result(cx));
-    tap(cx, "sidebar-filter-clear");
-    assert_eq!(query(&view, cx), "");
-    assert!(!empty_result(cx));
-}
-
-/// Focuses the field and types one character into it.
-pub(super) fn type_into_field(
-    view: &Entity<Smoke>,
-    receipts: &Receipts,
-    cx: &mut VisualTestContext,
-) {
-    terminal_sent_input(view, receipts, cx);
-    tap(cx, "sidebar-filter");
-    cx.simulate_keystrokes("z");
-    assert_eq!(query(view, cx), "z", "fixture: the field took the key");
-    assert!(!terminal_sent_input(view, receipts, cx));
-}
-
-/// Review F1, scene A: the focused field leaves the screen when the sidebar
-/// collapses to the rail (Command-B or Hide sidebar); the keys come back to
-/// the terminal.
-#[gpui::test]
-fn keys_return_to_terminal_when_the_sidebar_collapses(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = terminal(cx);
-    type_into_field(&view, &receipts, cx);
-    view.update(cx, |this, cx| {
-        this.toggle_sidebar();
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("sidebar-filter").is_none(), "fixture: rail");
-    cx.simulate_keystrokes("a");
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "a key after the sidebar collapsed reached no one"
-    );
-}
-
-/// Review F1, scene A: the window narrows until the rail is forced.
-#[gpui::test]
-fn keys_return_to_terminal_when_the_rail_is_forced(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = terminal(cx);
-    type_into_field(&view, &receipts, cx);
-    cx.simulate_resize(size(px(440.), px(1000.)));
-    view.update(cx, |_, cx| cx.notify());
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("sidebar-filter").is_none(), "fixture: rail");
-    cx.simulate_keystrokes("a");
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "a key after the rail was forced reached no one"
-    );
-}
-
-/// Review F1, scene B: with no hardware keyboard the field shows why it takes
-/// no keys, and a tap on it leaves the keys with the terminal.
-#[gpui::test]
-fn field_takes_no_keys_without_a_hardware_keyboard(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = bare_terminal(cx);
-    terminal_sent_input(&view, &receipts, cx);
-    assert!(
-        cx.debug_bounds("sidebar-filter-unavailable").is_some(),
-        "the field does not say it needs a hardware keyboard"
-    );
-    assert!(cx.debug_bounds("sidebar-filter").is_none());
-    tap(cx, "sidebar-filter-unavailable");
-    cx.simulate_keystrokes("a");
-    assert_eq!(query(&view, cx), "");
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "a tap on the field kept the keys from the terminal"
-    );
-}
-
-/// Review F1, scene B with a query left from a hardware keyboard: the field
-/// and its × stay, but a tap does not take the keys.
-#[gpui::test]
-fn set_query_field_takes_no_focus_without_a_hardware_keyboard(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = bare_terminal(cx);
-    view.update(cx, |this, cx| {
-        this.set_sidebar_filter("rev");
-        cx.notify();
-    });
-    cx.run_until_parked();
-    terminal_sent_input(&view, &receipts, cx);
-    tap(cx, "sidebar-filter");
-    cx.simulate_keystrokes("a");
-    assert_eq!(query(&view, cx), "rev");
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "a tap on the field kept the keys from the terminal"
-    );
-}
-
-/// Review F4: Herdr 2's sidebar does not filter, so the field takes no keys
-/// there and says why.
-#[gpui::test]
-fn herdr2_field_takes_no_keys(cx: &mut TestAppContext) {
-    let (view, _receipts, cx) = terminal(cx);
-    view.update(cx, |this, cx| {
-        this.terminal.core_mode = true;
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("sidebar-filter").is_none());
-    let reason = view.update(cx, |this, cx| {
-        this.render_filter_field(cx);
-        this.shell.rail.filter_drawn
-    });
-    assert!(!reason, "the Herdr 2 field was drawn as a key target");
-}
-
-/// Review G1: with a floating software keyboard (height 0) its Return,
-/// Backspace, Tab, Escape and Control presses do not unlock the field; only a
-/// printable hardware press does.
-#[gpui::test]
-fn software_keyboard_presses_do_not_unlock_the_field(cx: &mut TestAppContext) {
-    let (view, _receipts, cx) = bare_terminal(cx);
-    cx.simulate_keystrokes("enter backspace tab escape ctrl-a");
-    view.update(cx, |_, cx| cx.notify());
-    cx.run_until_parked();
-    assert!(
-        !view.read_with(cx, |this, _| this.shell.fit.hardware_keyboard),
-        "a software keyboard press counted as a hardware keyboard"
-    );
-    assert!(cx.debug_bounds("sidebar-filter-unavailable").is_some());
-    assert!(cx.debug_bounds("sidebar-filter").is_none());
-    cx.simulate_keystrokes("a");
-    view.update(cx, |_, cx| cx.notify());
-    cx.run_until_parked();
-    assert!(
-        cx.debug_bounds("sidebar-filter").is_some(),
-        "a hardware press did not unlock the field"
-    );
-}
-
-/// Whether the filter field holds the keys.
-pub(super) fn field_focused(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
-    let view = view.clone();
-    cx.update(|window, cx| view.read(cx).filter_focused(window))
-}
-
-/// Re-review d68b H1: a hardware keyboard was used, then detached, and the
-/// software keyboard floats (herdr-uikit reports no inset for it, so nothing
-/// clears the flag). Text the software keyboard sends through the platform
-/// text input while the field holds the keys forgets the flag, hands the
-/// keys back and reaches the terminal.
-#[gpui::test]
-fn software_keyboard_text_returns_the_field_keys_to_the_terminal(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = terminal(cx);
-    type_into_field(&view, &receipts, cx);
-    assert!(
-        field_focused(&view, cx),
-        "fixture: the field holds the keys"
-    );
-    let entity = view.clone();
-    cx.update(|window, cx| {
-        entity.update(cx, |this, cx| {
-            this.replace_text_in_range(None, "x", window, cx);
-        })
-    });
-    cx.run_until_parked();
-    assert!(
-        !view.read_with(cx, |this, _| this.shell.fit.hardware_keyboard),
-        "software keyboard text left the hardware keyboard flag set"
-    );
-    assert!(
-        !field_focused(&view, cx),
-        "software keyboard text left the keys with the field"
-    );
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "software keyboard text did not reach the terminal"
-    );
-    assert_eq!(query(&view, cx), "z", "the text went into the query");
-    assert!(
-        cx.debug_bounds("sidebar-filter").is_some(),
-        "fixture: a set query keeps the field drawn"
-    );
-}
-
-/// H1 wiring: the frame keeps the terminal's text input registered under the
-/// field's focus, so the window's platform text input (not a direct call)
-/// reaches the handler. On a device only software keyboard text takes that
-/// path while the field has focus (every hardware key is routed by
-/// `filter_edit`). GPUI tests have no public way to call the window's text
-/// input, so a Command key the field passes on to the app carries the text
-/// here; herdr-uikit gives Command letters no text, so this keystroke is
-/// synthetic and stands only for "text the window hands to its text input".
-#[gpui::test]
-fn the_field_keeps_the_platform_text_input_registered(cx: &mut TestAppContext) {
-    let (view, receipts, cx) = terminal(cx);
-    type_into_field(&view, &receipts, cx);
-    let keystroke = gpui::Keystroke {
-        modifiers: Modifiers {
-            platform: true,
-            ..Modifiers::default()
-        },
-        key: "k".into(),
-        key_char: Some("k".into()),
+/// Every kind of input the earlier field routed: printable, Option-composed
+/// and dead keys, Control, arrows, Tab, Return, Escape, Backspace, Fn,
+/// Command shortcuts (Command-Return carries text), and software keyboard
+/// text.
+fn inputs() -> Vec<Input> {
+    let key = |text: &'static str| {
+        Input::Key(
+            Keystroke::parse(text)
+                .ok()
+                .unwrap_or_else(|| panic!("{text}")),
+        )
     };
-    let taken = cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    let alt = Modifiers {
+        alt: true,
+        ..Modifiers::default()
+    };
+    let command = Modifiers {
+        platform: true,
+        ..Modifiers::default()
+    };
+    vec![
+        key("a"),
+        key("shift-b"),
+        key("space"),
+        with(alt, "e", Some("é")),
+        with(alt, "e", None),
+        key("ctrl-c"),
+        key("up"),
+        key("tab"),
+        key("backspace"),
+        key("enter"),
+        key("escape"),
+        key("f5"),
+        key("cmd-k"),
+        with(command, "enter", Some("\n")),
+        Input::Text("x"),
+    ]
+}
+
+fn send(input: &Input, view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    match input.clone() {
+        Input::Key(keystroke) => {
+            cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+        }
+        Input::Text(text) => {
+            let view = view.clone();
+            cx.update(|window, cx| {
+                view.update(cx, |this, cx| {
+                    this.replace_text_in_range(None, text, window, cx)
+                });
+            });
+        }
+    }
     cx.run_until_parked();
+}
+
+/// What the terminal received for each input, and the focus after it;
+/// with `tap`, the field is tapped before every input.
+fn run(cx: &mut TestAppContext, hardware: bool, tap: bool) -> Vec<(Vec<String>, bool)> {
+    let (view, receipts, cx) = terminal(cx, hardware);
+    let start = focused(cx);
     assert!(
-        taken,
-        "no text input was registered while the field held the keys"
+        terminal_focused(&view, cx),
+        "fixture: the terminal has the keys"
     );
+    let mut seen = Vec::new();
+    for input in inputs() {
+        if tap {
+            tap_field(cx);
+            assert_eq!(focused(cx), start, "a tap on the filter field moved focus");
+        }
+        send(&input, &view, cx);
+        seen.push((sent(&view, &receipts, cx), terminal_focused(&view, cx)));
+    }
+    assert_eq!(
+        view.read_with(cx, |this, _| this.sidebar_filter().to_owned()),
+        "",
+        "a key reached the filter query"
+    );
+    seen
+}
+
+/// The field says why it takes no keys, in every state the earlier field
+/// changed with: no hardware keyboard, a hardware keyboard, and Herdr 2.
+#[gpui::test]
+fn the_field_says_filtering_is_not_available(cx: &mut TestAppContext) {
+    let (view, _receipts, cx) = terminal(cx, false);
+    for (hardware, core) in [(false, false), (true, false), (true, true)] {
+        view.update(cx, |this, cx| {
+            this.shell.fit.hardware_keyboard = hardware;
+            this.terminal.core_mode = core;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("sidebar-filter-unavailable").is_some(),
+            "hardware={hardware} core={core}: the field does not say it is unavailable"
+        );
+        assert!(
+            cx.debug_bounds("sidebar-filter").is_none(),
+            "hardware={hardware} core={core}: an input field was drawn"
+        );
+    }
+}
+
+/// With a hardware keyboard known (the state in which the earlier field
+/// took the keys), tapping the field before every input changes neither
+/// what the terminal receives nor which element has focus.
+#[gpui::test]
+fn a_tap_on_the_field_changes_no_terminal_input_with_a_hardware_keyboard(cx: &mut TestAppContext) {
+    let untouched = run(cx, true, false);
+    let tapped = run(cx, true, true);
     assert!(
-        !field_focused(&view, cx),
-        "platform text left the keys with the field"
+        untouched.iter().any(|(events, _)| !events.is_empty()),
+        "fixture: the terminal received none of the inputs"
     );
-    assert!(
-        terminal_sent_input(&view, &receipts, cx),
-        "platform text did not reach the terminal"
-    );
+    assert_eq!(tapped, untouched);
+}
+
+/// The same without a hardware keyboard (the software keyboard is the input).
+#[gpui::test]
+fn a_tap_on_the_field_changes_no_terminal_input_without_a_hardware_keyboard(
+    cx: &mut TestAppContext,
+) {
+    let untouched = run(cx, false, false);
+    let tapped = run(cx, false, true);
+    assert_eq!(tapped, untouched);
 }

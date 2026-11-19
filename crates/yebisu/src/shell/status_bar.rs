@@ -156,9 +156,6 @@ impl Smoke {
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
         self.note_hardware_keyboard(window, cx);
-        // L4: the sidebar filter field was not drawn (rail, hidden sidebar):
-        // the keys go back to the terminal.
-        self.release_hidden_filter(window, cx);
         let mut model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
