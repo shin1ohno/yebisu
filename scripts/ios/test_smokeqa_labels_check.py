@@ -52,7 +52,8 @@ class CheckedIn(Tree):
     def test_the_checked_in_tests_are_tied_to_the_checked_in_app(self):
         rows, problems, _ = labels.check(ROOT, HERE / "smoke-qa" / "Tests")
         self.assertEqual(problems, [])
-        self.assertGreater(len(rows), 50)
+        # S3 moved P9, SH1-154 and P3 to QA identifiers and dropped their 20 strings.
+        self.assertGreater(len(rows), 25)
 
     def test_a_scratch_copy_is_clean_too(self):
         self.assertEqual(self.run_check()[1], [])
@@ -61,7 +62,7 @@ class CheckedIn(Tree):
         source = labels.strip_comments("\n".join(p.read_text() for p in sorted(self.tests.glob("SmokeQA*.swift"))))
         found, problems = labels.collect(source)
         self.assertEqual(problems, [])
-        for expected in ("Settings", "Observer next", "Native next", "High contrast", "paste-2.png", "HOSTS", "Host: ",
+        for expected in ("Settings", "Observer next", "Native next", "High contrast", "HOSTS", "Host: ",
                          "qa-alpha", "idle", "Type here", "Theme", "Agent needs attention", "QuietHours"):
             with self.subTest(label=expected):
                 self.assertIn(expected, found)
@@ -134,14 +135,13 @@ class AppChanged(Tree):
     """The app stops painting what SmokeQA still taps."""
 
     def test_a_commented_out_control_fails(self):
-        self.rewrite("crates/yebisu/src/shell/status_bar.rs", '"Reconnect"', '"Reconnect"')
-        file = self.root / "crates/yebisu/src/shell/status_bar.rs"
+        file = self.root / "crates/yebisu/src/shell/overflow_menu.rs"
         lines = file.read_text().splitlines()
-        at = next(i for i, line in enumerate(lines) if '"Reconnect"' in line)
+        at = next(i for i, line in enumerate(lines) if 'Self::SelectText => "Select text"' in line)
         lines[at] = "// " + lines[at]
         file.write_text("\n".join(lines) + "\n")
         problems = self.run_check()[1]
-        self.assertTrue(any("'Reconnect'" in p and "no longer contains" in p for p in problems), problems)
+        self.assertTrue(any("'Select text'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_a_block_commented_control_fails(self):
         file = self.root / "crates/yebisu/src/mock_peer.rs"
@@ -159,28 +159,29 @@ class AppChanged(Tree):
     def test_a_deleted_source_file_fails(self):
         (self.root / "crates/yebisu/src/shell/overflow_menu.rs").unlink()
         problems = self.run_check()[1]
-        self.assertTrue(any("'Paste image'" in p and "no longer contains" in p for p in problems), problems)
+        self.assertTrue(any("'Select text'" in p and "no longer contains" in p for p in problems), problems)
 
 
 class AllowListSource(Tree):
     """An allow-list entry is only as good as the source that makes the text appear."""
 
     def test_the_source_of_an_allowed_text_disappearing_fails(self):
-        (self.root / "crates/yebisu/src/core_mock/paste.rs").unlink()
+        (self.root / "crates/yebisu/src/host_settings/availability.rs").unlink()
         problems = self.run_check()[1]
-        for name in ("paste-0.png", "paste-1.png", "paste-2.png"):
-            with self.subTest(label=name):
-                self.assertTrue(any(repr(name) in p and "no longer contains" in p and "allow-list reason" in p for p in problems), problems)
+        self.assertTrue(any("'Unavailable'" in p and "no longer contains" in p and "allow-list reason" in p
+                            for p in problems), problems)
 
     def test_the_fragment_of_an_allowed_text_changing_fails(self):
         self.rewrite("crates/yebisu/src/app.rs", 'format!("Async counter: {}"', 'format!("Ticks: {}"')
         problems = self.run_check()[1]
         self.assertTrue(any("'Async counter'" in p and "no longer contains" in p for p in problems), problems)
 
-    def test_the_font_metrics_changing_fails(self):
-        self.rewrite("crates/yebisu/src/settings_pages/fonts.rs", "size_px: 14.0,", "size_px: 15.0,")
+    def test_a_composing_source_changing_fails(self):
+        # The density labels left the table in S3 (P3 presses QA identifiers); QuietHours is
+        # still composed from a variant name.
+        self.rewrite("crates/yebisu/src/notifications.rs", "QuietHours,", "QuietTime,")
         problems = self.run_check()[1]
-        self.assertTrue(any("'Regular 14/20'" in p and "no longer contains" in p for p in problems), problems)
+        self.assertTrue(any("'QuietHours'" in p and "no longer contains" in p for p in problems), problems)
 
     def test_an_allow_list_entry_no_test_uses_any_more_fails(self):
         with mock.patch.dict(labels.ALLOWED, {"Retired": ("no longer used", [("crates/yebisu/src/app.rs", "Async counter")])}):

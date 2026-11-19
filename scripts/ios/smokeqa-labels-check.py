@@ -34,10 +34,8 @@ SRC = "crates/yebisu/src/"
 HANDOFF = SRC + "handoff_view.rs"
 SETTINGS_VIEW = SRC + "settings_sheet/view.rs"
 P15_VIEW = SRC + "p15_settings_view.rs"
-TERMINAL_CONTROLS = SRC + "terminal_controls.rs"
 EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
 OVERFLOW_MENU = SRC + "shell/overflow_menu.rs"  # L2a ... menu
-HERDR2_PANES = SRC + "shell/herdr2_frame/panes.rs"  # L8 band labels, painted by the ... menu once the band retires
 SETTINGS_SECTIONS = SRC + "settings_pages/sections.rs"
 SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 
@@ -46,9 +44,7 @@ SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 # keep-sorted start
 SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
-    "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
-    "Detach": [(HERDR2_PANES, 'DETACH: &str = "Detach"'), (OVERFLOW_MENU, "Self::Detach => panes::DETACH")],  # L8: ... menu
-    "Display": [(SETTINGS_SECTIONS, 'Self::Display => "Display"')],
+    "Close": [(SETTINGS_VIEW, 'CLOSE_LABEL: &str = "Close"')],
     "Double tap": [(SETTINGS_CHOICES, '["Double tap", "Drag"]')],
     "Discard composition": [(SRC + "sh1_156_qa.rs", '"Discard composition"')],
     "File path unavailable": [(P15_VIEW, '"File path unavailable"')],
@@ -66,24 +62,10 @@ SOURCES = {
     "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],
     "Owner default": [(SRC + "theme_picker/mod.rs", '"Owner default"')],
     "P14 next": [(SRC + "notification_view/qa.rs", '"P14 next"')],
-    "Pane 1": [(HERDR2_PANES, 'PANE_1: &str = "Pane 1"'), (OVERFLOW_MENU, "Self::Pane1 => panes::PANE_1")],  # L8: ... menu
-    "Pane 2": [(HERDR2_PANES, 'PANE_2: &str = "Pane 2"'), (OVERFLOW_MENU, "Self::Pane2 => panes::PANE_2")],  # L8: ... menu
-    "Paste": [(OVERFLOW_MENU, 'Self::Paste => "Paste"')],  # L2b: the ... menu, not the handoff band
-    "Paste image": [(OVERFLOW_MENU, 'Self::PasteImage => "Paste image"')],
     "Probe modal callbacks": [(SRC + "settings_sheet/qa.rs", '"Probe modal callbacks"')],
-    "QA Image": [(SRC + "handoff_qa.rs", '"QA Image"')],
-    "QA Image only": [(SRC + "handoff_qa.rs", 'QA Image only')],
-    "QA commit": [(TERMINAL_CONTROLS, '"QA commit"')],
-    "QA delete": [(TERMINAL_CONTROLS, '"QA delete"')],
-    "QA image ready": [(SRC + "handoff_qa.rs", '"QA image ready"')],
-    "QA mark": [(TERMINAL_CONTROLS, '"QA mark"')],
-    "Reconnect": [(SRC + "shell/status_bar.rs", 'RECONNECT: &str = "Reconnect"')],  # L2a status bar chip
     "Select text": [(OVERFLOW_MENU, 'Self::SelectText => "Select text"')],
     "Settings": [(SRC + "shell/footer.rs", 'SETTINGS: &str = "Settings"')],  # L2b sidebar footer
-    "Split (2 panes)": [(HERDR2_PANES, 'SPLIT: &str = "Split (2 panes)"'), (OVERFLOW_MENU, "Self::Split => panes::SPLIT")],  # L8: ... menu
     "Theme": [(SRC + "settings_pages/sections.rs", 'Self::Theme => "Theme"')],  # L1 canvas section title
-    "Toggle split direction": [(HERDR2_PANES, 'ORIENTATION: &str = "Toggle split direction"'),
-                               (OVERFLOW_MENU, "Self::SplitDirection => panes::ORIENTATION")],  # L8: ... menu
     "Type here": [(SRC + "mock_peer.rs", "Type here")],
     "Typing is paused": [(SRC + "shell/edit_bar.rs", 'PAUSED_TYPING_STATUS: &str = "Typing is paused')],  # status bar while selecting
     "daemon-effective state unverified": [(P15_VIEW, "daemon-effective state unverified")],
@@ -99,14 +81,8 @@ SOURCES = {
 ALLOWED = {
     "Async counter": ("P0 counter row, painted as format!(\"Async counter: {}\", ticks)",
                       [(SRC + "app.rs", 'format!("Async counter: {}"')]),
-    "Compact 12/17": ("Display page density button composed from the Density name and its metrics (12 and 17 are the compact face)",
-                      [(SETTINGS_VIEW, '"{:?} {}/{}"'), (SRC + "settings_pages/fonts.rs", "    Compact,"),
-                       (SRC + "settings_pages/fonts.rs", "size_px: 12.0,"), (SRC + "settings_pages/fonts.rs", "line_height_px: 17.0,")]),
     "Host: ": ("prefix of the host line, composed from the selected host name",
                [(P15_VIEW, 'format!("Host: {target}")')]),
-    "Regular 14/20": ("Display page density button composed from the Density name and its metrics (14 and 20 are the regular face)",
-                      [(SETTINGS_VIEW, '"{:?} {}/{}"'), (SRC + "settings_pages/fonts.rs", "    Regular,"),
-                       (SRC + "settings_pages/fonts.rs", "size_px: 14.0,"), (SRC + "settings_pages/fonts.rs", "line_height_px: 20.0,")]),
     "QuietHours": ("status line is \"Notifications: {error:?}\", so the text is the Failure variant name",
                    [(SRC + "notification_view.rs", 'format!("Notifications: {error:?}")'), (SRC + "notifications.rs", "QuietHours,")]),
     "Unavailable": ("start of the read-only host settings message for a connection that cannot authorize a read",
@@ -115,12 +91,6 @@ ALLOWED = {
              [(SRC + "app.rs", ".child(self.input.text.clone())")]),
     "input": ("typed by the test itself (typeText) into the P0 input row, which paints the typed text",
               [(SRC + "app.rs", ".child(self.input.text.clone())")]),
-    "paste-0.png": ("file name composed by the mock core for the first image paste",
-                    [(SRC + "core_mock/paste.rs", "paste-{index}.png")]),
-    "paste-1.png": ("file name composed by the mock core for the second image paste",
-                    [(SRC + "core_mock/paste.rs", "paste-{index}.png")]),
-    "paste-2.png": ("file name composed by the mock core for the third image paste",
-                    [(SRC + "core_mock/paste.rs", "paste-{index}.png")]),
     "returned": ("typed by the test itself (typeText) into the P0 input row, which paints the typed text",
                  [(SRC + "app.rs", ".child(self.input.text.clone())")]),
 }

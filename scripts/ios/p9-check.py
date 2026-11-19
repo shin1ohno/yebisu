@@ -105,9 +105,13 @@ def collect_evidence(directory, result, paints_path, wire_path):
 def xcodebuild_test_command(project, device, derived_data, result):
     # -test-timeouts-enabled makes XCTest enforce executionTimeAllowance (SmokeQA sets one
     # for testP9Core), so a hang fails that test in minutes instead of the 40-minute job limit.
+    # Since S3 both tests press QA identifiers and wait on qa.state (YEBISU_QA_AX, set by the
+    # tests' launchEnvironment); P9's start mode is its YEBISU_QA_START_SELECTION.
     return ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
             "-test-timeouts-enabled", "YES",
             "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()",
+            # The pure checks of QAAx.press's decisions (no app; under a second).
+            "-only-testing:SmokeOracle/QAAxLogicTests",
             "-destination", "id=" + device, "-derivedDataPath", str(derived_data),
             "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO"]
 

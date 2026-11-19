@@ -60,59 +60,58 @@ extension SmokeQA {
     }
 
     func testSH154CoreImage() throws {
+        continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
         app.terminate()
         app.launchEnvironment["YEBISU_CORE_QA"] = "1"
         app.launchEnvironment["YEBISU_HANDOFF_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX"] = "1"
         app.launch()
-        // Locate the two QA strip controls and the ... menu's Paste and Paste image once,
-        // and tap the recorded points from here on. Re-reading after a "QA image ready"
-        // repaint lets Vision drop the "Paste" label or return a truncated "Paste image",
-        // and the tap then starts the wrong paste (L15 no control found, L16 text=0; main
-        // 2ed2beb, job 132955457568). L2b moved Paste and Paste image from the handoff
-        // band to the tab row's ... menu (shell/overflow_menu.rs): the menu is anchored
-        // under the tab row's right edge and lists its items in a fixed order, so neither
-        // the QA strip nor the menu moves between taps, and p9-check validate_images
-        // proves what each tap did.
-        // Wait for the QA strip (the app is connected), then hide the software keyboard the
-        // terminal's focus raises on some Simulators: it lifts the strip while it rises, and
-        // two boxes read across that move land on two rows. Read both after it is gone.
-        _ = try tapText("QA Image only", in: app, tap: false, attempts: 15)
-        hideSoftwareKeyboard(in: app, "SH154 start")
-        let qaImageOnly = try tapText("QA Image only", in: app, tap: false).box
-        let qaImage = try tapText("QA Image", in: app, tap: false, excludingNextWord: "only").box
-        // A misread box would otherwise surface only as put/path/text counts at the end:
-        // the QA pair is laid out left to right on one row, the menu items one above the
-        // other in one column, so reject a box that is not.
-        for (left, right, what) in [(qaImage, qaImageOnly, "QA Image / QA Image only")] {
-            XCTAssertTrue(left.minX < right.minX && abs(left.midY - right.midY) < max(left.height, right.height),
-                          "\(what) not located left to right on one row: \(left) \(right)")
+        // S3: the QA band's image controls and the ... menu's Paste and Paste image are pressed
+        // by identifier, at the frames the app publishes each frame, so a band the keyboard
+        // lifted or a menu that moved is pressed where it is (F4, Mac mini 32f1e21); each step
+        // waits for the app's own count in qa.state instead of reading the result off the
+        // screen. p9-check validate_images proves what each paste delivered.
+        let start = try qa.waitState("the Herdr 2 terminal is connected and drawn", timeout: 60) {
+            $0.string("screen") == "terminal" && $0.bool("connected") == true && !$0.isNull("surface")
         }
-        let more = try openOverflowMenu(in: app)
-        let paste = try tapText("Paste", in: app, tap: false, excludingNextWord: "image").box
-        let pasteImage = try tapText("Paste image", in: app, tap: false).box
-        XCTAssertTrue(paste.midY > pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
-                      "Paste / Paste image not located one above the other in the ... menu: \(paste) \(pasteImage)")
-        // Close the menu; its backdrop takes this press (overflow_menu.rs). The QA strip tap
-        // below must not be the press that closes it.
-        closeOverflowMenu(in: app, at: more)
-        tapRecorded(qaImageOnly, "QA Image only", in: app)
-        try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try openOverflowMenu(in: app, at: more)
-        tapRecorded(pasteImage, "Paste image", in: app)
-        try tapText("paste-0.png", in: app, tap: false, attempts: 30)
-        try openOverflowMenu(in: app, at: more)
-        tapRecorded(paste, "Paste", in: app)
-        try tapText("paste-1.png", in: app, tap: false, attempts: 30)
-        tapRecorded(qaImage, "QA Image", in: app)
-        try tapText("QA image ready", in: app, tap: false, attempts: 30)
-        try openOverflowMenu(in: app, at: more)
-        tapRecorded(paste, "Paste", in: app)
-        sleep(1)
-        try openOverflowMenu(in: app, at: more)
-        tapRecorded(pasteImage, "Paste image", in: app)
-        try tapText("paste-2.png", in: app, tap: false, attempts: 30)
+        try qa.find(QAIds.bandImageOnly, timeout: 30)
+        try qa.find(QAIds.bandImage)
+        // The terminal's focus raises the software keyboard on some Simulators; it lifts the band.
+        try qa.hideKeyboard("SH154 start")
+        func count(_ state: QAState, _ key: String) -> Int { state.int(key) ?? 0 }
+        var images = count(start, "qa_images")
+        var pastedImages = count(start, "pasted_images")
+        var pastedTexts = count(start, "pasted_texts")
+        func noFailure(_ state: QAState) -> Bool { count(state, "paste_failures") == 0 }
+        // 1. An image-only item; Paste image and Paste both put it (paste-0.png, paste-1.png).
+        try qa.press(QAIds.bandImageOnly, timeout: 30, what: "QA image ready (image only)") {
+            count($0, "qa_images") == images + 1
+        }
+        images += 1
+        try menuItem(qa, QAIds.menuPasteImage, what: "Paste image put paste-0.png") {
+            count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
+        }
+        pastedImages += 1
+        try menuItem(qa, QAIds.menuPaste, what: "Paste put paste-1.png (the item has no text)") {
+            count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
+        }
+        pastedImages += 1
+        // 2. An item with text and an image: Paste sends the text, Paste image puts paste-2.png.
+        try qa.press(QAIds.bandImage, timeout: 30, what: "QA image ready (text and image)") {
+            count($0, "qa_images") == images + 1
+        }
+        try menuItem(qa, QAIds.menuPaste, what: "Paste sent the text") {
+            count($0, "pasted_texts") == pastedTexts + 1 && count($0, "pasted_images") == pastedImages && noFailure($0)
+        }
+        pastedTexts += 1
+        let last = try menuItem(qa, QAIds.menuPasteImage, what: "Paste image put paste-2.png") {
+            count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
+        }
+        XCTAssertEqual(count(last, "pasted_images"), 3, "\(last)")
+        XCTAssertEqual(count(last, "pasted_texts"), 1, "\(last)")
         save("sh154-core-image")
         XCTAssertEqual(app.state, .runningForeground)
     }

@@ -108,47 +108,26 @@ class ObserverPollProbe(unittest.TestCase):
         self.assertIn("XCTFail(", function)
         self.assertIn("locateText(", function)
 
-    def test_sh154_locates_every_strip_control_once_at_the_start(self):
-        # 2ed2beb / L15 / L16: a later OCR of the strip can miss "Paste" or read a
-        # truncated "Paste image", and the tap then starts the wrong paste. Every
-        # strip control is located once, before the first tap, and tapped by point.
+    def test_sh154_presses_by_identifier_in_the_old_order(self):
+        # S3 replaced the once-located OCR boxes (2ed2beb / L15 / L16, F4) with QA identifiers:
+        # the band and the ... menu are pressed where the app draws them on that frame. The
+        # order of the presses and the state each one must produce stay as before S3.
         test = body(self.source, "func testSH154CoreImage(")
-        calls = re.findall(r'tapText\("([^"]+)"([^)]*)\)', test)
-        located = [(label, rest) for label, rest in calls if "tap: false" in rest and "attempts" not in rest]
-        self.assertEqual([label for label, _ in located], ["QA Image only", "QA Image", "Paste", "Paste image"])
-        # The first "QA Image only" only waits for the strip; the boxes are read once the
-        # software keyboard is hidden (it lifts the strip while it rises, Mac mini 32f1e21).
-        self.assertEqual([label for label, rest in calls if "attempts: 15" in rest], ["QA Image only"])
-        hidden = test.index('hideSoftwareKeyboard(in: app, "SH154 start")')
-        # The menu is shown closed before the strip is tapped, so the strip tap is never the
-        # press that closes it (run 44297932478: the close press was not taken).
-        closed = test.index("closeOverflowMenu(in: app, at: more)")
-        self.assertLess(closed, test.index("tapRecorded(qaImageOnly"))
-        self.assertNotIn("withOffset(more).tap()", test)
-        self.assertLess(test.index('tapText("QA Image only", in: app, tap: false, attempts: 15)'), hidden)
-        self.assertLess(hidden, test.index('let qaImageOnly = try tapText("QA Image only", in: app, tap: false).box'))
-        self.assertLess(hidden, test.index('let qaImage = try tapText("QA Image"'))
-        # A tapText call that taps (no `tap: false`) would be a fresh OCR of the strip.
-        self.assertEqual([label for label, rest in calls if "tap: false" not in rest], [])
-        self.assertIn('excludingNextWord: "only"', test)
-        self.assertIn('excludingNextWord: "image"', test)
-        first_tap = test.index("tapRecorded(")
-        for label in ("QA Image only", "QA Image", "Paste", "Paste image"):
-            self.assertLess(test.index('tapText("%s"' % label), first_tap, label)
-        taps = re.findall(r"tapRecorded\((\w+),", test)
-        self.assertEqual(taps, ["qaImageOnly", "pasteImage", "paste", "qaImage", "paste", "pasteImage"])
-        # L2b: Paste and Paste image are ... menu items, so every one of their taps
-        # reopens the menu at the point that opened it first, never by a fresh OCR.
-        for box in re.findall(r"openOverflowMenu\(in: app, at: more\)\n\s*tapRecorded\((\w+),", test):
-            self.assertIn(box, ("paste", "pasteImage"))
-        self.assertEqual(len(re.findall(r"openOverflowMenu\(in: app, at: more\)\n\s*tapRecorded\(", test)), 4)
-        self.assertEqual(test.count("openOverflowMenu(in: app)"), 1)
-        # Waits stay as they were: every tap is followed by the state it must produce.
-        waits = re.findall(r'tapText\("(paste-\d\.png|QA image ready)", in: app, tap: false, attempts: 30\)', test)
-        self.assertEqual(waits, ["QA image ready", "paste-0.png", "paste-1.png", "QA image ready", "paste-2.png"])
-        # A misread box is rejected at the start, not only by the final put/path/text counts.
-        self.assertIn("left.minX < right.minX", test)
-        self.assertLess(test.index("left.minX < right.minX"), first_tap)
+        presses = re.findall(r"(?:qa\.press|menuItem\(qa,) ?\(?(QAIds\.\w+)", test)
+        self.assertEqual(presses, ["QAIds.bandImageOnly", "QAIds.menuPasteImage", "QAIds.menuPaste",
+                                   "QAIds.bandImage", "QAIds.menuPaste", "QAIds.menuPasteImage"])
+        # Before the first press the band is found and the software keyboard is down
+        # (it lifts the band while it rises, Mac mini 32f1e21).
+        hidden = test.index('qa.hideKeyboard("SH154 start")')
+        self.assertLess(test.index("qa.find(QAIds.bandImageOnly"), hidden)
+        self.assertLess(hidden, test.index("try qa.press(QAIds.bandImageOnly"))
+        # Every step waits for the app's own count: an image prepared, an image or a text pasted.
+        waits = re.findall(r'what: "([^"]+)"', test)
+        self.assertEqual(waits, ["QA image ready (image only)", "Paste image put paste-0.png",
+                                 "Paste put paste-1.png (the item has no text)", "QA image ready (text and image)",
+                                 "Paste sent the text", "Paste image put paste-2.png"])
+        for counter in ("qa_images", "pasted_images", "pasted_texts", "paste_failures"):
+            self.assertIn('"%s"' % counter, test)
 
     def test_locate_text_matches_whole_words(self):
         self.assertNotIn("range(of: label)", body(self.source, "private func locateText("))
