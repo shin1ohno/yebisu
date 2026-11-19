@@ -4,14 +4,40 @@
 //! connect.
 #![allow(clippy::unwrap_used)]
 use super::retired_forward_tests::{close, install};
-use crate::{app::Smoke, find::retirement::deliver_find_retirement, observation::Observation};
-use gpui::{Bounds, ElementInputHandler, InputHandler, TestAppContext};
+use crate::{
+    app::Smoke,
+    find::retirement::{Ticket, deliver_find_retirement},
+    observation::Observation,
+};
+use gpui::{Bounds, ElementInputHandler, Entity, InputHandler, TestAppContext};
 use serde_json::Value;
 use sheprd_client::protocol::ClientMessage;
 use std::{
     sync::mpsc::{RecvTimeoutError, sync_channel},
     time::{Duration, Instant},
 };
+
+/// `begin_find_retirement` answers `None` while the connection reader holds the
+/// inbox or the terminal input has not yet synced the destination that close
+/// detached; production asks again on the next render. Drain the reader's
+/// replies and ask again until the owner is whole, or fail at the bound.
+fn begin_retirement(view: &Entity<Smoke>, cx: &mut gpui::App) -> Ticket {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let ticket = view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            this.begin_find_retirement(40)
+        });
+        if let Some(ticket) = ticket {
+            return ticket;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "retirement owner never became whole"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 
 #[gpui::test]
 fn accepted_retirement_ack_draws_the_frame_that_settles_text_input(cx: &mut TestAppContext) {
@@ -39,7 +65,7 @@ fn accepted_retirement_ack_draws_the_frame_that_settles_text_input(cx: &mut Test
     // Mac mini (attempt 8, turn 2).
     let deliver = |sessions: (u64, u64), cx: &mut gpui::VisualTestContext| {
         cx.update(|window, cx| {
-            let ticket = view.update(cx, |this, _| this.begin_find_retirement(40).unwrap());
+            let ticket = begin_retirement(&view, cx);
             deliver_find_retirement(
                 window.to_async(cx),
                 view.downgrade(),
@@ -138,9 +164,12 @@ fn fixture_peer_idle_bound_starts_at_the_first_tap() {
     idle.arm();
     let armed = Instant::now();
     std::thread::sleep(limit / 2);
+    // The peer stamps its last activity when it receives the request, which is
+    // after this instant and before `reached` returns; stamping here, not after
+    // `reached`, keeps the lower bound below the peer's own clock.
+    let sent = Instant::now();
     request(&client, "after-tap");
     reached(&received, "after-tap");
-    let heard = Instant::now();
     // A later tap does not restart the bound.
     idle.arm();
 
@@ -156,7 +185,7 @@ fn fixture_peer_idle_bound_starts_at_the_first_tap() {
     }
     let ended = Instant::now();
     assert!(
-        ended.duration_since(heard) >= limit,
+        ended.duration_since(sent) >= limit,
         "ended inside the bound"
     );
     assert!(ended.duration_since(armed) >= limit + limit / 2);
