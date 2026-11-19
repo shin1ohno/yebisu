@@ -1,50 +1,95 @@
 import XCTest
-import Vision
 
-// P2 keys and restart.
+// P2 keys and restart, through the QA accessibility layer (UI test redesign S2): the key block's
+// controls are found by identifier and every press is confirmed by qa.state, not by reading the
+// screen. The test launches the app itself, both times with the same environment, so p2-check.py
+// never touches the app while it runs; it reads the app's files only after terminating it.
 extension SmokeQA {
+    /// What p2-check.py passes (xcodebuild hands TEST_RUNNER_<name> to the runner as <name>): the
+    /// SHA-256 and length of the key line the injected provider holds.
+    private struct P2Expected {
+        let sha256: String
+        let bytes: Int
+
+        init() throws {
+            let environment = ProcessInfo.processInfo.environment
+            sha256 = try XCTUnwrap(environment["P2_PASTEBOARD_SHA256"],
+                                   "P2_PASTEBOARD_SHA256 is not set: run testP2KeysAndRestart through scripts/ios/p2-check.py")
+            bytes = try XCTUnwrap(environment["P2_PASTEBOARD_BYTES"].flatMap { Int($0) },
+                                  "P2_PASTEBOARD_BYTES is not set: run testP2KeysAndRestart through scripts/ios/p2-check.py")
+        }
+    }
+
+    private static let p2Environment = [
+        "YEBISU_P2_OBSERVE": "1",
+        "YEBISU_P11_KEYS_QA": "1",
+        "YEBISU_QA_AX": "1",
+    ]
+
     func testP2KeysAndRestart() throws {
+        let expected = try P2Expected()
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
         XCUIDevice.shared.orientation = .portrait
-        app.activate()
-        sleep(3)
+        app.launchEnvironment = Self.p2Environment
+        app.launch()
+        let first = try p2Launch(qa, "P2 first launch")
         save("p2-initial")
-        try tapText("QA injected key provider", in: app, tap: false)
-        try readDeviceKey(in: app, "P2 first launch")
+        try readDeviceKey(qa, "P2 first launch")
         save("p2-key")
-        try tapText("Copy authorized_keys line", in: app)
-        sleep(2)
+
+        // Copy: the app reads its own pasteboard back and publishes the digest and length.
+        let copied = try qa.press(QAAxIDs.keysCopy, timeout: 10, what: "copied == 1 with a pasteboard digest") {
+            $0.int("copied") == 1 && $0.string("pasteboard_sha256") != nil
+        }
+        XCTAssertEqual(copied.string("pasteboard_sha256"), expected.sha256,
+                       "the pasteboard the app read back is not the injected key line: \(copied)")
+        XCTAssertEqual(copied.int("pasteboard_bytes"), expected.bytes, "\(copied)")
         save("p2-copied")
+
         // Home and return are a lifecycle check; terminate+launch is a restart.
         XCUIDevice.shared.press(.home)
-        sleep(1)
+        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P2 after Home")
         app.activate()
+        try qa.waitState("P2 the same process after Home and return", timeout: 30) {
+            $0.launch == first.launch && $0.int("copied") == 1
+        }
         app.terminate()
-        app.launchEnvironment["YEBISU_P2_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launchEnvironment = Self.p2Environment
         app.launch()
-        sleep(3)
-        try tapText("QA injected key provider", in: app, tap: false)
-        try readDeviceKey(in: app, "P2 restart")
+        let restarted = try p2Launch(qa, "P2 restart")
+        XCTAssertNotEqual(restarted.launch, first.launch, "a restart is a new process")
+        try readDeviceKey(qa, "P2 restart")
         save("p2-restarted")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// Taps Read or initialize device key until the key line replaces "No public key loaded."
-    /// (the key field, shell/hosts_sheet/view.rs). A press the sheet did not take is repeated
-    /// once, with the reason printed: Mac mini 6f2d709, the first launch recorded no "read"
-    /// preflight and key_ready never became true, so p2-check failed "injected key not ready in
-    /// each independent launch" although XCTest had passed.
-    private func readDeviceKey(in app: XCUIApplication, _ what: String) throws {
-        for press in 0..<2 {
-            try tapText("Read or initialize device key", in: app)
-            for _ in 0..<8 {
-                sleep(1)
-                if !textVisible("No public key loaded.") { return }
-            }
-            print("\(what): key line still empty 8 s after press \(press): the press was not taken")
+    /// After a launch: the layer is up, the key block shows the injected provider's line (drawn
+    /// only after the provider's view preflight passed), and no key has been read yet.
+    @discardableResult
+    private func p2Launch(_ qa: QAAx, _ what: String) throws -> QAState {
+        let state = try qa.waitState("\(what): qa.state", timeout: 30) { $0.launch > 0 }
+        try qa.find(QAAxIDs.keysProvider, timeout: 30)
+        return try qa.waitState("\(what): key block drawn without a key", timeout: 10) {
+            $0.launch == state.launch && $0.bool("key_ready") == false
         }
-        save("p2-no-key")
-        XCTFail("\(what): no public key after two presses of Read or initialize device key")
     }
+
+    /// Presses Read or initialize device key until the app reports `key_ready`. A press the app
+    /// never received is repeated once by QAAx.press (Mac mini 6f2d709 lost the first one).
+    private func readDeviceKey(_ qa: QAAx, _ what: String) throws {
+        do {
+            try qa.press(QAAxIDs.keysRead, timeout: 10, what: "\(what): key_ready") { $0.bool("key_ready") == true }
+        } catch {
+            save("p2-no-key")
+            throw error
+        }
+    }
+}
+
+/// The key block's identifiers (crates/yebisu/src/qa_ax_ids.rs; qa-ax-ids-check.py ties them).
+private enum QAAxIDs {
+    static let keysProvider = "qa.keys.provider"
+    static let keysRead = "qa.keys.read"
+    static let keysCopy = "qa.keys.copy"
 }

@@ -111,19 +111,28 @@ struct Registry {
     armed: BTreeSet<&'static str>,
     fields: BTreeMap<&'static str, Value>,
     published: Option<(Vec<Control>, State)>,
+    /// This thread built the root publisher, so its fields are published.
+    publishing: bool,
 }
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
 }
 
-/// Sets a field for the next published value; false for a reserved key.
+/// Sets a field for the next published value; false for a reserved key, and
+/// on a thread that never built the root publisher: the registry is per
+/// thread, so a field set there would never reach `qa.state` (review F4).
 pub(crate) fn report(key: &'static str, value: Value) -> bool {
     if RESERVED.contains(&key) {
         return false;
     }
-    REGISTRY.with(|registry| registry.borrow_mut().fields.insert(key, value));
-    true
+    REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        if registry.publishing {
+            registry.fields.insert(key, value);
+        }
+        registry.publishing
+    })
 }
 
 fn frame(bounds: Bounds<Pixels>) -> [f32; 4] {
@@ -188,6 +197,7 @@ pub(crate) fn marker(id: &'static str, label: &'static str) -> AnyElement {
 pub(crate) fn publisher(
     fields: impl Fn(&App) -> Vec<(&'static str, Value)> + 'static,
 ) -> AnyElement {
+    publishing_thread();
     deferred(
         canvas(
             |_, _, _| (),
@@ -203,6 +213,11 @@ pub(crate) fn publisher(
     )
     .with_priority(usize::MAX)
     .into_any_element()
+}
+
+/// Marks this thread as the one whose registry the root publisher reads.
+fn publishing_thread() {
+    REGISTRY.with(|registry| registry.borrow_mut().publishing = true);
 }
 
 /// Publishes this frame's marks and fields if they changed; false when the

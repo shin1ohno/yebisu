@@ -28,6 +28,25 @@ struct QAState: CustomStringConvertible {
     func bool(_ key: String) -> Bool? { raw[key] as? Bool }
     /// True when `key` is present and JSON null (for example `menu` with no menu open).
     func isNull(_ key: String) -> Bool { raw[key] is NSNull }
+
+    /// The root fields that say what is on screen and what covers it; a press that changes one
+    /// of them was taken by the app.
+    static let screenFields = ["screen", "sheet", "menu"]
+
+    /// What in `after` shows that a press meant for `id` reached something else: a changed
+    /// screen field, or another marked control's presses growing. A QA mode's own reported
+    /// fields (`key_ready`, `copied`, ...) are not evidence, because they can change by
+    /// themselves while a touch is lost (review F3); `seq` moves with them, so it is not either.
+    func takenElsewhere(_ after: QAState, by id: String) -> [String] {
+        var moved = QAState.screenFields.filter { key in
+            !((raw[key] as AnyObject?)?.isEqual(after.raw[key]) ?? (after.raw[key] == nil))
+        }
+        let others = Set(((raw["presses"] as? [String: Any]) ?? [:]).keys)
+            .union(((after.raw["presses"] as? [String: Any]) ?? [:]).keys)
+            .subtracting([id])
+        moved += others.sorted().filter { after.presses($0) > presses($0) }.map { "presses[\($0)]" }
+        return moved
+    }
 }
 
 /// Why a QA layer step failed. XCTest prints the description when a test throws it, so each case
@@ -37,7 +56,8 @@ enum QAAxError: Error, CustomStringConvertible {
     case duplicate(id: String, state: String)
     case timeout(what: String, seconds: Double, reads: Int, last: String)
     case pressNotDelivered(id: String, attempts: Int, before: String, after: String)
-    case pressTakenElsewhere(id: String, before: String, after: String)
+    case pressTakenElsewhere(id: String, moved: [String], before: String, after: String)
+    case relaunched(id: String, before: String, after: String)
     case pressWithoutEffect(id: String, what: String, seconds: Double, last: String)
 
     var description: String {
@@ -50,8 +70,10 @@ enum QAAxError: Error, CustomStringConvertible {
             return String(format: "qa.state wait '%@' timed out after %.2f s (%ld reads); last qa.state=%@", what, seconds, reads, last)
         case let .pressNotDelivered(id, attempts, before, after):
             return "press on \(id) never reached it (\(attempts) attempts, qa.state did not move); before=\(before) after=\(after)"
-        case let .pressTakenElsewhere(id, before, after):
-            return "press on \(id) was taken by something else (qa.state moved, presses[\(id)] did not); before=\(before) after=\(after)"
+        case let .pressTakenElsewhere(id, moved, before, after):
+            return "press on \(id) was taken by something else (\(moved.joined(separator: ", ")) moved, presses[\(id)] did not); before=\(before) after=\(after)"
+        case let .relaunched(id, before, after):
+            return "the app relaunched while \(id) was pressed (launch changed, so presses restarted from 0); before=\(before) after=\(after)"
         case let .pressWithoutEffect(id, what, seconds, last):
             return String(format: "press on %@ reached it but '%@' did not hold within %.2f s; last qa.state=%@", id, what, seconds, last)
         }
@@ -131,9 +153,12 @@ struct QAAx {
 
     /// Presses the control `id` (a tap, or a press held `duration` seconds) at its centre and
     /// waits until `qa.state` shows the press arrived (`presses[id]` grew) and `until` holds.
-    /// If nothing at all moved in `qa.state` the touch was lost, and it presses once more; if the
-    /// state moved but not `presses[id]`, something else (a sheet, a menu backdrop) took the press,
-    /// and it fails without pressing again, because a second press would land on a changed screen.
+    /// If neither `presses[id]` nor what is on screen moved, the touch was lost, and it presses
+    /// once more (a QA mode's own fields changing meanwhile do not count, review F3). If a screen
+    /// field (`screen`, `sheet`, `menu`) changed or another control's presses grew, something else
+    /// (a sheet, a menu backdrop) took the press, and it fails without pressing again, because a
+    /// second press would land on a changed screen. A changed `launch` fails by name too (the app
+    /// restarted and its counts began again).
     @discardableResult
     func press(_ id: String, duration: TimeInterval? = nil, timeout: TimeInterval = 5,
                what: String = "the press's effect", until: ((QAState) -> Bool)? = nil) throws -> QAState {
@@ -165,13 +190,19 @@ struct QAAx {
                 }
             } catch QAAxError.timeout {
                 let after = read()
-                if let after, after.seq != before.seq {
-                    throw QAAxError.pressTakenElsewhere(id: id, before: before.text, after: after.text)
+                if let after {
+                    if after.launch != before.launch {
+                        throw QAAxError.relaunched(id: id, before: before.text, after: after.text)
+                    }
+                    let moved = before.takenElsewhere(after, by: id)
+                    if !moved.isEmpty {
+                        throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: after.text)
+                    }
                 }
                 if attempt == 2 {
                     throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: after?.text ?? "nil")
                 }
-                print("QAAX press \(id) lost (qa.state did not move); pressing once more")
+                print("QAAX press \(id) lost (presses[\(id)] and the screen fields did not move); pressing once more")
             }
         }
         throw QAAxError.pressNotDelivered(id: id, attempts: 2, before: before.text, after: read()?.text ?? "nil")
