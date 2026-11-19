@@ -21,19 +21,27 @@ def code(swift):
 
 
 class SelfTest(unittest.TestCase):
-    def test_the_driver_names_the_swift_test(self):
-        target, cls, method = driver.TEST.split("/")
-        self.assertEqual(target, "SmokeOracle")
-        self.assertIn("final class %s: XCTestCase" % cls, SELFTEST)
-        self.assertIn("func %s() throws" % method, SELFTEST)
-        self.assertEqual(driver.PASSED, "%s]' passed" % method)
+    def test_the_driver_names_the_swift_tests(self):
+        methods = []
+        for test in driver.TESTS:
+            parts = test.split("/")
+            self.assertEqual(parts[0], "SmokeOracle")
+            if parts[1] == "QAAxLogicTests":
+                self.assertIn("final class QAAxLogicTests: XCTestCase", (TESTS / "QAAxLogicTests.swift").read_text())
+                continue
+            self.assertIn("final class %s: XCTestCase" % parts[1], SELFTEST)
+            self.assertIn("func %s() throws" % parts[2], SELFTEST)
+            methods.append(parts[2])
+        self.assertEqual(methods, ["testQAAxSelfTest", "testQAAxOverlappedPress"])
+        self.assertEqual(driver.PASSED, ["%s]' passed" % method for method in methods])
 
     def test_it_skips_unless_the_driver_asks(self):
         # xcodebuild passes TEST_RUNNER_<NAME> to the runner as <NAME>.
-        body = SELFTEST[SELFTEST.index("func testQAAxSelfTest"):]
-        first = next(line.strip() for line in body.splitlines()[1:] if line.strip())
-        self.assertEqual(first, 'try XCTSkipUnless(ProcessInfo.processInfo.environment["QA_AX_SELFTEST"] != nil, '
-                                '"S1 self-test only")')
+        for method in ("testQAAxSelfTest", "testQAAxOverlappedPress"):
+            body = SELFTEST[SELFTEST.index("func %s" % method):]
+            first = next(line.strip() for line in body.splitlines()[1:] if line.strip())
+            self.assertEqual(first, 'try XCTSkipUnless(ProcessInfo.processInfo.environment["QA_AX_SELFTEST"] != nil, '
+                                    '"S1 self-test only")', method)
         self.assertIn('"TEST_RUNNER_QA_AX_SELFTEST": "1"', (HERE / "qa-ax-selftest.py").read_text())
 
     def test_no_other_driver_runs_it(self):
@@ -44,6 +52,13 @@ class SelfTest(unittest.TestCase):
 
     def test_the_app_is_launched_with_the_layer_on(self):
         self.assertIn('"YEBISU_QA_AX": "1"', SELFTEST)
+
+    def test_the_overlapped_press_is_checked_on_the_more_button(self):
+        # F5: the ... menu's backdrop covers the button; the press must not be counted.
+        body = code(SELFTEST[SELFTEST.index("func testQAAxOverlappedPress"):])
+        self.assertIn("catch let QAAxError.pressTakenElsewhere", body)
+        self.assertIn('XCTAssertEqual(moved, ["menu"]', body)
+        self.assertIn("QAIds.tabsMore", body)
 
     def test_waits_read_the_state_directly(self):
         # S0: XCTNSPredicateExpectation took 1.4-1.5 s per wait; a direct read about 25 ms.

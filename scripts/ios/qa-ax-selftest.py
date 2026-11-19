@@ -2,7 +2,8 @@
 """S1 self-test of the QA accessibility layer on fresh disposable iPad Simulators.
 
 Builds the Simulator bundle once, then for each run creates a new iPad Simulator, installs
-the app, runs QAAxSelfTest/testQAAxSelfTest (it runs only when asked: TEST_RUNNER_QA_AX_SELFTEST),
+the app, runs QAAxSelfTest (testQAAxSelfTest and testQAAxOverlappedPress, S3) and QAAxLogicTests
+(it runs only when asked: TEST_RUNNER_QA_AX_SELFTEST),
 keeps the test log and the xcresult, and deletes the Simulator. No existing job runs it.
 
   qa-ax-selftest.py OUTPUT_DIR [--runs N]
@@ -19,8 +20,10 @@ _spec = importlib.util.spec_from_file_location("ci_smoke", Path(__file__).with_n
 ci_smoke = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ci_smoke)
 
-TEST = "SmokeOracle/QAAxSelfTest/testQAAxSelfTest"
-PASSED = "testQAAxSelfTest]' passed"
+TESTS = ["SmokeOracle/QAAxSelfTest/testQAAxSelfTest", "SmokeOracle/QAAxSelfTest/testQAAxOverlappedPress",
+         "SmokeOracle/QAAxLogicTests"]
+# A skipped test also passes: each self-test method must report its own passed line.
+PASSED = ["testQAAxSelfTest]' passed", "testQAAxOverlappedPress]' passed"]
 
 
 def one_run(root, project, app_path, out, index, device_type, runtime):
@@ -35,7 +38,7 @@ def one_run(root, project, app_path, out, index, device_type, runtime):
         with log.open("w") as handle:
             tested = subprocess.run(
                 ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"),
-                 "-scheme", "SmokeOracle", f"-only-testing:{TEST}", "-destination", "id=" + device,
+                 "-scheme", "SmokeOracle", *[f"-only-testing:{test}" for test in TESTS], "-destination", "id=" + device,
                  "-derivedDataPath", str(root / "target/ios-smoke/build"),
                  "-resultBundlePath", str(out / f"run-{index}.xcresult"), "CODE_SIGNING_ALLOWED=NO"],
                 env={**os.environ, "TEST_RUNNER_QA_AX_SELFTEST": "1"},
@@ -43,7 +46,7 @@ def one_run(root, project, app_path, out, index, device_type, runtime):
             )
         text = log.read_text()
         # A skipped test (no TEST_RUNNER_QA_AX_SELFTEST) also exits 0: require the passed line.
-        passed = PASSED in text and tested.returncode == 0
+        passed = all(line in text for line in PASSED) and tested.returncode == 0
         print(f"S1 run={index} xcodebuild_exit={tested.returncode} passed={passed}", flush=True)
         for line in text.splitlines():
             if line.startswith("QAAX "):

@@ -69,4 +69,40 @@ final class QAAxSelfTest: XCTestCase {
         try qa.press(Self.tap)
         print("QAAX done")
     }
+
+    /// F5 (review of PR 75, SF3 of PR 76): a press on a marked control that an occluding layer
+    /// covers is not counted. With the ... menu open, its backdrop covers the "…" button that
+    /// opened it; a press there must close the menu without growing presses[qa.tabs.more], and
+    /// QAAx.press must say so by name (pressTakenElsewhere, `menu` moved) without pressing again.
+    func testQAAxOverlappedPress() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["QA_AX_SELFTEST"] != nil, "S1 self-test only")
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
+        app.terminate()
+        XCUIDevice.shared.orientation = .portrait
+        app.launchEnvironment = ["YEBISU_QA_AX": "1", "YEBISU_SMOKE_OBSERVE": "1", "YEBISU_TERMINAL_QA": "1"]
+        app.launch()
+        try qa.waitState("the wire-peer terminal is up", timeout: 60) {
+            $0.string("screen") == "terminal" && $0.isNull("menu") && $0.isNull("sheet")
+        }
+        try qa.settledKeyboard("self-test F5")
+        let open = try qa.press(QAIds.tabsMore, what: "the ... menu is open") { $0.string("menu") == "overflow" }
+        XCTAssertEqual(open.presses(QAIds.tabsMore), 1, "\(open)")
+        let start = Date()
+        do {
+            try qa.press(QAIds.tabsMore, timeout: 3)
+            XCTFail("a press under the menu backdrop was counted on qa.tabs.more")
+        } catch let QAAxError.pressTakenElsewhere(id, moved, _, after) {
+            print(String(format: "QAAX overlapped press refused as expected after %.3f s: moved %@", Date().timeIntervalSince(start), moved.joined(separator: ",")))
+            XCTAssertEqual(id, QAIds.tabsMore)
+            XCTAssertEqual(moved, ["menu"], "only the menu closed")
+            let state = try XCTUnwrap(QAState(after))
+            XCTAssertEqual(state.presses(QAIds.tabsMore), 1, "the covered press was not counted: \(state)")
+            XCTAssertTrue(state.isNull("menu"), "the backdrop took the press and closed the menu: \(state)")
+        }
+        // Uncovered again, the same control counts the next press.
+        let reopened = try qa.press(QAIds.tabsMore, what: "the ... menu is open again") { $0.string("menu") == "overflow" }
+        XCTAssertEqual(reopened.presses(QAIds.tabsMore), 2, "\(reopened)")
+        print("QAAX F5 done")
+    }
 }
