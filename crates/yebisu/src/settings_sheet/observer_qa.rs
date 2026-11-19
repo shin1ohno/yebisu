@@ -13,7 +13,14 @@ impl Smoke {
         } else {
             "Observer next"
         };
+        // UI test redesign S6: the observer probes press this by identifier and read the
+        // phase from qa.state instead of the label.
+        crate::qa_ax::report(
+            "observer",
+            || serde_json::json!({"phase": self.observer.phase, "failed": self.observer.failed}),
+        );
         Some(super::view::button("p11-observer",label,true)
+            .children(crate::qa_ax::mark(crate::qa_ax::ids::P11_OBSERVER, label))
             .on_click(cx.listener(|this,_,window,cx| {
                 if !this.settings_modal || this.observer.failed || this.observer.phase > 24 { return; }
                 if this.observer.phase > 0 {

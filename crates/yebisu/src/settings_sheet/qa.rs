@@ -5,10 +5,12 @@ use gpui::{
 };
 use sheprd_client::protocol::ClientPaneInputEvent;
 use std::time::Duration;
+/// The probe button's label, also its QA accessibility label.
+const PROBE: &str = "Probe modal callbacks";
 impl Smoke {
     pub(crate) fn settings_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_P11_QA")?;
-        Some(super::view::button("p11-probe","Probe modal callbacks",true).on_click(cx.listener(|this,_,window,cx|{
+        Some(super::view::button("p11-probe",PROBE,true).children(crate::qa_ax::mark(crate::qa_ax::ids::P11_PROBE, PROBE)).on_click(cx.listener(|this,_,window,cx|{
             // Pinned SDK has no entry/refusal observer. Scheduling is not dispatch.
             this.observation.record(serde_json::json!({"kind":"p11-sdk-observation", "supported":false, "reason":"pinned-sdk-no-refusal-hook"}));
             this.p11_marker("p11-start");
@@ -23,9 +25,11 @@ impl Smoke {
             let action_blocked=this.run_action(sheprd_commands::Command::ToggleSidebar).is_err();
             let scheduled=["copy:","paste:","cut:","selectAll:"].into_iter().all(crate::native_edit_qa::schedule_selector);
             this.observation.record(serde_json::json!({"kind":"p11-probe-start","scheduled":scheduled,"action_blocked":action_blocked,"modal":this.settings_modal}));
+            // UI test redesign S6: testP11Settings waits for these counts in qa.state.
+            crate::qa_ax::count("p11_probe_start");
             cx.spawn(async move|weak,cx|{
                 cx.background_executor().timer(Duration::from_secs(1)).await;
-                let _=weak.update(cx,|this,cx|{this.p11_marker("p11-end");this.observation.record(serde_json::json!({"kind":"p11-probe-end","modal":this.settings_modal}));cx.notify();});
+                let _=weak.update(cx,|this,cx|{this.p11_marker("p11-end");this.observation.record(serde_json::json!({"kind":"p11-probe-end","modal":this.settings_modal}));crate::qa_ax::count("p11_probe_end");cx.notify();});
             }).detach();
         })).into_any_element())
     }

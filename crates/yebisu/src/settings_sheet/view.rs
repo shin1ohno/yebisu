@@ -254,13 +254,20 @@ impl Smoke {
                     .child("日本語 ABC → 0123456789"),
             );
         for (id, label, delta) in [("font-minus", "Smaller", -1.), ("font-plus", "Larger", 1.)] {
-            view = view.child(button(id, label, enabled).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    let mut v = this.settings_values();
-                    v.font.size = Some((v.font.metrics(v.compact).0 + delta).clamp(8., 48.));
-                    this.apply_settings(v, cx);
-                },
-            )));
+            let qa_mark = if delta < 0. {
+                crate::qa_ax::mark(crate::qa_ax::ids::SETTINGS_FONT_SMALLER, label)
+            } else {
+                crate::qa_ax::mark(crate::qa_ax::ids::SETTINGS_FONT_LARGER, label)
+            };
+            view = view.child(
+                button(id, label, enabled)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let mut v = this.settings_values();
+                        v.font.size = Some((v.font.metrics(v.compact).0 + delta).clamp(8., 48.));
+                        this.apply_settings(v, cx);
+                    }))
+                    .children(qa_mark),
+            );
         }
         view = view.child(format!(
             "Family: {} (bundled: {})",

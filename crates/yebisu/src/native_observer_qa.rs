@@ -14,7 +14,13 @@ impl Smoke {
         } else {
             "Native next"
         };
+        // UI test redesign S6: as settings_sheet/observer_qa.rs.
+        crate::qa_ax::report(
+            "observer",
+            || serde_json::json!({"phase": self.observer.phase, "failed": self.observer.failed}),
+        );
         Some(div().id("native-next").p_2().bg(rgb(0x3b4252)).child(label)
+            .children(crate::qa_ax::mark(crate::qa_ax::ids::NATIVE_NEXT, label))
             .on_click(cx.listener(|this,_,window,cx| {
                 if this.observer.failed || this.observer.phase>24 {return;}
                 if this.observer.phase>0 {

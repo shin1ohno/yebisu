@@ -77,6 +77,10 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
             "pasting",
             "second",
             "peer",
+            "p0_input",
+            "font_size",
+            "theme",
+            "host",
         ]
     );
     assert_eq!(fields[0].1, "p0");
@@ -105,6 +109,16 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
         Some(serde_json::json!(crate::settings_pages::Page::Fonts.id()))
     );
     assert_eq!(field("compact"), Some(serde_json::json!(false)));
+    // S6: the P0 input text, the font size the terminal draws, the local
+    // theme and the selected host (none yet).
+    assert_eq!(field("p0_input"), Some(serde_json::json!("")));
+    assert!(
+        field("font_size")
+            .and_then(|size| size.as_f64())
+            .is_some_and(|size| size > 0.)
+    );
+    assert_eq!(field("theme"), Some(serde_json::json!("owner-default")));
+    assert_eq!(field("host"), Some(serde_json::json!("")));
     assert_eq!(
         field("drag_select"),
         Some(serde_json::json!(true)),

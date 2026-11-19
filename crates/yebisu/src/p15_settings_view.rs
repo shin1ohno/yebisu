@@ -58,6 +58,7 @@ impl Smoke {
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.choose_local_theme(palette, cx)),
                     )
+                    .children(theme_mark(palette))
             }));
         } else {
             content = content.child("Local settings unavailable");
@@ -78,6 +79,20 @@ impl Smoke {
             )
             .child("File settings only; daemon-effective state unverified")
             .into_any_element()
+    }
+}
+
+/// The palette choice's QA accessibility mark (UI test redesign S6), labelled
+/// with the palette's own label.
+fn theme_mark(palette: Palette) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match palette {
+        Palette::OwnerDefault => {
+            crate::qa_ax::mark(ids::SETTINGS_THEME_OWNER_DEFAULT, palette.label())
+        }
+        Palette::HighContrast => {
+            crate::qa_ax::mark(ids::SETTINGS_THEME_HIGH_CONTRAST, palette.label())
+        }
     }
 }
 

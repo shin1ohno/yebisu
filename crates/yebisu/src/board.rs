@@ -313,6 +313,10 @@ impl Smoke {
                     .id("status-board")
                     .h(gpui::px(BOARD_HEIGHT))
                     .overflow_y_scroll()
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::BOARD,
+                        crate::shell::sidebar::view::HOSTS_HEADING,
+                    ))
                     .children(hosts.into_iter().enumerate().map(
                         |(i, (host, live, generation))| {
                             let selected = host == self.terminal.reconnect.target;
@@ -335,7 +339,8 @@ impl Smoke {
                                             this.select_host(&choose);
                                             window.dismiss_virtual_keyboard();
                                             cx.notify();
-                                        })),
+                                        }))
+                                        .children(host_mark(&host)),
                                 )
                                 .children(rows(live).into_iter().enumerate().map(|(j, row)| {
                                     let host = host.clone();
@@ -370,3 +375,14 @@ impl Smoke {
 #[cfg(test)]
 #[path = "board_tests.rs"]
 mod tests;
+
+/// The QA accessibility mark of a board host row (UI test redesign S6): only
+/// P15's fixture hosts have one, labelled with the host name.
+fn host_mark(host: &str) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match host {
+        "qa-alpha" => crate::qa_ax::mark(ids::BOARD_HOST_QA_ALPHA, "qa-alpha"),
+        "qa-beta" => crate::qa_ax::mark(ids::BOARD_HOST_QA_BETA, "qa-beta"),
+        _ => None,
+    }
+}

@@ -358,3 +358,47 @@ pub(crate) const P12_FINISH: &str = "qa.p12.finish";
     )
 )]
 pub(crate) const P12_EMPTY: &str = "qa.p12.empty";
+/// The Display page's font size buttons (settings_sheet/view.rs,
+/// `settings_fonts`), which P11 presses (UI test redesign S6).
+pub(crate) const SETTINGS_FONT_SMALLER: &str = "qa.settings.font.smaller";
+pub(crate) const SETTINGS_FONT_LARGER: &str = "qa.settings.font.larger";
+/// The Theme page's local palette choices (p15_settings_view.rs), one per
+/// `theme_picker::SUPPORTED` palette, which P15 presses.
+pub(crate) const SETTINGS_THEME_OWNER_DEFAULT: &str = "qa.settings.theme.owner-default";
+pub(crate) const SETTINGS_THEME_HIGH_CONTRAST: &str = "qa.settings.theme.high-contrast";
+/// P11's "Probe modal callbacks" (settings_sheet/qa.rs, `YEBISU_P11_QA`
+/// without the `test-support` feature).
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim", not(feature = "test-support"))),
+    allow(dead_code, reason = "the P11 probe is built only in a Simulator build")
+)]
+pub(crate) const P11_PROBE: &str = "qa.p11.probe";
+/// P11's "Observer next" (settings_sheet/observer_qa.rs, `YEBISU_P11_QA`
+/// with the `test-support` feature); it keeps its identifier when it reads
+/// "Observer matrix collected" or "Observer failed".
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim", feature = "test-support")),
+    allow(
+        dead_code,
+        reason = "the P11 observer is built only in a test-support Simulator build"
+    )
+)]
+pub(crate) const P11_OBSERVER: &str = "qa.p11.observer";
+/// P14's "P14 next" (notification_view/qa.rs, `YEBISU_P14_QA`).
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the P14 control is built only in a Simulator build"
+    )
+)]
+pub(crate) const P14_NEXT: &str = "qa.p14.next";
+/// The notification toast (notification_view.rs, `render_notification`);
+/// a tap on it opens the notification's target.
+pub(crate) const NOTIFICATION_TOAST: &str = "qa.notification.toast";
+/// The sidebar's status board (board.rs, `status-board`), a 180 pt list
+/// that scrolls, and the host rows P15's fixture hosts draw in it (P15
+/// presses `qa-beta` to switch hosts). Other hosts have no identifier.
+pub(crate) const BOARD: &str = "qa.board";
+pub(crate) const BOARD_HOST_QA_ALPHA: &str = "qa.board.host.qa-alpha";
+pub(crate) const BOARD_HOST_QA_BETA: &str = "qa.board.host.qa-beta";

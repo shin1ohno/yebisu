@@ -147,6 +147,16 @@ impl Smoke {
             ),
             ("second", json!(second)),
             ("peer", super::peer::field()),
+            // UI test redesign S6: the P0 smoke screen's input text (what
+            // the field draws), the terminal's font size, the local theme
+            // and the selected host (P11, P15).
+            ("p0_input", json!(self.input.text)),
+            (
+                "font_size",
+                json!(self.terminal.font.metrics(self.terminal.compact).0),
+            ),
+            ("theme", json!(self.local_theme.key())),
+            ("host", json!(self.terminal.reconnect.target)),
         ]
     }
 
