@@ -37,6 +37,52 @@ def run(args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+# Values that must never reach a log, even when a tool echoes them.
+SECRET_ENV = ("ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_APP_ID", "ASC_PROVIDER_PUBLIC_ID",
+              "ASC_KEY_FILE", "ASC_KEY_P8", "IOS_P12_FILE", "IOS_P12_PASSWORD",
+              "IOS_P12_BASE64", "IOS_PROFILE_FILE", "IOS_PROFILE_BASE64")
+
+
+def secret_values(*extra):
+    values = set()
+    for value in (*(os.environ.get(name) for name in SECRET_ENV), *extra):
+        if not value:
+            continue
+        lines = [line.strip() for line in value.splitlines() if len(line.strip()) >= 8]
+        for item in (value, value.strip(), *lines):
+            # JSON output may escape slashes or other characters.
+            values.update({item, item.replace("/", "\\/"), json.dumps(item)[1:-1]})
+    return {value for value in values if value}
+
+
+def redact(text, secrets):
+    for value in sorted(secrets, key=len, reverse=True):
+        text = text.replace(value, "[redacted]")
+    return text
+
+
+def shown(argv, secrets, **kwargs):
+    """Run a tool and show its redacted stdout and stderr, never its arguments."""
+    label = " ".join(argv[:2]) if argv[0] in {"security", "xcrun"} else argv[0]
+    try:
+        result = run(argv, capture_output=True, text=True, errors="replace", **kwargs)
+    except subprocess.CalledProcessError as error:
+        show_output(label, error.returncode, error.stdout, error.stderr, secrets)
+        raise
+    show_output(label, result.returncode, result.stdout, result.stderr, secrets)
+    return result
+
+
+def show_output(label, status, stdout, stderr, secrets):
+    print(f"[{label}] exit status {status}", file=sys.stderr)
+    for name, text in (("stdout", stdout), ("stderr", stderr)):
+        if isinstance(text, bytes):
+            text = text.decode(errors="replace")
+        if text and text.strip():
+            print(f"[{label}] {name}:\n{redact(text, secrets).rstrip()}", file=sys.stderr)
+    sys.stderr.flush()
+
+
 def required_file(variable):
     value = os.environ.get(variable)
     if not value or not Path(value).is_file():
@@ -119,37 +165,36 @@ def package(args):
         shutil.copyfile(profile_path, staged / "embedded.mobileprovision")
         ent = work / "entitlements.plist"
         ent.write_bytes(plistlib.dumps(entitlements))
-        search_list = shlex.split(run(["security", "list-keychains", "-d", "user"],
-                                      capture_output=True, text=True).stdout)
+        secrets = secret_values(password, key_password)
+        search_list = shlex.split(shown(["security", "list-keychains", "-d", "user"], secrets).stdout)
         created = False
         try:
             # Creation may change the search list before reporting an error.
             created = True
-            run(["security", "create-keychain", "-p", key_password, str(keychain)], capture_output=True)
-            run(["security", "unlock-keychain", "-p", key_password, str(keychain)], capture_output=True)
-            run(["security", "import", str(certificate), "-k", str(keychain), "-P", password,
-                 "-T", "/usr/bin/codesign"], capture_output=True)
-            run(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
-                 "-s", "-k", key_password, str(keychain)], capture_output=True)
-            identities = run(["security", "find-identity", "-v", "-p", "codesigning", str(keychain)],
-                             capture_output=True, text=True).stdout
+            shown(["security", "create-keychain", "-p", key_password, str(keychain)], secrets)
+            shown(["security", "unlock-keychain", "-p", key_password, str(keychain)], secrets)
+            shown(["security", "import", str(certificate), "-k", str(keychain), "-P", password,
+                   "-T", "/usr/bin/codesign"], secrets)
+            shown(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
+                   "-s", "-k", key_password, str(keychain)], secrets)
+            identities = shown(["security", "find-identity", "-v", "-p", "codesigning", str(keychain)],
+                               secrets).stdout
             allowed = set(helper.certificate_hashes(profile))
             identity = next((item for item in helper.parse_identities(identities) if item in allowed), None)
             if identity is None:
                 raise ValueError("dedicated keychain has no identity matching the profile")
-            run(["codesign", "--force", "--keychain", str(keychain), "--sign", identity,
-                 "--entitlements", str(ent), "--timestamp=none", str(staged)], capture_output=True)
-            run(["codesign", "--verify", "--strict", str(staged)], capture_output=True)
+            shown(["codesign", "--force", "--keychain", str(keychain), "--sign", identity,
+                   "--entitlements", str(ent), "--timestamp=none", str(staged)], secrets)
+            shown(["codesign", "--verify", "--strict", str(staged)], secrets)
             archive = work / "signed.ipa"
-            run(["ditto", "-c", "-k", "--keepParent", str(staged.parent), str(archive)])
+            shown(["ditto", "-c", "-k", "--keepParent", str(staged.parent), str(archive)], secrets)
             archive.chmod(0o600)
         finally:
             if created:
                 try:
-                    run(["security", "delete-keychain", str(keychain)], capture_output=True)
+                    shown(["security", "delete-keychain", str(keychain)], secrets)
                 finally:
-                    run(["security", "list-keychains", "-d", "user", "-s", *search_list],
-                        capture_output=True)
+                    shown(["security", "list-keychains", "-d", "user", "-s", *search_list], secrets)
         # Publish only after cleanup succeeds. Same-filesystem link never overwrites.
         os.link(archive, output)
     print("IPA packaged; App Store acceptance and device update remain unverified")
@@ -205,7 +250,9 @@ def upload_ipa(ipa):
         os.environ.get("ASC_ISSUER_ID", ""), os.environ.get("ASC_APP_ID", ""),
         os.environ.get("ASC_PROVIDER_PUBLIC_ID"))
     # An explicit file path avoids searching shared directories or copying keys.
-    run(command, capture_output=True)
+    # altool prints JSON (--output-format json) on success and failure; show it
+    # with every injected value and the key file content redacted.
+    shown(command, secret_values(key_file.read_text(errors="replace")))
     print("Upload accepted by tool; processing, group delivery and device update are pending")
 
 
@@ -254,8 +301,10 @@ def main():
         else:
             upload_ipa(args.ipa)
     except (ValueError, OSError, subprocess.CalledProcessError, plistlib.InvalidFileException, zipfile.BadZipFile) as error:
-        # Subprocess arguments may contain passwords. Never format the exception.
-        detail = "external command failed; output withheld to protect injected secrets" if isinstance(error, subprocess.CalledProcessError) else str(error)
+        # Subprocess arguments may contain passwords. Never format the exception;
+        # the tool's own redacted output was already shown above.
+        detail = (f"external command failed with exit status {error.returncode}; its redacted output is shown above"
+                  if isinstance(error, subprocess.CalledProcessError) else str(error))
         print(f"error: {detail}", file=sys.stderr)
         return 1
     finally:

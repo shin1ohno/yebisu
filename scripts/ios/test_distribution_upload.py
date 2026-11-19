@@ -117,6 +117,58 @@ class UploadTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             d.ipa_metadata(self.ipa)
 
+    def fake_altool(self, status):
+        """An xcrun that answers like altool's JSON mode and echoes every input."""
+        fakebin = self.root / "tools"
+        fakebin.mkdir(exist_ok=True)
+        fake = fakebin / "xcrun"
+        fake.write_text(
+            "#!/usr/bin/python3\nimport json,os,sys\n"
+            "a=sys.argv\nkey=a[a.index('--p8-file-path')+1]\n"
+            "body={'tool-version':'fixture','os-version':'fixture',\n"
+            " 'echo':[a[a.index('--api-key')+1],a[a.index('--api-issuer')+1],os.environ['ASC_APP_ID'],key,open(key).read()],\n"
+            " 'escaped-path':key.replace('/','\\\\/')}\n"
+            f"if {status}: body['product-errors']=[{{'message':'FIXTURE_UPLOAD_REJECTED','code':-19232}}]\n"
+            "else: body['success-message']='FIXTURE_UPLOAD_ACCEPTED'\n"
+            "print(json.dumps(body))\nprint('FIXTURE_ALTOOL_STDERR '+a[a.index('--api-key')+1], file=sys.stderr)\n"
+            f"sys.exit({status})\n")
+        fake.chmod(0o755)
+        return fakebin
+
+    def run_upload(self, status):
+        env = dict(self.env, PATH=str(self.fake_altool(status)))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.dict(os.environ, env, clear=True), \
+                patch("sys.argv", ["distribution.py", "upload", "--ipa", str(self.ipa)]), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = d.main()
+        return code, stdout.getvalue() + stderr.getvalue()
+
+    def assert_no_secret(self, output):
+        for value in (self.env["ASC_KEY_ID"], self.env["ASC_ISSUER_ID"], self.env["ASC_APP_ID"],
+                      str(self.key.resolve()), str(self.key.resolve()).replace("/", "\\/"),
+                      self.key.read_text()):
+            self.assertNotIn(value, output)
+
+    def test_upload_success_shows_altool_json_and_stderr_without_secrets(self):
+        code, output = self.run_upload(0)
+        self.assertEqual(code, 0, output)
+        self.assertIn("[xcrun altool] exit status 0", output)
+        self.assertIn("FIXTURE_UPLOAD_ACCEPTED", output)
+        self.assertIn('"tool-version": "fixture"', output)
+        self.assertIn("FIXTURE_ALTOOL_STDERR [redacted]", output)
+        self.assert_no_secret(output)
+
+    def test_upload_failure_shows_altool_json_and_stderr_without_secrets(self):
+        code, output = self.run_upload(1)
+        self.assertEqual(code, 1)
+        self.assertIn("[xcrun altool] exit status 1", output)
+        self.assertIn("FIXTURE_UPLOAD_REJECTED", output)
+        self.assertIn("-19232", output)
+        self.assertIn("FIXTURE_ALTOOL_STDERR [redacted]", output)
+        self.assertIn("external command failed with exit status 1", output)
+        self.assert_no_secret(output)
+
     def test_transport_failure_is_nonzero_and_does_not_expose_arguments(self):
         import subprocess
         with patch.dict(os.environ, self.env, clear=True), \
