@@ -169,3 +169,21 @@ repeating it.
   band rows) and confirm the retained `integration-p3-landscape.png` from task
   e115109b440f4304 fails. Close condition: p3 fails on that screenshot and
   passes on a standard one; delete in the resolving commit.
+- Hosted p10 lost its `settings-lifecycle` records (PR 77 run 44406830068,
+  layout-smoke job 135164241872; review 9d5ae39be65247ea S2). Description:
+  XCTest `testP10Settings` passed and the saved settings file matched the
+  Inactive-only QA edit (`settings_view.rs:177-189`), so the lifecycle reached
+  the settings adapter, but `p10-check.py:28` found no Inactive, Background and
+  Active `settings-lifecycle` records in `p10-settings.jsonl`. The app sends
+  records with `try_send` into a 256-slot queue and only prints a drop to a
+  stderr nobody keeps, and the artifact has neither the JSONL nor the stderr,
+  so drop versus suspension is unproven. Hosted record rates (1.4 to 1.8 per
+  second, at most 40 in one second, runs 44356754798 to 44406830068) do not
+  support a full queue. Reason: not in docs/ci-simulator.md's known classes, and
+  0 earlier p10 failures since 2026-11-17. First step: land branch
+  `fix/observation-drop` (in-band `observation-dropped` records, bounded
+  backpressure, the app's stderr in `Documents/app-stderr.log` collected by
+  p2/p3/p10/sh1-152, `live_jsonl` failing on a gap) after its Mac mini checks.
+  Close condition: that branch merged and the next p10 failure, if any, is
+  classified from its artifact; or 10 green layout-smoke runs with it; delete in
+  the resolving commit.

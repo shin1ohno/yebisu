@@ -878,7 +878,13 @@ then start the next. Record device model, iPadOS version and the main SHA.
    Type a string that matches nothing: `Clear filter` appears. Escape restores
    the rows and the next keys reach the terminal. Repeat, then press ⌘B instead
    of Escape: the next keys reach the terminal. Repeat with narrow Split View
-   forcing the rail.
+   forcing the rail. Then, with the field focused and holding a query, check
+   one key at a time (PR 77 routing rule; refocus the field before each):
+   Option-E then E: record what the query shows (`é`, or `e` if the dead key
+   was dropped) and that the shell received nothing;
+   Control-C interrupts a running `sleep 30` in the terminal; an arrow key, Tab
+   and a function key reach the terminal (shell history, completion); Return
+   leaves the field with the query kept; ⌘-Return types nothing in the shell.
 4. Without a hardware keyboard the field reads `Filter · hardware keyboard`;
    tapping it does not stop the software keyboard or terminal input. After the
    filter, check the terminal does not stay at `Text input paused · tap
