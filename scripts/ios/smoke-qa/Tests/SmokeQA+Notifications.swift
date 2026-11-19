@@ -42,10 +42,10 @@ extension SmokeQA {
         // and the screenshot comes after the press (PR 84 review F3: a screenshot before the press
         // could use up the lifetime). The app's own p14-paint receipts prove the toast was drawn.
         try qa.waitState("the toast is up", timeout: 5) { self.p14($0)?.toast == "Agent needs attention" }
-        let shown = Date()
+        let toastShown = Date()
         let frame = try qa.find(QAIds.toast, timeout: 2).frame
         try qa.press(QAIds.toast, what: "the toast's tap focused pane w1:p3") { $0.string("pane") == "w1:p3" }
-        print(String(format: "P14 toast pressed and confirmed %.2f s after it was shown", Date().timeIntervalSince(shown)))
+        print(String(format: "P14 toast pressed and confirmed %.2f s after it was shown", Date().timeIntervalSince(toastShown)))
         save("p14-toast")
         // Before S6 the bottom of the OCR text box was measured; now the toast's own frame, which
         // holds that text, so the check is at least as strict.

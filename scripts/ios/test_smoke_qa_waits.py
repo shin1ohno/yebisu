@@ -228,6 +228,17 @@ class S6Identifiers(unittest.TestCase):
         self.assertEqual(re.findall(r'typeP15\(qa, app, "([^"]+)", ui: &ui\)', p15), ["P15-start", "P15-end"])
         self.assertIn('try pressHostRow(qa, QAIds.sidebarHostBeta, host: "qa-beta")', p15)
 
+    def test_no_name_is_declared_twice_in_one_test_body(self):
+        """Swift does not compile here: a constant declared twice at a test's top level (1ad3b91's
+        `shown` in P14) broke the whole SmokeOracle build on the Mac mini."""
+        for path in sorted(TESTS.glob("*.swift")):
+            text = path.read_text()
+            for match in re.finditer(r"\n    (?:private )?func (\w+)\(", text):
+                function = body(text, match.group(0).strip())
+                names = re.findall(r"\n        (?:let|var) (\w+)\b", function)
+                with self.subTest(file=path.name, function=match.group(1)):
+                    self.assertEqual(len(names), len(set(names)), names)
+
     def test_vision_is_left_only_for_the_p15_host_text(self):
         """The owner decision keeps screenshot checks where the text is the subject: P15's host
         block. No other UI test imports Vision."""
