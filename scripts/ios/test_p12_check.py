@@ -98,8 +98,10 @@ class P12QASourceTests(unittest.TestCase):
         the hold and sparse qa.state reads, and the reads are recorded per hold."""
         swift = code(SWIFT)
         test = body(swift, "func testInstalledTerminalMenu(")
-        self.assertIn('try recordHeldFrames([local, "release"])', test)
-        self.assertLess(test.index("try recordHeldFrames("), test.index("try fixture(remote)"))
+        # PR 84: the frames are read once, by locateFixtures, not right before the Remote case.
+        self.assertNotIn("recordHeldFrames", swift)
+        self.assertIn("heldFrames[control.id] = try qa.find(control.id", body(swift, "private func locateFixtures("))
+        self.assertLess(test.index("try locateFixtures()"), test.index("try fixture(remote)"))
         self.assertIn("try fixture(local, held: true)", test)
         self.assertIn('try fixture("release", held: true)', test)
         self.assertIn('"kind": "hold-queries"', test)

@@ -88,7 +88,6 @@ final class P12QA: XCTestCase {
         try locateFixtures()
         try touchReady()
         for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
-            try recordHeldFrames([local, "release"])
             try fixture(remote)
             try choose("Split Right", caseName: remote, negative: false)
             // The request is held from that pick (pane.split waits at the peer) until Release.
@@ -325,12 +324,18 @@ final class P12QA: XCTestCase {
     }
 
     /// Finds every fixture control by identifier before the first held request, so a missing one
-    /// fails by name before any hold (as the OCR search of all 13 did before S5).
+    /// fails by name before any hold (as the OCR search of all 13 did before S5). The frames are kept
+    /// for the presses made while a request is held (`heldPress`): the panel does not move (it is
+    /// placed at the window's top right, above any keyboard, and no sheet opens over it), and a press
+    /// that misses its control is caught by qa.state as before. Reading them here, once, keeps app
+    /// queries out of the time between the first OS menu and the holds (PR 84: reading them right
+    /// before the Remote case went with 2 lost Springboard taps in 9 runs, main 0 in 3).
     private func locateFixtures() throws {
         let started = Date().timeIntervalSince1970
         var missing: [String] = []
+        appOrigin = app.frame.origin
         for control in Self.fixtureControls {
-            do { try qa.find(control.id, timeout: 10) } catch { missing.append("\(control.id) (\(error))") }
+            do { heldFrames[control.id] = try qa.find(control.id, timeout: 10).frame } catch { missing.append("\(control.id) (\(error))") }
         }
         if missing.isEmpty {
             events.append(["kind": "fixture-located", "count": Self.fixtureControls.count,
@@ -418,22 +423,11 @@ final class P12QA: XCTestCase {
                        "started": setupStart, "ended": Date().timeIntervalSince1970])
     }
 
-    /// Finds the controls `steps` press while the next request is held, before it is held (S5
-    /// follow-up S6-1). The panel does not move during a hold: no keyboard rises over it and no
-    /// sheet opens, and a press that misses its control is caught by qa.state as before.
-    private func recordHeldFrames(_ steps: [String]) throws {
-        appOrigin = app.frame.origin
-        for step in steps {
-            let id = try fixtureId(step)
-            heldFrames[id] = try qa.find(id, timeout: 5).frame
-        }
-    }
-
     /// The fixture press while a request is held (S5 follow-up S6-1, review F2 of PR 83). QAAx.press
     /// queries the app about 15 times per press (an element query, a duplicate check, reads every
     /// 50 ms), and each query can wait for the app to idle (60-80 s on an old runner image), which
     /// would push the hold past the client's 60 s COMMAND_TIMEOUT. Here the control's frame was found
-    /// before the hold, and qa.state is read every 250 ms until `presses[id]` and the step's
+    /// by locateFixtures, before any hold, and qa.state is read every 250 ms until `presses[id]` and the step's
     /// p12-setup-end both grew. The decisions are QAAx.press's: a press that moved nothing is sent
     /// once more (logged as a retry), one that something else took or that never arrives fails.
     private func heldPress(_ id: String, step: String, before: QAState, ended: Int) throws {

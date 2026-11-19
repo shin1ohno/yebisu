@@ -422,8 +422,8 @@ No UI test reads text off the screen to find, press or confirm a control. The OC
   `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`); a
   request held that long drops the connection, and any XCTest query (a read, a tap) can first
   wait for the app to idle (60-80 s on an old runner image: run 44547820393 attempt 1, F11, F15).
-  The test cannot remove that wait, only make it less likely to land in a hold: P12 finds the
-  controls it presses inside a hold before the hold, reads `qa.state` every 250 ms there instead
+  The test cannot remove that wait, only make it less likely to land in a hold: P12 keeps the
+  frames `locateFixtures` found at the start for the controls it presses inside a hold, reads `qa.state` every 250 ms there instead
   of every 50 ms, and records the reads of each hold (`hold-queries`, the oracle's
   `hold_queries`, with a `warning` once a hold window passes 40 s). Hold one request per local
   case and release it before the next.
@@ -463,7 +463,8 @@ the UI test redesign S5 and S6.)
   oracle correlation are unchanged.
 - The first touch after launch: `touchReady` presses the panel's empty strip (`qa.p12.empty`,
   no handler) until GPUI counts it (at most 8 presses) and records how many it took.
-- Inside a hold (S6): the local and Release presses use frames found before the hold and read
+- Inside a hold (S6): the local and Release presses use the frames `locateFixtures` found at the
+  start (not read again right before a case: that went with 2 lost Springboard taps in 9 runs) and read
   `qa.state` every 250 ms; each hold's reads and their seconds are a `hold-queries` record and
   appear under `hold_queries` in the verdict, beside the hold's length.
 - The events attachment is added in `tearDown`, so a failed run keeps
