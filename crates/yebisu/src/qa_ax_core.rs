@@ -63,6 +63,7 @@ pub(crate) fn layout(
 }
 
 /// The last published layout, or null before the core worker published one.
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 pub(crate) fn layout_field() -> Value {
     LAYOUT
         .lock()

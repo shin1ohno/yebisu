@@ -8,6 +8,13 @@ pub(crate) enum Density {
     Compact,
 }
 
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the density buttons paint `label()`; these owner metrics are what tests hold it to"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct TerminalFont {
     pub density: Density,
@@ -35,6 +42,13 @@ impl Density {
         }
     }
 
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "the density buttons paint `label()`; these owner metrics are what tests hold it to"
+        )
+    )]
     pub(crate) const fn metrics(self) -> TerminalFont {
         match self {
             Self::Regular => TerminalFont {
