@@ -152,6 +152,12 @@ extension SmokeQA {
         var pastedImages = count(start, "pasted_images")
         var pastedTexts = count(start, "pasted_texts")
         func noFailure(_ state: QAState) -> Bool { count(state, "paste_failures") == 0 }
+        // An image put (a 2200x2200 PNG, about 950 KB, to the core mock and back) took 6.1-7.8 s on
+        // hosted runners when S3 landed and 7.7-9.1 s, and twice more than 10 s, in PR 81's runs
+        // (44500184824 attempts 1 and 2, jobs 135478189932 and 135514978584): the put finished each
+        // time, after the old 10 s deadline. 30 s keeps three times the slowest finished put; a
+        // press that never arrives is still noticed within 10 s.
+        let imagePut: TimeInterval = 30
         // 1. An image-only item; Paste image and Paste both put it (paste-0.png, paste-1.png).
         try qa.press(QAIds.bandImageOnly, timeout: 30, what: "QA image ready (image only)") {
             count($0, "qa_images") == images + 1
@@ -163,11 +169,11 @@ extension SmokeQA {
         let pasteImage = try qa.find(QAIds.menuPasteImage).frame
         XCTAssertTrue(paste.midY < pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
                       "Paste / Paste image not one above the other in the ... menu: \(paste) \(pasteImage)")
-        try qa.press(QAIds.menuPasteImage, timeout: 10, what: "Paste image put paste-0.png") {
+        try qa.press(QAIds.menuPasteImage, timeout: 10, effect: imagePut, what: "Paste image put paste-0.png") {
             $0.isNull("menu") && count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         pastedImages += 1
-        try menuItem(qa, QAIds.menuPaste, what: "Paste put paste-1.png (the item has no text)") {
+        try menuItem(qa, QAIds.menuPaste, effect: imagePut, what: "Paste put paste-1.png (the item has no text)") {
             count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         pastedImages += 1
@@ -179,7 +185,7 @@ extension SmokeQA {
             count($0, "pasted_texts") == pastedTexts + 1 && count($0, "pasted_images") == pastedImages && noFailure($0)
         }
         pastedTexts += 1
-        let last = try menuItem(qa, QAIds.menuPasteImage, what: "Paste image put paste-2.png") {
+        let last = try menuItem(qa, QAIds.menuPasteImage, effect: imagePut, what: "Paste image put paste-2.png") {
             count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         XCTAssertEqual(count(last, "pasted_images"), 3, "\(last)")

@@ -203,10 +203,12 @@ struct QAAx {
     /// second press would land on a changed screen. A changed `launch` fails by name too (the app
     /// restarted and its counts began again).
     /// `at` is the point in the element's frame (normalized; the centre by default), for a long press
-    /// on the terminal or a control part of which an edit menu covers (S4).
+    /// on the terminal or a control part of which an edit menu covers (S4). `timeout` bounds each
+    /// wait for the press to arrive; `effect` bounds the wait for `until` once it arrived (default
+    /// `timeout`), so a slow effect such as an image put does not also delay noticing a lost press.
     @discardableResult
     func press(_ id: String, duration: TimeInterval? = nil, at offset: CGVector = CGVector(dx: 0.5, dy: 0.5),
-               timeout: TimeInterval = 5, what: String = "the press's effect",
+               timeout: TimeInterval = 5, effect: TimeInterval? = nil, what: String = "the press's effect",
                until: ((QAState) -> Bool)? = nil) throws -> QAState {
         let before = try waitState("qa.state before pressing \(id)", timeout: timeout) { _ in true }
         let element = try find(id, timeout: timeout)
@@ -228,7 +230,7 @@ struct QAAx {
                     return arrived
                 }
                 do {
-                    let done = try waitState(what, timeout: timeout, until)
+                    let done = try waitState(what, timeout: effect ?? timeout, until)
                     print(String(format: "QAAX press %@ confirmed with '%@' after %.3f s (attempt %ld)", id, what, QAAx.since(start), attempt))
                     return done
                 } catch QAAxError.timeout(_, let seconds, _, let last) {
