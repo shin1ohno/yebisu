@@ -115,7 +115,6 @@ UNRELATED = {
     "notifications": "delivery and sound; only notifications/preferences.rs is matched",
     "p11_observer": "outside the checks: P11 responder observer, called from app.rs and terminal_controls.rs callbacks",
     "p15_settings_view": "unreferenced",
-    "qa_ax": "QA accessibility layer (YEBISU_QA_AX), set only by the opt-in S1 self-test (qa-ax-selftest.py); move it to the pattern when a check sets it (S2: p2)",
     "reconnect": "outside the checks: reconnect policy, called from terminal_view.rs",
     "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
     "setup": "outside the checks: pairing setup, called from app.rs",
@@ -199,6 +198,12 @@ class PathFilterTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))
+
+    def test_the_qa_layer_runs_it(self):
+        """UI test redesign S4: all five checks launch with YEBISU_QA_AX, press QA identifiers and wait on qa.state."""
+        for name in ("qa_ax", "qa_ax_core", "qa_ax_ids", "qa_ax_keys", "qa_ax_layer", "qa_ax_native", "qa_ax_peer", "qa_ax_root"):
+            with self.subTest(module=name):
+                self.assertTrue(self.edit_menu(f"crates/yebisu/src/{name}.rs"))
 
     def test_a_sibling_of_an_added_path_that_no_check_drives_still_skips(self):
         """The additions are exact: notifications/ is not taken whole, only preferences.rs."""

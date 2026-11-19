@@ -259,3 +259,24 @@ fn an_identifier_marked_twice_is_reported(cx: &mut TestAppContext) {
     assert_eq!(controls[0].label, "Target");
     assert_eq!(state.duplicates, vec![ID]);
 }
+
+#[test]
+fn the_newest_active_window_owns_the_layer() {
+    let mut windows = Windows::default();
+    assert!(windows.draw(7, false), "the first window to draw owns it");
+    assert!(
+        !windows.draw(9, false),
+        "a newer window that is not active yet does not take it"
+    );
+    assert!(windows.draw(7, true));
+    assert!(windows.draw(9, true), "the focused second scene takes it");
+    assert!(
+        !windows.draw(7, true),
+        "an older window never takes it back"
+    );
+    assert!(
+        windows.draw(9, false),
+        "the owner keeps it while Control Center makes it inactive"
+    );
+    assert!(!windows.draw(7, false));
+}

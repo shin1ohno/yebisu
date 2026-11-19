@@ -108,17 +108,15 @@ class MenuOracleTests(unittest.TestCase):
 
 
 class DriverTests(unittest.TestCase):
-    def test_test_runner_reads_the_receipt_directory_the_driver_passes(self):
-        driver_spec = importlib.util.spec_from_file_location("sh1_152_check", Path(__file__).with_name("sh1-152-check.py"))
-        driver = importlib.util.module_from_spec(driver_spec)
-        driver_spec.loader.exec_module(driver)
-        env = driver.xctest_env(Path("/sim/data/Documents"))
-        self.assertEqual(env["TEST_RUNNER_SH1_152_DOCUMENTS"], "/sim/data/Documents")
-        # xcodebuild strips TEST_RUNNER_; EditMenuQA must read the stripped name.
+    def test_the_test_runner_reads_no_receipt_file(self):
+        # UI test redesign S4: EditMenuQA waits on qa.state and reads none of the app's files while
+        # the app runs; the driver no longer hands it the Documents path and reads the files itself
+        # after terminating the app (test_terminate_before_read.py).
+        driver = (Path(__file__).with_name("sh1-152-check.py")).read_text()
+        self.assertNotIn("TEST_RUNNER_SH1_152_DOCUMENTS", driver)
         swift = (Path(__file__).parent / "smoke-qa/Tests/EditMenuQA.swift").read_text()
-        self.assertIn('environment["SH1_152_DOCUMENTS"]', swift)
-        self.assertNotIn('environment["TEST_RUNNER_SH1_152_DOCUMENTS"]', swift)
-
+        for reader in ("SH1_152_DOCUMENTS", "contentsOfDirectory", "String(contentsOf", "p4-peer.jsonl\")", "FileManager"):
+            self.assertNotIn(reader, swift)
 
 if __name__ == "__main__":
     unittest.main()

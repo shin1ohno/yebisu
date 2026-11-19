@@ -3,57 +3,119 @@ import Vision
 
 // SH1-153 edit menu, P8 native editing, SH1-154 core image.
 extension SmokeQA {
-    func testSH1153EditMenu() throws {
-        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+    /// Presses `id` once the keyboard stopped moving (the QA strip moves with it) and waits for
+    /// `until` (UI test redesign S4).
+    @discardableResult
+    func pressSettled(_ qa: QAAx, _ id: String, what: String, until: @escaping (QAState) -> Bool) throws -> QAState {
+        try qa.settledKeyboard("before \(id)")
+        return try qa.press(id, what: what, until: until)
+    }
+
+    /// Logs whether `condition` held within `seconds`: the receiving-system oracle decides the case
+    /// from the peer's receipts after the app was terminated, as it did after the old sleeps.
+    @discardableResult
+    func logWait(_ qa: QAAx, _ what: String, seconds: TimeInterval = 10, _ condition: (QAState) -> Bool) -> QAState? {
+        do {
+            let state = try qa.waitState(what, timeout: seconds, condition)
+            print("EDIT WAIT \(what): reached")
+            return state
+        } catch {
+            print("EDIT WAIT \(what): not reached in \(Int(seconds))s: \(error)")
+            return nil
+        }
+    }
+
+    /// The markers that bracket an SH1-153 or P8 case reached the private peer.
+    func markersAtPeer(_ qa: QAAx, _ markers: [String]) {
+        logWait(qa, "markers \(markers) at the peer") { state in markers.allSatisfy { state.peerPastes.contains($0) } }
+    }
+
+    /// A UIKit selector the press scheduled (performSelector afterDelay 0.1, `scheduled` grew) ran
+    /// through the app's native edit action, and no paste is still being prepared, so the next
+    /// case's end marker follows its effect at the peer. Before S4 the tests slept 1 s here.
+    func scheduledActionsRan(_ qa: QAAx, _ what: String, before: QAState, after: QAState, scheduled: String) {
+        let ran = after.count(scheduled) > before.count(scheduled)
+        logWait(qa, "\(what): \(ran ? "the scheduled selector ran and " : "")no paste pending", seconds: 5) {
+            (!ran || $0.count("native_actions") > before.count("native_actions")) && $0.bool("pasting") == false
+        }
+    }
+
+    /// Launches the private-peer terminal with `qaMode` and waits until it can take input.
+    func launchPeerTerminal(_ app: XCUIApplication, _ qa: QAAx, _ qaMode: String) throws {
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_EDIT_MENU_QA"] = "1"
+        app.launchEnvironment[qaMode] = "1"
+        app.launchEnvironment["YEBISU_QA_AX"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        sleep(3)
+        // Before S4: sleep(3). The QA markers go to the private peer, so the link must be up.
+        try qa.waitState("the private peer is connected with an input destination", timeout: 60) {
+            $0.string("screen") == "terminal" && $0.bool("connected") == true && $0.string("input_pane") != nil
+        }
+    }
+
+    /// Menu prepare: ends case `step - 1` (its result and end marker) and starts case `step`.
+    func editPrepare(_ qa: QAAx, _ step: Int) throws {
+        let before = try qa.waitState("before Menu prepare \(step)", timeout: 5) { _ in true }
+        try pressSettled(qa, QAIds.editPrepare, what: "Menu prepare ran") { $0.count("edit_prepare") > before.count("edit_prepare") }
+        markersAtPeer(qa, (step > 0 ? ["edit-end-\(step - 1)"] : []) + (step < 10 ? ["edit-start-\(step)"] : []))
+    }
+
+    func testSH1153EditMenu() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
+        try launchPeerTerminal(app, qa, "YEBISU_EDIT_MENU_QA")
         for step in 0..<10 {
-            try tapText("Menu prepare", in: app)
-            sleep(1)
+            try editPrepare(qa, step)
             if step % 5 == 1 || step % 5 == 4 {
-                try tapText("Menu select", in: app)
-                sleep(1)
+                let before = try qa.waitState("before Menu select \(step)", timeout: 5) { _ in true }
+                try pressSettled(qa, QAIds.editSelect, what: "edit-selection recorded") {
+                    $0.count("edit_selection") > before.count("edit_selection")
+                }
             }
-            try tapText("Menu execute", in: app)
-            sleep(1)
+            let before = try qa.waitState("before Menu execute \(step)", timeout: 5) { _ in true }
+            let after = try pressSettled(qa, QAIds.editExecute, what: "edit-validation recorded") {
+                $0.count("edit_validation") > before.count("edit_validation")
+            }
+            scheduledActionsRan(qa, "SH1-153 case \(step)", before: before, after: after, scheduled: "edit_scheduled")
             save("sh1-153-case-\(step)")
             if step == 1 || step == 6 {
                 print("SH1-153 MENU HIERARCHY case=\(step)\n\(app.debugDescription)")
                 let edit = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Edit'")).firstMatch
                 if edit.exists && edit.isHittable {
                     edit.tap()
-                    sleep(1)
+                    _ = app.menuItems.firstMatch.waitForExistence(timeout: 2)
                     save("sh1-153-system-edit-\(step)")
                     print("SH1-153 OPEN MENU case=\(step)\n\(app.debugDescription)")
                     // Dismiss without choosing an extra command outside the receipt cases.
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                    _ = app.menuItems.firstMatch.waitForNonExistence(timeout: 2)
                 } else {
                     print("SH1-153 system Edit menu is not exposed to XCTest in case \(step)")
                 }
             }
         }
-        try tapText("Menu prepare", in: app)
-        sleep(1)
+        try editPrepare(qa, 10)
         XCTAssertEqual(app.state, .runningForeground)
     }
 
     func testP8NativeEditing() throws {
+        continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
-        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
-        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_NATIVE_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
-        sleep(3)
-        for _ in 0..<25 {
-            try tapText("Native next", in: app)
-            sleep(1)
+        let qa = QAAx(app)
+        try launchPeerTerminal(app, qa, "YEBISU_NATIVE_QA")
+        // Each Native next ends case step - 1 and starts case step (24 cases, then the last end).
+        for step in 0..<25 {
+            let before = try qa.waitState("before Native next \(step)", timeout: 5) { _ in true }
+            let after = try pressSettled(qa, QAIds.nativeNext, what: "Native next ran") {
+                $0.count("native_step") > before.count("native_step")
+            }
+            markersAtPeer(qa, (step > 0 ? ["native-end-\(step - 1)"] : []) + (step < 24 ? ["native-start-\(step)"] : []))
+            if step < 24 {
+                scheduledActionsRan(qa, "P8 case \(step)", before: before, after: after, scheduled: "native_scheduled")
+            }
         }
         save("p8-native")
         XCTAssertEqual(app.state, .runningForeground)
@@ -90,6 +152,12 @@ extension SmokeQA {
         var pastedImages = count(start, "pasted_images")
         var pastedTexts = count(start, "pasted_texts")
         func noFailure(_ state: QAState) -> Bool { count(state, "paste_failures") == 0 }
+        // An image put (a 2200x2200 PNG, about 950 KB, to the core mock and back) took 6.1-7.8 s on
+        // hosted runners when S3 landed and 7.7-9.1 s, and twice more than 10 s, in PR 81's runs
+        // (44500184824 attempts 1 and 2, jobs 135478189932 and 135514978584): the put finished each
+        // time, after the old 10 s deadline. 30 s keeps three times the slowest finished put; a
+        // press that never arrives is still noticed within 10 s.
+        let imagePut: TimeInterval = 30
         // 1. An image-only item; Paste image and Paste both put it (paste-0.png, paste-1.png).
         try qa.press(QAIds.bandImageOnly, timeout: 30, what: "QA image ready (image only)") {
             count($0, "qa_images") == images + 1
@@ -101,11 +169,11 @@ extension SmokeQA {
         let pasteImage = try qa.find(QAIds.menuPasteImage).frame
         XCTAssertTrue(paste.midY < pasteImage.midY && abs(paste.minX - pasteImage.minX) < max(paste.height, pasteImage.height),
                       "Paste / Paste image not one above the other in the ... menu: \(paste) \(pasteImage)")
-        try qa.press(QAIds.menuPasteImage, timeout: 10, what: "Paste image put paste-0.png") {
+        try qa.press(QAIds.menuPasteImage, timeout: 10, effect: imagePut, what: "Paste image put paste-0.png") {
             $0.isNull("menu") && count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         pastedImages += 1
-        try menuItem(qa, QAIds.menuPaste, what: "Paste put paste-1.png (the item has no text)") {
+        try menuItem(qa, QAIds.menuPaste, effect: imagePut, what: "Paste put paste-1.png (the item has no text)") {
             count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         pastedImages += 1
@@ -117,7 +185,7 @@ extension SmokeQA {
             count($0, "pasted_texts") == pastedTexts + 1 && count($0, "pasted_images") == pastedImages && noFailure($0)
         }
         pastedTexts += 1
-        let last = try menuItem(qa, QAIds.menuPasteImage, what: "Paste image put paste-2.png") {
+        let last = try menuItem(qa, QAIds.menuPasteImage, effect: imagePut, what: "Paste image put paste-2.png") {
             count($0, "pasted_images") == pastedImages + 1 && noFailure($0)
         }
         XCTAssertEqual(count(last, "pasted_images"), 3, "\(last)")

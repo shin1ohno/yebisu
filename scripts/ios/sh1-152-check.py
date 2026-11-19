@@ -2,7 +2,6 @@
 """Run native menu cases and read actual clipboard, wire and UIKit receipts."""
 import importlib.util
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,10 +34,14 @@ def run(*args, **kwargs):
     return result
 
 
-def xctest_env(documents):
-    """xcodebuild hands TEST_RUNNER_-prefixed variables to the UI test runner
-    without the prefix, so EditMenuQA can wait on the receipts the app writes."""
-    return {**os.environ, "TEST_RUNNER_SH1_152_DOCUMENTS": str(documents)}
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S4:
+    EditMenuQA waits on qa.state, and the files are read only after terminate). Exit 3 is simctl's
+    'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("SH1-152 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
 def main():
@@ -47,6 +50,7 @@ def main():
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu").stdout.strip().splitlines()[-1]
     device = run("bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"').stdout.split()[0]
     run("xcrun", "simctl", "install", device, bundle)
+    terminate(device)  # an earlier check's app may still run and write the files removed here
     container = Path(run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data").stdout.strip()) / "Documents"
     for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
         path.unlink(missing_ok=True)
@@ -59,11 +63,13 @@ def main():
         print("SH1-152 COMMAND xcodebuild test", flush=True)
         result = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device,
                                  "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(directory / "result.xcresult"),
-                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, env=xctest_env(container), text=True, capture_output=True)
+                                 "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/EditMenuQA"], cwd=ROOT, text=True, capture_output=True)
         print(result.stdout, flush=True)
         print(result.stderr, flush=True)
         (directory / "xctest.log").write_text(result.stdout + result.stderr)
     finally:
+        # The app is stopped before its receipts are copied or read, also when XCTest failed.
+        terminate(device)
         for path in [*container.glob("sh1-152-*.jsonl"), container / "p4-peer.jsonl", container / "p9-core-wire.jsonl"]:
             if path.exists():
                 shutil.copyfile(path, directory / path.name)

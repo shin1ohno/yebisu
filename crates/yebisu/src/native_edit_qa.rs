@@ -12,13 +12,17 @@ use std::sync::{
 };
 #[cfg(not(feature = "test-support"))]
 static STEP: AtomicUsize = AtomicUsize::new(0);
+/// The control's text, which is also its accessibility label.
+#[cfg(not(feature = "test-support"))]
+const NEXT: &str = "Native next";
 
 #[cfg(not(feature = "test-support"))]
 impl Smoke {
     pub(crate) fn native_edit_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_NATIVE_QA")?;
-        Some(div().id("native-next").p_2().bg(rgb(0x3b4252)).child("Native next")
+        Some(div().id("native-next").p_2().bg(rgb(0x3b4252)).child(NEXT)
             .on_click(cx.listener(|this, _, window, cx| {
+                crate::qa_ax::count("native_step");
                 let step=STEP.fetch_add(1,Ordering::Relaxed);
                 if step>0 {
                     let clipboard=cx.read_from_clipboard().and_then(|item|item.text());
@@ -50,8 +54,15 @@ impl Smoke {
                     origin_none
                 };
                 this.observation.record(serde_json::json!({"kind":"native-start","case":step,"action":action,"scheduled":scheduled,"command_control":this.terminal.input.options.command_control,"terminal_priority":this.actions.terminal_priority}));
+                // qa.state: UIKit selectors scheduled so far (`native_actions`
+                // catches up once they ran).
+                if step%6<4 && scheduled {
+                    crate::qa_ax::count("native_scheduled");
+                }
                 cx.notify();
-            })).into_any_element())
+            }))
+            .children(crate::qa_ax::mark(crate::qa_ax::ids::NATIVE_NEXT, NEXT))
+            .into_any_element())
     }
     pub(crate) fn native_marker(&self, text: String) {
         if let Some(handle) = &self.terminal.link.handle {

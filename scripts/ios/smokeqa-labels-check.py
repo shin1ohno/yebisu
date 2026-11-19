@@ -34,10 +34,7 @@ SRC = "crates/yebisu/src/"
 HANDOFF = SRC + "handoff_view.rs"
 SETTINGS_VIEW = SRC + "settings_sheet/view.rs"
 P15_VIEW = SRC + "p15_settings_view.rs"
-EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
 OVERFLOW_MENU = SRC + "shell/overflow_menu.rs"  # L2a ... menu
-SETTINGS_SECTIONS = SRC + "settings_pages/sections.rs"
-SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 
 # label -> locations (file, fragment) where the app paints that text as a literal.
 # Every location must still contain its fragment. Sorted by label.
@@ -45,21 +42,14 @@ SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
     "Close": [(SETTINGS_VIEW, 'CLOSE_LABEL: &str = "Close"')],
-    "Double tap": [(SETTINGS_CHOICES, '["Double tap", "Drag"]')],
-    "Discard composition": [(SRC + "sh1_156_qa.rs", '"Discard composition"')],
     "File path unavailable": [(P15_VIEW, '"File path unavailable"')],
     "HOSTS": [(SRC + "shell/sidebar/view.rs", '"HOSTS"')],
     "High contrast": [(SRC + "theme_picker/mod.rs", '"High contrast"')],
-    "Input": [(SETTINGS_SECTIONS, 'Self::Input => "Input"')],
     "Larger": [(SETTINGS_VIEW, '"font-plus", "Larger"')],
-    "Menu execute": [(EDIT_MENU_QA, '"Menu execute"')],
-    "Menu prepare": [(EDIT_MENU_QA, '"Menu prepare"')],
-    "Menu select": [(EDIT_MENU_QA, '"Menu select"')],
     "Native matrix collected": [(SRC + "native_observer_qa.rs", '"Native matrix collected"')],
     "Native next": [(SRC + "native_edit_qa.rs", '"Native next"'), (SRC + "native_observer_qa.rs", '"Native next"')],
     "Observer matrix collected": [(SRC + "settings_sheet/observer_qa.rs", '"Observer matrix collected"')],
     "Observer next": [(SRC + "settings_sheet/observer_qa.rs", '"Observer next"')],
-    "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],
     "Owner default": [(SRC + "theme_picker/mod.rs", '"Owner default"')],
     "P14 next": [(SRC + "notification_view/qa.rs", '"P14 next"')],
     "Probe modal callbacks": [(SRC + "settings_sheet/qa.rs", '"Probe modal callbacks"')],
@@ -67,7 +57,6 @@ SOURCES = {
     "Settings": [(SRC + "shell/footer.rs", 'SETTINGS: &str = "Settings"')],  # L2b sidebar footer
     "Theme": [(SRC + "settings_pages/sections.rs", 'Self::Theme => "Theme"')],  # L1 canvas section title
     "Type here": [(SRC + "mock_peer.rs", "Type here")],
-    "Typing is paused": [(SRC + "shell/edit_bar.rs", 'PAUSED_TYPING_STATUS: &str = "Typing is paused')],  # status bar while selecting
     "daemon-effective state unverified": [(P15_VIEW, "daemon-effective state unverified")],
     "qa-alpha": [(SRC + "app.rs", '"qa-alpha"')],
     "qa-beta": [(SRC + "app.rs", '"qa-beta"')],

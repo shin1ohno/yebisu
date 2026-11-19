@@ -73,18 +73,32 @@ def validate(records, messages):
     print("NATIVE PASS: 4 settings x native Paste/Copy/Cut/SelectAll and physical C/V adapters", flush=True)
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2/S4:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P8 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def main():
     directory = ROOT / "target/ios-p8-native" / time.strftime("%Y%m%d-%H%M%S")
     directory.mkdir(parents=True)
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", cwd=ROOT)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"'], cwd=ROOT, text=True).split()[0]
     run("xcrun", "simctl", "install", device, bundle.stdout.strip().splitlines()[-1])
+    terminate(device)  # an earlier check's app may still run and write the files removed here
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip())
     (container / "Documents/p4-peer.jsonl").unlink(missing_ok=True)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
-    tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/testP8NativeEditing")
+    try:
+        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/testP8NativeEditing")
+    finally:
+        # The app is stopped before its receipts are copied or read, also when XCTest failed.
+        terminate(device)
     if "testP8NativeEditing]' passed" not in tested.stdout:
         raise RuntimeError("P8 XCTest did not execute and pass")
     export = directory / "attachments"

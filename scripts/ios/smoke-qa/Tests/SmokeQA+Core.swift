@@ -8,12 +8,13 @@ extension SmokeQA {
         try qa.press(QAIds.tabsMore, what: "the ... menu is open") { $0.string("menu") == "overflow" }
     }
 
-    /// Opens the ... menu and presses its item `id`; `until` is the item's effect. The menu
-    /// closes as the item runs, so `menu` must be null again too.
+    /// Opens the ... menu and presses its item `id`; `until` is the item's effect (within `effect`
+    /// seconds, 10 by default). The menu closes as the item runs, so `menu` must be null again too.
     @discardableResult
-    func menuItem(_ qa: QAAx, _ id: String, what: String, until: @escaping (QAState) -> Bool) throws -> QAState {
+    func menuItem(_ qa: QAAx, _ id: String, effect: TimeInterval = 10, what: String,
+                  until: @escaping (QAState) -> Bool) throws -> QAState {
         try openMenu(qa)
-        return try qa.press(id, timeout: 10, what: what) { $0.isNull("menu") && until($0) }
+        return try qa.press(id, timeout: 10, effect: effect, what: what) { $0.isNull("menu") && until($0) }
     }
 
     /// Taps the terminal so it takes the keyboard, then types `text` into it.

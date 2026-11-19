@@ -61,12 +61,22 @@ def validate(records, messages):
     print("SH1-156 PASS: letters after a pointer click, Select on/off and Settings close reached the peer", flush=True)
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2/S4:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("SH1-156 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def main():
     directory = ROOT / "target/ios-sh1-156" / time.strftime("%Y%m%d-%H%M%S")
     directory.mkdir(parents=True)
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", cwd=ROOT)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"'], cwd=ROOT, text=True).split()[0]
     run("xcrun", "simctl", "install", device, bundle.stdout.strip().splitlines()[-1])
+    terminate(device)  # an earlier check's app may still run and write the files removed here
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip())
     for name in ["p4-peer.jsonl", "p0-smoke.jsonl"]:
         (container / "Documents" / name).unlink(missing_ok=True)
@@ -79,7 +89,11 @@ def main():
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
     try:
-        tested = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/" + TEST], text=True, capture_output=True)
+        try:
+            tested = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/" + TEST], text=True, capture_output=True)
+        finally:
+            # Stop the app before its files are read, also when XCTest failed.
+            terminate(device)
         print(tested.stdout, flush=True)
         print(tested.stderr, flush=True)
         # Keep the receipts even when the XCTest failed: they show what arrived.
@@ -104,8 +118,6 @@ def main():
         validate(records, messages)
         print("SH1-156 receiving-system evidence", directory, flush=True)
     finally:
-        cleanup = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
-        print("SH1-156 cleanup terminate exit", cleanup.returncode, cleanup.stderr, flush=True)
         if settings.exists():
             shutil.rmtree(settings)
 

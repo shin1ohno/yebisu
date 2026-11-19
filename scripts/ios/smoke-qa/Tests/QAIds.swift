@@ -1,4 +1,5 @@
-/// QA accessibility identifiers the S3 tests press (P9, SH1-154, P3, the self-test). Each one is
+/// QA accessibility identifiers the S3 and S4 tests press (P9, SH1-154, P3, the self-test, and the
+/// edit-menu job: EditMenuQA, SH1-153, P8, SH1-151, SH1-156). Each one is
 /// a constant in crates/yebisu/src/qa_ax_ids.rs, marked on the control it names;
 /// scripts/ios/qa-ax-ids-check.py fails if a string here is not defined there.
 enum QAIds {
@@ -23,4 +24,28 @@ enum QAIds {
     static let densityCompact = "qa.settings.density.compact"
     static let densityRegular = "qa.settings.density.regular"
     static let terminalInput = "qa.terminal.input"
+    static let menuSelectText = "qa.menu.select-text"
+    static let settingsPageInput = "qa.settings.page.input"
+    static let startDoubleTap = "qa.settings.start-selection.double-tap"
+    static let copyOnSelection = "qa.settings.copy.on-selection"
+    // S4: SH1-152 (EditMenuQA). Begin keeps its identifier while it reads "Begun".
+    static let sh152Begin = "qa.sh1-152.begin"
+    static let sh152Select = "qa.sh1-152.select"
+    static let sh152Mutate = "qa.sh1-152.mutate"
+    static let sh152Replay = "qa.sh1-152.replay"
+    static let sh152Fresh = "qa.sh1-152.fresh"
+    static let sh152End = "qa.sh1-152.end"
+    static let sh152Ordinary = "qa.sh1-152.ordinary"
+    static let sh152Restore = "qa.sh1-152.restore"
+    static let sh152Second = "qa.sh1-152.second"
+    static let sh152TwoBegin = "qa.sh1-152.two.begin"
+    static let sh152TwoSelect = "qa.sh1-152.two.select"
+    static let sh152TwoEnd = "qa.sh1-152.two.end"
+    static let sh152TwoClose = "qa.sh1-152.two.close"
+    // S4: SH1-153, P8, SH1-156.
+    static let editPrepare = "qa.edit.prepare"
+    static let editSelect = "qa.edit.select"
+    static let editExecute = "qa.edit.execute"
+    static let nativeNext = "qa.native.next"
+    static let sh156Discard = "qa.sh1-156.discard"
 }

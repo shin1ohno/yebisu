@@ -7,6 +7,11 @@ use std::sync::{
 };
 static CASE: AtomicUsize = AtomicUsize::new(0);
 
+/// The controls' text, which is also their accessibility label.
+const PREPARE: &str = "Menu prepare";
+const SELECT: &str = "Menu select";
+const EXECUTE: &str = "Menu execute";
+
 impl Smoke {
     pub(crate) fn edit_menu_qa_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_EDIT_MENU_QA")?;
@@ -19,8 +24,9 @@ impl Smoke {
                         .id("edit-prepare")
                         .p_2()
                         .bg(rgb(0x3b4252))
-                        .child("Menu prepare")
+                        .child(PREPARE)
                         .on_click(cx.listener(|this, _, window, cx| {
+                            crate::qa_ax::count("edit_prepare");
                             // Keep observation enabled, but do not let the smoke
                             // timer repair stale native availability every second.
                             this.smoke_mode = false;
@@ -62,14 +68,15 @@ impl Smoke {
                             )));
                             this.native_marker(format!("edit-start-{step}"));
                             cx.notify();
-                        })),
+                        }))
+                        .children(crate::qa_ax::mark(crate::qa_ax::ids::EDIT_PREPARE, PREPARE)),
                 )
                 .child(
                     div()
                         .id("edit-select")
                         .p_2()
                         .bg(rgb(0x3b4252))
-                        .child("Menu select")
+                        .child(SELECT)
                         .on_click(cx.listener(|this, _, _, cx| {
                             // Select only after the keyboard transition and peer
                             // resize settle. Execution must never recreate selection.
@@ -89,28 +96,41 @@ impl Smoke {
                                 "kind":"edit-selection", "case":step,
                                 "text":this.handoff.selection.as_ref().and_then(Selection::text)
                             }));
+                            crate::qa_ax::count("edit_selection");
                             cx.notify();
-                        })),
+                        }))
+                        .children(crate::qa_ax::mark(crate::qa_ax::ids::EDIT_SELECT, SELECT)),
                 )
                 .child(
                     div()
                         .id("edit-execute")
                         .p_2()
                         .bg(rgb(0x3b4252))
-                        .child("Menu execute")
+                        .child(EXECUTE)
                         .on_click(cx.listener(|this, _, _, cx| {
                             let step = CASE.load(Ordering::Relaxed).saturating_sub(1);
                             let copy = [1, 2, 4].contains(&(step % 5));
                             let result = probe_and_schedule(copy);
+                            let scheduled = result.as_ref().is_some_and(|probe| {
+                                probe["enabled"] == true && probe["validated"] == true
+                            });
                             this.observation
                                 .record(serde_json::json!({"kind":"edit-validation", "case":step,
                         "probe":result}));
+                            // qa.state: the validation ran, and how many UIKit
+                            // selectors it scheduled so far (`native_actions`
+                            // catches up once they ran).
+                            crate::qa_ax::count("edit_validation");
+                            if scheduled {
+                                crate::qa_ax::count("edit_scheduled");
+                            }
                             // The action was validated with a selection but runs after it disappears.
                             if step % 5 == 4 {
                                 this.handoff.selection = None;
                             }
                             cx.notify();
-                        })),
+                        }))
+                        .children(crate::qa_ax::mark(crate::qa_ax::ids::EDIT_EXECUTE, EXECUTE)),
                 )
                 .into_any_element(),
         )

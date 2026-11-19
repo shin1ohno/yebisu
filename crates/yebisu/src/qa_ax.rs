@@ -30,6 +30,9 @@ pub(crate) mod layer;
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 #[path = "qa_ax_native.rs"]
 mod native;
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+#[path = "qa_ax_peer.rs"]
+pub(crate) mod peer;
 #[path = "qa_ax_root.rs"]
 mod root;
 
@@ -104,6 +107,50 @@ pub(crate) fn report(key: &'static str, value: impl FnOnce() -> serde_json::Valu
     {
         let _ = (key, value);
         false
+    }
+}
+
+/// A frame is wanted although no view may have changed: a counter or the
+/// peer moved (`request_frame`), and `qa.state` is published only by a frame.
+static FRAME_WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Asks for a frame so the next `qa.state` carries what just changed. Any
+/// thread; `refresh_if_wanted` turns it into a refresh on the next poll.
+pub(crate) fn request_frame() {
+    FRAME_WANTED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// Called from the terminal poll (every 33 ms on GPUI's foreground thread):
+/// refreshes every window once a frame was requested. Nothing unless the
+/// layer is on.
+pub(crate) fn refresh_if_wanted(cx: &mut gpui::App) {
+    if enabled() && FRAME_WANTED.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        cx.refresh_windows();
+    }
+}
+
+/// Adds one to the `qa.state` counter `key` (UI test redesign S3/S4: a
+/// test waits for the count instead of reading the app's receipt files) and
+/// requests the frame that publishes it. Call it on GPUI's foreground thread.
+/// Does nothing unless the layer is on.
+pub(crate) fn count(key: &'static str) {
+    if !enabled() {
+        return;
+    }
+    core::count(key);
+    request_frame();
+}
+
+/// The `qa.state` counter for a lifecycle phase (`lifecycle_active`, ...).
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+pub(crate) fn lifecycle_key(phase: gpui::AppLifecyclePhase) -> &'static str {
+    use gpui::AppLifecyclePhase as Phase;
+    match phase {
+        Phase::Active => "lifecycle_active",
+        Phase::Inactive => "lifecycle_inactive",
+        Phase::Background => "lifecycle_background",
+        Phase::Foreground => "lifecycle_foreground",
+        Phase::Disconnected => "lifecycle_disconnected",
     }
 }
 

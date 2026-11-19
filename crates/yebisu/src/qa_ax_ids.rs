@@ -99,3 +99,145 @@ pub(crate) const SETTINGS_DENSITY_COMPACT: &str = "qa.settings.density.compact";
 /// The terminal's input area (terminal_view.rs, `terminal-input`): a tap
 /// there gives the terminal the keyboard.
 pub(crate) const TERMINAL_INPUT: &str = "qa.terminal.input";
+/// SH1-152's QA controls (edit_menu_qa_sh1_152.rs, `YEBISU_SH1_152_CASE`),
+/// one per command; Begin keeps its identifier when it reads "Begun". The
+/// second E5 scene's controls ("152 Two ...") have their own identifiers.
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_BEGIN: &str = "qa.sh1-152.begin";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_SELECT: &str = "qa.sh1-152.select";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_MUTATE: &str = "qa.sh1-152.mutate";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_REPLAY: &str = "qa.sh1-152.replay";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_FRESH: &str = "qa.sh1-152.fresh";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_END: &str = "qa.sh1-152.end";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_ORDINARY: &str = "qa.sh1-152.ordinary";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_RESTORE: &str = "qa.sh1-152.restore";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_SECOND: &str = "qa.sh1-152.second";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_TWO_BEGIN: &str = "qa.sh1-152.two.begin";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_TWO_SELECT: &str = "qa.sh1-152.two.select";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_TWO_END: &str = "qa.sh1-152.two.end";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_TWO_CLOSE: &str = "qa.sh1-152.two.close";
+/// SH1-153's controls (edit_menu_qa.rs, `YEBISU_EDIT_MENU_QA`).
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(dead_code, reason = "the QA strip is built only in a Simulator build")
+)]
+pub(crate) const EDIT_PREPARE: &str = "qa.edit.prepare";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(dead_code, reason = "the QA strip is built only in a Simulator build")
+)]
+pub(crate) const EDIT_SELECT: &str = "qa.edit.select";
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(dead_code, reason = "the QA strip is built only in a Simulator build")
+)]
+pub(crate) const EDIT_EXECUTE: &str = "qa.edit.execute";
+/// P8's "Native next" (native_edit_qa.rs, `YEBISU_NATIVE_QA`).
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(dead_code, reason = "the QA strip is built only in a Simulator build")
+)]
+pub(crate) const NATIVE_NEXT: &str = "qa.native.next";
+/// SH1-156's "Discard composition" (sh1_156_qa.rs, `YEBISU_SH1_156_QA`).
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(dead_code, reason = "the QA strip is built only in a Simulator build")
+)]
+pub(crate) const SH1_156_DISCARD: &str = "qa.sh1-156.discard";
+/// The Input page's "Start a selection" and "Copy" choices
+/// (settings_sheet/view.rs, `settings_choices`; labels from
+/// settings_pages/choices.rs), which SH1-151 sets.
+pub(crate) const SETTINGS_START_DOUBLE_TAP: &str = "qa.settings.start-selection.double-tap";
+pub(crate) const SETTINGS_START_DRAG: &str = "qa.settings.start-selection.drag";
+pub(crate) const SETTINGS_COPY_MANUAL: &str = "qa.settings.copy.manual";
+pub(crate) const SETTINGS_COPY_ON_SELECTION: &str = "qa.settings.copy.on-selection";
