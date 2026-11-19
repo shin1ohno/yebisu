@@ -119,6 +119,16 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("crate::qa_ax::peer::input(", branch)
         self.assertIn('ClientPaneInputEvent::Paste(text) if text == "p12-fence" => Some(text.as_str())', branch)
 
+    def test_a_touch_reaches_gpui_before_the_first_fixture_press(self):
+        swift = code(SWIFT)
+        test = body(swift, "func testInstalledTerminalMenu(")
+        self.assertLess(test.index("try touchReady()"), test.index("try fixture(remote)"))
+        ready = body(swift, "private func touchReady(")
+        self.assertIn("$0.presses(Self.emptySpace) > before.presses(Self.emptySpace)", ready)
+        self.assertIn('"kind": "touch-ready", "ready": true', ready)
+        self.assertIn("XCTFail(", ready)
+        self.assertIn("touchReadyPresses = 8", swift)
+
     def test_the_dismiss_point_is_the_empty_strip_found_by_identifier(self):
         point = body(code(SWIFT), "private func dismissPoint(")
         self.assertIn("qa.find(Self.emptySpace", point)

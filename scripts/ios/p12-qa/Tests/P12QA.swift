@@ -39,6 +39,8 @@ final class P12QA: XCTestCase {
     /// The empty strip at the foot of the fixture panel: GPUI space with no handler, where a tap
     /// closes an open OS menu and changes nothing in the app.
     private static let emptySpace = "qa.p12.empty"
+    /// Presses on the empty strip `touchReady` may make, 3 s apart, before it fails.
+    private static let touchReadyPresses = 8
 
     /// A failed assertion ends the test method without running its `defer`, so the
     /// events are attached here: a failed run keeps them as evidence too.
@@ -77,6 +79,7 @@ final class P12QA: XCTestCase {
         // hosted runners, so each hold covers exactly one local case, and every
         // control is found before the first hold.
         try locateFixtures()
+        try touchReady()
         for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
             try fixture(remote)
             try choose("Split Right", caseName: remote, negative: false)
@@ -322,6 +325,38 @@ final class P12QA: XCTestCase {
         screenshot("p12-missing-fixture")
         XCTFail("Missing fixture controls: \(missing.joined(separator: ", "))")
         throw NSError(domain: "P12.MissingFixture", code: 1)
+    }
+
+    /// Waits until a touch reaches GPUI at all before the first fixture press. On a fresh Simulator
+    /// the first press after launch sometimes reaches nothing, and the press 7 s later does not
+    /// either: S5 Mac mini trial run 2 (Remote, both presses lost, qa.state seq 8 unchanged, the
+    /// screen recording shows the panel drawn and nothing over it), S4's first SH1-153 press (1 of 6
+    /// fresh launches) and job 134059155142 (P12-fixture, the first tap was Remote). Why is not
+    /// known (UIKit or herdr-uikit; neither is in this repository). So the empty strip, which has no
+    /// handler, is pressed until GPUI counts a press on it (at most `touchReadyPresses`, 3 s each),
+    /// and how many it took is logged; the fixture presses keep their own retry-once rule.
+    private func touchReady() throws {
+        let started = Date().timeIntervalSince1970
+        let empty = try qa.find(Self.emptySpace, timeout: 10)
+        for attempt in 1...Self.touchReadyPresses {
+            let before = try qa.waitState("qa.state before touch-ready press \(attempt)", timeout: 5) { _ in true }
+            empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            let reached = try? qa.waitState("touch-ready press \(attempt) reached GPUI", timeout: 3) {
+                $0.presses(Self.emptySpace) > before.presses(Self.emptySpace)
+            }
+            if reached != nil {
+                print("P12 touch-ready after \(attempt) press(es)")
+                events.append(["kind": "touch-ready", "ready": true, "presses": attempt,
+                               "started": started, "ended": Date().timeIntervalSince1970])
+                return
+            }
+            print("P12 touch-ready press \(attempt) reached nothing (presses[\(Self.emptySpace)] did not grow in 3 s)")
+        }
+        events.append(["kind": "touch-ready", "ready": false, "presses": Self.touchReadyPresses,
+                       "started": started, "ended": Date().timeIntervalSince1970])
+        screenshot("p12-touch-not-ready")
+        XCTFail("No touch reached GPUI in \(Self.touchReadyPresses) presses on \(Self.emptySpace) after launch; qa.state=\(qa.read()?.text ?? "nil")")
+        throw NSError(domain: "P12.TouchNotReady", code: 1)
     }
 
     /// Presses the fixture control of `step` and waits until the app counted one more
