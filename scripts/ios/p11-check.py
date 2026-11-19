@@ -64,6 +64,14 @@ def observations(records, messages, disk):
         "durable_font_size":disk.get("terminal_font_size"),
     }
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate; S6 for P11). Exit 3 is simctl's 'nothing to terminate'."""
+    result=subprocess.run(["xcrun","simctl","terminate",device,"com.shin1ohno.yebisu"],text=True,capture_output=True)
+    print("P11 terminate before reading the app's files: exit",result.returncode,(result.stderr or "").strip(),flush=True)
+    if result.returncode not in (0,3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)"%result.returncode)
+
 def run(*args, **kwargs):
     print("P11 COMMAND",list(args),flush=True)
     result=subprocess.run(args,cwd=ROOT,text=True,capture_output=True,**kwargs)
@@ -81,8 +89,12 @@ def main():
     spec=ROOT/"scripts/ios/smoke-qa"
     run("xcodegen","generate","--spec",str(spec/"project.yml"),"--project",str(spec))
     # Exercise real selectors outside the modal before the separate P11 launch.
+    terminate(device)  # an earlier check's app may still run
     positive_started=time.time()
-    positive=run("xcodebuild","test","-project",str(spec/"SmokeOracle.xcodeproj"),"-scheme","SmokeOracle","-destination","id="+device,"-derivedDataPath",str(ROOT/"target/ios-smoke/build"),"-resultBundlePath",str(out/"positive.xcresult"),"CODE_SIGNING_ALLOWED=NO","-only-testing:SmokeOracle/SmokeQA/testP8NativeEditing")
+    try:
+        positive=run("xcodebuild","test","-project",str(spec/"SmokeOracle.xcodeproj"),"-scheme","SmokeOracle","-destination","id="+device,"-derivedDataPath",str(ROOT/"target/ios-smoke/build"),"-resultBundlePath",str(out/"positive.xcresult"),"CODE_SIGNING_ALLOWED=NO","-only-testing:SmokeOracle/SmokeQA/testP8NativeEditing")
+    finally:
+        terminate(device)
     if "testP8NativeEditing]' passed" not in positive.stdout:raise RuntimeError("positive-control XCTest not executed")
     positive_records=[r for line in (container/"Documents/p0-smoke.jsonl").read_text().splitlines() if (r:=json.loads(line)).get("time",0)>=positive_started]
     positive_messages=[json.loads(line) for line in (container/"Documents/p4-peer.jsonl").read_text().splitlines()]
@@ -91,7 +103,10 @@ def main():
     # Preserve the first receiving transcript before starting another app process.
     (container/"Documents/p4-peer.jsonl").unlink()
     started=time.time()
-    tested=run("xcodebuild","test","-project",str(spec/"SmokeOracle.xcodeproj"),"-scheme","SmokeOracle","-destination","id="+device,"-derivedDataPath",str(ROOT/"target/ios-smoke/build"),"-resultBundlePath",str(out/"result.xcresult"),"CODE_SIGNING_ALLOWED=NO","-only-testing:SmokeOracle/SmokeQA/testP11Settings")
+    try:
+        tested=run("xcodebuild","test","-project",str(spec/"SmokeOracle.xcodeproj"),"-scheme","SmokeOracle","-destination","id="+device,"-derivedDataPath",str(ROOT/"target/ios-smoke/build"),"-resultBundlePath",str(out/"result.xcresult"),"CODE_SIGNING_ALLOWED=NO","-only-testing:SmokeOracle/SmokeQA/testP11Settings")
+    finally:
+        terminate(device)
     if "testP11Settings]' passed" not in tested.stdout:raise RuntimeError("P11 XCTest not executed")
     run("xcrun","xcresulttool","export","attachments","--path",str(out/"result.xcresult"),"--output-path",str(out/"attachments"))
     # Observation must append across relaunch for this probe.

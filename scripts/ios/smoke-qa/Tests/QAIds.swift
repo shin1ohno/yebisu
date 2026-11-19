@@ -1,5 +1,5 @@
-/// QA accessibility identifiers the S3 and S4 tests press (P9, SH1-154, P3, the self-test, and the
-/// edit-menu job: EditMenuQA, SH1-153, P8, SH1-151, SH1-156). Each one is
+/// QA accessibility identifiers the S3, S4 and S6 tests press (P9, SH1-154, P3, the self-test, the
+/// edit-menu job: EditMenuQA, SH1-153, P8, SH1-151, SH1-156, and P0, P11, P14 and P15). Each one is
 /// a constant in crates/yebisu/src/qa_ax_ids.rs, marked on the control it names;
 /// scripts/ios/qa-ax-ids-check.py fails if a string here is not defined there.
 enum QAIds {
@@ -48,4 +48,17 @@ enum QAIds {
     static let editExecute = "qa.edit.execute"
     static let nativeNext = "qa.native.next"
     static let sh156Discard = "qa.sh1-156.discard"
+    // S6: P0, P11, P14 and P15.
+    static let p0Tap = "qa.p0.tap"
+    static let fontLarger = "qa.settings.font.larger"
+    static let settingsPageTheme = "qa.settings.page.theme"
+    static let themeOwnerDefault = "qa.settings.theme.owner-default"
+    static let themeHighContrast = "qa.settings.theme.high-contrast"
+    static let p11Probe = "qa.p11.probe"
+    static let p11Observer = "qa.p11.observer"
+    static let p14Next = "qa.p14.next"
+    static let toast = "qa.notification.toast"
+    static let board = "qa.board"
+    static let boardHostAlpha = "qa.board.host.qa-alpha"
+    static let boardHostBeta = "qa.board.host.qa-beta"
 }

@@ -1,32 +1,64 @@
 import XCTest
-import Vision
 
 // P10 settings, P11 settings sheet, SH1-151 selection settings.
 extension SmokeQA {
+    /// Waits until the wire-peer terminal is connected with no sheet open (before S6: a fixed sleep).
+    @discardableResult
+    func waitTerminal(_ qa: QAAx, _ what: String, timeout: TimeInterval = 60,
+                      _ extra: @escaping (QAState) -> Bool = { _ in true }) throws -> QAState {
+        try qa.waitState(what, timeout: timeout) {
+            $0.string("screen") == "terminal" && $0.bool("connected") == true && $0.isNull("sheet") && extra($0)
+        }
+    }
+
+    /// The terminal's font size in qa.state (`font_size`), nil before the field is published.
+    func fontSize(_ state: QAState) -> Double? {
+        (state.raw["font_size"] as? Double) ?? (state.raw["font_size"] as? Int).map(Double.init)
+    }
+
+    /// Settings › Display (the sheet opens on it) › Larger, confirmed by the font size growing by
+    /// one point. Before S6: OCR found "Settings" and then "Larger" on the sheet's first page.
+    @discardableResult
+    func pressLarger(_ qa: QAAx) throws -> Double {
+        try qa.settleIfMoved("before Settings")
+        try openSettingsSheet(qa)
+        var state = try qa.waitState("qa.state with the sheet open") { $0.string("sheet") == "settings" }
+        if state.string("settings_page") != "fonts" {
+            state = try qa.press(QAIds.settingsPageDisplay, what: "the Display page is open") { $0.string("settings_page") == "fonts" }
+        }
+        let size = try XCTUnwrap(fontSize(state), "qa.state has no font_size: \(state)")
+        try qa.press(QAIds.fontLarger, what: "the font size is \(size + 1)") { self.fontSize($0) == size + 1 }
+        return size + 1
+    }
+
     func testP11Settings() throws {
+        continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_P11_QA"] = "1"
         app.launchEnvironment["YEBISU_P11_KEYS_QA"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX"] = "1"
         app.launch()
-        sleep(4)
-        try tapText("Settings", in: app)
-        sleep(1)
-        try tapText("Larger", in: app)
-        try tapText("Probe modal callbacks", in: app)
-        sleep(3)
+        try waitTerminal(qa, "the wire-peer terminal is connected")
+        let larger = try pressLarger(qa)
+        try qa.press(QAIds.p11Probe, what: "the modal probe started") { $0.count("p11_probe_start") == 1 }
+        // Before S6: sleep(3). The probe ends one second after it starts (settings_sheet/qa.rs).
+        try qa.waitState("the modal probe ended", timeout: 10) { $0.count("p11_probe_end") == 1 }
         save("p11-modal")
-        try tapText("Close", in: app)
-        sleep(2)
+        try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
         XCUIDevice.shared.press(.home)
-        sleep(1)
+        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P11 app left the foreground after press(.home)")
         app.activate()
+        try requireState(app, [.runningForeground], "P11 activate() after press(.home)")
+        try waitTerminal(qa, "the terminal after returning, with the larger font") { self.fontSize($0) == larger }
         save("p11-font")
         app.terminate()
         app.launch()
-        sleep(4)
+        // Before S6: sleep(4). p11-check.py asserts the reloaded font from the app's receipts.
+        try waitTerminal(qa, "the relaunched terminal, with the larger font") { self.fontSize($0) == larger }
         save("p11-relaunch")
         XCTAssertEqual(app.state, .runningForeground)
     }

@@ -240,7 +240,7 @@ class PathFilterTests(unittest.TestCase):
         self.assertFalse(self.layout("scripts/ios/ci-sh1-152.py", "scripts/ios/sh1-152-check.py", "scripts/ios/sh1-153-check.py",
                                      "scripts/ios/p8-native-check.py", "scripts/ios/selection-settings-check.py", "scripts/ios/sh1-156-check.py",
                                      "scripts/ios/p9-check.py", "scripts/ios/smoke-check.py", "scripts/ios/test_ci_layout_smoke.py",
-                                     "scripts/ios/smokeqa-labels-check.py", "scripts/ios/test_smokeqa_labels_check.py",
+                                     "scripts/ios/qa-ax-ids-check.py", "scripts/ios/test_qa_ax_ids_check.py",
                                      "scripts/release/check-commit-messages.py", ".github/workflows/testflight.yml"))
 
     def test_a_sibling_of_a_listed_path_that_no_check_drives_still_skips(self):
