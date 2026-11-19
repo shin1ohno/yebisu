@@ -167,6 +167,16 @@ final class EditMenuQA: XCTestCase {
         }
         wait("launch \(name) input destination", ax, seconds: 30) { $0.string("input_pane") != nil }
         frame("launch \(name)", app)
+        // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
+        // on the strip's empty space, so the case's first real press is not lost (QAAx.touchReady).
+        do {
+            let presses = try ax.touchReady(QAIds.sh152Empty, what: "launch \(name)")
+            print("SH1-152 TOUCH-READY \(name) \(presses)")
+        } catch {
+            save("touch-not-ready-\(name)")
+            XCTFail("SH1-152 no touch reached GPUI after launch \(name): \(error)")
+            throw error
+        }
         return (app, ax)
     }
 

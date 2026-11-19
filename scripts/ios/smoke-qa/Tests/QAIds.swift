@@ -42,6 +42,7 @@ enum QAIds {
     static let sh152TwoSelect = "qa.sh1-152.two.select"
     static let sh152TwoEnd = "qa.sh1-152.two.end"
     static let sh152TwoClose = "qa.sh1-152.two.close"
+    static let sh152Empty = "qa.sh1-152.empty"
     // S4: SH1-153, P8, SH1-156.
     static let editPrepare = "qa.edit.prepare"
     static let editSelect = "qa.edit.select"

@@ -218,5 +218,36 @@ class S4FollowUps(unittest.TestCase):
             self.assertIn(fact, comment)
 
 
+class TouchReadyAfterEveryLaunch(unittest.TestCase):
+    """PR 84 run 44618790826: E3f-text's first press after its relaunch reached nothing twice (the
+    recording showed the window still black). Every EditMenuQA launch now waits for a touch on the
+    strip's empty space first, as P12 does."""
+
+    def test_every_launch_goes_through_launch_and_waits_for_a_touch(self):
+        source = code(EDIT_MENU)
+        self.assertEqual(source.count("app.launch()"), 1, "one launch path")
+        launch = body(source, "private func launch(")
+        self.assertIn("try ax.touchReady(QAIds.sh152Empty", launch)
+        self.assertLess(launch.index('frame("launch'), launch.index("touchReady"))
+        self.assertLess(launch.index("touchReady"), launch.index("return (app, ax)"))
+        self.assertIn('XCTFail("SH1-152 no touch reached GPUI after launch', launch)
+
+    def test_touch_ready_presses_until_gpui_counts_it(self):
+        qaax = code((TESTS / "QAAx.swift").read_text())
+        ready = body(qaax, "func touchReady(")
+        self.assertIn("for attempt in 1...presses", ready)
+        self.assertIn("$0.presses(id) > before.presses(id)", ready)
+        self.assertIn("QA_TOUCH_READY_DROP", qaax)
+        self.assertNotIn("isHittable", ready)
+
+    def test_the_empty_space_is_marked_and_stops_the_touch(self):
+        rust = (Path(__file__).resolve().parents[2] / "crates/yebisu/src/edit_menu_qa_sh1_152.rs").read_text()
+        at = rust.index('.id("sh1-152-empty")')
+        strip = rust[at:at + 800]
+        for token in ("stop_propagation", "on_mouse_down", "on_mouse_up", "on_click", "ids::SH1_152_EMPTY"):
+            self.assertIn(token, strip)
+        self.assertNotIn("sh1_152_command", strip)
+
+
 if __name__ == "__main__":
     unittest.main()

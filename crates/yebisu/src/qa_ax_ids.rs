@@ -206,6 +206,18 @@ pub(crate) const SH1_152_TWO_END: &str = "qa.sh1-152.two.end";
     )
 )]
 pub(crate) const SH1_152_TWO_CLOSE: &str = "qa.sh1-152.two.close";
+/// An empty space at the end of SH1-152's strip: no handler, and it stops
+/// the touch, so a tap there changes nothing in the app. EditMenuQA presses
+/// it after every launch until GPUI counts a press (`touchReady`, as P12
+/// does with `P12_EMPTY`): the first touch after a launch can reach nothing.
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim")),
+    allow(
+        dead_code,
+        reason = "the SH1-152 controls are built only in a Simulator build"
+    )
+)]
+pub(crate) const SH1_152_EMPTY: &str = "qa.sh1-152.empty";
 /// SH1-153's controls (edit_menu_qa.rs, `YEBISU_EDIT_MENU_QA`).
 #[cfg_attr(
     not(all(target_os = "ios", target_abi = "sim")),

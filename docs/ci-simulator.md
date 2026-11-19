@@ -411,6 +411,11 @@ No UI test reads text off the screen to find, press or confirm a control. The OC
 - Show that a menu or sheet is closed before the next press: wait until `menu` or `sheet` is
   null (run 44297932478, job 134779801456: a lost close press left the `...` menu open and the
   next tap only closed it).
+- After a launch, wait until a touch reaches GPUI before the first real press. The first touch
+  after a launch can reach nothing while `qa.state` already shows the screen (PR 84 run
+  44618790826, edit-menu E3f-text: the recording shows the relaunched window still black at the
+  press). `QAAx.touchReady` presses a marked empty space with no handler (`qa.sh1-152.empty`,
+  `qa.p12.empty`) until GPUI counts the press, at most 8 times, and logs how many it took.
 - Wait for the software keyboard to settle only when something may have moved it
   (`QAAx.keyboardMayMove` / `settleIfMoved`): a rising keyboard moves the controls above it.
 - Keep the queries inside a held request few, and measure them. The pinned sheprd-client

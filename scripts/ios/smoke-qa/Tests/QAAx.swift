@@ -283,6 +283,41 @@ struct QAAx {
         throw QAAxError.pressNotDelivered(id: id, attempts: 2, before: before.text, after: read()?.text ?? "nil")
     }
 
+    /// Presses `id`, a marked empty space with no handler, until GPUI counts a press on it (at most
+    /// `presses`, 3 s each), and returns how many it took. The first touch after a launch can reach
+    /// nothing although `qa.state` already shows the screen: PR 84 run 44618790826 (edit-menu,
+    /// E3f-text) pressed Begin twice 5.8 s apart while the screen recording showed the relaunched
+    /// window still black with only the keyboard drawn, and `qa.state` stayed at seq 7; S5's P12
+    /// trial and S4's first SH1-153 press were the same class. A control with an effect would be
+    /// pressed once more only, so this empty space is pressed first (as P12's `touchReady` does).
+    /// Negative control: QA_TOUCH_READY_DROP=<n> (TEST_RUNNER_ from the driver) does not send the
+    /// first n presses of the first call in the process.
+    @discardableResult
+    func touchReady(_ id: String, what: String, presses: Int = 8) throws -> Int {
+        let start = Date()
+        let empty = try find(id, timeout: 10)
+        var drop = QAAx.touchReadyDrop
+        QAAx.touchReadyDrop = 0
+        for attempt in 1...presses {
+            let before = try waitState("qa.state before touch-ready press \(attempt) (\(what))", timeout: 5) { _ in true }
+            if drop > 0 {
+                drop -= 1
+                print("QAAX touch-ready \(what): injected fault, press \(attempt) is not sent")
+            } else {
+                empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            if (try? waitState("touch-ready press \(attempt) reached GPUI (\(what))", timeout: 3, { $0.presses(id) > before.presses(id) })) != nil {
+                print(String(format: "QAAX touch-ready %@ after %ld press(es), %.2f s", what, attempt, QAAx.since(start)))
+                return attempt
+            }
+            print("QAAX touch-ready \(what): press \(attempt) reached nothing (presses[\(id)] did not grow in 3 s)")
+        }
+        throw QAAxError.pressNotDelivered(id: id, attempts: presses, before: "touch-ready \(what)", after: read()?.text ?? "nil")
+    }
+
+    /// QA_TOUCH_READY_DROP, spent by the first `touchReady` of the process.
+    static var touchReadyDrop = Int(ProcessInfo.processInfo.environment["QA_TOUCH_READY_DROP"] ?? "") ?? 0
+
     /// Waits until the docked keyboard's height in `qa.state` reads the same twice 0.4 s apart,
     /// so a press does not land while a rising or falling keyboard still moves the controls
     /// above it (Mac mini 32f1e21, 5977881). Returns the settled state.

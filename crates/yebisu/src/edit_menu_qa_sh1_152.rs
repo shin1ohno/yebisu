@@ -1,6 +1,6 @@
 //! Source-defined Simulator cases; the driver checks wire and clipboard receipts.
 use crate::{app::Smoke, edit_menu::MenuToken, edit_menu_qa_native as native, handoff::Selection};
-use gpui::{AnyElement, ClipboardItem, Context, Window, div, prelude::*, rgb};
+use gpui::{AnyElement, ClipboardItem, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use std::{rc::Rc, sync::Arc, time::Duration};
 
 #[derive(Default)]
@@ -62,6 +62,9 @@ fn mark(second: bool, command: &str, label: &'static str) -> Option<AnyElement> 
     }
 }
 
+/// The QA label of the strip's empty space (`ids::SH1_152_EMPTY`); it paints nothing.
+const EMPTY: &str = "152 empty space";
+
 pub(crate) fn case() -> String {
     std::env::var("YEBISU_SH1_152_CASE").unwrap_or_default()
 }
@@ -98,6 +101,19 @@ impl Smoke {
                         // Last, so the mark lies over the whole control.
                         .children(mark(second, command, label))
                 }))
+                // Empty space with no handler that stops the touch (UI test
+                // redesign S6): EditMenuQA presses it after each launch until
+                // GPUI counts the press, before the first real control.
+                .child(
+                    div()
+                        .id("sh1-152-empty")
+                        .w(px(64.))
+                        .h(px(36.))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .children(crate::qa_ax::mark(crate::qa_ax::ids::SH1_152_EMPTY, EMPTY)),
+                )
                 .into_any_element(),
         )
     }
