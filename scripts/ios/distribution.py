@@ -55,10 +55,17 @@ def secret_values(*extra):
     return {value for value in values if value}
 
 
+# Derived credentials never equal an injected value: a JWT signed with the .p8
+# wraps the key ID and issuer in base64url, so it is matched by shape instead.
+JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
+BEARER = re.compile(r"(?i)\b(bearer)\s+[^\s\"',;]+")
+
+
 def redact(text, secrets):
     for value in sorted(secrets, key=len, reverse=True):
         text = text.replace(value, "[redacted]")
-    return text
+    text = JWT.sub("[redacted]", text)
+    return BEARER.sub(r"\1 [redacted]", text)
 
 
 def shown(argv, secrets, **kwargs):

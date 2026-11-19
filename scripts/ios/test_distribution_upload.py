@@ -6,11 +6,18 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
 from distribution_fixtures import ICON_INFO, ICON_FILES
+
+# Shaped like the ES256 JWT altool signs with the .p8; derived, so no injected value matches it.
+JWT = ("eyJhbGciOiJFUzI1NiIsImtpZCI6IkZJWFRVUkVLRVkiLCJ0eXAiOiJKV1QifQ"
+       ".eyJpc3MiOiJmaXh0dXJlIiwiYXVkIjoiYXBwc3RvcmVjb25uZWN0LXYxIn0"
+       ".Zml4dHVyZS1zaWduYXR1cmUtbm90LXJlYWw")
+OPAQUE = "opaque-fixture-access-token-0123456789"
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
 d = importlib.util.module_from_spec(SPEC)
@@ -85,7 +92,7 @@ class UploadTests(unittest.TestCase):
 
     def test_optional_provider_and_invalid_auth_metadata(self):
         provider = "11111111-1111-1111-1111-111111111111"
-        with patch.dict(os.environ, dict(self.env, ASC_PROVIDER_PUBLIC_ID=provider), clear=True), patch.object(d, "run") as run:
+        with patch.dict(os.environ, dict(self.env, ASC_PROVIDER_PUBLIC_ID=provider), clear=True), patch.object(d, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
             d.upload_ipa(self.ipa)
             self.assertEqual(run.call_args.args[0][-2:], ["--provider-public-id", provider])
         for update in [dict(ASC_KEY_FILE="/missing.p8"), dict(ASC_KEY_ID="bad; shell"),
@@ -127,10 +134,14 @@ class UploadTests(unittest.TestCase):
             "a=sys.argv\nkey=a[a.index('--p8-file-path')+1]\n"
             "body={'tool-version':'fixture','os-version':'fixture',\n"
             " 'echo':[a[a.index('--api-key')+1],a[a.index('--api-issuer')+1],os.environ['ASC_APP_ID'],key,open(key).read()],\n"
-            " 'escaped-path':key.replace('/','\\\\/')}\n"
+            " 'escaped-path':key.replace('/','\\\\/'),\n"
+            f" 'userInfo':{{'NSLocalizedFailureReason':'token {JWT} rejected'}},\n"
+            f" 'headers':'Authorization: Bearer {JWT}'}}\n"
             f"if {status}: body['product-errors']=[{{'message':'FIXTURE_UPLOAD_REJECTED','code':-19232}}]\n"
             "else: body['success-message']='FIXTURE_UPLOAD_ACCEPTED'\n"
             "print(json.dumps(body))\nprint('FIXTURE_ALTOOL_STDERR '+a[a.index('--api-key')+1], file=sys.stderr)\n"
+            f"print('Authorization: Bearer {JWT}', file=sys.stderr)\n"
+            f"print('authorization: bearer {OPAQUE}', file=sys.stderr)\n"
             f"sys.exit({status})\n")
         fake.chmod(0o755)
         return fakebin
@@ -147,8 +158,11 @@ class UploadTests(unittest.TestCase):
     def assert_no_secret(self, output):
         for value in (self.env["ASC_KEY_ID"], self.env["ASC_ISSUER_ID"], self.env["ASC_APP_ID"],
                       str(self.key.resolve()), str(self.key.resolve()).replace("/", "\\/"),
-                      self.key.read_text()):
+                      self.key.read_text(), OPAQUE, *JWT.split(".")):
             self.assertNotIn(value, output)
+        self.assertIn("Authorization: Bearer [redacted]", output, "positive control: the header was printed")
+        self.assertIn("authorization: bearer [redacted]", output)
+        self.assertIn("token [redacted] rejected", output)
 
     def test_upload_success_shows_altool_json_and_stderr_without_secrets(self):
         code, output = self.run_upload(0)
@@ -170,7 +184,6 @@ class UploadTests(unittest.TestCase):
         self.assert_no_secret(output)
 
     def test_transport_failure_is_nonzero_and_does_not_expose_arguments(self):
-        import subprocess
         with patch.dict(os.environ, self.env, clear=True), \
                 patch.object(d, "run", side_effect=subprocess.CalledProcessError(1, ["PRIVATE_SENTINEL"])), \
                 patch("sys.argv", ["distribution.py", "upload", "--ipa", str(self.ipa.resolve())]), \
