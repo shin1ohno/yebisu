@@ -58,7 +58,7 @@ enum QAIds {
     static let p11Observer = "qa.p11.observer"
     static let p14Next = "qa.p14.next"
     static let toast = "qa.notification.toast"
-    static let board = "qa.board"
-    static let boardHostAlpha = "qa.board.host.qa-alpha"
-    static let boardHostBeta = "qa.board.host.qa-beta"
+    static let sidebarList = "qa.sidebar.list"
+    static let sidebarHostAlpha = "qa.sidebar.host.qa-alpha"
+    static let sidebarHostBeta = "qa.sidebar.host.qa-beta"
 }

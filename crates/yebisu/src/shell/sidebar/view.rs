@@ -94,6 +94,17 @@ fn heading(text: &'static str) -> gpui::Div {
         .child(text)
 }
 
+/// The QA accessibility mark of a host row (UI test redesign S6): only P15's
+/// fixture hosts have one, labelled with the host name.
+fn host_mark(host: &str) -> Option<AnyElement> {
+    use crate::qa_ax::ids;
+    match host {
+        "qa-alpha" => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_ALPHA, "qa-alpha"),
+        "qa-beta" => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_BETA, "qa-beta"),
+        _ => None,
+    }
+}
+
 fn second_line(text: String) -> gpui::Div {
     div()
         .text_sm()
@@ -161,7 +172,11 @@ impl Smoke {
             .flex_col()
             .w_full()
             .overflow_y_scroll()
-            .child(heading(HOSTS_HEADING));
+            .child(heading(HOSTS_HEADING))
+            .children(crate::qa_ax::mark(
+                crate::qa_ax::ids::SIDEBAR_LIST,
+                HOSTS_HEADING,
+            ));
         for (i, host) in hosts.iter().enumerate() {
             list = list.child(self.host_row(i, host, cx));
             for (j, space) in host.spaces.iter().enumerate() {
@@ -215,6 +230,7 @@ impl Smoke {
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.tap_row(tap.clone(), window, cx);
             }))
+            .children(host_mark(&host.host))
             .into_any_element()
     }
 

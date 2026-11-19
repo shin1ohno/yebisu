@@ -45,8 +45,8 @@ extension SmokeQA {
         try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
         save("p15-closed")
         try typeP15(qa, app, "P15-end", ui: &ui)
-        // Use the existing production board host buttons, not direct actions.
-        try pressBoardHost(qa, QAIds.boardHostBeta, host: "qa-beta")
+        // Use the existing production host rows, not direct actions.
+        try pressHostRow(qa, QAIds.sidebarHostBeta, host: "qa-beta")
         try openSettingsSheet(qa)
         try tapAppearance(qa, ui: &ui)
         try p15Host(qa, "qa-beta", stale: "qa-alpha", stage: "beta", ui: &ui)
@@ -95,23 +95,24 @@ extension SmokeQA {
                    "waited": Date().timeIntervalSince(start), "time": Date().timeIntervalSince1970])
     }
 
-    /// Presses the board row of `host` (a 180 pt list that scrolls, board.rs). A row below the
-    /// list's visible part is first dragged into it, as the OCR-placed drag did before S6.
-    private func pressBoardHost(_ qa: QAAx, _ id: String, host: String) throws {
-        try qa.settleIfMoved("before the board")
-        let board = try qa.find(QAIds.board)
+    /// Presses the sidebar's host row of `host` (shell/sidebar/view.rs, a list that scrolls under
+    /// its HOSTS heading). A row below the list's visible part is first dragged into it, as the
+    /// drag placed by the OCR'd "HOSTS" heading did before S6.
+    private func pressHostRow(_ qa: QAAx, _ id: String, host: String) throws {
+        try qa.settleIfMoved("before the host list")
+        let list = try qa.find(QAIds.sidebarList)
         for drag in 0..<3 {
             let row = try qa.find(id).frame
-            if board.frame.contains(CGPoint(x: row.midX, y: row.midY)) { break }
-            print("P15 board row \(id) at \(row) is outside the board \(board.frame); drag \(drag)")
-            board.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
-                .press(forDuration: 0.1, thenDragTo: board.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.11)))
-            _ = try qa.waitState("qa.state after the board drag") { _ in true }
+            if list.frame.contains(CGPoint(x: row.midX, y: row.midY)) { break }
+            print("P15 host row \(id) at \(row) is outside the list \(list.frame); drag \(drag)")
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
+                .press(forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.11)))
+            _ = try qa.waitState("qa.state after the list drag") { _ in true }
             Thread.sleep(forTimeInterval: 0.5)
         }
         // Before S6: OCR tapped "qa-beta", then sleep(2).
         try qa.press(id, what: "the selected host is \(host)") { $0.string("host") == host }
-        qa.keyboardMayMove("the board row dismisses the keyboard")
+        qa.keyboardMayMove("the host row may dismiss the keyboard")
     }
 
     /// Presses the Theme page and records how many controls carry its identifier: QAAx.find fails

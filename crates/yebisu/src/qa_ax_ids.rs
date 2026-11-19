@@ -396,9 +396,9 @@ pub(crate) const P14_NEXT: &str = "qa.p14.next";
 /// The notification toast (notification_view.rs, `render_notification`);
 /// a tap on it opens the notification's target.
 pub(crate) const NOTIFICATION_TOAST: &str = "qa.notification.toast";
-/// The sidebar's status board (board.rs, `status-board`), a 180 pt list
+/// The sidebar's host list (shell/sidebar/view.rs, `sidebar-list`), a list
 /// that scrolls, and the host rows P15's fixture hosts draw in it (P15
 /// presses `qa-beta` to switch hosts). Other hosts have no identifier.
-pub(crate) const BOARD: &str = "qa.board";
-pub(crate) const BOARD_HOST_QA_ALPHA: &str = "qa.board.host.qa-alpha";
-pub(crate) const BOARD_HOST_QA_BETA: &str = "qa.board.host.qa-beta";
+pub(crate) const SIDEBAR_LIST: &str = "qa.sidebar.list";
+pub(crate) const SIDEBAR_HOST_QA_ALPHA: &str = "qa.sidebar.host.qa-alpha";
+pub(crate) const SIDEBAR_HOST_QA_BETA: &str = "qa.sidebar.host.qa-beta";

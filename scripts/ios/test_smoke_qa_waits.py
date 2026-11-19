@@ -222,7 +222,7 @@ class S6Identifiers(unittest.TestCase):
         p15 = body(self.source, "func testP15Theme(")
         self.assertEqual(re.findall(r"tapAppearance\(qa", p15), ["tapAppearance(qa"] * 3)
         self.assertEqual(re.findall(r'typeP15\(qa, app, "([^"]+)", ui: &ui\)', p15), ["P15-start", "P15-end"])
-        self.assertIn('try pressBoardHost(qa, QAIds.boardHostBeta, host: "qa-beta")', p15)
+        self.assertIn('try pressHostRow(qa, QAIds.sidebarHostBeta, host: "qa-beta")', p15)
 
     def test_vision_is_left_only_for_the_p15_host_text(self):
         """The owner decision keeps screenshot checks where the text is the subject: P15's host
