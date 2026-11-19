@@ -413,13 +413,15 @@ No UI test reads text off the screen to find, press or confirm a control. The OC
   next tap only closed it).
 - Wait for the software keyboard to settle only when something may have moved it
   (`QAAx.keyboardMayMove` / `settleIfMoved`): a rising keyboard moves the controls above it.
-- Keep queries out of a held request. The pinned sheprd-client `COMMAND_TIMEOUT` is 60 s
-  (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`); a request held that long drops
-  the connection, and any XCTest query can first wait for the app to idle (60-80 s on an old
-  runner image: run 44547820393 attempt 1, F11, F15). P12 finds the controls it presses inside
-  a hold before the hold, reads `qa.state` every 250 ms there instead of every 50 ms, and
-  records the reads of each hold (`hold-queries`, the oracle's `hold_queries`). Hold one
-  request per local case and release it before the next.
+- Keep the queries inside a held request few, and measure them. The pinned sheprd-client
+  `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`); a
+  request held that long drops the connection, and any XCTest query (a read, a tap) can first
+  wait for the app to idle (60-80 s on an old runner image: run 44547820393 attempt 1, F11, F15).
+  The test cannot remove that wait, only make it less likely to land in a hold: P12 finds the
+  controls it presses inside a hold before the hold, reads `qa.state` every 250 ms there instead
+  of every 50 ms, and records the reads of each hold (`hold-queries`, the oracle's
+  `hold_queries`, with a `warning` once a hold window passes 40 s). Hold one request per local
+  case and release it before the next.
 - Read the app's files only after it was terminated. Every driver terminates the app after
   XCTest (also when XCTest failed) and only then copies or reads its JSONL files; the checks
   there are the receiving-side evidence, not the test's waits.
