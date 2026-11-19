@@ -93,7 +93,7 @@ fn the_writer_limit_is_written_to_the_file() {
     }
     let writer = std::thread::spawn(move || {
         let mut file = Vec::new();
-        write_records_limited(&mut file, receiver, 2).map(|()| file)
+        write_records_limited(&mut file, receiver, 2, None).map(|()| file)
     });
     sender
         .send(serde_json::json!({"kind": "late"}))
