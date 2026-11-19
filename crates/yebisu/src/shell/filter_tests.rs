@@ -8,6 +8,8 @@ use crate::shell::{
 
 #[path = "filter_tests/empty.rs"]
 mod empty;
+#[path = "filter_tests/routing.rs"]
+mod routing;
 #[path = "filter_tests/rows.rs"]
 mod rows;
 #[path = "filter_tests/screen.rs"]

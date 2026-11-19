@@ -12,12 +12,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-type Receipts = Receiver<ClientMessage>;
+pub(super) type Receipts = Receiver<ClientMessage>;
 
 /// A Herdr 1 terminal on the private peer (one agent, "reviewer", in the
 /// space "repo"), drawn at 1200×1000 with the sidebar list open, on an iPad
 /// with a hardware keyboard.
-fn terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
+pub(super) fn terminal(
+    cx: &mut TestAppContext,
+) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
     let (view, receipts, cx) = bare_terminal(cx);
     view.update(cx, |this, cx| {
         this.shell.fit.hardware_keyboard = true;
@@ -53,7 +55,7 @@ fn bare_terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, Receipts, &mut Visu
     (view, receipts, cx)
 }
 
-fn tap(cx: &mut VisualTestContext, selector: &'static str) {
+pub(super) fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     let at = cx
         .debug_bounds(selector)
         .unwrap_or_else(|| panic!("{selector} not painted"));
@@ -72,7 +74,7 @@ fn empty_result(cx: &mut VisualTestContext) -> bool {
     cx.debug_bounds("filter-clear").is_some()
 }
 
-fn query(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
+pub(super) fn query(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
     view.read_with(cx, |this, _| this.sidebar_filter().to_owned())
 }
 
@@ -140,7 +142,11 @@ fn filter_field_clear_button_restores_the_list(cx: &mut TestAppContext) {
 }
 
 /// Focuses the field and types one character into it.
-fn type_into_field(view: &Entity<Smoke>, receipts: &Receipts, cx: &mut VisualTestContext) {
+pub(super) fn type_into_field(
+    view: &Entity<Smoke>,
+    receipts: &Receipts,
+    cx: &mut VisualTestContext,
+) {
     terminal_sent_input(view, receipts, cx);
     tap(cx, "sidebar-filter");
     cx.simulate_keystrokes("z");
@@ -267,7 +273,7 @@ fn software_keyboard_presses_do_not_unlock_the_field(cx: &mut TestAppContext) {
 }
 
 /// Whether the filter field holds the keys.
-fn field_focused(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn field_focused(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
     let view = view.clone();
     cx.update(|window, cx| view.read(cx).filter_focused(window))
 }
@@ -313,19 +319,23 @@ fn software_keyboard_text_returns_the_field_keys_to_the_terminal(cx: &mut TestAp
 
 /// H1 wiring: the frame keeps the terminal's text input registered under the
 /// field's focus, so the window's platform text input (not a direct call)
-/// reaches the handler. Option-E is a key the field passes on, so its text
-/// goes on to whatever text input the window registered.
+/// reaches the handler. On a device only software keyboard text takes that
+/// path while the field has focus (every hardware key is routed by
+/// `filter_edit`). GPUI tests have no public way to call the window's text
+/// input, so a Command key the field passes on to the app carries the text
+/// here; herdr-uikit gives Command letters no text, so this keystroke is
+/// synthetic and stands only for "text the window hands to its text input".
 #[gpui::test]
 fn the_field_keeps_the_platform_text_input_registered(cx: &mut TestAppContext) {
     let (view, receipts, cx) = terminal(cx);
     type_into_field(&view, &receipts, cx);
     let keystroke = gpui::Keystroke {
         modifiers: Modifiers {
-            alt: true,
+            platform: true,
             ..Modifiers::default()
         },
-        key: "e".into(),
-        key_char: Some("é".into()),
+        key: "k".into(),
+        key_char: Some("k".into()),
     };
     let taken = cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
     cx.run_until_parked();

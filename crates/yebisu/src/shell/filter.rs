@@ -4,8 +4,9 @@
 //! holds the matching rule, the empty-result outcome and the query kept in
 //! `RailState`; the sidebar list (L3) calls them. The field sits in the
 //! sidebar header: a tap focuses it and hardware keys edit the query
-//! (`filter_edit`); Escape clears it, Return leaves it. The keys stop at the
-//! field, so none reaches the terminal while it has focus.
+//! (`filter_edit`); Escape clears it, Return leaves it. Text keys stop at the
+//! field, so no typed character reaches the terminal while it has focus;
+//! Control, arrows, Tab and Fn give the keys back to the terminal and go there.
 use super::sidebar::{AgentRow, model::AgentLine};
 use crate::app::Smoke;
 use gpui::{
@@ -30,26 +31,47 @@ pub(crate) const FILTER_HERDR1_ONLY_LABEL: &str = "Filter, not available for Her
 /// Longest query the field keeps, in characters.
 pub(crate) const MAX_QUERY_CHARS: usize = 64;
 
-/// What one key press in the focused field does.
+/// What one key press in the focused field does. One rule for every key
+/// (PR 77 reviews 0df6 SF1 and 9d5a S1): the field keeps what it can type
+/// and nothing typed leaks to the remote shell; a key it cannot use is the
+/// terminal's, so the field lets go and that key goes there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FilterEdit {
-    /// The query becomes this text.
+    /// Printable or Option-composed text, or Backspace: the query becomes
+    /// this text (unchanged for a character key with no text, such as an
+    /// Option dead key, which is dropped so UIKit never composes it into the
+    /// terminal).
     Set(String),
     /// Escape: clear the query and leave the field.
     Clear,
     /// Return: keep the query and leave the field.
     Leave,
-    /// Not the field's key (a shortcut with Command, Control or Option):
-    /// it goes on to the app.
-    Pass,
+    /// A Command shortcut: it goes on to the app's actions (Command-Return,
+    /// -Tab and -Space carry text and are dropped instead, see `filter_edit`).
+    App,
+    /// Control, arrows, Tab, Fn and every other key with no text: the field
+    /// gives the keys back and this key goes to the terminal.
+    Terminal,
 }
 
 /// The edit `keystroke` makes to `query`. Backspace removes the last
-/// character; a printable character is appended up to `MAX_QUERY_CHARS`.
+/// character; printable text, Option-composed included, is appended up to
+/// `MAX_QUERY_CHARS`.
 pub(crate) fn filter_edit(query: &str, keystroke: &Keystroke) -> FilterEdit {
     let modifiers = keystroke.modifiers;
-    if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
-        return FilterEdit::Pass;
+    if modifiers.platform {
+        // herdr-uikit gives Return, Tab and Space their text whatever the
+        // modifiers (keymap.rs named_key_char): passed on, Command-Return
+        // would reach the terminal's text input as a newline and run the
+        // shell line. No app action uses these three, so the field drops them.
+        let named_text = matches!(keystroke.key.as_str(), "enter" | "tab" | "space");
+        if named_text && keystroke.key_char.is_some() {
+            return FilterEdit::Set(query.to_owned());
+        }
+        return FilterEdit::App;
+    }
+    if modifiers.control || modifiers.function {
+        return FilterEdit::Terminal;
     }
     match keystroke.key.as_str() {
         "escape" => return FilterEdit::Clear,
@@ -61,12 +83,23 @@ pub(crate) fn filter_edit(query: &str, keystroke: &Keystroke) -> FilterEdit {
         }
         _ => {}
     }
-    let typed = keystroke
+    let typed: Vec<char> = keystroke
         .key_char
         .as_deref()
         .unwrap_or_default()
         .chars()
-        .filter(|c| !c.is_control());
+        .filter(|c| !c.is_control())
+        .collect();
+    if typed.is_empty() {
+        // A character key that brought no text (an Option dead key such as
+        // Option-E, or a press the platform sent without its character): the
+        // field drops it rather than let it, or UIKit's composition of it,
+        // reach the terminal.
+        if keystroke.key.chars().count() == 1 || keystroke.key == "space" {
+            return FilterEdit::Set(query.to_owned());
+        }
+        return FilterEdit::Terminal;
+    }
     let text: String = query.chars().chain(typed).take(MAX_QUERY_CHARS).collect();
     FilterEdit::Set(text)
 }
@@ -144,10 +177,19 @@ impl Smoke {
     }
 
     /// A hardware key in the focused field. Every key the field takes stops
-    /// here, so it never reaches the terminal or the window's key line.
+    /// here, so it never reaches the terminal or the window's text input. A
+    /// key for the terminal is handed to the terminal's own key handler once
+    /// the terminal has the keys (it is not an ancestor of the field, so the
+    /// key would otherwise reach no one).
     fn filter_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         match filter_edit(&self.shell.rail.filter, &event.keystroke) {
-            FilterEdit::Pass => return,
+            FilterEdit::App => return,
+            FilterEdit::Terminal => {
+                self.leave_filter(window, cx);
+                self.terminal_key_down(event, window, cx);
+                cx.notify();
+                return;
+            }
             FilterEdit::Set(text) => self.set_sidebar_filter(&text),
             FilterEdit::Clear => {
                 self.clear_sidebar_filter();
