@@ -61,7 +61,7 @@ jobs:
           # testflight.yml in a test.
           check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
           # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
-          smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
+          smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|live_jsonl\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
           # edit-menu is narrower than $build:
           # a pull request runs it only when a file the four checks drive
           # changes, so a change to other crates/yebisu code (search, hosts,
@@ -156,6 +156,13 @@ jobs:
           #     layout.rs, layout/
           #                       settings_sheet/view.rs and shell/ size their
           #                       regions from it
+          #   Added with fix/observation-drop (a lost record is never silent):
+          #     qa_stderr.rs      copies the app's stderr to Documents/app-stderr.log
+          #                       in every QA launch (app.rs run)
+          #     app_stderr.py     sh1-152-check.py collects that log and fails on
+          #                       a lost-record line
+          #     live_jsonl.py     every check reads the app's records through it,
+          #                       and it fails on an observation-dropped record
           #   find and find_view (P13 search) stay out, as
           #   test_find_search_change_skips_it decides.
           # A new module is not picked up by this list. test_ci_sh1_152.py fails
@@ -164,7 +171,7 @@ jobs:
           # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) skips edit-menu.
-          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
+          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
           # layout-smoke runs the Mac-mini-only Simulator checks that still exist
           # (p2-check.py, p3-check.py, p10-check.py, through ci-layout-smoke.py). It
           # follows edit-menu's rule: a pull request runs it only when a file those
@@ -181,13 +188,17 @@ jobs:
           #        notification_view (the overlay is laid out against the keyboard)
           #   p10  (YEBISU_SETTINGS_QA)  settings/, settings_sheet/, settings_pages/,
           #        reconnect.rs (the Home and activate lifecycle it asserts)
+          #   all three (fix/observation-drop): qa_stderr.rs (the app's stderr copy,
+          #        written in every QA launch) and app_stderr.py, which p10 uses to
+          #        collect it and fail on a lost record (p2 and p3 belong to the UI
+          #        test redesign streams and do not collect it yet)
           #   all three (SH1-157): shell.rs and shell/ (the frame around the terminal,
           #        the Hosts sheet p2 drives, the first-run frame), layout.rs and
           #        layout/ (the geometry the frame and the settings sheet use)
           # The core, hand-off paste, native-edit and edit-menu QA scenes are driven by
           # edit-menu and simulator-smoke, not by these three checks, so they are not
           # listed (see UNRELATED in test_ci_layout_smoke.py).
-          layout='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|sim\.sh|bundle-provenance\.py|compiler_inputs\.py|screenshot-color\.py|live_jsonl\.py|ci-smoke\.py|ci-layout-smoke\.py|p2-check\.py|p3-check\.py|p10-check\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|app_setup|actions|board|edit_menu|edit_menu_gestures|handoff|handoff_view|hosts|i18n|input|input_geometry|input_retirement|keys|layout|link|live|mock_commands|mock_notifications|mock_peer|native_menus|native_retirement|notification_view|observation|qa_ax|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_root|reconnect|setup|settings|settings_sheet|settings_view|shell|terminal_controls|terminal_input|terminal_view|theme)\.rs$|notifications/preferences\.rs$|commands\.ftl$|locales/|(hosts|keys|layout|live|notification_view|observation|settings|settings_pages|settings_sheet|setup|shell|theme_picker)/)))'
+          layout='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|sim\.sh|bundle-provenance\.py|compiler_inputs\.py|screenshot-color\.py|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-layout-smoke\.py|p2-check\.py|p3-check\.py|p10-check\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|app_setup|actions|board|edit_menu|edit_menu_gestures|handoff|handoff_view|hosts|i18n|input|input_geometry|input_retirement|keys|layout|link|live|mock_commands|mock_notifications|mock_peer|native_menus|native_retirement|notification_view|observation|qa_ax|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_root|qa_stderr|reconnect|setup|settings|settings_sheet|settings_view|shell|terminal_controls|terminal_input|terminal_view|theme)\.rs$|notifications/preferences\.rs$|commands\.ftl$|locales/|(hosts|keys|layout|live|notification_view|observation|settings|settings_pages|settings_sheet|setup|shell|theme_picker)/)))'
           decide() {
             if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
               echo "$1=true" >> "$GITHUB_OUTPUT"

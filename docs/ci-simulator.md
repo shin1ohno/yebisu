@@ -308,6 +308,42 @@ and 43992978378. Cited ids are run/job.)
   seconds `app.launch()` took per case, printed when it returns) in the job
   log and compare the failing case with the earlier ones.
 
+### P10 lost lifecycle records and SH1-152 lost click (observed, instrumented)
+
+(2026-11-19: PR 77 run 44406830068 job 135164241872; main 55899c8 run
+44402265214 job 135148322586. Mac mini lease 3: p10 20/20 PASS, 10 of them
+under an 8-core CPU load.)
+
+- **P10-records.** XCTest `testP10Settings` passed and the saved settings file
+  matched the QA edit made only at Inactive (`settings_view.rs`
+  `settings_lifecycle`), so the lifecycle reached the app; `p10-check.py`
+  then found no Inactive and Background `settings-lifecycle` records. A p10 run
+  writes 258 to 294 records, at most 107 in one second, so the old 256-slot
+  queue never filled. What fits: the first process queued its records and
+  died (suspended in the background, then terminated) before its writer
+  thread wrote them; the second process records only Foreground and Active.
+  Not proven: the artifact kept neither the records nor the stderr.
+  - Now: every check reads gap records through `live_jsonl`; p10 and sh1-152
+    keep `app-stderr.log` and fail on a lost-record line; p10 keeps
+    `p10-settings.jsonl`; the app waits up to 500 ms at Inactive, Background
+    and Disconnected for its writer (`Observation::flush`) and says
+    `smoke observation flush timed out: N records unwritten` when it cannot;
+    every `launch` record carries the pid.
+  - Next time: read `app-stderr.log` (a flush timeout or a drop names the
+    cause) and count `launch` pids in `p10-settings.jsonl` (two pids where
+    three launches happened means one process wrote nothing).
+- **SH1-152-click (not an observation loss).** In E5d stage 1 the `152 Two
+  End` tap was synthesized at the button's centre at t=174.43 s; the app drew a
+  frame 0.07 s before (the same place as the pressed frame in the passing E5c,
+  0.06 s before its `sh1-152-result`), then recorded nothing: no
+  `sh1-152-result`, which `End` records first and unconditionally
+  (`edit_menu_qa_sh1_152.rs` `sh1_152_command`), and no end marker in
+  `p4-peer.jsonl`, which the mock peer writes synchronously. The click
+  handler did not run. herdr-uikit turns a cancelled touch into a mouse up
+  too (`touch.rs` `TouchStage::Cancelled`), so the up never arrived or did
+  not complete a click. Same class as the lost presses under "Show that a menu
+  is closed before the next tap" below; not on the known-class list.
+
 ### XCUITest OCR rules
 
 (2026-11-16: PR 55, PR 57.)

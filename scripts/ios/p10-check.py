@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """P10: native lifecycle callbacks, durable file and process restart receipts."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import time
+
+_spec = importlib.util.spec_from_file_location("app_stderr", Path(__file__).with_name("app_stderr.py"))
+app_stderr = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(app_stderr)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
@@ -61,6 +69,7 @@ def main():
         shutil.rmtree(settings)
     observations = container / "Documents/p10-settings.jsonl"
     previous = len(observations.read_text().splitlines()) if observations.exists() else 0
+    stderr_start = app_stderr.offset(observations.parent)
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
@@ -81,6 +90,11 @@ def main():
         if not (directory / "screenshot.png").is_file():
             raise ValueError("missing P10 screenshot attachment")
         paints = [json.loads(line) for line in observations.read_text().splitlines()[previous:]]
+        # The records and the app's stderr go in the artifact before any oracle runs,
+        # so a failure can be read (run 44406830068 job 135164241872 kept neither).
+        (directory / "p10-settings.jsonl").write_text("".join(json.dumps(p) + "\n" for p in paints))
+        app_stderr.require_no_loss(app_stderr.collect(observations.parent, directory, stderr_start))
+        live_jsonl.reject_gaps(paints)
         saved = json.loads((settings / "yebisu-settings.json").read_text())
         validate(paints, saved)
         (directory / "receipts.json").write_text(json.dumps({"paints": paints, "saved": saved}))
