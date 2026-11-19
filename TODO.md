@@ -94,3 +94,117 @@
 
 - P15/P11 shared provenance native admission remains pending (attempt 3). Reason: the frozen helper fixes same-UUID code substitution in structural fixtures, but actual Apple ad-hoc Mach-O layout and Cargo metadata/depfile execution are unverified. First step: controller obtains a bounded existing linker/ad-hoc byte pair, independently reviews helper commit 8081481, then leases one exact-head compiler-to-installed run with fresh owned workspace/SDK artifacts. Close condition: independent negatives and actual source-to-installed chain pass, P11 adopts the same helper, and native gates are recorded separately; delete in the resolving commit.
 - P15 integration with P11 source3 is pending. Reason: P11 owns explicit font intent and transport publication fixes; candidate 60abb804 pins a different SDK and is not implicitly admitted. First step: apply docs/p15-readonly-model/SETTINGS-INTEGRATION-3.md as a scoped merge contract after P11 source freeze, preserving theme, unknown JSON and notifications. Close condition: exact integrated tree passes settings/appearance/notification regressions and independent review; delete in the resolving commit.
+
+# SH1-157 layout follow-ups not chosen on 2026-11-19
+
+The UI test redesign plan referenced below is chief-of-staff task
+8f2ce9d471d8451f `plan-1.md` (owner-approved 2026-11-19; S1 runs on branch
+`qa/s1-base`). Items the plan already covers point to its section instead of
+repeating it.
+
+- SH1-157 layout device check on the iPad awaits the owner. Description: main
+  with the layout frame, the sidebar filter field (shown, takes no input), the
+  status bar fit rules and
+  the Herdr 2 sessions in the sidebar has not been installed on M5; the owner
+  chose not to install it on 2026-11-19. Reason: hardware-keyboard detection,
+  floating/docked keyboards, touch feel and the Herdr 2 poll against a real
+  `herdr-core serve` are only covered by Simulator and host tests, and signing
+  needs the locally unlocked login keychain. First step: after the layout
+  integration PR merges, unlock the Mac mini keychain locally, connect/unlock
+  M5, run `just ipad` on main, then follow "SH1-157 layout" in
+  docs/device-check.md one step at a time, recording each result before the
+  next. Close condition: all 11 steps have a recorded result with device/iPadOS
+  and SHA; delete in the resolving commit.
+- JSONL writer reverts are not caught by any test (review 16fc2e13909c4d85
+  S1). Description: the five receipt writers that d1a1eae moved to
+  `observation::write_jsonl_line` (`core_mock.rs:162`, `core_mock.rs:334`,
+  `mock_peer.rs:557`, `find/peer.rs:391`, `mock_notifications.rs:43`) compile
+  only for the iOS Simulator; reverting one to piecewise `writeln!(file, ...)`
+  passes host tests and clippy, and the torn line shows up later as an
+  unrelated red in p9/sh1-152/p12/sh1-153. Reason: the UI test redesign plan
+  (O-A, 3.2) only moves the Python reads after `simctl terminate`; the writers
+  stay. First step: add a host test that reads the five sources with
+  `include_str!` and asserts no `writeln!(file`, and confirm it fails when one
+  writer is reverted. Close condition: that test and its negative control pass
+  in CI; delete in the resolving commit.
+- Hosted "lost press" retries may hide presses the app dropped (review
+  f7dd8c0a81204978 F1). Description: `closeOverflowMenu`, `openSettings`,
+  `readDeviceKey` and the keyboard hide press retry once when the expected
+  screen change is missing, without knowing whether XCTest failed to deliver
+  the touch or the app dropped it; the retry count reaches no oracle. Reason:
+  covered by the UI test redesign plan 3.4 (every press waits for a `qa.state`
+  change and retries once with a reason) in S2 (p2) and S3 (P9, SH154); see
+  there. First step: in S1, add a per-press receipt (`seq` of the app's mouse
+  down) to `qa.state` so a retry can name which side lost the press. Close
+  condition: the S3 harness reports retries with the side that lost the press;
+  delete in the resolving commit.
+- E1 no longer tests a long press with the software keyboard down (review
+  f7dd8c0a81204978 F2). Description: since f95123d/76c3332 EditMenuQA raises
+  the keyboard before the E1 long press, because the keyboard that the long
+  press raised closed the menu it had just opened (run 44297932478, job
+  134779801414); whether that is a product defect or UIKit behaviour is open.
+  Reason: the plan (3.6, F18; S4) only exposes `keyboard`/`responder` in
+  `qa.state`, it does not restore the keyboard-down path. First step: record
+  step 11 of "SH1-157 layout" in docs/device-check.md on M5; if the menu closes
+  on the device, add an EditMenuQA case that long-presses with the keyboard
+  down and expects the menu to survive. Close condition: the device result is
+  recorded and either the case exists or the behaviour is documented as
+  UIKit's; delete in the resolving commit.
+- The QA strip wiring has no host test (review 51859c6e5c3446f7 S1).
+  Description: the strip assembly (`shell/qa_strip.rs:45-71`) and the SH1-153
+  focus-then-dismiss handler (`edit_menu_qa.rs:39-50`) compile only for the
+  Simulator; removing them passes every host test, and only the hosted
+  SH1-153 job notices. Reason: the plan's S3/S4 give the strip identifiers but
+  keep the wiring Simulator-only. First step: move the handler body into a
+  function outside the `cfg` and test it with a host `Smoke` window, with a
+  negative control that drops the focus call. Close condition: the host test
+  fails when the wiring is removed; delete in the resolving commit.
+- The p3 colour oracle passes `bf616a` by accident (layout-smoke diagnosis
+  e115109b440f4304). Description: `validate_colors` in
+  `scripts/ios/p3-check.py` counts colours over the whole screenshot, so the
+  red status-bar dot of a disconnected landscape screen gave 172 pixels of
+  `bf616a` (threshold 100) while the terminal colour band was absent. Reason:
+  the plan keeps screenshot checks where pixels are the subject (3.4, R4) but
+  does not change this oracle. First step: crop the count to the terminal
+  rectangle from the app's paint receipt (or require all seven colours in the
+  band rows) and confirm the retained `integration-p3-landscape.png` from task
+  e115109b440f4304 fails. Close condition: p3 fails on that screenshot and
+  passes on a standard one; delete in the resolving commit.
+- Hosted p10 lost its `settings-lifecycle` records (PR 77 run 44406830068,
+  layout-smoke job 135164241872; review 9d5ae39be65247ea S2). Description:
+  XCTest `testP10Settings` passed and the saved settings file matched the
+  Inactive-only QA edit (`settings_view.rs:177-189`), so the lifecycle reached
+  the settings adapter, but `p10-check.py:28` found no Inactive, Background and
+  Active `settings-lifecycle` records in `p10-settings.jsonl`. The app sends
+  records with `try_send` into a 256-slot queue and only prints a drop to a
+  stderr nobody keeps, and the artifact has neither the JSONL nor the stderr,
+  so drop versus suspension is unproven. Hosted record rates (1.4 to 1.8 per
+  second, at most 40 in one second, runs 44356754798 to 44406830068) do not
+  support a full queue. Reason: not in docs/ci-simulator.md's known classes, and
+  0 earlier p10 failures since 2026-11-17. First step: make a lost record
+  visible: in `observation.rs`, write an `observation-dropped` record (with the
+  count) before the next record that gets in and stop the writer's 8192-record
+  cutoff from closing the queue; copy the app's stderr into
+  `Documents/app-stderr.log` and have p10 (and p2, p3, sh1-152) put it and
+  `p10-settings.jsonl` in the artifact; make `live_jsonl` fail on a gap record.
+  Close condition: that change merged and the next p10 failure, if any, is
+  classified from its artifact; or 10 green layout-smoke runs with it; delete in
+  the resolving commit.
+- Rebuild the sidebar filter field as a UIKit text-input target with IME
+  support. Description: since PR 77 the field in the sidebar header takes no
+  keyboard focus and shows `Filter · not available yet`
+  (`shell/filter.rs` `render_filter_field`); the query, matching and the
+  `Clear filter` row are kept but nothing sets the query. Reason: four review
+  rounds of the GPUI field (G1 hardware-keyboard detection, H1 detached
+  keyboard, SF1/S1 Option and Control routing, F1 in review
+  67c755ff05614a56: with a Japanese input source, printable keys go to UIKit
+  composition and the text lands in the terminal) each found keys reaching the
+  remote shell; the owner chose no input for now (2026-11-19,
+  `pr77-filter-no-input-decision.json`). First step: in herdr-uikit, add a
+  text-input target a GPUI element can own (its own `UITextInput` responder
+  with marked text, so composition and commit go to the field and never to
+  the terminal's input handler), then write a host test and a Simulator check
+  that Japanese composition, Option keys, Control-C and the software keyboard
+  each reach only the intended target. Close condition: the field takes text
+  through that target with those tests green and the device check passed;
+  delete in the resolving commit.

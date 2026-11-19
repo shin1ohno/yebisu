@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
-"""Run P2 UI on Simulator with an injected key; never read keys from logs."""
+"""Run P2 UI on Simulator with an injected key; never read keys from logs.
+
+UI test redesign S2 (owner decision ui-test-redesign-decision.json). testP2KeysAndRestart launches
+the app itself, twice with the same environment, finds the key block's controls by QA identifier
+and confirms every press through qa.state. This driver only installs the app, runs XCTest,
+terminates the app and then reads p2-setup.jsonl once, whole: it never reads a file the app may
+still be writing (runs 44155672313, 44236636053, 44288317467 failed on such reads). The pasteboard
+is checked by what the app read back from its own UIPasteboard right after Copy, as a SHA-256 and
+a length, on a hosted runner and on the Mac mini alike: XCTest compares qa.state, and this driver
+compares the p2-pasteboard receipt. simctl pbpaste, which times out on hosted runners (run
+44151000668 job 134279069207), is only a Mac mini aid now.
+"""
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import time
-import importlib.util
 
-_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
-live_jsonl = importlib.util.module_from_spec(_live_spec)
-_live_spec.loader.exec_module(live_jsonl)
-_stderr_spec = importlib.util.spec_from_file_location("app_stderr", Path(__file__).with_name("app_stderr.py"))
-app_stderr = importlib.util.module_from_spec(_stderr_spec)
-_stderr_spec.loader.exec_module(app_stderr)
-
-# simctl pbpaste times out (NSPOSIXErrorDomain code=60, exit 60) on GitHub-hosted macOS runners:
-# run 44151000668 job 134279069207. The Mac mini keeps the exact pasteboard match.
-HOSTED_PBPASTE_SKIP = ("P2 SKIPPED the receiving pasteboard read on a GitHub-hosted runner: simctl pbpaste times out "
-                       "(exit 60) there (run 44151000668 job 134279069207) and, after a timeout, returned text that is not "
-                       "the key line (run 44247827726 job 134611018720). Owner decision "
-                       "pr73-p2-hosted-pasteboard-decision.json. The copy itself is still asserted by the app receipt "
-                       "'Copied restricted public key.' (validate_records), with the XCTest and the colour check; the "
-                       "Mac mini keeps the exact-match read.")
+BUNDLE = "com.shin1ohno.yebisu"
+# The line the injected QA provider holds (crates/yebisu/src/settings/key_ops/provider.rs).
+KEY_LINE = "restrict ssh-ed25519 RkFLRV9QMl9RQQ== yebisu-injected-qa"
+COPIED = "Copied restricted public key."
 
 
 def run(*command, **kwargs):
     print("P2 COMMAND", list(command), flush=True)
     return subprocess.run(command, check=True, text=True, **kwargs)
+
+
+def expected_pasteboard(line=KEY_LINE):
+    """(sha256 hex, byte length) of the key line as UTF-8: what the app must read back after Copy."""
+    data = line.encode()
+    return hashlib.sha256(data).hexdigest(), len(data)
 
 
 def validate_preflight(records):
@@ -55,36 +61,48 @@ def validate_records(records):
                 raise RuntimeError("key readiness preceded provider preflight")
     if not all(any(v.get("key_ready") is True for v in group) for group in groups):
         raise RuntimeError("injected key not ready in each independent launch")
-    if not any(v.get("status") == "Copied restricted public key." for v in records):
+    if not any(v.get("status") == COPIED for v in records):
         raise RuntimeError("copy action did not complete in the receiving application")
-    return "restrict ssh-ed25519 RkFLRV9QMl9RQQ== yebisu-injected-qa"
+    return KEY_LINE
 
-def read_until_valid(path, start, validate, attempts=6, delay=5, sleep=time.sleep):
-    """Reads p2-setup.jsonl, which the app may still be appending to, and validates it.
 
-    live_jsonl drops only an unterminated last line (a malformed complete line still raises), so a
-    record still being written can be missing on one read: the read and the validation are retried
-    together, and the last validation error is raised (run 44155672313 job 134296175129 failed on
-    a json.loads of a partly written line). A file the app has not created yet is the same case
-    (run 44288317467 job 134746732865: no p2-setup.jsonl 3 s after a hosted launch): it is read
-    as no records yet, within the same bound, and one that never appears fails by name."""
-    for attempt in range(attempts):
-        try:
-            try:
-                found = live_jsonl.read_records(path)
-            except FileNotFoundError:
-                if attempt == attempts - 1:
-                    raise RuntimeError(f"{path} was never created ({attempts} reads, {delay} s apart)") from None
-                print("P2 receipts not written yet, attempt", attempt + 1, "- no", Path(path).name, flush=True)
-                sleep(delay)
-                continue
-            records = [r for r in found if r.get("time", 0) >= start]
-            return records, validate(records)
-        except RuntimeError as error:
-            if attempt == attempts - 1:
-                raise
-            print("P2 receipts not complete yet, attempt", attempt + 1, "-", error, flush=True)
-            sleep(delay)
+def validate_pasteboard(records, expected_line):
+    """Every p2-pasteboard receipt (one per Copy) must show the app read back exactly the key line."""
+    receipts = [r for r in records if r.get("kind") == "p2-pasteboard"]
+    if not receipts:
+        raise RuntimeError("no pasteboard read-back receipt: the app did not read its pasteboard back after Copy")
+    sha256, length = expected_pasteboard(expected_line)
+    for receipt in receipts:
+        if receipt.get("pasteboard_sha256") is None:
+            raise RuntimeError("the app read no text back from the pasteboard after Copy")
+        if (receipt.get("pasteboard_sha256"), receipt.get("pasteboard_bytes")) != (sha256, length):
+            raise RuntimeError("pasteboard read back by the app differs from the formatted public key")
+    print("P2 pasteboard read back by the app matches the restricted public key (sha256 %s, %d bytes, %d copies)"
+          % (sha256, length, len(receipts)), flush=True)
+    return len(receipts)
+
+
+def terminate(device, runner=subprocess.run):
+    """Stops the app before any of its files are read. Exit 3 is simctl's 'nothing to terminate'
+    (the app already exited); any other failure means the app may still be writing, so it raises."""
+    result = runner(["xcrun", "simctl", "terminate", device, BUNDLE], text=True, capture_output=True)
+    print("P2 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+    return result.returncode == 0
+
+
+def read_after_terminate(path, start):
+    """The records of path from this run (time >= start), read once after the app was terminated.
+    Every line must be a complete JSON record: nothing may be appending any more, so a missing
+    file or a partly written line is a failure by name, not something to wait for."""
+    path = Path(path)
+    if not path.is_file():
+        raise RuntimeError(f"{path.name} does not exist after the app was terminated")
+    lines = path.read_bytes().split(b"\n")
+    if lines[-1]:
+        raise RuntimeError(f"{path.name} ends in a partly written line after the app was terminated")
+    return [r for r in (json.loads(line) for line in lines[:-1] if line) if r.get("time", 0) >= start]
 
 
 def pbpaste(device, attempts=3, delay=5, check_output=subprocess.check_output, sleep=time.sleep):
@@ -99,24 +117,54 @@ def pbpaste(device, attempts=3, delay=5, check_output=subprocess.check_output, s
     return None
 
 
-def check_pasteboard(clipboard, expected_line):
-    """The exact-match read off the hosted runner: a read failure or any other text fails."""
+def pasteboard_aid(device, expected_line, hosted, read=None):
+    """simctl pbpaste as a Mac mini aid to the app's read-back: skipped on a hosted runner, where it
+    times out; elsewhere a read failure is logged, and text other than the key line still fails
+    (the app's read-back said the line was there). Returns whether the read was made and matched."""
+    if hosted:
+        print("P2 pbpaste aid skipped on a hosted runner (exit 60 there, run 44151000668 job 134279069207); "
+              "the app's read-back SHA-256 is the pasteboard check", flush=True)
+        return False
+    clipboard = (read or pbpaste)(device)
     if clipboard is None:
-        raise RuntimeError("receiving Simulator pasteboard could not be read")
+        print("P2 pbpaste aid: simctl could not read the pasteboard; the app's read-back SHA-256 is the check", flush=True)
+        return False
     if clipboard != expected_line:
         raise RuntimeError("receiving Simulator pasteboard differs from the formatted public key")
-    print("P2 receiving Simulator pasteboard exactly matches the restricted public key.")
+    print("P2 pbpaste aid: receiving Simulator pasteboard exactly matches the restricted public key.", flush=True)
     return True
 
 
-def verify_pasteboard(device, expected_line, hosted, read=None):
-    """On a GitHub-hosted runner only the external read of the receiving Simulator pasteboard is
-    skipped, with the reason and its run evidence printed; elsewhere (the Mac mini) the pasteboard
-    is read and must equal the key line exactly. Returns whether the read was made and matched."""
-    if hosted:
-        print(HOSTED_PBPASTE_SKIP, flush=True)
-        return False
-    return check_pasteboard((read or pbpaste)(device), expected_line)
+def negative_controls(records, expected_line):
+    """The validators refuse this run's own receipts with one fact removed or altered."""
+    other = expected_pasteboard("restrict ssh-ed25519 OTHER yebisu-injected-qa")[0]
+    for corrupted, check, expected in [
+        ([], validate_records, "missing independent process launch receipts"),
+        ([{**v, "status": "ready"} if v.get("status") == COPIED else v for v in records], validate_records,
+         "copy action did not complete in the receiving application"),
+        ([v for v in records if v.get("kind") != "p2-pasteboard"], lambda r: validate_pasteboard(r, expected_line),
+         "no pasteboard read-back receipt: the app did not read its pasteboard back after Copy"),
+        ([{**v, "pasteboard_sha256": other} if v.get("kind") == "p2-pasteboard" else v for v in records],
+         lambda r: validate_pasteboard(r, expected_line), "pasteboard read back by the app differs from the formatted public key"),
+    ]:
+        try:
+            check(corrupted)
+        except RuntimeError as error:
+            if str(error) != expected:
+                raise
+            print("P2 negative control refused:", expected, flush=True)
+        else:
+            raise RuntimeError("negative control unexpectedly passed: " + expected)
+
+
+def xcodebuild_test_command(spec, device, derived_data, result):
+    sha256, length = expected_pasteboard()
+    return ["xcodebuild", "test", "-project", str(spec / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
+            "-destination", "id=" + device, "-derivedDataPath", str(derived_data),
+            "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
+            "-only-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart"], {
+                "TEST_RUNNER_P2_PASTEBOARD_SHA256": sha256, "TEST_RUNNER_P2_PASTEBOARD_BYTES": str(length)}
+
 
 def main():
     root = Path(__file__).resolve().parents[2]
@@ -127,20 +175,24 @@ def main():
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu", capture_output=True)
     print(bundle.stderr, flush=True)
     app_path = bundle.stdout.strip().splitlines()[-1]
-    environment = dict(os.environ, SIMCTL_CHILD_YEBISU_P2_OBSERVE="1", SIMCTL_CHILD_YEBISU_P11_KEYS_QA="1")
-    run("bash", "scripts/ios/sim.sh", "--wait", "3", "--out", str(destination / "launch"), app_path, env=environment)
-    device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
-    preflight_container=Path(subprocess.check_output(["xcrun","simctl","get_app_container",device,"com.shin1ohno.yebisu","data"],text=True).strip())
-    # The preflight launch's own stderr is in launch/stderr.log (sim.sh); this covers XCTest's launches.
-    stderr_start = app_stderr.offset(preflight_container / "Documents")
-    preflight, _ = read_until_valid(preflight_container / "Documents/p2-setup.jsonl", start, validate_preflight)
-    (destination/"provider-preflight.json").write_text(json.dumps(preflight,indent=2))
+    device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
+    run("xcrun", "simctl", "install", device, app_path)
     spec = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(spec / "project.yml"), "--project", str(spec))
-    run("xcodebuild", "test", "-project", str(spec / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
-        "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"),
-        "-resultBundlePath", str(destination / "result.xcresult"), "CODE_SIGNING_ALLOWED=NO",
-        "-only-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart")
+    command, runner_environment = xcodebuild_test_command(spec, device, root / "target/ios-smoke/build", destination / "result.xcresult")
+    container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, BUNDLE, "data"], text=True).strip())
+    receipts = container / "Documents/p2-setup.jsonl"
+    try:
+        run(*command, env={**os.environ, **runner_environment})
+    finally:
+        terminate(device)
+        # Kept whole, also when XCTest failed: the app's side of the run for the evidence upload.
+        if receipts.is_file():
+            shutil.copyfile(receipts, destination / "p2-setup.jsonl")
+    records = read_after_terminate(receipts, start)
+    (destination / "app.jsonl").write_text("".join(json.dumps(v) + "\n" for v in records))
+    (destination / "provider-preflight.json").write_text(
+        json.dumps([r for r in records if r.get("kind") == "key-provider-preflight"], indent=2))
     attachments = destination / "attachments"
     run("xcrun", "xcresulttool", "export", "attachments", "--path", str(destination / "result.xcresult"), "--output-path", str(attachments))
     screenshots = [a for test in json.loads((attachments / "manifest.json").read_text()) for a in test["attachments"]
@@ -150,24 +202,12 @@ def main():
     shutil.copyfile(attachments / screenshots[0]["exportedFileName"], destination / "screenshot.png")
     # The first-run frame and sheet (SH1-157 L7) are #101419 and #1c1c22, not the old setup page color.
     run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
-    container = subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()
-    app_stderr.require_no_loss(app_stderr.collect(Path(container) / "Documents", destination, stderr_start))
-    records, expected_line = read_until_valid(Path(container) / "Documents/p2-setup.jsonl", start, validate_records)
-    verify_pasteboard(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")
-    # Negative controls use the actual app's receipt shape, not invented output.
-    for corrupted, expected in [([], "missing independent process launch receipts"),
-                                ([v for v in records if v.get("status") != "Copied restricted public key."],
-                                 "copy action did not complete in the receiving application")]:
-        try:
-            validate_records(corrupted)
-        except RuntimeError as error:
-            if str(error) != expected:
-                raise
-            print("P2 negative control refused:", expected)
-        else:
-            raise RuntimeError("negative control unexpectedly passed")
-    (destination / "app.jsonl").write_text("".join(json.dumps(v) + "\n" for v in records))
-    print("P2 PASS: source-defined controls found by OCR; injected key displayed and copied after process restart.")
+    expected_line = validate_records(records)
+    validate_pasteboard(records, expected_line)
+    pasteboard_aid(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")
+    negative_controls(records, expected_line)
+    print("P2 PASS: key block controls found by QA identifier; injected key read and copied after process restart; "
+          "the app read the key line back from its pasteboard.")
     print("Injected provider only; Keychain persistence, Secure Enclave, real authentication and Local Network remain owner checks.")
     (root / "target/ios-p2/latest.json").write_text(json.dumps({"directory": str(destination)}) + "\n")
     print("P2 RECEIVING EVIDENCE", destination, flush=True)

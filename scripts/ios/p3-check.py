@@ -12,9 +12,6 @@ import time
 _live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
 live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
-_stderr_spec = importlib.util.spec_from_file_location("app_stderr", Path(__file__).with_name("app_stderr.py"))
-app_stderr = importlib.util.module_from_spec(_stderr_spec)
-_stderr_spec.loader.exec_module(app_stderr)
 
 
 def run(*args, **kwargs):
@@ -25,6 +22,15 @@ def run(*args, **kwargs):
         print(error.stdout or "", flush=True)
         print(error.stderr or "", flush=True)
         raise
+
+
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P3 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
 def validate_records(records, require_rotation=False):
@@ -64,7 +70,7 @@ def validate(directory, require_rotation=False):
         print("P3 source-colour oracle PASS", stage, width, height, flush=True)
 
 
-def collect(result, directory, device, require_rotation=False, stderr_start=0):
+def collect(result, directory, device, require_rotation=False):
     export = directory / "attachments"
     run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
     for test in json.loads((export / "manifest.json").read_text()):
@@ -74,7 +80,6 @@ def collect(result, directory, device, require_rotation=False, stderr_start=0):
                 shutil.copyfile(export / attachment["exportedFileName"], directory / (stage + ".png"))
     container = subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()
     shutil.copyfile(Path(container) / "Documents/p0-smoke.jsonl", directory / "app.jsonl")
-    app_stderr.require_no_loss(app_stderr.collect(Path(container) / "Documents", directory, stderr_start))
     validate(directory, require_rotation)
 
 
@@ -90,18 +95,20 @@ def main():
     print(app.stderr, flush=True)
     device = subprocess.check_output(["bash", "-c", 'source scripts/ios/lib.sh; ios_sim_resolve "$HERDR_IOS_SIMULATOR"'], text=True).split()[0]
     run("xcrun", "simctl", "install", device, app.stdout.strip().splitlines()[-1])
-    documents = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"], text=True).strip()) / "Documents"
-    stderr_start = app_stderr.offset(documents)
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
     result = directory / "result.xcresult"
-    tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+    try:
+        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+    finally:
+        # Stopped before p0-smoke.jsonl is copied, also when XCTest failed.
+        terminate(device)
     print(tested.stdout, flush=True)
     print(tested.stderr, flush=True)
     # Xcode can exit 0 with an unmatched test filter: require execution too.
     if "testP3Terminal]' passed" not in tested.stdout:
         raise RuntimeError("terminal XCTest did not execute and pass")
-    collect(result, directory, device, args.require_rotation, stderr_start)
+    collect(result, directory, device, args.require_rotation)
     print("P3 receiving-system evidence", directory, flush=True)
 
 

@@ -33,7 +33,6 @@ NOT_OCR_RECEIVERS = ("name",)  # setUpWithError: name.contains("testP9Core")
 SRC = "crates/yebisu/src/"
 HANDOFF = SRC + "handoff_view.rs"
 SETTINGS_VIEW = SRC + "settings_sheet/view.rs"
-HOSTS_SHEET = SRC + "shell/hosts_sheet/view.rs"  # L7 replaced the Keys and hosts page
 P15_VIEW = SRC + "p15_settings_view.rs"
 TERMINAL_CONTROLS = SRC + "terminal_controls.rs"
 EDIT_MENU_QA = SRC + "edit_menu_qa.rs"
@@ -48,7 +47,6 @@ SETTINGS_CHOICES = SRC + "settings_pages/choices.rs"
 SOURCES = {
     "Agent needs attention": [(SRC + "notifications.rs", '"Agent needs attention"')],
     "Close": [(SETTINGS_VIEW, '"settings-close", "Close"')],
-    "Copy authorized_keys line": [(HOSTS_SHEET, '"Copy authorized_keys line"')],
     "Detach": [(HERDR2_PANES, 'DETACH: &str = "Detach"'), (OVERFLOW_MENU, "Self::Detach => panes::DETACH")],  # L8: ... menu
     "Display": [(SETTINGS_SECTIONS, 'Self::Display => "Display"')],
     "Double tap": [(SETTINGS_CHOICES, '["Double tap", "Drag"]')],
@@ -63,7 +61,6 @@ SOURCES = {
     "Menu select": [(EDIT_MENU_QA, '"Menu select"')],
     "Native matrix collected": [(SRC + "native_observer_qa.rs", '"Native matrix collected"')],
     "Native next": [(SRC + "native_edit_qa.rs", '"Native next"'), (SRC + "native_observer_qa.rs", '"Native next"')],
-    "No public key loaded.": [(HOSTS_SHEET, '"No public key loaded."')],  # L7 key field before a key is read
     "Observer matrix collected": [(SRC + "settings_sheet/observer_qa.rs", '"Observer matrix collected"')],
     "Observer next": [(SRC + "settings_sheet/observer_qa.rs", '"Observer next"')],
     "On selection": [(SETTINGS_CHOICES, '["Manual", "On selection"]')],
@@ -79,9 +76,7 @@ SOURCES = {
     "QA commit": [(TERMINAL_CONTROLS, '"QA commit"')],
     "QA delete": [(TERMINAL_CONTROLS, '"QA delete"')],
     "QA image ready": [(SRC + "handoff_qa.rs", '"QA image ready"')],
-    "QA injected key provider": [(SRC + "settings_view.rs", '"QA injected key provider"')],
     "QA mark": [(TERMINAL_CONTROLS, '"QA mark"')],
-    "Read or initialize device key": [(HOSTS_SHEET, '"key-create", "Read or initialize device key"')],
     "Reconnect": [(SRC + "shell/status_bar.rs", 'RECONNECT: &str = "Reconnect"')],  # L2a status bar chip
     "Select text": [(OVERFLOW_MENU, 'Self::SelectText => "Select text"')],
     "Settings": [(SRC + "shell/footer.rs", 'SETTINGS: &str = "Settings"')],  # L2b sidebar footer

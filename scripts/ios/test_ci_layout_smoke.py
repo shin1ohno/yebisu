@@ -125,7 +125,7 @@ def layout_names_and_dirs():
     return names, dirs
 
 
-# Modules main.rs declares that none of p2, p3 and p10 drive. They set only YEBISU_P2_OBSERVE and YEBISU_P11_KEYS_QA (p2),
+# Modules main.rs declares that none of p2, p3 and p10 drive. They set only YEBISU_P2_OBSERVE, YEBISU_P11_KEYS_QA and YEBISU_QA_AX (p2),
 # YEBISU_TERMINAL_QA and YEBISU_SMOKE_OBSERVE (p3), YEBISU_SMOKE_OBSERVE and YEBISU_SETTINGS_QA (p10).
 # "unreferenced" = no other source file names it (git grep); "scene" = a QA scene another job's variable switches on.
 UNRELATED = {
@@ -155,7 +155,6 @@ UNRELATED = {
     "notifications": "delivery and sound; only notifications/preferences.rs is matched (p10 saves the policy)",
     "p11_observer": "outside the checks: P11 responder observer",
     "p15_settings_view": "unreferenced",
-    "qa_ax": "QA accessibility layer (YEBISU_QA_AX), set only by the opt-in S1 self-test (qa-ax-selftest.py); move it to the pattern when a check sets it (S2: p2)",
     "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
     "sh1_156_qa": "scene: YEBISU_SH1_156_QA, set only by testSH1156PointerClickAfterDiscard",
     "upstream": "referenced only by settings_pages/INTEGRATION.md",
@@ -194,6 +193,9 @@ class PathFilterTests(unittest.TestCase):
             "crates/yebisu/src/i18n.rs", "crates/yebisu/src/link.rs", "crates/yebisu/src/live.rs", "crates/yebisu/src/live/tests.rs",
             "crates/yebisu/src/observation.rs", "crates/yebisu/src/observation/tests.rs", "crates/yebisu/src/mock_commands.rs",
             "crates/yebisu/src/mock_notifications.rs", "crates/yebisu/src/input_retirement.rs", "crates/yebisu/src/native_retirement.rs",
+            # S2: p2 sets YEBISU_QA_AX, so the QA accessibility layer is what p2 drives.
+            "crates/yebisu/src/qa_ax.rs", "crates/yebisu/src/qa_ax_ids.rs", "crates/yebisu/src/qa_ax_keys.rs",
+            "crates/yebisu/src/qa_ax_layer.rs", "crates/yebisu/src/qa_ax_native.rs", "crates/yebisu/src/qa_ax_root.rs",
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.layout(path))

@@ -7,14 +7,35 @@
 //! only), "Show sidebar ⌘B" (sidebar hidden only), and Shortcuts at the
 //! right. A long connection name is cut with an ellipsis on screen and kept
 //! whole in the accessibility label (S-8).
-use super::{ChromeState, HerdrKind, edit_bar, mods};
-use crate::{app::Smoke, layout::STATUS_BAR_HEIGHT};
+use super::{
+    ChromeState, HerdrKind, edit_bar,
+    fit::{self, STATUS_GAP, StatusItem},
+    mods,
+};
+use crate::{
+    app::Smoke,
+    layout::{STATUS_BAR_HEIGHT, Size},
+};
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 pub(crate) const SHOW_SIDEBAR: &str = "Show sidebar ⌘B";
 pub(crate) const SHORTCUTS: &str = "Shortcuts";
 pub(crate) const RECONNECT: &str = "Reconnect";
+/// L9's optional item: a hardware keyboard is in use (Main.dc.html).
+pub(crate) const HARDWARE_KEYBOARD: &str = "Hardware keyboard";
+
+/// The bar's side padding (`px_3`, both sides) and its status dot.
+const BAR_PADDING: f32 = 24.0;
+const DOT_WIDTH: f32 = 8.0;
+/// The connection line at its shortest: a few characters and the ellipsis.
+const MIN_LINE_WIDTH: f32 = 96.0;
+/// Width per character of a 13 pt chip label, and a chip's `px_2` padding.
+const CHIP_CHAR_WIDTH: f32 = 7.0;
+const CHIP_PADDING: f32 = 16.0;
+/// A docked keyboard taller than this is the software keyboard; the bar a
+/// hardware keyboard leaves at the bottom edge is shorter [inference].
+const SOFTWARE_KEYBOARD_MIN_HEIGHT: f32 = 120.0;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StatusBarModel {
@@ -68,6 +89,39 @@ pub(crate) fn status_detail(model: &StatusBarModel, detail: &str) -> Option<Stri
     (!detail.is_empty() && !detail.eq_ignore_ascii_case(&model.state)).then_some(detail)
 }
 
+fn chip_width(label: &str) -> f32 {
+    label.chars().count() as f32 * CHIP_CHAR_WIDTH + CHIP_PADDING
+}
+
+/// Items the bar moves to the details at `bar_width` (L9 order,
+/// `fit::status_bar_overflow_with`): the room left beside the items that
+/// always stay (status dot, the connection line at its shortest, Reconnect,
+/// Mods, Show sidebar, Shortcuts) goes to the optional items, Hardware
+/// keyboard first, then the M5 sections (`m5_width`, 0 with no section).
+pub(crate) fn status_bar_details(
+    bar_width: f32,
+    model: &StatusBarModel,
+    mods: Option<&str>,
+    m5_width: f32,
+) -> Vec<StatusItem> {
+    let chips = [
+        Some(SHORTCUTS),
+        model.show_reconnect.then_some(RECONNECT),
+        model.show_sidebar_hint.then_some(SHOW_SIDEBAR),
+        mods,
+    ];
+    let stay = chips
+        .into_iter()
+        .flatten()
+        .map(|label| STATUS_GAP + chip_width(label))
+        .sum::<f32>()
+        + BAR_PADDING
+        + DOT_WIDTH
+        + STATUS_GAP
+        + MIN_LINE_WIDTH;
+    fit::status_bar_overflow_with(bar_width - stay, m5_width)
+}
+
 /// The visible text of the bar's left side.
 pub(crate) fn status_line(model: &StatusBarModel) -> String {
     format!(
@@ -79,14 +133,40 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 }
 
 impl Smoke {
+    /// L9: a press only a hardware keyboard sends marks one in use
+    /// (`fit::watch_hardware_keys`); the software keyboard docked on screen
+    /// clears it.
+    fn note_hardware_keyboard(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.watch_hardware_keys(cx);
+        let viewport = window.viewport_size();
+        let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
+        let ime = self.platform_insets(window).ime;
+        let docked = fit::docked_keyboard_height(size, fit::ime_keyboard(size, &ime));
+        if docked > SOFTWARE_KEYBOARD_MIN_HEIGHT {
+            self.shell.fit.hardware_keyboard = false;
+        }
+    }
+
     pub(crate) fn render_status_bar(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let state = self.chrome_state();
+        // L9: the mod regions' 30 s fade runs on this line state.
+        self.observe_disconnect(state.connected, cx);
+        self.note_hardware_keyboard(window, cx);
         let mut model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
+        let layout = self.frame_layout(window);
+        let details = status_bar_details(
+            layout.status_bar.width,
+            &model,
+            mods.as_deref(),
+            layout.m5.width,
+        );
+        let hardware_keyboard =
+            self.shell.fit.hardware_keyboard && !details.contains(&StatusItem::HardwareKeyboard);
         let mut line = status_line(&model);
         if let Some(detail) = status_detail(&model, &self.terminal_status()) {
             line = format!("{line} · {detail}");
@@ -133,6 +213,9 @@ impl Smoke {
                         )),
                     )
                 })
+                .when(hardware_keyboard, |view| {
+                    view.child(chip("shell-status-hardware-keyboard", HARDWARE_KEYBOARD))
+                })
                 .child(div().flex_1())
                 // L9: Mods sits beside Shortcuts (ModsMax.dc.html) and opens
                 // the withdrawn regions' list in overlay O.
@@ -146,6 +229,7 @@ impl Smoke {
                         .px_2()
                         .whitespace_nowrap()
                         .text_color(rgb(0xacb2bb))
+                        .debug_selector(|| "shell-status-mods".into())
                         .child(text)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.toggle_mods_overlay();
@@ -182,6 +266,7 @@ impl Smoke {
 fn chip(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .debug_selector(move || id.to_owned())
         .flex_none()
         .h_full()
         .flex()

@@ -598,10 +598,12 @@ impl Smoke {
             return div().absolute().size_0().into_any_element();
         }
         let mut panel = div()
+            .debug_selector(|| "notification-panel".into())
             .absolute()
             .bottom(overlay_bottom(&window.insets()) + self.toast_lift(window))
             .right_0()
-            .max_w(px(384.))
+            // L9: overlay O's toast width, 340 shrunk to the window width − 32.
+            .max_w(self.toast_max_width(window))
             .p_2()
             .bg(rgb(0x3b4252))
             .text_color(rgb(0xeceff4));
@@ -617,7 +619,7 @@ impl Smoke {
         if !controls.is_empty() {
             // QA builds only: a fixed width keeps the P14 control from moving when the
             // status line appears or expires between recognizing it and tapping it.
-            panel = panel.w(px(384.));
+            panel = panel.w(px(384.)).max_w(px(384.));
         }
         panel.children(controls).into_any_element()
     }
@@ -625,6 +627,9 @@ impl Smoke {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod toast_width_tests;
 
 #[cfg(all(test, target_os = "ios"))]
 mod response_tests;
