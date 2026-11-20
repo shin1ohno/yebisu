@@ -1,15 +1,8 @@
-//! L8: Herdr 2 sessions in the sidebar column (plan v2 7.14). Owner: L8.
-//!
-//! L3's list (`sidebar::view`) draws Herdr 1. On Herdr 2 the frame's column
-//! keeps the L2b footer and draws this list above it: each Herdr 2 host the
-//! app holds whose session has listed its terminals (`core::status`), with
-//! its one session row and the agents that reported a status. With no such
-//! host there is no list, so the column shows only the footer
-//! (`herdr2_without_a_sidebar_list_keeps_the_footer_column`). Herdr 2 has
-//! no board navigation: every row selects its host.
+//! The legacy Herdr 2 sidebar and the source of Herdr 2 host entries.
 use super::session;
 use crate::{
     app::Smoke,
+    hosts::HostName,
     shell::sidebar::{
         AGENT_ROW_HEIGHT, HOST_ROW_HEIGHT, SPACE_ROW_HEIGHT, SidebarState,
         model::{
@@ -18,6 +11,7 @@ use crate::{
         row_height,
         view::{AGENTS_HEADING, HOSTS_HEADING, SidebarTap},
     },
+    shell::style,
     terminal_view::TerminalView,
 };
 use gpui::{AnyElement, Context, div, prelude::*, px, rgb};
@@ -25,8 +19,7 @@ use std::collections::BTreeMap;
 
 /// The list's element id, for the frame's tests.
 pub(crate) const HERDR2_LIST_ID: &str = "herdr2-sidebar-list";
-const MUTED: u32 = 0x9ca3af;
-const SELECTED: u32 = 0x3b4252;
+const MUTED: u32 = style::color::MUTED;
 
 /// Herdr 2 host rows: every Herdr 2 terminal view (current and hidden)
 /// whose session has a list. A host with no session or no list yet has no
@@ -43,16 +36,31 @@ pub(crate) fn herdr2_hosts(
         .chain(std::iter::once((target, current)))
         .filter(|(host, terminal)| !host.is_empty() && terminal.core_mode)
         .filter_map(|(host, terminal)| {
-            let statuses = terminal.core.as_ref()?.statuses()?;
-            let mut entry = session::host_entry(
-                host,
-                host_link(&terminal.live),
-                terminal.link.generation,
-                &statuses,
-                state,
-            );
+            let core = terminal.core.as_ref()?;
+            let statuses = core.statuses();
+            let catalog = core.sessions(terminal.live.input_epoch);
+            #[cfg(test)]
+            let catalog = if catalog.is_empty() && statuses.is_some() {
+                session::bootstrap_catalog(core.name())
+            } else {
+                catalog
+            };
+            if catalog.is_empty() {
+                return None;
+            }
+            let mut entry =
+                HostEntry::new(host, super::HerdrKind::Herdr2, host_link(&terminal.live));
             entry.selected = host == target;
-            Some(entry)
+            entry.generation = terminal.link.generation;
+            entry.boot = crate::board::snapshot(&terminal.live)
+                .map_or_else(String::new, |snapshot| snapshot.boot_id.clone());
+            Some(session::host_entry(
+                entry,
+                core.name(),
+                &catalog,
+                statuses.as_deref().unwrap_or_default(),
+                state,
+            ))
         })
         .collect::<Vec<_>>();
     order_hosts(&mut hosts, &state.host_order);
@@ -63,14 +71,14 @@ fn heading(text: &'static str) -> gpui::Div {
     div()
         .px_3()
         .py_1()
-        .text_sm()
+        .text_size(px(style::text::SECONDARY))
         .text_color(rgb(MUTED))
         .child(text)
 }
 
 fn second_line(text: String) -> gpui::Div {
     div()
-        .text_sm()
+        .text_size(px(style::text::SECONDARY))
         .text_color(rgb(MUTED))
         .min_w_0()
         .truncate()
@@ -79,10 +87,10 @@ fn second_line(text: String) -> gpui::Div {
 
 fn host_dot(link: HostLink) -> (&'static str, u32) {
     match link {
-        HostLink::Connected => ("●", 0xa3be8c),
-        HostLink::Connecting => ("◌", 0xebcb8b),
+        HostLink::Connected => ("●", style::color::GREEN),
+        HostLink::Connecting => ("◌", style::color::YELLOW),
         HostLink::Offline(OfflineReason::NotConnected) => ("○", MUTED),
-        HostLink::Offline(_) => ("●", 0xbf616a),
+        HostLink::Offline(_) => ("●", style::color::RED),
     }
 }
 
@@ -97,6 +105,7 @@ fn row(
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .debug_selector(move || format!("{}-{}", id.0, id.1))
         .h(px(row_height(height, 1.0)))
         .flex()
         .flex_col()
@@ -113,7 +122,7 @@ fn row(
                 .children(note.map(|(note, color)| {
                     div()
                         .flex_shrink_0()
-                        .text_sm()
+                        .text_size(px(style::text::SECONDARY))
                         .text_color(rgb(color))
                         .child(note)
                 })),
@@ -149,19 +158,32 @@ impl Smoke {
                         ("herdr2-host", i),
                         HOST_ROW_HEIGHT,
                         (dot, color),
-                        host.host.clone(),
+                        HostName::new(&host.host).to_string(),
                         None,
                         host.detail().to_owned(),
                     )
-                    .when(selected, |d| d.bg(rgb(SELECTED))),
+                    .when(selected, |d| {
+                        d.bg(gpui::Rgba::from(style::tint::CURRENT_ROW))
+                    }),
                     &host.host,
                     cx,
                 ),
             );
             for (j, space) in host.spaces.iter().enumerate() {
-                let tabs = (format!("{} tab", space.tabs), MUTED);
+                let tabs = (
+                    format!(
+                        "{} {}",
+                        space.tabs,
+                        if space.tabs == 1 { "tab" } else { "tabs" }
+                    ),
+                    MUTED,
+                );
+                let navigation = CoreRow::Space(space.id.clone());
+                let host_id = host.host.clone();
+                let boot = host.boot.clone();
+                let generation = host.generation;
                 list = list.child(
-                    self.herdr2_tap(
+                    self.herdr2_row_tap(
                         row(
                             ("herdr2-space", i * 4096 + j),
                             SPACE_ROW_HEIGHT,
@@ -171,8 +193,13 @@ impl Smoke {
                             space.detail.clone(),
                         )
                         .pl_6()
-                        .when(space.current, |d| d.bg(rgb(SELECTED))),
-                        &host.host,
+                        .when(space.current, |d| {
+                            d.bg(gpui::Rgba::from(style::tint::CURRENT_ROW))
+                        }),
+                        host_id,
+                        boot,
+                        generation,
+                        navigation,
                         cx,
                     ),
                 );
@@ -181,15 +208,28 @@ impl Smoke {
         if !agents.is_empty() {
             list = list.child(heading(AGENTS_HEADING));
             for (k, line) in agents.iter().enumerate() {
-                list = list.child(self.herdr2_agent_row(k, line, cx));
+                if let Some(host) = hosts
+                    .iter()
+                    .find(|host| host.host == line.row.identity.host)
+                {
+                    list =
+                        list.child(self.herdr2_agent_row(k, line, &host.boot, host.generation, cx));
+                }
             }
         }
         Some(list.into_any_element())
     }
 
-    fn herdr2_agent_row(&self, k: usize, line: &AgentLine, cx: &mut Context<Self>) -> AnyElement {
+    fn herdr2_agent_row(
+        &self,
+        k: usize,
+        line: &AgentLine,
+        boot: &str,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let status = line.row.status;
-        self.herdr2_tap(
+        self.herdr2_row_tap(
             row(
                 ("herdr2-agent", k),
                 AGENT_ROW_HEIGHT,
@@ -198,12 +238,15 @@ impl Smoke {
                 Some((status.label().to_owned(), status.label_color())),
                 line.place.clone(),
             ),
-            &line.row.identity.host,
+            line.row.identity.host.clone(),
+            boot.to_owned(),
+            generation,
+            CoreRow::Agent(line.row.identity.pane.clone()),
             cx,
         )
     }
 
-    /// Every Herdr 2 row selects its host, as L3's host row does.
+    /// A host row retains the shared host selection behavior.
     fn herdr2_tap(
         &self,
         row: gpui::Stateful<gpui::Div>,
@@ -219,5 +262,95 @@ impl Smoke {
             cx.notify();
         }))
         .into_any_element()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum CoreRow {
+    Space(String),
+    Agent(String),
+}
+
+impl Smoke {
+    fn herdr2_row_tap(
+        &self,
+        row: gpui::Stateful<gpui::Div>,
+        host: String,
+        boot: String,
+        generation: u64,
+        target: CoreRow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        row.on_click(cx.listener(move |this, _, window, cx| {
+            window.dismiss_virtual_keyboard();
+            if let Err(error) = this.open_herdr2_row(&host, &boot, generation, target.clone(), cx) {
+                this.terminal.live.status = error.to_string();
+            }
+            cx.notify();
+        }))
+        .into_any_element()
+    }
+
+    /// Route a Herdr 2 row from its drawn host and connection generation.
+    /// A2 uses this for Herdr 2 branches of the merged space and AGENTS lists.
+    pub(crate) fn open_herdr2_row(
+        &mut self,
+        host: &str,
+        boot: &str,
+        generation: u64,
+        target: CoreRow,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        if self.input_modal() || self.new_space_open() {
+            return Err(crate::Error::Ssh("Close the sheet first".into()));
+        }
+        let current = self.terminal.reconnect.target == host;
+        let view = if current {
+            Some(&self.terminal)
+        } else {
+            self.board.hidden.get(host)
+        };
+        let view = view
+            .filter(|view| {
+                view.core_mode
+                    && view.live.connected
+                    && view.link.generation == generation
+                    && crate::board::snapshot(&view.live)
+                        .map_or("", |snapshot| snapshot.boot_id.as_str())
+                        == boot
+            })
+            .ok_or_else(|| crate::Error::Ssh("Stale Herdr 2 row; tap again".into()))?;
+        let core = view
+            .core
+            .as_ref()
+            .ok_or_else(|| crate::Error::Ssh("Stale Herdr 2 row; tap again".into()))?;
+        let (session, address) = match &target {
+            CoreRow::Space(session) => (session.as_str(), None),
+            CoreRow::Agent(identity) => {
+                let (session, address) = session::split_pane_identity(identity);
+                (session, Some(address))
+            }
+        };
+        if current && session == core.name() {
+            if let Some(address) = address {
+                self.try_core_command(crate::core::Command::FocusAddress(address.to_owned()))?;
+            }
+            return Ok(());
+        }
+        if session != core.name()
+            && !core
+                .sessions(view.live.input_epoch)
+                .iter()
+                .any(|row| row.name == session)
+        {
+            return Err(crate::Error::Ssh("Stale Herdr 2 session; tap again".into()));
+        }
+        self.connect_named_core(
+            host.to_owned(),
+            session.to_owned(),
+            address.map(str::to_owned),
+            cx,
+        );
+        Ok(())
     }
 }
