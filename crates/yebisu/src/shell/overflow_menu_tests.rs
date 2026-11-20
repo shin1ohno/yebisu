@@ -171,3 +171,15 @@ fn herdr2_menu_retires_the_band_only_with_every_control() {
         false
     ))));
 }
+
+#[test]
+fn overflow_menu_matches_the_canvas_geometry() {
+    use super::super::style::{metric, radius, shadow};
+    assert_eq!(MENU_RIGHT, 8.);
+    assert_eq!(MENU_TOP, 40.);
+    assert_eq!(metric::MENU_WIDTH, 260.);
+    assert_eq!(metric::MENU_ITEM, 48.);
+    assert_eq!(metric::MENU_PADDING, 6.);
+    assert_eq!(radius::POPOVER, 14.);
+    assert_eq!((shadow::POPOVER.y, shadow::POPOVER.blur), (12., 36.));
+}

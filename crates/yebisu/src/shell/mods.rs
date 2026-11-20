@@ -4,11 +4,19 @@
 //! version-matched mod region; a region with a mismatched version is absent,
 //! not withdrawn, and never counts (q1). Tapping Mods lists the withdrawn
 //! regions in overlay O (ModsMax.dc.html, SplitHalf.dc.html).
+use super::{
+    style::{color, radius, text, weight},
+    tab_row::icons::Icon,
+};
 use crate::{
     app::Smoke,
     layout::{DIALOG_WIDTH, OVERLAY_MARGIN, Region, Regions},
 };
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Role, Window, div, prelude::*, px, rgb};
+
+// ModsMax.dc.html:190–192.
+const MODS_ICON_GAP: f32 = 6.;
+const MODS_BADGE_SIZE: f32 = 16.;
 
 /// "Mods n" only when `withdrawn` > 0.
 pub(crate) fn mods_item(withdrawn: usize) -> Option<String> {
@@ -70,6 +78,51 @@ pub(crate) fn mods_overlay_rows(withdrawn: &[Region]) -> Vec<String> {
 }
 
 impl Smoke {
+    pub(super) fn render_mods_status(
+        &self,
+        withdrawn: &[Region],
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let label = mods_accessibility_label(withdrawn)?;
+        Some(
+            div()
+                .id("shell-status-mods")
+                .debug_selector(|| "shell-status-mods".into())
+                .role(Role::Button)
+                .aria_label(label)
+                .flex_none()
+                .h_full()
+                .flex()
+                .items_center()
+                .gap(px(MODS_ICON_GAP))
+                .whitespace_nowrap()
+                .text_color(rgb(color::MUTED))
+                .child(Icon::Mods.muted())
+                .child("Mods")
+                .child(
+                    div()
+                        .debug_selector(|| "shell-status-mods-count".into())
+                        .min_w(px(MODS_BADGE_SIZE))
+                        .h(px(MODS_BADGE_SIZE))
+                        .px_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::CONTROL))
+                        .bg(rgb(color::SLATE))
+                        .text_color(rgb(color::TEXT))
+                        .text_size(px(text::SMALL))
+                        .font_weight(weight::BOLD)
+                        .child(withdrawn.len().to_string()),
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_mods_overlay();
+                    cx.notify();
+                }))
+                .into_any_element(),
+        )
+    }
+
     /// Opens or closes the Mods list (the status bar's Mods item).
     pub(crate) fn toggle_mods_overlay(&mut self) {
         self.shell.fit.mods_open = !self.shell.fit.mods_open;

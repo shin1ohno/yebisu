@@ -4,10 +4,18 @@
 //! Command palette, Reconnect, Close tab. Herdr 2: Paste, Paste image (q2),
 //! Select text, Copy, Find (when PR 26's `available` is true), Reconnect,
 //! Detach, New tab (disabled with its reason, q4). Plan v2 7.5.
-use super::{ChromeState, HerdrKind, herdr2_frame::panes};
+use super::{
+    ChromeState, HerdrKind,
+    herdr2_frame::panes,
+    style::{color, metric, radius, shadow, text},
+};
 use crate::app::Smoke;
 use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
+
+// Herdr2.dc.html:123. The menu is inset from the column and clears the tab row.
+const MENU_RIGHT: f32 = 8.;
+const MENU_TOP: f32 = 40.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OverflowItem {
@@ -162,25 +170,37 @@ impl Smoke {
                     cx.notify();
                 }))
                 .absolute()
-                .top(px(crate::layout::TAB_ROW_HEIGHT))
-                .right_0()
-                .w(px(240.))
+                .top(px(MENU_TOP))
+                .right(px(MENU_RIGHT))
+                .w(px(metric::MENU_WIDTH))
+                .py(px(metric::MENU_PADDING))
                 .flex()
                 .flex_col()
-                .bg(rgb(0x2b2933))
-                .text_color(rgb(0xd8dee9))
+                .rounded(px(radius::POPOVER))
+                .shadow(vec![shadow::POPOVER.box_shadow()])
+                .bg(rgb(color::RAISED))
+                .text_color(rgb(color::TEXT))
                 .children(entries.into_iter().enumerate().map(|(index, entry)| {
                     let item = entry.item;
                     div()
                         .id(("shell-overflow-item", index))
-                        .h(px(44.))
+                        .h(px(metric::MENU_ITEM))
                         .px_4()
                         .flex()
                         .flex_col()
                         .justify_center()
-                        .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x777777 }))
+                        .text_color(rgb(if entry.enabled {
+                            color::TEXT
+                        } else {
+                            color::DISABLED
+                        }))
                         .child(item.label())
-                        .children(entry.reason.map(|reason| div().text_xs().child(reason)))
+                        .children(entry.reason.map(|reason| {
+                            div()
+                                .text_size(px(text::SECONDARY))
+                                .text_color(rgb(color::MUTED))
+                                .child(reason)
+                        }))
                         .children(item.qa_mark())
                         .when(entry.enabled, |view| {
                             view.on_click(cx.listener(move |this, _, window, cx| {

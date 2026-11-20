@@ -4,22 +4,25 @@
 //! L9 `mods::mods_item`, L6 `Smoke::open_shortcuts`.
 //!
 //! One line: "connection · Herdr 1/2 · state", then Reconnect (disconnected
-//! only), "Show sidebar ⌘B" (sidebar hidden only), and Shortcuts at the
+//! only), "Expand sidebar ⌘B" (sidebar hidden only), and Shortcuts at the
 //! right. A long connection name is cut with an ellipsis on screen and kept
 //! whole in the accessibility label (S-8).
 use super::{
-    ChromeState, HerdrKind, edit_bar,
+    ChromeState, HerdrKind,
     fit::{self, STATUS_GAP, StatusItem},
     mods,
+    style::{color, metric, radius, shadow, tint},
+    tab_row::icons::Icon,
 };
 use crate::{
     app::Smoke,
+    hosts::HostName,
     layout::{STATUS_BAR_HEIGHT, Size},
 };
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Window, deferred, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
-pub(crate) const SHOW_SIDEBAR: &str = "Show sidebar ⌘B";
+pub(crate) const SHOW_SIDEBAR: &str = "Expand sidebar ⌘B";
 pub(crate) const SHORTCUTS: &str = "Shortcuts";
 pub(crate) const RECONNECT: &str = "Reconnect";
 /// L9's optional item: a hardware keyboard is in use (Main.dc.html).
@@ -27,7 +30,11 @@ pub(crate) const HARDWARE_KEYBOARD: &str = "Hardware keyboard";
 
 /// The bar's side padding (`px_3`, both sides) and its status dot.
 const BAR_PADDING: f32 = 24.0;
-const DOT_WIDTH: f32 = 8.0;
+const DOT_WIDTH: f32 = metric::SMALL_DOT;
+// Main.dc.html:185–189 and Shortcuts.dc.html:66.
+const ICON_GAP: f32 = 6.;
+const SHORTCUTS_WIDTH: f32 = 104.;
+const SHORTCUTS_HEIGHT: f32 = 36.;
 /// The connection line at its shortest: a few characters and the ellipsis.
 const MIN_LINE_WIDTH: f32 = 96.0;
 /// Width per character of a 13 pt chip label, and a chip's `px_2` padding.
@@ -63,12 +70,12 @@ fn one_line(text: &str) -> String {
 }
 
 pub(crate) fn status_bar_model(state: &ChromeState, connection: &str) -> StatusBarModel {
-    let connection = one_line(connection);
-    let status = edit_bar::paused_typing_status(state.selecting).unwrap_or(if state.connected {
+    let connection = one_line(HostName::new(connection).display());
+    let status = if state.connected {
         "Connected"
     } else {
         "Disconnected"
-    });
+    };
     let kind = kind_label(state.kind);
     StatusBarModel {
         accessibility_label: format!("{connection}, {kind}, {status}"),
@@ -156,7 +163,7 @@ impl Smoke {
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
         self.note_hardware_keyboard(window, cx);
-        let mut model = status_bar_model(&state, &self.terminal.reconnect.target);
+        let model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
         let details = status_bar_details(
@@ -167,14 +174,14 @@ impl Smoke {
         );
         let hardware_keyboard =
             self.shell.fit.hardware_keyboard && !details.contains(&StatusItem::HardwareKeyboard);
-        let mut line = status_line(&model);
-        if let Some(detail) = status_detail(&model, &self.terminal_status()) {
-            line = format!("{line} · {detail}");
-            model.accessibility_label = format!("{}, {detail}", model.accessibility_label);
-        }
+        let selection = self.selection_status(usize::MAX);
+        let detail = status_detail(&model, &self.terminal_status());
+        let show_details = detail.is_some() && self.shell.shortcuts.status_detail_open;
+        let shortcuts_selected = self.shell.shortcuts.open;
         Some(
             div()
                 .id("shell-status-bar")
+                .relative()
                 .flex()
                 .flex_none()
                 .items_center()
@@ -182,17 +189,15 @@ impl Smoke {
                 .px_3()
                 .w_full()
                 .h(px(STATUS_BAR_HEIGHT))
-                .overflow_hidden()
-                .bg(rgb(0x1c1c22))
-                .text_sm()
-                .text_color(rgb(0xd8dee9))
-                .child(
-                    div()
-                        .flex_none()
-                        .size(px(8.))
-                        .rounded_full()
-                        .bg(rgb(if state.connected { 0xa3be8c } else { 0xbf616a })),
-                )
+                .bg(rgb(color::SURFACE))
+                .text_color(rgb(color::TEXT))
+                .child(div().flex_none().size(px(DOT_WIDTH)).rounded_full().bg(rgb(
+                    if state.connected {
+                        color::GREEN
+                    } else {
+                        color::RED
+                    },
+                )))
                 .child(
                     div()
                         .id("shell-status-line")
@@ -201,11 +206,46 @@ impl Smoke {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(line),
+                        .debug_selector(|| "shell-status-line".into())
+                        .aria_label(model.accessibility_label.clone())
+                        .child(status_line(&model))
+                        .when(detail.is_some(), |line| {
+                            line.on_click(cx.listener(|this, _, _, cx| {
+                                this.shell.shortcuts.status_detail_open ^= true;
+                                cx.notify();
+                            }))
+                        }),
                 )
+                .when_some(selection, |bar, selection| {
+                    bar.child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(rgb(color::MUTED))
+                            .debug_selector(|| "shell-selection-status".into())
+                            .child(selection),
+                    )
+                })
+                .when_some(detail.filter(|_| show_details), |bar, detail| {
+                    bar.child(deferred(
+                        div()
+                            .id("shell-status-detail")
+                            .absolute()
+                            .left_3()
+                            .bottom(px(STATUS_BAR_HEIGHT))
+                            .max_w(px((layout.status_bar.width - BAR_PADDING).max(0.)))
+                            .px_3()
+                            .py_2()
+                            .occlude()
+                            .bg(rgb(color::RAISED))
+                            .rounded(px(radius::CONTROL))
+                            .shadow(vec![shadow::POPOVER.box_shadow()])
+                            .child(detail),
+                    ))
+                })
                 .when(model.show_reconnect, |view| {
                     view.child(
-                        chip("shell-status-reconnect", RECONNECT)
+                        chip("shell-status-reconnect", RECONNECT, None)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.reconnect_from_chrome(cx);
                                 cx.notify();
@@ -217,39 +257,37 @@ impl Smoke {
                     )
                 })
                 .when(hardware_keyboard, |view| {
-                    view.child(chip("shell-status-hardware-keyboard", HARDWARE_KEYBOARD))
+                    view.child(chip(
+                        "shell-status-hardware-keyboard",
+                        HARDWARE_KEYBOARD,
+                        Some(Icon::Keyboard),
+                    ))
                 })
                 .child(div().flex_1())
                 // L9: Mods sits beside Shortcuts (ModsMax.dc.html) and opens
                 // the withdrawn regions' list in overlay O.
-                .children(mods.map(|text| {
-                    div()
-                        .id("shell-status-mods")
-                        .flex_none()
-                        .h_full()
-                        .flex()
-                        .items_center()
-                        .px_2()
-                        .whitespace_nowrap()
-                        .text_color(rgb(0xacb2bb))
-                        .debug_selector(|| "shell-status-mods".into())
-                        .child(text)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_mods_overlay();
-                            cx.notify();
-                        }))
-                }))
+                .children(self.render_mods_status(&layout.withdrawn, cx))
                 .when(model.show_sidebar_hint, |view| {
-                    view.child(chip("shell-status-show-sidebar", SHOW_SIDEBAR).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.toggle_sidebar();
-                            cx.notify();
-                        }),
-                    ))
+                    view.child(
+                        chip("shell-status-show-sidebar", SHOW_SIDEBAR, None).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.toggle_sidebar();
+                                cx.notify();
+                            }),
+                        ),
+                    )
                 })
                 .child(
-                    chip("shell-status-shortcuts", SHORTCUTS).on_click(cx.listener(
-                        |this, _, window, cx| {
+                    chip("shell-status-shortcuts", SHORTCUTS, Some(Icon::Keyboard))
+                        .w(px(SHORTCUTS_WIDTH))
+                        .h(px(SHORTCUTS_HEIGHT))
+                        .justify_center()
+                        .px_0()
+                        .rounded(px(radius::CONTROL))
+                        .when(shortcuts_selected, |chip| {
+                            chip.bg(gpui::Rgba::from(tint::SELECTED))
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
                             // L6 fills the popover; until then Shortcuts opens the
                             // command palette (plan v2 5.2, L2a column).
                             if !this.toggle_shortcuts(window, cx)
@@ -258,15 +296,14 @@ impl Smoke {
                                 this.terminal.live.status = e.to_string();
                             }
                             cx.notify();
-                        },
-                    )),
+                        })),
                 )
                 .into_any_element(),
         )
     }
 }
 
-fn chip(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+fn chip(id: &'static str, label: &'static str, icon: Option<Icon>) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .debug_selector(move || id.to_owned())
@@ -276,7 +313,9 @@ fn chip(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
         .items_center()
         .px_2()
         .whitespace_nowrap()
-        .text_color(rgb(0xacb2bb))
+        .text_color(rgb(color::MUTED))
+        .gap(px(ICON_GAP))
+        .children(icon.map(Icon::muted))
         .child(label)
 }
 

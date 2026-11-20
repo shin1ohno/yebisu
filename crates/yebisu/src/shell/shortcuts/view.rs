@@ -6,29 +6,35 @@
 //! the rows scroll when the window is too short, so the popover's top never
 //! goes above 16 pt.
 use super::{
-    POPOVER_MARGIN, ROW_HEIGHT, ShortcutRow, grouped, popover_columns, popover_rows, popover_width,
+    POPOVER_MARGIN, PopoverAction, ROW_HEIGHT, ShortcutGroup, ShortcutRow, canvas_rows, grouped,
+    popover_columns, popover_rows, popover_width, show_hold_hint,
 };
-use crate::{app::Smoke, layout::STATUS_BAR_HEIGHT};
+use crate::{
+    app::Smoke,
+    layout::STATUS_BAR_HEIGHT,
+    shell::{
+        style::{color, metric, radius, shadow, text, tint, weight},
+        tab_row::icons::Icon,
+    },
+};
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, relative, rgb,
-    rgba,
 };
-use sheprd_commands::Command;
 
 const ANCHOR_GAP: f32 = 12.;
 const GROUP_HEADER_HEIGHT: f32 = 28.;
 const FOOTER_HEIGHT: f32 = 48.;
-const TEXT: u32 = 0xd8dee9;
-const MUTED: u32 = 0xacb2bb;
-const DISABLED: u32 = 0x6b7080;
+// Shortcuts.dc.html:63.
+const ARROW_RIGHT: f32 = 52.;
+const ARROW_HEIGHT: f32 = 10.;
 pub(crate) const TITLE: &str = "Keyboard shortcuts";
 pub(crate) const HINT: &str = "Hold ⌘ anywhere to see this list. Tap a row to run it.";
 pub(crate) const CHANGE_IN_SETTINGS: &str = "Change in Settings › Input";
 
 /// "Command key: Local · Shortcut priority: App" (the canvas footer).
 pub(crate) fn settings_line(command_control: bool, terminal_priority: bool) -> String {
-    let command = if command_control { "Control" } else { "Local" };
+    let command = if command_control { "Ctrl" } else { "Local" };
     let priority = if terminal_priority { "Terminal" } else { "App" };
     format!("Command key: {command} · Shortcut priority: {priority}")
 }
@@ -61,19 +67,40 @@ impl Smoke {
                 .when(columns > 1, |view| view.flex_1().min_w_0())
                 .flex()
                 .flex_col()
-                .child(
-                    div()
-                        .h(px(GROUP_HEADER_HEIGHT))
-                        .px_2()
-                        .flex()
-                        .items_center()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(MUTED))
-                        .child(group.title()),
-                );
-            for (command, row) in rows {
-                column = column.child(self.shortcut_row(command, row, cx));
+                .child(group_header(group.title()));
+            let expanded = self.shell.shortcuts.expanded == Some(group);
+            let rows = if state.kind == crate::shell::HerdrKind::Herdr1 {
+                canvas_rows(group, rows, expanded)
+            } else {
+                rows.into_iter()
+                    .map(|(command, row)| (PopoverAction::Catalog(command), row))
+                    .collect()
+            };
+            for (action, row) in rows {
+                column = column.child(self.shortcut_row(action, row, cx));
+            }
+            if group == ShortcutGroup::App && state.kind == crate::shell::HerdrKind::Herdr1 {
+                column = column.child(group_header("EDIT"));
+                let edit = [
+                    (
+                        PopoverAction::Copy,
+                        "Copy",
+                        "⌘C",
+                        self.handoff.selection.is_some(),
+                    ),
+                    (PopoverAction::Paste, "Paste", "⌘V", state.connected),
+                ];
+                for (action, label, keys, enabled) in edit {
+                    column = column.child(self.shortcut_row(
+                        action,
+                        ShortcutRow {
+                            label: label.into(),
+                            keys: keys.into(),
+                            enabled,
+                        },
+                        cx,
+                    ));
+                }
             }
             columns_of.push(column);
         }
@@ -98,9 +125,10 @@ impl Smoke {
             .flex()
             .flex_col()
             .pt_4()
-            .rounded(px(14.))
-            .bg(rgb(0x2b2933))
-            .text_color(rgb(TEXT))
+            .rounded(px(radius::POPOVER))
+            .shadow(vec![shadow::POPOVER.box_shadow()])
+            .bg(rgb(color::RAISED))
+            .text_color(rgb(color::TEXT))
             .occlude()
             // A tap inside the popover but off a row keeps it open.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -115,13 +143,29 @@ impl Smoke {
                     .gap_x_4()
                     .child(
                         div()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::BOLD)
+                            .text_size(px(text::SHEET_TITLE))
+                            .font_weight(weight::BOLD)
                             .child(TITLE),
                     )
-                    .child(div().text_size(px(12.)).text_color(rgb(MUTED)).child(HINT)),
+                    .children(
+                        show_hold_hint(self.shell.fit.hardware_keyboard).map(|hint| {
+                            div()
+                                .debug_selector(|| "shell-shortcuts-hold-hint".into())
+                                .text_size(px(text::SECONDARY))
+                                .text_color(rgb(color::MUTED))
+                                .child(hint)
+                        }),
+                    ),
             )
             .child(body)
+            .child(
+                div()
+                    .absolute()
+                    .right(px(ARROW_RIGHT))
+                    .bottom(px(-ARROW_HEIGHT))
+                    .debug_selector(|| "shell-shortcuts-arrow".into())
+                    .child(Icon::PopoverArrow.element(color::RAISED)),
+            )
             .child(
                 div()
                     .h(px(FOOTER_HEIGHT))
@@ -130,9 +174,9 @@ impl Smoke {
                     .items_center()
                     .gap_2()
                     .border_t_1()
-                    .border_color(rgb(0x3b3944))
-                    .text_size(px(12.))
-                    .text_color(rgb(MUTED))
+                    .border_color(rgb(color::SEPARATOR))
+                    .text_size(px(text::SECONDARY))
+                    .text_color(rgb(color::MUTED))
                     .child(div().min_w_0().truncate().child(footer))
                     .child(div().flex_1())
                     .child(
@@ -142,7 +186,7 @@ impl Smoke {
                             .px_1()
                             .flex()
                             .items_center()
-                            .text_color(rgb(0x88c0d0))
+                            .text_color(rgb(color::ACCENT))
                             .child(CHANGE_IN_SETTINGS)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.shell.shortcuts.open = false;
@@ -160,7 +204,7 @@ impl Smoke {
                 .left_0()
                 .right_0()
                 .bottom(px(STATUS_BAR_HEIGHT))
-                .bg(rgba(0x10141973))
+                .bg(gpui::Rgba::from(tint::POPOVER_SCRIM))
                 .occlude()
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.close_shortcuts(window, cx);
@@ -172,11 +216,12 @@ impl Smoke {
 
     fn shortcut_row(
         &self,
-        command: Command,
+        action: PopoverAction,
         row: ShortcutRow,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let id = row.label.clone();
+        let enabled = row.enabled;
         div()
             .id(gpui::ElementId::Name(format!("shell-shortcut-{id}").into()))
             .h(px(ROW_HEIGHT))
@@ -186,18 +231,55 @@ impl Smoke {
             .items_center()
             .justify_between()
             .gap_2()
-            .rounded(px(8.))
-            .text_color(rgb(if row.enabled { TEXT } else { DISABLED }))
+            .rounded(px(radius::CONTROL))
+            .text_color(rgb(if enabled {
+                color::TEXT
+            } else {
+                color::DISABLED
+            }))
             .child(div().min_w_0().truncate().child(row.label))
             .child(
                 div()
                     .flex_none()
-                    .text_color(rgb(if row.enabled { MUTED } else { DISABLED }))
+                    .text_color(rgb(if enabled {
+                        color::MUTED
+                    } else {
+                        color::DISABLED
+                    }))
                     .child(row.keys),
             )
-            // `tap_shortcut_row` refuses a disabled row itself.
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.tap_shortcut_row(command, window, cx);
-            }))
+            .when(enabled, |row| {
+                row.active(|row| row.bg(gpui::Rgba::from(tint::SELECTED)))
+                    .on_click(cx.listener(move |this, _, window, cx| match action {
+                        PopoverAction::Catalog(command) => {
+                            this.tap_shortcut_row(command, window, cx);
+                        }
+                        PopoverAction::Focus(group) => {
+                            let expanded = &mut this.shell.shortcuts.expanded;
+                            *expanded = (*expanded != Some(group)).then_some(group);
+                            cx.notify();
+                        }
+                        PopoverAction::Copy => {
+                            this.copy_selection(cx);
+                            this.close_shortcuts(window, cx);
+                        }
+                        PopoverAction::Paste => {
+                            this.close_shortcuts(window, cx);
+                            this.start_paste(false, cx);
+                        }
+                    }))
+            })
     }
+}
+
+fn group_header(label: &'static str) -> gpui::Div {
+    div()
+        .h(px(GROUP_HEADER_HEIGHT))
+        .px(px(metric::INLINE_GAP))
+        .flex()
+        .items_center()
+        .text_size(px(text::SMALL))
+        .font_weight(weight::SEMIBOLD)
+        .text_color(rgb(color::MUTED))
+        .child(label)
 }

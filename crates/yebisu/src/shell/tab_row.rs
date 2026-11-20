@@ -1,12 +1,25 @@
 //! L2a: the 36 pt tab row. Owner: L2a.
 //!
-//! Tabs scroll sideways inside their own strip; + (new tab), split and ...
-//! (the overflow menu) are pinned to the right edge and never scroll away
-//! (plan v2 7.5). Each tab carries its own 32×36 × button, a separate hit
+//! Tabs scroll in their strip; New tab follows the last visible tab, and the
+//! split and overflow buttons stay at the right edge. Each tab carries its own 32×36 × button, a separate hit
 //! from the tab body (S-9).
-use crate::{app::Smoke, board::snapshot, layout::TAB_ROW_HEIGHT};
-use gpui::{AnyElement, Context, div, prelude::*, px, rgb};
-use sheprd_client::Method;
+pub(super) mod icons;
+
+use super::{
+    sidebar_status::from_agent_status,
+    style::{color, metric, radius, shadow, tint, weight},
+};
+use crate::{
+    app::Smoke,
+    board::{Target, snapshot},
+    layout::TAB_ROW_HEIGHT,
+};
+use gpui::{AnyElement, Context, MouseButton, Role, deferred, div, prelude::*, px, rgb};
+use icons::Icon;
+use sheprd_client::{
+    Method,
+    protocol::{ClientShellSnapshot, ClientShellTab},
+};
 use sheprd_commands::Command;
 
 /// Width of a tab's × button.
@@ -24,6 +37,9 @@ pub(crate) const MAX_TAB_WIDTH: f32 = 240.0;
 pub(crate) const HOST_UNAVAILABLE: &str = "Host unavailable or command pending";
 /// Left padding before a tab's label.
 const TAB_PADDING: f32 = 12.0;
+// Rail.dc.html:64 and :66.
+const SPACE_SWITCHER_WIDTH: f32 = 180.0;
+const SPACE_PICKER_MAX_HEIGHT: f32 = 288.0;
 
 /// Tab row metrics (plan v2 7.5 `tab_row_metrics`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -75,12 +91,21 @@ pub(crate) fn tab_hit(
     if !(0.0..content_right).contains(&x) {
         return None;
     }
-    let pinned_left = (content_right - pinned_width()).max(0.0);
-    if x >= pinned_left {
-        let slot = ((x - pinned_left) / PINNED_ACTION_WIDTH).floor();
-        // `slot` is in 0..3 because x < content_right; the cast cannot
-        // truncate.
-        return PINNED_ACTIONS.get(slot as usize).copied();
+    let split_left = (content_right - PINNED_ACTION_WIDTH * 2.).max(0.);
+    if x >= split_left {
+        let slot = ((x - split_left) / PINNED_ACTION_WIDTH).floor() as usize;
+        return PINNED_ACTIONS.get(slot + 1).copied();
+    }
+    let tabs_width = tab_widths
+        .iter()
+        .map(|w| w.clamp(0., MAX_TAB_WIDTH))
+        .sum::<f32>();
+    let new_left = tabs_width.min((content_right - pinned_width()).max(0.));
+    if (new_left..new_left + PINNED_ACTION_WIDTH).contains(&x) {
+        return Some(TabHit::NewTab);
+    }
+    if x >= new_left {
+        return None;
     }
     let mut left = 0.0;
     for (index, width) in tab_widths.iter().enumerate() {
@@ -102,6 +127,80 @@ pub(crate) fn tab_hit(
 /// One tab of the focused space: (tab id, label, focused).
 type TabEntry = (String, String, bool);
 
+fn tab_name(snapshot: &ClientShellSnapshot, tab: &ClientShellTab) -> String {
+    let pane = snapshot
+        .panes
+        .iter()
+        .filter(|pane| pane.tab_id == tab.tab_id)
+        .min_by_key(|pane| {
+            (
+                snapshot.focused_pane_id.as_ref() != Some(&pane.pane_id),
+                !pane.focused,
+            )
+        });
+    let agent = pane.and_then(|pane| snapshot.agents.iter().find(|a| a.pane_id == pane.pane_id));
+    let name = [
+        tab.custom_label.then_some(tab.label.as_str()),
+        agent.and_then(|a| a.agent.as_deref()),
+        agent.and_then(|a| a.display_agent.as_deref()),
+        pane.and_then(|pane| pane.label.as_deref()),
+        (!tab.label.trim().chars().all(|c| c.is_ascii_digit())).then_some(tab.label.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|label| !label.trim().is_empty());
+    let number = tab.number.to_string();
+    name.map_or_else(
+        || number.clone(),
+        |name| format!("{number} · {}", printable_name(name)),
+    )
+}
+
+struct TabAppearance {
+    fill: Option<super::style::Tint>,
+    text: u32,
+    weight: gpui::FontWeight,
+}
+
+fn tab_appearance(selected: bool) -> TabAppearance {
+    if selected {
+        TabAppearance {
+            fill: Some(tint::SELECTED),
+            text: color::TEXT,
+            weight: weight::SEMIBOLD,
+        }
+    } else {
+        TabAppearance {
+            fill: None,
+            text: color::MUTED,
+            weight: weight::REGULAR,
+        }
+    }
+}
+
+fn status_dot(ink: u32) -> gpui::Div {
+    div()
+        .flex_none()
+        .size(px(metric::SMALL_DOT))
+        .rounded_full()
+        .bg(rgb(ink))
+        .debug_selector(|| "shell-tab-status-dot".into())
+}
+
+fn workspace_name(workspace: &sheprd_client::protocol::ClientShellWorkspace) -> String {
+    if workspace.label.trim().is_empty() {
+        format!("Space {}", workspace.number)
+    } else {
+        printable_name(&workspace.label)
+    }
+}
+
+fn printable_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
 impl Smoke {
     pub(super) fn row_tabs(&self) -> Vec<TabEntry> {
         if self.terminal.core_mode {
@@ -113,7 +212,7 @@ impl Smoke {
                 s.tabs
                     .iter()
                     .filter(|t| Some(&t.workspace_id) == s.focused_workspace_id.as_ref())
-                    .map(|t| (t.tab_id.clone(), t.label.clone(), t.focused))
+                    .map(|t| (t.tab_id.clone(), tab_name(s, t), t.focused))
                     .collect()
             })
             .unwrap_or_default()
@@ -130,10 +229,16 @@ impl Smoke {
     ) -> Option<AnyElement> {
         let tabs = self.row_tabs();
         let herdr1 = !self.terminal.core_mode;
+        let switcher = if herdr1 && self.chrome_state().sidebar_hidden {
+            self.space_switcher(cx)
+        } else {
+            self.shell.shortcuts.space_picker_open = false;
+            None
+        };
         let strip = div()
             .id("shell-tab-strip")
             .flex()
-            .flex_1()
+            .flex_shrink(1.)
             .min_w_0()
             .h_full()
             .overflow_x_scroll()
@@ -141,31 +246,49 @@ impl Smoke {
                 tabs.into_iter()
                     .enumerate()
                     .map(|(index, (id, label, focused))| {
+                        let label = if herdr1 {
+                            label
+                        } else {
+                            format!("{} · {label}", index + 1)
+                        };
                         self.tab_element(index, id, label, focused, cx)
                     }),
             );
+        let new_tab = self.pinned_button(
+            "shell-new-tab",
+            "New tab",
+            Icon::NewTab,
+            herdr1,
+            cx,
+            |this, cx| this.tab_row_command(Command::Tab, cx),
+        );
+        let (new_tab, trailing_new_tab) = if herdr1 {
+            (Some(new_tab), None)
+        } else {
+            (None, Some(new_tab))
+        };
         let pinned = div()
             .debug_selector(|| "shell-tab-pinned".into())
             .flex()
             .flex_none()
             .h_full()
-            .child(
-                self.pinned_button("shell-new-tab", "+", herdr1, None, cx, |this, cx| {
-                    this.tab_row_command(Command::Tab, cx)
-                }),
-            )
-            .child(
-                self.pinned_button("shell-split", "◫", herdr1, None, cx, |this, cx| {
-                    this.tab_row_command(Command::SplitRight, cx)
-                }),
-            )
+            .children(trailing_new_tab)
+            .child(self.pinned_button(
+                "shell-split",
+                "Split right",
+                Icon::Split,
+                herdr1,
+                cx,
+                |this, cx| this.tab_row_command(Command::SplitRight, cx),
+            ))
             .child(self.pinned_button(
                 "shell-more",
-                MORE_GLYPH,
+                "More actions",
+                Icon::More,
                 true,
-                crate::qa_ax::mark(crate::qa_ax::ids::TABS_MORE, MORE_GLYPH),
                 cx,
                 |this, cx| {
+                    this.shell.shortcuts.space_picker_open = false;
                     this.shell.frame.overflow_open ^= true;
                     cx.notify();
                 },
@@ -174,14 +297,18 @@ impl Smoke {
             div()
                 .id("shell-tab-row")
                 .debug_selector(|| "shell-tab-row".into())
+                .relative()
                 .flex()
                 .flex_none()
                 .w_full()
                 .h(px(TAB_ROW_HEIGHT))
                 .pr(px(controls_trailing))
-                .bg(rgb(0x1c1c22))
-                .text_color(rgb(0xd8dee9))
+                .bg(rgb(color::SURFACE))
+                .text_color(rgb(color::TEXT))
+                .children(switcher)
                 .child(strip)
+                .children(new_tab)
+                .child(div().flex_1())
                 .child(pinned)
                 .into_any_element(),
         )
@@ -201,27 +328,59 @@ impl Smoke {
             .map(|s| s.boot_id.clone())
             .unwrap_or_default();
         let (select_host, select_id, select_boot) = (host.clone(), id.clone(), boot.clone());
-        // Herdr 2's one session tab has no Herdr 1 tab to focus or close.
+        // A Herdr 2 session has no Herdr 1 tab to focus or close.
         let herdr1 = !self.terminal.core_mode;
+        let dot = snapshot(&self.terminal.live)
+            .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == id))
+            .map(|tab| from_agent_status(tab.agent_status).dot_color())
+            .unwrap_or(color::SLATE);
+        let appearance = tab_appearance(focused);
         div()
             .id(("shell-tab", index))
+            .debug_selector(move || format!("shell-tab-{index}"))
+            .relative()
             .flex()
             .flex_none()
             .items_center()
             .max_w(px(MAX_TAB_WIDTH))
             .h_full()
-            .bg(rgb(if focused { 0x2b2933 } else { 0x1c1c22 }))
+            .border_r_1()
+            .border_color(rgb(color::RAISED))
+            .text_color(rgb(appearance.text))
+            .when_some(appearance.fill, |tab, fill| tab.bg(gpui::Rgba::from(fill)))
+            .when(focused, |tab| {
+                tab.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(metric::CURRENT_LINE))
+                        .bg(rgb(color::ACCENT))
+                        .debug_selector(|| "shell-tab-underline".into()),
+                )
+            })
             .child(
                 div()
                     .id(("shell-tab-body", index))
-                    .debug_selector(move || format!("shell-tab-body-{index}"))
+                    .role(Role::Tab)
+                    .aria_label(label.clone())
+                    .flex()
                     .flex_1()
+                    .h_full()
+                    .items_center()
+                    .gap(px(metric::INLINE_GAP))
                     .min_w_0()
                     .pl(px(TAB_PADDING))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(format!("{} · {label}", index + 1))
+                    .when(focused, |body| body.child(status_dot(dot)))
+                    .child(
+                        div()
+                            .debug_selector(move || format!("shell-tab-body-{index}"))
+                            .min_w_0()
+                            .truncate()
+                            .font_weight(appearance.weight)
+                            .child(label.clone()),
+                    )
                     .when(herdr1, |body| {
                         body.on_click(cx.listener(move |this, _, window, cx| {
                             if let Err(e) =
@@ -238,13 +397,15 @@ impl Smoke {
                 tab.child(
                     div()
                         .id(("shell-tab-close", index))
+                        .role(Role::Button)
+                        .aria_label(format!("Close tab {label}"))
                         .flex_none()
                         .w(px(CLOSE_WIDTH))
                         .h(px(TAB_ROW_HEIGHT))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_color(rgb(0xacb2bb))
+                        .text_color(rgb(color::MUTED))
                         .child("×")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if let Err(e) = this.close_tab_by_id(&host, &id, &boot, generation) {
@@ -262,26 +423,157 @@ impl Smoke {
     fn pinned_button(
         &self,
         id: &'static str,
-        glyph: &'static str,
+        label: &'static str,
+        icon: Icon,
         enabled: bool,
-        qa_mark: Option<AnyElement>,
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         div()
             .id(id)
+            .role(Role::Button)
+            .aria_label(label)
+            .debug_selector(move || id.into())
             .flex_none()
             .w(px(PINNED_ACTION_WIDTH))
             .h_full()
             .flex()
             .items_center()
             .justify_center()
-            .text_color(rgb(if enabled { 0xd8dee9 } else { 0x4c566a }))
-            .child(glyph)
+            .when(
+                id == "shell-more" && self.shell.frame.overflow_open,
+                |button| button.bg(rgb(color::RAISED)),
+            )
+            .child(icon.element(if enabled {
+                color::MUTED
+            } else {
+                color::DISABLED
+            }))
             .when(enabled, |view| {
                 view.on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
             })
-            .children(qa_mark)
+            .children(
+                (id == "shell-more")
+                    .then(|| crate::qa_ax::mark(crate::qa_ax::ids::TABS_MORE, MORE_GLYPH))
+                    .flatten(),
+            )
+            .into_any_element()
+    }
+
+    fn space_switcher(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let shown = snapshot(&self.terminal.live)?;
+        let id = shown.focused_workspace_id.as_deref()?;
+        let workspace = shown.workspaces.iter().find(|w| w.workspace_id == id)?;
+        let label = workspace_name(workspace);
+        let dot = from_agent_status(workspace.agent_status).dot_color();
+        Some(
+            div()
+                .id("shell-space-switcher")
+                .debug_selector(|| "shell-space-switcher".into())
+                .relative()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(metric::INLINE_GAP))
+                .h_full()
+                .max_w(px(SPACE_SWITCHER_WIDTH))
+                .px(px(TAB_PADDING))
+                .border_r_1()
+                .border_color(rgb(color::RAISED))
+                .role(Role::Button)
+                .aria_label(format!("Switch space, {label}"))
+                .child(status_dot(dot))
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(weight::SEMIBOLD)
+                        .child(label),
+                )
+                .child(div().flex_none().text_color(rgb(color::MUTED)).child("▾"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.shell.frame.overflow_open = false;
+                    this.shell.shortcuts.space_picker_open ^= true;
+                    cx.notify();
+                }))
+                .when(self.shell.shortcuts.space_picker_open, |button| {
+                    button.child(deferred(
+                        div()
+                            .id("shell-space-picker-anchor")
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .w(px(metric::MENU_WIDTH))
+                            .child(div().h(px(TAB_ROW_HEIGHT)))
+                            .child(self.space_picker(shown, cx))
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.shell.shortcuts.space_picker_open = false;
+                                cx.notify();
+                            })),
+                    ))
+                })
+                .into_any_element(),
+        )
+    }
+
+    fn space_picker(&self, shown: &ClientShellSnapshot, cx: &mut Context<Self>) -> AnyElement {
+        let host = self.terminal.reconnect.target.clone();
+        let generation = self.terminal.link.generation;
+        div()
+            .id("shell-space-picker")
+            .debug_selector(|| "shell-space-picker".into())
+            .w_full()
+            .max_h(px(SPACE_PICKER_MAX_HEIGHT))
+            .overflow_y_scroll()
+            .occlude()
+            .rounded(px(radius::POPOVER))
+            .bg(rgb(color::RAISED))
+            .shadow(vec![shadow::POPOVER.box_shadow()])
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.shell.shortcuts.space_picker_open = false;
+                cx.notify();
+            }))
+            .children(
+                shown
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .map(|(index, workspace)| {
+                        let label = workspace_name(workspace);
+                        let host = host.clone();
+                        let boot = shown.boot_id.clone();
+                        let id = workspace.workspace_id.clone();
+                        div()
+                            .id(("shell-space-picker-row", index))
+                            .role(Role::Button)
+                            .h(px(metric::MENU_ITEM))
+                            .flex()
+                            .items_center()
+                            .gap(px(metric::INLINE_GAP))
+                            .px(px(metric::SIDE))
+                            .child(status_dot(
+                                from_agent_status(workspace.agent_status).dot_color(),
+                            ))
+                            .child(div().min_w_0().truncate().child(label))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.shell.shortcuts.space_picker_open = false;
+                                if this.terminal.reconnect.target == host
+                                    && let Err(error) = this.navigate_board(
+                                        &host,
+                                        Target::Space(id.clone()),
+                                        &boot,
+                                        generation,
+                                    )
+                                {
+                                    this.terminal.live.status = error.to_string();
+                                }
+                                window.dismiss_virtual_keyboard();
+                                cx.stop_propagation();
+                                cx.notify();
+                            }))
+                    }),
+            )
             .into_any_element()
     }
 
@@ -357,7 +649,7 @@ impl Smoke {
         terminal.navigating = Some(crate::board::Navigation {
             boot: boot.into(),
             revision,
-            target: crate::board::Target::Command,
+            target: Target::Command,
             request: request.clone(),
         });
         terminal.input.detach();

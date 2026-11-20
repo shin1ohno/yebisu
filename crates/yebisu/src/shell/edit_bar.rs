@@ -5,18 +5,20 @@
 //! is paused. Cancel ends the selection and resumes typing the same way the
 //! `Select` toggle does (`toggle_selection_inner`). The frame (L2a) places the
 //! bar and the status text; this module owns what they contain.
-use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place};
+use super::{
+    ChromeState, EntryAction, EntryPoint, Place,
+    style::{color, metric, radius, shadow, weight},
+    tab_row::icons::Icon,
+};
 use crate::app::Smoke;
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Role, Window, div, prelude::*, px, rgb};
 
 /// Status bar wording while typing is paused for a selection (design D5).
 pub(crate) const PAUSED_TYPING_STATUS: &str = "Typing is paused until you cancel the selection";
-/// Why Paste image is disabled on Herdr 2 (design D6).
-pub(crate) const HERDR2_IMAGE_REASON: &str = "Herdr 2 accepts text only";
 /// Accessibility name of the Cancel button (design canvas, Selection).
 pub(crate) const CANCEL_LABEL: &str = "Cancel selection and resume typing";
 /// Bar height, also the minimum touch target.
-pub(crate) const EDIT_BAR_HEIGHT: f32 = 44.0;
+pub(crate) const EDIT_BAR_HEIGHT: f32 = metric::TOUCH;
 
 const COPY_HINT: &str = "⌘C copies";
 const ELLIPSIS: char = '…';
@@ -25,8 +27,9 @@ const ELLIPSIS: char = '…';
 const COPY_WIDTH: f32 = 64.0;
 const PASTE_WIDTH: f32 = 68.0;
 const PASTE_IMAGE_WIDTH: f32 = 112.0;
-const DIVIDER_WIDTH: f32 = 1.0;
+// Selection.dc.html:84.
 const BAR_MARGIN: f32 = 10.0;
+const BAR_TOP: f32 = 4.0;
 
 #[derive(Debug, Default)]
 pub(crate) struct EditBarState {
@@ -72,7 +75,7 @@ impl EditBarItem {
     }
 }
 
-/// The bar's buttons: all four while selecting, none otherwise.
+/// The bar's buttons while selecting.
 pub(crate) fn edit_bar_items(selecting: bool) -> Vec<EditBarItem> {
     if selecting {
         vec![
@@ -132,7 +135,7 @@ pub(crate) fn edit_bar_fit(selecting: bool, width: f32) -> EditBarFit {
     let items = edit_bar_items(selecting);
     let needed = BAR_MARGIN * 2.0
         + items.iter().map(|item| item.width()).sum::<f32>()
-        + DIVIDER_WIDTH * items.len().saturating_sub(1) as f32;
+        + metric::LINE * items.len().saturating_sub(1) as f32;
     if width >= needed {
         return EditBarFit {
             shown: items,
@@ -145,19 +148,15 @@ pub(crate) fn edit_bar_fit(selecting: bool, width: f32) -> EditBarFit {
     EditBarFit { shown, overflow }
 }
 
-/// Entry points the bar contributes to `chrome_entry_points`: none outside a
-/// selection; Paste image is disabled with a reason on Herdr 2.
+/// The shared chrome actions available in the edit bar.
 pub(crate) fn edit_bar_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     edit_bar_items(state.selecting)
         .into_iter()
-        .map(|item| {
-            let image_blocked = item == EditBarItem::PasteImage && state.kind == HerdrKind::Herdr2;
-            EntryPoint {
-                action: item.action(),
-                place: Place::EditBar,
-                enabled: !image_blocked,
-                reason: image_blocked.then_some(HERDR2_IMAGE_REASON),
-            }
+        .map(|item| EntryPoint {
+            action: item.action(),
+            place: Place::EditBar,
+            enabled: true,
+            reason: None,
         })
         .collect()
 }
@@ -195,28 +194,12 @@ impl Smoke {
             Some(width) => edit_bar_fit(selecting, width).shown,
             None => edit_bar_items(selecting),
         };
-        let kind = if self.terminal.core_mode {
-            HerdrKind::Herdr2
-        } else {
-            HerdrKind::Herdr1
-        };
-        let mut bar = div()
-            .id("edit-bar")
-            .debug_selector(|| "edit-bar".into())
-            .absolute()
-            .left(px(BAR_MARGIN))
-            .top(px(4.0))
-            .flex()
-            .bg(rgb(0x2b2933))
-            .rounded(px(10.0))
-            .overflow_hidden()
-            .occlude();
+        let available_width = self.shell.edit_bar.available_width;
+        let mut bar = edit_bar_surface().when_some(available_width, |bar, width| {
+            bar.max_w(px((width - BAR_MARGIN * 2.).max(0.)))
+        });
         for (index, item) in items.into_iter().enumerate() {
-            if index > 0 {
-                bar = bar.child(div().w(px(DIVIDER_WIDTH)).bg(rgb(0x3b3945)));
-            }
-            let enabled = !(item == EditBarItem::PasteImage && kind == HerdrKind::Herdr2);
-            bar = bar.child(edit_bar_button(item, enabled, cx));
+            bar = bar.child(edit_bar_button(item, index > 0, cx));
         }
         Some(bar.into_any_element())
     }
@@ -244,33 +227,53 @@ impl Smoke {
     }
 }
 
-fn edit_bar_button(item: EditBarItem, enabled: bool, cx: &mut Context<Smoke>) -> AnyElement {
+fn edit_bar_surface() -> gpui::Stateful<gpui::Div> {
+    div()
+        .id("edit-bar")
+        .debug_selector(|| "edit-bar".into())
+        .absolute()
+        .left(px(BAR_MARGIN))
+        .top(px(BAR_TOP))
+        .flex()
+        .bg(rgb(color::RAISED))
+        .rounded(px(radius::EDIT_BAR))
+        .shadow(vec![shadow::EDIT_BAR.box_shadow()])
+        .font_weight(weight::MEDIUM)
+        .overflow_hidden()
+        .occlude()
+}
+
+fn edit_bar_button(item: EditBarItem, divider: bool, cx: &mut Context<Smoke>) -> AnyElement {
     let id = match item {
         EditBarItem::Copy => "edit-bar-copy",
         EditBarItem::Paste => "edit-bar-paste",
         EditBarItem::PasteImage => "edit-bar-paste-image",
         EditBarItem::Cancel => "edit-bar-cancel",
     };
-    let (label, width) = match item {
-        EditBarItem::Cancel => ("×", Some(EDIT_BAR_HEIGHT)),
-        other => (other.label(), None),
-    };
-    let button = div()
+    let is_cancel = item == EditBarItem::Cancel;
+    div()
         .id(id)
+        .role(Role::Button)
+        .aria_label(item.label())
+        .debug_selector(move || id.into())
         .h(px(EDIT_BAR_HEIGHT))
         .flex()
+        .flex_none()
         .items_center()
         .justify_center()
-        .text_color(rgb(0xd8dee9))
-        .map(|button| match width {
-            Some(width) => button.w(px(width)),
-            None => button.px(px(16.0)),
+        .text_color(rgb(color::TEXT))
+        .when(divider, |button| {
+            button.border_l_1().border_color(rgb(color::SEPARATOR))
         })
-        .child(label);
-    if !enabled {
-        return button.opacity(0.4).into_any_element();
-    }
-    button
+        .map(|button| {
+            if is_cancel {
+                button
+                    .w(px(EDIT_BAR_HEIGHT))
+                    .child(Icon::Cancel.element(color::TEXT))
+            } else {
+                button.px(px(metric::SIDE)).child(item.label())
+            }
+        })
         .on_click(cx.listener(move |this, _, window, cx| {
             match item {
                 EditBarItem::Copy => this.copy_selection(cx),

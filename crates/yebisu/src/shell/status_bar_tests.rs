@@ -50,7 +50,7 @@ fn hidden_sidebar_offers_show_in_status_bar() {
         ..shown
     };
     assert!(status_bar_model(&hidden, "h").show_sidebar_hint);
-    assert_eq!(SHOW_SIDEBAR, "Show sidebar ⌘B");
+    assert_eq!(SHOW_SIDEBAR, "Expand sidebar ⌘B");
     // Integration 2 (L4 review F1): no Show sidebar while the width forces
     // the rail; pressing it could not show the sidebar.
     let forced = ChromeState {
@@ -77,5 +77,33 @@ fn status_bar_carries_terminal_status_text() {
     assert_eq!(
         status_detail(&model, "Version mismatch:\nold").as_deref(),
         Some("Version mismatch: old")
+    );
+}
+
+#[test]
+fn status_bar_shows_the_display_name_and_icons() {
+    let model = status_bar_model(&state(HerdrKind::Herdr1, true), "dev@pro-dev.example.com");
+    assert_eq!(status_line(&model), "pro-dev · Herdr 1 · Connected");
+    assert_eq!(model.accessibility_label, "pro-dev, Herdr 1, Connected");
+    assert_eq!(
+        status_bar_model(&state(HerdrKind::Herdr2, true), "192.0.2.8").connection,
+        "192.0.2.8"
+    );
+    assert_eq!(Icon::Keyboard.size(), (18., 18.));
+}
+
+#[test]
+fn selection_status_counts_characters_and_names_copy() {
+    let model = status_bar_model(
+        &ChromeState {
+            selecting: true,
+            ..state(HerdrKind::Herdr1, true)
+        },
+        "pro-dev",
+    );
+    assert_eq!(status_line(&model), "pro-dev · Herdr 1 · Connected");
+    assert_eq!(
+        crate::shell::edit_bar::selection_status_line(7, usize::MAX),
+        "Selected 7 characters · ⌘C copies · Typing is paused until you cancel the selection"
     );
 }

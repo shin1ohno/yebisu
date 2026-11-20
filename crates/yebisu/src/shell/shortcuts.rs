@@ -84,9 +84,78 @@ pub(crate) fn grouped(
         .collect()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PopoverAction {
+    Catalog(Command),
+    Focus(ShortcutGroup),
+    Copy,
+    Paste,
+}
+
+fn is_grouped_focus(command: Command) -> bool {
+    matches!(
+        command,
+        Command::TabNumber(_)
+            | Command::FocusLeft
+            | Command::FocusRight
+            | Command::FocusUp
+            | Command::FocusDown
+    )
+}
+
+fn canvas_rows(
+    group: ShortcutGroup,
+    rows: Vec<(Command, ShortcutRow)>,
+    expanded: bool,
+) -> Vec<(PopoverAction, ShortcutRow)> {
+    let mut shown = Vec::new();
+    let mut focus_inserted = false;
+    let focus_enabled = rows
+        .iter()
+        .any(|(command, row)| is_grouped_focus(*command) && row.enabled);
+    for (command, row) in rows {
+        if group == ShortcutGroup::App
+            && !matches!(command, Command::ToggleSidebar | Command::Palette)
+        {
+            continue;
+        }
+        if is_grouped_focus(command) {
+            if !focus_inserted {
+                let (label, keys) = if group == ShortcutGroup::Tabs {
+                    ("Focus Tab 1–9", "⌘1 … ⌘9")
+                } else {
+                    ("Focus Left · Right · Up · Down", "⌥⌘←→↑↓")
+                };
+                shown.push((
+                    PopoverAction::Focus(group),
+                    ShortcutRow {
+                        label: label.into(),
+                        keys: keys.into(),
+                        enabled: focus_enabled,
+                    },
+                ));
+                focus_inserted = true;
+            }
+            if !expanded {
+                continue;
+            }
+        }
+        shown.push((PopoverAction::Catalog(command), row));
+    }
+    shown
+}
+
+fn show_hold_hint(hardware_keyboard: bool) -> Option<&'static str> {
+    hardware_keyboard.then_some(view::HINT)
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ShortcutsState {
     pub(crate) open: bool,
+    /// Transient popovers opened by the tab row and the status bar.
+    pub(super) space_picker_open: bool,
+    pub(super) status_detail_open: bool,
+    expanded: Option<ShortcutGroup>,
     /// The host the last Host › Edit pick asked to edit (L7 reads it).
     pub(crate) edit_host: Option<String>,
 }
@@ -297,6 +366,7 @@ impl Smoke {
     /// the terminal are lost (Integration 2 review adf0 SF1).
     pub(crate) fn close_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.shell.shortcuts.open = false;
+        self.shell.shortcuts.expanded = None;
         self.refresh_terminal_input();
         if self.terminal.open && self.terminal.input.ready {
             self.terminal_focus.focus(window, cx);
