@@ -96,6 +96,27 @@ class SdkMetadataTests(unittest.TestCase):
                 self.assertEqual(metadata["DTXcode"], expected)
                 self.assertEqual(metadata["DTXcodeBuild"], build)
 
+    def test_xcode_version_forms_and_build_formats(self):
+        # Builds as listed by xcodereleases.com/data.json; "Xcode N" is accepted although recent
+        # releases print "N.0".
+        for first, build, expected in [("Xcode 27", "27A266a", "2700"), ("Xcode 27.0", "27A266a", "2700"),
+                                       ("Xcode 27.2.1", "27B52", "2721"), ("Xcode 16.4", "16F6", "1640"),
+                                       ("Xcode 14.3.1", "14E300c", "1431"), ("Xcode 26.4.1", "17E202", "2641")]:
+            tools = Tools(self.app, {("xcodebuild", "-version"): f"{first}\nBuild version {build}\n"})
+            with self.subTest(first=first), patch.object(subprocess, "run", side_effect=tools):
+                metadata = d.sdk_metadata()
+                self.assertEqual((metadata["DTXcode"], metadata["DTXcodeBuild"]), (expected, build))
+
+    def test_unrecognised_xcode_version_lines_fail_closed(self):
+        # No Xcode release has a two-digit minor or patch, and a beta suffix is not known to be printed.
+        for first, build in [("Xcode 27.10", "27B52"), ("Xcode 27.2.10", "27B52"), ("Xcode 27.2 Beta", "27B52"),
+                             ("Xcode 27.", "27B52"), ("Xcode", "27B52"), ("Xcode 270.1", "27B52"),
+                             ("Xcode 27.2.1.1", "27B52"), ("Xcode 27.2", "27B"), ("Xcode 27.2", "B52")]:
+            tools = Tools(self.app, {("xcodebuild", "-version"): f"{first}\nBuild version {build}\n"})
+            with self.subTest(first=first, build=build), patch.object(subprocess, "run", side_effect=tools):
+                with self.assertRaisesRegex(ValueError, "xcodebuild -version printed an unexpected value"):
+                    d.sdk_metadata()
+
     def test_probe_failure_or_unexpected_output_stops_before_the_build(self):
         unexpected = {("xcrun", "--sdk", "iphoneos", "--show-sdk-version"): f"{SENTINEL}\n",
                       ("xcrun", "--sdk", "iphoneos", "--show-sdk-build-version"): f"{SENTINEL}\n",
@@ -143,6 +164,24 @@ class StoreMetadataRefusalTests(unittest.TestCase):
     def test_complete_metadata_passes_in_either_capability_form(self):
         d.require_store_metadata(self.info)
         d.require_store_metadata(dict(self.info, UIRequiredDeviceCapabilities={"arm64": True}))
+
+    def test_refusal_names_the_keys_and_never_their_values(self):
+        for name, info, keys in [
+                ("missing", {k: v for k, v in self.info.items() if k not in ("DTXcode", "DTSDKName")},
+                 ["DTSDKName", "DTXcode"]),
+                ("platform", dict(self.info, DTPlatformName="iphonesimulator"), ["DTPlatformName"]),
+                ("sdk", dict(self.info, DTSDKName="iphoneos0.0"), ["DTSDKName"]),
+                ("xcode", dict(self.info, DTXcode="272"), ["DTXcode"]),
+                ("several", dict(self.info, DTPlatformName="x", DTXcode="y"), ["DTPlatformName", "DTXcode"]),
+                ("capabilities", dict(self.info, UIRequiredDeviceCapabilities=["armv7"]),
+                 ["UIRequiredDeviceCapabilities"])]:
+            with self.subTest(name), self.assertRaises(ValueError) as caught:
+                d.require_store_metadata(info)
+            message = str(caught.exception)
+            for key in keys:
+                self.assertIn(key, message)
+            for value in ("iphonesimulator", "iphoneos0.0", "272", "armv7"):
+                self.assertNotIn(value, message)
 
     def test_package_refuses_before_signing(self):
         app = self.root / "fixture.app"

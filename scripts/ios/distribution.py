@@ -192,7 +192,10 @@ SDK_KEYS = ("BuildMachineOSBuild", "DTCompiler", "DTPlatformBuild", "DTPlatformN
             "DTPlatformVersion", "DTSDKBuild", "DTSDKName", "DTXcode", "DTXcodeBuild")
 APPLE_BUILD = r"[0-9]{1,3}[A-Z][0-9]{1,6}[a-z]?"
 SDK_VERSION = r"[0-9]{1,3}\.[0-9]{1,2}(?:\.[0-9]{1,2})?"
-XCODE_VERSION = rf"Xcode ([0-9]{{1,2}})\.([0-9])(?:\.([0-9]))?\nBuild version ({APPLE_BUILD})"
+# Xcode prints "Xcode 27", "Xcode 27.2" or "Xcode 27.2.1". A minor or patch of two digits has
+# never shipped (none of the 127 releases listed by xcodereleases.com has one), and DTXcode's
+# packing has no digit for it, so it fails closed rather than guessing.
+XCODE_VERSION = rf"Xcode ([0-9]{{1,2}})(?:\.([0-9])(?:\.([0-9]))?)?\nBuild version ({APPLE_BUILD})"
 
 
 def probe(argv, pattern):
@@ -218,7 +221,7 @@ def sdk_metadata():
     return {"BuildMachineOSBuild": machine, "DTCompiler": "com.apple.compilers.llvm.clang.1_0",
             "DTPlatformBuild": sdk_build, "DTPlatformName": "iphoneos", "DTPlatformVersion": sdk,
             "DTSDKBuild": sdk_build, "DTSDKName": "iphoneos" + sdk,
-            "DTXcode": f"{int(major):02d}{minor}{patch or 0}", "DTXcodeBuild": xcode_build}
+            "DTXcode": f"{int(major):02d}{minor or 0}{patch or 0}", "DTXcodeBuild": xcode_build}
 
 
 def require_store_metadata(info):
@@ -226,9 +229,13 @@ def require_store_metadata(info):
     missing = [key for key in SDK_KEYS if not isinstance(info.get(key), str) or not info[key]]
     if missing:
         raise ValueError("bundle lacks Xcode SDK keys App Store Connect requires: " + ", ".join(missing))
-    if (info["DTPlatformName"] != "iphoneos" or info["DTSDKName"] != "iphoneos" + info["DTPlatformVersion"]
-            or not re.fullmatch(r"[0-9]{4}", info["DTXcode"])):
-        raise ValueError("bundle Xcode SDK keys do not describe an iphoneos build")
+    # Key names only: a refusal says which key to look at, never what it held.
+    wrong = [key for key, ok in (("DTPlatformName", info["DTPlatformName"] == "iphoneos"),
+                                 ("DTSDKName", info["DTSDKName"] == "iphoneos" + info["DTPlatformVersion"]),
+                                 ("DTXcode", re.fullmatch(r"[0-9]{4}", info["DTXcode"]) is not None))
+             if not ok]
+    if wrong:
+        raise ValueError("bundle Xcode SDK keys do not describe an iphoneos build: " + ", ".join(wrong))
     capabilities = info.get("UIRequiredDeviceCapabilities")
     if not (isinstance(capabilities, list) and "arm64" in capabilities
             or isinstance(capabilities, dict) and capabilities.get("arm64") is True):
