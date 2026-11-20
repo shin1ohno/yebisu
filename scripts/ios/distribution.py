@@ -321,6 +321,8 @@ def package(args):
             identity = next((item for item in helper.parse_identities(identities) if item in allowed), None)
             if identity is None:
                 raise ValueError("dedicated keychain has no identity matching the profile")
+            # --keychain selects the identity; certificate-chain lookup still uses the search list.
+            shown(["security", "list-keychains", "-d", "user", "-s", str(keychain), *search_list], secrets)
             shown(["codesign", "--force", "--keychain", str(keychain), "--sign", identity,
                    "--entitlements", str(ent), "--timestamp=none", str(staged)], secrets)
             shown(["codesign", "--verify", "--strict", str(staged)], secrets)

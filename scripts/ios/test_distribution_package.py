@@ -7,6 +7,7 @@ import io
 import os
 from pathlib import Path
 import plistlib
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -47,6 +48,7 @@ class PackageTests(unittest.TestCase):
         self.helper.parse_identities.return_value = ["fixture-identity"]
         self.args = argparse.Namespace(app=self.app, output=self.root / "output.ipa",
                                         build_number="2", method="testflight")
+        self.search_list = ["/fixture/login keychain-db", "/fixture/other.keychain-db"]
         self.calls = []
         self.failing = None
         self.collide = False
@@ -57,7 +59,7 @@ class PackageTests(unittest.TestCase):
         if argv[0] == "codesign" and "--verify" in argv:
             label = "verify"
         if argv[0] == "security" and argv[1] == "list-keychains" and "-s" in argv:
-            label = "restore-list"
+            label = "restore-list" if argv[5:] == self.search_list else "set-list"
         if label == self.failing:
             raise subprocess.CalledProcessError(1, argv)
         if argv[0] == "codesign" and "--sign" in argv:
@@ -72,7 +74,7 @@ class PackageTests(unittest.TestCase):
                         archive.write(file, file.relative_to(Path(argv[-2]).parent))
             if self.collide:
                 self.args.output.write_bytes(b"other writer's output")
-        return subprocess.CompletedProcess(argv, 0, stdout='"/fixture/login keychain-db"\n')
+        return subprocess.CompletedProcess(argv, 0, stdout=shlex.join(self.search_list))
 
     def package(self):
         with patch.dict(os.environ, dict(IOS_P12_FILE=str(self.secret),
@@ -83,7 +85,7 @@ class PackageTests(unittest.TestCase):
 
     def assert_cleanup(self):
         self.assertEqual(self.calls[-2][:2], ["security", "delete-keychain"])
-        self.assertEqual(self.calls[-1], ["security", "list-keychains", "-d", "user", "-s", "/fixture/login keychain-db"])
+        self.assertEqual(self.calls[-1], ["security", "list-keychains", "-d", "user", "-s", *self.search_list])
         self.assertFalse(list(self.root.glob("yebisu-ci-sign-*")))
 
     def test_success_stages_every_change_and_publishes_after_cleanup(self):
@@ -94,6 +96,18 @@ class PackageTests(unittest.TestCase):
         with zipfile.ZipFile(self.args.output) as archive:
             self.assertIn("Payload/frozen-input.app/Assets.car", archive.namelist())
         self.assertEqual(self.args.output.stat().st_mode & 0o777, 0o600)
+        self.assert_cleanup()
+
+    def test_signing_uses_unlocked_keychain_at_front_of_search_list(self):
+        self.package()
+        unlock = next(argv for argv in self.calls if argv[:2] == ["security", "unlock-keychain"])
+        keychain = unlock[-1]
+        sign = next(argv for argv in self.calls if argv[0] == "codesign" and "--sign" in argv)
+        register = ["security", "list-keychains", "-d", "user", "-s", keychain, *self.search_list]
+        self.assertIn(register, [argv for argv in self.calls if argv[:2] == ["security", "list-keychains"]])
+        self.assertLess(self.calls.index(unlock), self.calls.index(register))
+        self.assertLess(self.calls.index(register), self.calls.index(sign))
+        self.assertEqual(sign[sign.index("--keychain") + 1], keychain)
         self.assert_cleanup()
 
     def test_iconless_bundle_is_rejected_before_signing(self):
@@ -116,7 +130,8 @@ class PackageTests(unittest.TestCase):
     def test_failures_cleanup_and_do_not_publish_or_modify_source(self):
         original = snapshot(self.app)
         for label in ["create-keychain", "unlock-keychain", "import", "set-key-partition-list",
-                      "find-identity", "codesign", "verify", "ditto", "delete-keychain", "restore-list"]:
+                      "find-identity", "set-list", "codesign", "verify", "ditto", "delete-keychain",
+                      "restore-list"]:
             with self.subTest(stage=label):
                 self.calls = []
                 self.failing = label
