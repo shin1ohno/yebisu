@@ -77,12 +77,7 @@ impl PollPlan {
                 Some(Box::new(move || {
                     // A failed list only skips this poll; the worker's own
                     // reads end the connection when the link is gone.
-                    backend.core().list(false).ok().map(|list| {
-                        list.terminals
-                            .iter()
-                            .map(crate::shell::herdr2_frame::core_status)
-                            .collect()
-                    })
+                    backend.statuses().ok()
                 }))
             }
             #[cfg(test)]

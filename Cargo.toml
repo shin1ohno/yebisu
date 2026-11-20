@@ -12,13 +12,13 @@ version = "0.1.0"
 base64 = "0.23.1"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "99d792815864a6dde4cca23b6fad5166327cf319" }
-"herdr-ssh" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-credentials" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-commands" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
-"sheprd-i18n" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "f63688b758eb6da9769225d088846235a5742ec5" }
+"herdr-ssh" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-credentials" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-commands" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
+"sheprd-i18n" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "9327f4482faeb0b9ccfb086c912a300a98ebad61" }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 serde_json = "1"
 unicode-width = "0.2"

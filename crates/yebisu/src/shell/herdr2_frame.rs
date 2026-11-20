@@ -13,7 +13,7 @@ use super::{
     sidebar_status::SidebarStatus,
 };
 use crate::{app::Smoke, notifications::Context, terminal_view::TerminalView};
-use sheprd_core_client::wire::{Status, StatusState, Terminal};
+use sheprd_core_client::wire::StatusState;
 
 pub(crate) mod panes;
 pub(crate) mod session;
@@ -54,24 +54,10 @@ impl ConnectionKey {
     }
 }
 
-/// F1's `sheprd_core_client::CoreStatus` (herdr-gpui 1e105efa, merged in
-/// 9327f448): the terminal address and its status as herdr-core reported
-/// it. The pinned rev f63688b predates F1, so this has the same fields until
-/// the rev bump (integrator patch) replaces it with
-/// `pub(crate) use sheprd_core_client::CoreStatus;`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CoreStatus {
-    pub(crate) address: String,
-    pub(crate) status: Option<Status>,
-}
-
-/// A listed terminal's raw status (F1's `From<&Terminal>`).
-pub(crate) fn core_status(terminal: &Terminal) -> CoreStatus {
-    CoreStatus {
-        address: terminal.address.clone(),
-        status: terminal.status.clone(),
-    }
-}
+/// F1: a terminal's address and its status as herdr-core reported it
+/// (herdr-gpui 1e105efaf, in the pinned 9327f448). `CoreStatus::from(&Terminal)`
+/// reads a listed terminal; `CoreBackend::statuses` lists them all.
+pub(crate) use sheprd_core_client::CoreStatus;
 
 /// F1's raw status to the sidebar's seven states. A terminal that reported
 /// nothing (or is not listed) is NoStatus, never Unknown (F1
