@@ -16,13 +16,100 @@ fn status_dots_follow_the_sidebar_spec_legend() {
         (SidebarStatus::NoStatus, 0x4c566a),
     ];
     for (status, canvas) in legend {
-        assert_eq!(status.color(), canvas, "{status:?}");
+        assert_eq!(status.dot_color(), canvas, "{status:?}");
     }
     let mut covered = legend.map(|(status, _)| status).to_vec();
     covered.sort();
     assert_eq!(covered, SidebarStatus::ALL);
     // The pre-Wave 0a swap: Working was the accent and Idle grey.
-    assert_ne!(SidebarStatus::Working.color(), SidebarStatus::Idle.color());
+    assert_ne!(
+        SidebarStatus::Working.dot_color(),
+        SidebarStatus::Idle.dot_color()
+    );
+}
+
+#[test]
+fn status_words_keep_their_colours_while_the_dots_change() {
+    // Wave 0a recolours dots only. The AGENTS status word keeps the colour it
+    // had before (Herdr 1 `sidebar/view.rs` and Herdr 2
+    // `herdr2_frame/sidebar.rs` both draw `label_color`) until stream A
+    // restyles it per Main.dc.html:94, :101, :108.
+    let words = [
+        (SidebarStatus::NeedsYou, 0xbf616a),
+        (SidebarStatus::Error, 0xbf616a),
+        (SidebarStatus::Working, 0x88c0d0),
+        (SidebarStatus::Done, 0xa3be8c),
+        (SidebarStatus::Idle, 0x9ca3af),
+        (SidebarStatus::Unknown, 0xb48ead),
+        (SidebarStatus::NoStatus, 0x6b7280),
+    ];
+    for (status, before) in words {
+        assert_eq!(status.label_color(), before, "{status:?}");
+    }
+    let mut covered = words.map(|(status, _)| status).to_vec();
+    covered.sort();
+    assert_eq!(covered, SidebarStatus::ALL);
+    // The two palettes differ where the review saw the dot colour leak into
+    // the word: Unknown's slate dot, Working's yellow dot, Idle's accent dot.
+    for status in [
+        SidebarStatus::Unknown,
+        SidebarStatus::Working,
+        SidebarStatus::Idle,
+    ] {
+        assert_ne!(status.label_color(), status.dot_color(), "{status:?}");
+    }
+}
+
+#[test]
+fn no_agent_status_word_loses_contrast_on_the_sidebar() {
+    // The sidebar background (`shell/frame.rs` `.bg(rgb(0x16161b))`).
+    const SIDEBAR: u32 = 0x16161b;
+    // Contrast before Wave 0a, per word, in hundredths (WCAG 2 ratio).
+    let before = [
+        (SidebarStatus::NeedsYou, 441),
+        (SidebarStatus::Error, 441),
+        (SidebarStatus::Working, 901),
+        (SidebarStatus::Done, 884),
+        (SidebarStatus::Idle, 710),
+        (SidebarStatus::Unknown, 636),
+    ];
+    for (status, hundredths) in before {
+        assert!(status.is_agent());
+        let ratio = contrast(status.label_color(), SIDEBAR);
+        assert!(
+            (ratio * 100.0).round() >= f64::from(hundredths),
+            "{status:?}: {ratio:.2}:1"
+        );
+        // The calm words already pass 4.5:1; the red Needs you / Error word
+        // (4.41:1) is unchanged here and becomes the canvas's #ebcb8b /
+        // #acb2bb in stream A.
+        if !matches!(status, SidebarStatus::NeedsYou | SidebarStatus::Error) {
+            assert!(ratio >= 4.5, "{status:?}: {ratio:.2}:1");
+        }
+    }
+    // The slate dot colour as a word would fail: the regression this guards.
+    assert!(contrast(SidebarStatus::Unknown.dot_color(), SIDEBAR) < 4.5);
+    // Stream A's canvas words pass on the same background.
+    for canvas in [0xebcb8b, 0xacb2bb] {
+        assert!(contrast(canvas, SIDEBAR) >= 4.5, "{canvas:06x}");
+    }
+}
+
+/// WCAG 2 contrast ratio of two `0xRRGGBB` colours.
+fn contrast(a: u32, b: u32) -> f64 {
+    fn luminance(rgb: u32) -> f64 {
+        let channel = |shift: u32| {
+            let c = f64::from((rgb >> shift) & 0xff) / 255.0;
+            if c <= 0.03928 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
 #[test]

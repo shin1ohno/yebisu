@@ -64,14 +64,32 @@ impl SidebarStatus {
     /// Error, yellow Working, green Done, the accent for Idle, and slate for
     /// no agent and no status. The legend has no Unknown; it is slate too
     /// (Wave 0a brief), so an agent with an unknown state looks like no
-    /// status, and its row text tells them apart.
-    pub(crate) const fn color(self) -> u32 {
+    /// status, and its row text tells them apart. Dots only: the status word
+    /// next to an agent takes [`Self::label_color`].
+    pub(crate) const fn dot_color(self) -> u32 {
         match self {
             Self::NeedsYou | Self::Error => color::RED,
             Self::Working => color::YELLOW,
             Self::Done => color::GREEN,
             Self::Idle => color::ACCENT,
             Self::Unknown | Self::NoStatus => color::SLATE,
+        }
+    }
+
+    /// The status word's colour on an AGENTS row (Herdr 1 and Herdr 2).
+    /// Wave 0a recolours the dots only, so the words keep the colours they
+    /// had before it; stream A restyles them to the canvas (Main.dc.html:94,
+    /// :101, :108: a bold `#ebcb8b` Needs you, every other word `#acb2bb`).
+    /// The dot palette must not leak here: its slate Unknown would draw the
+    /// word at 2.44:1 on the sidebar, below the 4.5:1 text minimum.
+    pub(crate) const fn label_color(self) -> u32 {
+        match self {
+            Self::NeedsYou | Self::Error => 0xbf616a,
+            Self::Working => 0x88c0d0,
+            Self::Done => 0xa3be8c,
+            Self::Idle => 0x9ca3af,
+            Self::Unknown => 0xb48ead,
+            Self::NoStatus => 0x6b7280,
         }
     }
 }

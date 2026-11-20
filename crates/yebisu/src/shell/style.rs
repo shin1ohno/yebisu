@@ -46,11 +46,13 @@ pub(crate) mod color {
     pub(crate) const ACCENT: u32 = 0x88c0d0;
     /// Done, and a connected host (SidebarSpec.dc.html:38; Main.dc.html:39).
     pub(crate) const GREEN: u32 = 0xa3be8c;
-    /// Working, the Needs you badge, and a connecting host's ring
-    /// (SidebarSpec.dc.html:38; Main.dc.html:63; SidebarMixed.dc.html:63).
+    /// Working, the Needs you badge and the AGENTS row's bold Needs you
+    /// word, and a connecting host's ring (SidebarSpec.dc.html:38;
+    /// Main.dc.html:63, :94; SidebarMixed.dc.html:63).
     pub(crate) const YELLOW: u32 = 0xebcb8b;
-    /// Needs you and Error dots, the Error tag and the Needs you status word
-    /// (SidebarSpec.dc.html:38; ModsMax.dc.html:82).
+    /// Needs you and Error dots and the Mods Error tag (SidebarSpec.dc.html:38;
+    /// Main.dc.html:92; ModsMax.dc.html:82). The AGENTS row's Needs you word
+    /// is [`YELLOW`], not red (Main.dc.html:94).
     pub(crate) const RED: u32 = 0xbf616a;
     /// No agent and no status, an unfocused pane's border, the Mods count
     /// badge (SidebarSpec.dc.html:38; Herdr2.dc.html:96; ModsMax.dc.html:192).
