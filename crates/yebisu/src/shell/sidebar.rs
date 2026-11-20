@@ -4,11 +4,20 @@
 //! and the receive-order memory. `model` builds host, space and agent rows
 //! from daemon snapshots; `target` resolves notification targets by
 //! identity; `view` draws the rows and routes taps.
-use super::{HerdrKind, sidebar_status::SidebarStatus};
-use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
+use super::{
+    HerdrKind,
+    sidebar_status::{AgentGroup, SidebarStatus},
+};
+use std::{
+    cell::RefCell,
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
 
+pub(crate) mod icons;
 pub(crate) mod long_press;
 pub(crate) mod model;
+mod pins;
 pub(crate) mod target;
 pub(crate) mod view;
 
@@ -37,6 +46,11 @@ pub(crate) struct SidebarState {
     /// The open long-press menu of a host or space row (L6, Q8).
     pub(crate) long_press: Option<long_press::LongPressMenu>,
     order: RefCell<ReceiveOrder>,
+    collapsed_hosts: BTreeSet<String>,
+    selected_host: String,
+    pins: RefCell<pins::Pins>,
+    pin_store: pins::Store,
+    agent_menu: Option<long_press::AgentMenu>,
 }
 
 #[derive(Debug, Default)]
@@ -64,6 +78,40 @@ pub(crate) struct Observed {
 }
 
 impl SidebarState {
+    pub(super) fn host_collapsed(&self, host: &str) -> bool {
+        self.collapsed_hosts.contains(host)
+    }
+
+    pub(super) fn toggle_host(&mut self, host: &str) {
+        if !self.collapsed_hosts.remove(host) {
+            self.collapsed_hosts.insert(host.to_owned());
+        }
+    }
+
+    pub(super) fn reveal_host(&mut self, host: &str) {
+        self.collapsed_hosts.remove(host);
+    }
+
+    pub(super) fn notice_selected_host(&mut self, host: &str) {
+        if self.selected_host != host {
+            self.selected_host = host.to_owned();
+            self.reveal_host(host);
+        }
+    }
+
+    pub(super) fn sidebar_row_height(&self, base: f32) -> f32 {
+        use crate::settings::sidebar_density::SidebarDensity;
+        // SidebarSpec.dc.html:27–30 defines Dense. Roomy adds one 8 pt gap.
+        match self.density {
+            SidebarDensity::Dense => row_height(base, 1.),
+            SidebarDensity::Roomy => row_height(base, 1.) + super::style::metric::INLINE_GAP,
+        }
+    }
+
+    pub(crate) fn is_agent_pinned(&self, id: &AgentIdentity, boot: &str) -> bool {
+        self.pins.borrow().index(id, boot).is_some()
+    }
+
     /// Records one snapshot of a connection (see `ReceiveOrder::observe`).
     pub(crate) fn observe(&self, host: &str, kind: HerdrKind, boot: &str, agents: &[Observed]) {
         if let Ok(mut order) = self.order.try_borrow_mut() {
@@ -163,7 +211,7 @@ pub(crate) struct AgentRow {
 /// AGENTS order: status (Q5), then newest received first; a first batch
 /// (equal receive numbers) by host, then name.
 pub(crate) fn agent_order(a: &AgentRow, b: &AgentRow) -> Ordering {
-    agent_order_in(a, b, &|_| 0)
+    agent_order_in(a, b, &|_| 0, None, None)
 }
 
 /// `agent_order` with the hosts ranked by `host_rank` (the saved Hosts
@@ -172,10 +220,24 @@ pub(crate) fn agent_order_in(
     a: &AgentRow,
     b: &AgentRow,
     host_rank: &dyn Fn(&AgentIdentity) -> usize,
+    a_pin: Option<usize>,
+    b_pin: Option<usize>,
 ) -> Ordering {
-    a.status
-        .rank()
-        .cmp(&b.status.rank())
+    let a_group = AgentGroup::of(a.status, a_pin.is_some());
+    let b_group = AgentGroup::of(b.status, b_pin.is_some());
+    let group_order = if a_pin.is_none() && b_pin.is_none() {
+        a.status.rank().cmp(&b.status.rank())
+    } else {
+        a_group.cmp(&b_group)
+    };
+    group_order
+        .then_with(|| {
+            if a_group == AgentGroup::Pinned && b_group == AgentGroup::Pinned {
+                a_pin.cmp(&b_pin)
+            } else {
+                Ordering::Equal
+            }
+        })
         .then_with(|| b.received.cmp(&a.received))
         .then_with(|| host_rank(&a.identity).cmp(&host_rank(&b.identity)))
         .then_with(|| a.identity.host.cmp(&b.identity.host))
@@ -221,7 +283,7 @@ pub(crate) fn accessibility_name(row: &AgentRow) -> String {
         row.status.label(),
         row.tab,
         row.identity.pane,
-        row.identity.host
+        crate::hosts::HostName::new(&row.identity.host)
     )
 }
 

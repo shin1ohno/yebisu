@@ -6,15 +6,12 @@
 //! bar). L0 `layout::compute` decides every size; the frame only places the
 //! slots in that order. The legacy toolbar and bands stay inside the
 //! terminal body until L2b retires them (plan v2 5.1 rule 1).
-use super::{ChromeState, HerdrKind, fit, rail::SidebarMode};
+use super::{ChromeState, HerdrKind, fit, rail::SidebarMode, style::color};
 use crate::{
     app::Smoke,
     layout::{self, ControlsReach, Insets, Layout, RULE, Rect, Size},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
-
-/// Sidebar header text and its toggle (plan v2 5.2: SHD).
-pub(crate) const HIDE_SIDEBAR: &str = "Hide sidebar";
 
 /// L2a's view state.
 #[derive(Debug, Default)]
@@ -301,33 +298,8 @@ impl Smoke {
                 .w(px(layout.sidebar.width))
                 .flex()
                 .flex_col()
-                .bg(rgb(0x16161b))
-                .child(
-                    div()
-                        .flex_none()
-                        .h(px(layout::SIDEBAR_HEADER_HEIGHT))
-                        .flex()
-                        .items_center()
-                        // The window controls sit at the header's left.
-                        .pl(px(layout.controls.header_leading))
-                        .pr(px(layout::SIDEBAR_HEADER_PADDING))
-                        // L4: the filter field takes the header's free width.
-                        .child(self.render_filter_field())
-                        .child(
-                            div()
-                                .id("shell-sidebar-toggle")
-                                .h_full()
-                                .flex()
-                                .items_center()
-                                .px_2()
-                                .text_color(rgb(0xacb2bb))
-                                .child(HIDE_SIDEBAR)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_sidebar();
-                                    cx.notify();
-                                })),
-                        ),
-                )
+                .bg(rgb(color::SURFACE))
+                .child(self.render_sidebar_header(layout.controls.header_leading, cx))
                 .child(
                     div()
                         .id("shell-sidebar-list")

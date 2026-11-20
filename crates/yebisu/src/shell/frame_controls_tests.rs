@@ -16,7 +16,7 @@
 use super::{fit::controls_reach, overlay_tests::terminal};
 use crate::{
     app::Smoke,
-    layout::{ControlsClearance, ControlsReach, SIDEBAR_HEADER_HEIGHT, SIDEBAR_HEADER_PADDING},
+    layout::{ControlsClearance, ControlsReach, SIDEBAR_HEADER_HEIGHT},
     observation::Observation,
     shell::{
         rail::RAIL_HEADER_HEIGHT,
@@ -129,12 +129,12 @@ fn rail_first_item_starts_under_the_window_controls(cx: &mut TestAppContext) {
 #[gpui::test]
 fn full_sidebar_header_starts_past_the_window_controls(cx: &mut TestAppContext) {
     let (view, cx) = terminal(cx);
-    let field = "sidebar-filter-unavailable";
+    let field = "shell-sidebar-toggle";
     let none = painted(&view, cx, NONE, false, field);
     assert_eq!(
         none.origin.x,
-        px(SIDEBAR_HEADER_PADDING),
-        "positive control: without controls the header keeps its 12 pt padding"
+        px(8.),
+        "positive control: without controls the header keeps its 8 pt canvas padding"
     );
     let full_screen = painted(&view, cx, FULL_SCREEN, false, field);
     assert_eq!(
@@ -178,16 +178,10 @@ fn tab_row_pinned_buttons_clear_window_controls_on_the_right(cx: &mut TestAppCon
             "rail {rail}: the buttons keep their size"
         );
     }
-    let field = painted(
-        &view,
-        cx,
-        CONTROLS_RIGHT,
-        false,
-        "sidebar-filter-unavailable",
-    );
+    let field = painted(&view, cx, CONTROLS_RIGHT, false, "shell-sidebar-toggle");
     assert_eq!(
         field.origin.x,
-        px(SIDEBAR_HEADER_PADDING),
+        px(8.),
         "controls on the right leave the sidebar header alone"
     );
 }
@@ -316,8 +310,8 @@ fn a_native_only_change_redraws_at_the_same_size(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_resize_lays_out_with_the_current_reach(cx: &mut TestAppContext) {
     let (view, cx) = terminal(cx);
-    let wide = painted(&view, cx, NONE, false, "sidebar-filter-unavailable");
-    assert_eq!(wide.origin.x, px(SIDEBAR_HEADER_PADDING));
+    let wide = painted(&view, cx, NONE, false, "shell-sidebar-toggle");
+    assert_eq!(wide.origin.x, px(8.));
     set_sample(&view, cx, CONTROLS);
     // Narrower than the full sidebar and one pane need: the rail.
     cx.simulate_resize(size(px(480.), px(900.)));

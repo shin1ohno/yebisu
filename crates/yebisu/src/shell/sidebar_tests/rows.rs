@@ -70,6 +70,23 @@ fn offline_host_shows_no_spaces() {
 }
 
 #[test]
+fn only_the_selected_host_highlights_its_focused_space() {
+    let selected = terminal("selected", true, "");
+    let hidden = BTreeMap::from([("hidden".into(), terminal("hidden", true, ""))]);
+    let rows = host_entries(&SidebarState::default(), &selected, &hidden);
+    let highlighted = rows
+        .iter()
+        .flat_map(|host| {
+            host.spaces
+                .iter()
+                .filter(|space| space.current)
+                .map(|_| host.host.as_str())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(highlighted, ["selected"]);
+}
+
+#[test]
 fn branch_only_from_herdr1() {
     let agent = [row("h", "p", "claude", Working, 0)];
     let herdr1 = space_entry(HerdrKind::Herdr1, input(Some("main")), &agent);
@@ -129,25 +146,6 @@ fn space_row_shows_single_error_tag() {
         &[row("h", "p", "d", Done, 0)],
     );
     assert!(calm.tags().is_empty());
-}
-
-#[test]
-fn board_density_toggle_removed() {
-    let board = include_str!("../../board.rs");
-    let sidebar = include_str!("../sidebar/view.rs");
-    for source in [board, sidebar] {
-        for gone in [
-            "\"board-density\"",
-            "\"Board: Dense\"",
-            "\"Board: Roomy\"",
-            ".roomy",
-        ] {
-            assert!(!source.contains(gone), "{gone} is back");
-        }
-    }
-    assert!(board.contains("view::HOSTS_HEADING"));
-    assert_eq!(view::HOSTS_HEADING, "HOSTS");
-    assert_eq!(crate::board::BOARD_HEIGHT, 180.);
 }
 
 #[test]

@@ -67,17 +67,11 @@ fn new_space_sends_workspace_on_herdr1(cx: &mut TestAppContext) {
 /// q4: on Herdr 2 New space is disabled and says why; a tap sends nothing.
 #[gpui::test]
 fn new_space_herdr2_disabled_with_reason(cx: &mut TestAppContext) {
-    let entry = footer_items(HerdrKind::Herdr2)
-        .into_iter()
-        .find(|e| e.item == FooterItem::NewSpace)
-        .unwrap_or_else(|| panic!("New space"));
+    let entry = FooterEntry::for_new_space(HerdrKind::Herdr2);
     assert!(!entry.enabled);
     assert_eq!(entry.reason, Some(HERDR2_NEW_SPACE));
     assert_eq!(new_space_command(HerdrKind::Herdr2), None);
-    let herdr1 = footer_items(HerdrKind::Herdr1)
-        .into_iter()
-        .find(|e| e.item == FooterItem::NewSpace)
-        .unwrap_or_else(|| panic!("New space"));
+    let herdr1 = FooterEntry::for_new_space(HerdrKind::Herdr1);
     assert!(herdr1.enabled && herdr1.reason.is_none());
     let (view, cx) = window(cx);
     cx.update(|window, cx| {

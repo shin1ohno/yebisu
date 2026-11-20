@@ -17,10 +17,8 @@ use gpui::{AnyElement, Context, Role, div, prelude::*, px, rgb};
 
 /// Label of the button that clears an active filter.
 pub(crate) const CLEAR_LABEL: &str = "Clear filter";
-/// The field's text, and its spoken name with the reason, while filtering
-/// is not available.
-pub(crate) const FILTER_UNAVAILABLE: &str = "Filter · not available yet";
-pub(crate) const FILTER_UNAVAILABLE_LABEL: &str = "Filter spaces and agents, not available yet: typing into it is being rebuilt with input method support";
+/// The search control's spoken name while filtering is unavailable.
+pub(crate) const FILTER_UNAVAILABLE_LABEL: &str = "Search spaces and agents, not available yet";
 
 /// The AGENTS lines a query leaves, in their order (`filter_rows`).
 pub(crate) fn filter_lines(lines: Vec<AgentLine>, query: &str) -> Vec<AgentLine> {
@@ -91,22 +89,12 @@ impl Smoke {
     /// registers no text input, so neither a tap nor a key changes terminal
     /// input or focus.
     pub(crate) fn render_filter_field(&self) -> AnyElement {
-        div()
-            .id("sidebar-filter-unavailable")
-            .debug_selector(|| "sidebar-filter-unavailable".to_owned())
-            .role(Role::SearchInput)
-            .aria_label(FILTER_UNAVAILABLE_LABEL)
-            .flex_1()
-            .min_w_0()
-            .h(px(32.))
-            .flex()
-            .items_center()
-            .px_2()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_ellipsis()
-            .text_color(rgb(0x6b7280))
-            .child(FILTER_UNAVAILABLE)
+        super::sidebar::icons::Icon::Search
+            .button(
+                "sidebar-filter-unavailable",
+                FILTER_UNAVAILABLE_LABEL,
+                false,
+            )
             .into_any_element()
     }
 
