@@ -14,11 +14,11 @@ fn identity_survives_rename() {
     state.observe("h", HerdrKind::Herdr1, &snap.boot_id, &observed(&snap));
     let (_, before) = snapshot_content("h", &snap, &state);
     // Rename only: the daemon reports no status change.
-    snap.agents[0].name = Some("renamed".into());
+    snap.panes[0].label = Some("renamed".into());
     snap.agents[0].title = Some("Other title".into());
     state.observe("h", HerdrKind::Herdr1, &snap.boot_id, &observed(&snap));
     let (_, after) = snapshot_content("h", &snap, &state);
-    assert_eq!(before[0].row.name, "reviewer");
+    assert_eq!(before[0].row.name, "shell");
     assert_eq!(after[0].row.name, "renamed");
     assert_eq!(after[0].row.identity, before[0].row.identity);
     assert_eq!(

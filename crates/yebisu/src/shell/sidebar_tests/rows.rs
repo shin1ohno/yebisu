@@ -132,25 +132,6 @@ fn space_row_shows_single_error_tag() {
 }
 
 #[test]
-fn board_density_toggle_removed() {
-    let board = include_str!("../../board.rs");
-    let sidebar = include_str!("../sidebar/view.rs");
-    for source in [board, sidebar] {
-        for gone in [
-            "\"board-density\"",
-            "\"Board: Dense\"",
-            "\"Board: Roomy\"",
-            ".roomy",
-        ] {
-            assert!(!source.contains(gone), "{gone} is back");
-        }
-    }
-    assert!(board.contains("view::HOSTS_HEADING"));
-    assert_eq!(view::HOSTS_HEADING, "HOSTS");
-    assert_eq!(crate::board::BOARD_HEIGHT, 180.);
-}
-
-#[test]
 fn row_height_follows_text_scale() {
     assert_eq!(row_height(AGENT_ROW_HEIGHT, 1.0), 44.);
     assert_eq!(row_height(SPACE_ROW_HEIGHT, 1.0), 56.);

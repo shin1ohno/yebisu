@@ -5,9 +5,13 @@
 //! The menu remembers the row it was shown for (review S4): an item runs
 //! only on that row's host and space, and a row other than the selected
 //! host or the focused space lists its items disabled, with the reason.
+use super::{AgentIdentity, view::SidebarTap};
 use crate::{
     app::Smoke,
-    shell::host_menus::{self, MenuEntry, MenuItemId, MenuScope},
+    shell::{
+        host_menus::{self, MenuEntry, MenuItemId, MenuScope},
+        style::{color, metric, radius, shadow},
+    },
 };
 use gpui::{
     AnyElement, Context, DispatchPhase, HitboxBehavior, LongPressEvent, Pixels, Point, TouchPhase,
@@ -41,6 +45,7 @@ pub(crate) struct LongPressMenu {
 impl Smoke {
     /// Opens the long-press menu of `row`.
     pub(crate) fn sidebar_long_press(&mut self, row: PressedRow, at: Point<Pixels>) {
+        self.shell.sidebar.agent_menu = None;
         let state = self.menu_chrome_state();
         let current = self.current_menu_scope();
         let (shown, entries) = match &row {
@@ -142,14 +147,104 @@ impl Smoke {
     }
 }
 
-/// A row-sized layer that opens `row`'s menu on a long press (as the
-/// terminal's edit menu listens, `edit_menu_gestures.rs`).
+#[derive(Clone, Debug)]
+pub(super) struct AgentMenu {
+    pub(super) id: AgentIdentity,
+    pub(super) tap: SidebarTap,
+    pub(super) at: Point<Pixels>,
+}
+
+// SidebarSpec.dc.html:42, agent actions popover.
+const AGENT_MENU_WIDTH: f32 = 224.;
+
+impl Smoke {
+    pub(super) fn render_agent_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let menu = self.shell.sidebar.agent_menu.clone()?;
+        let SidebarTap::Agent {
+            boot, generation, ..
+        } = &menu.tap
+        else {
+            return None;
+        };
+        let pinned = self.shell.sidebar.is_agent_pinned(&menu.id, boot);
+        let tap = menu.tap.clone();
+        let boot = boot.clone();
+        let generation = *generation;
+        let id = menu.id;
+        let button = |id, label| {
+            div()
+                .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .flex()
+                .items_center()
+                .h(px(metric::MENU_ITEM))
+                .px(px(metric::SIDE))
+                .child(label)
+        };
+        let list = div()
+            .id("sidebar-agent-menu")
+            .w(px(AGENT_MENU_WIDTH))
+            .py(px(metric::MENU_PADDING))
+            .rounded(px(radius::POPOVER))
+            .bg(rgb(color::RAISED))
+            .text_color(rgb(color::TEXT))
+            .shadow(vec![shadow::POPOVER.box_shadow()])
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.shell.sidebar.agent_menu = None;
+                cx.notify();
+            }))
+            .child(button("sidebar-agent-open", "Open").on_click(cx.listener(
+                move |this, _, window, cx| {
+                    this.shell.sidebar.agent_menu = None;
+                    this.tap_row(tap.clone(), window, cx);
+                },
+            )))
+            .child(
+                button(
+                    "sidebar-agent-pin",
+                    if pinned { "Unpin Agent" } else { "Pin Agent" },
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.shell.sidebar.agent_menu = None;
+                    if let Err(error) =
+                        this.toggle_sidebar_agent_pin(id.clone(), &boot, generation, cx)
+                    {
+                        this.terminal.live.status = error.to_string();
+                    }
+                    cx.notify();
+                })),
+            );
+        Some(
+            deferred(anchored().position(menu.at).snap_to_window().child(list))
+                .with_priority(1)
+                .into_any_element(),
+        )
+    }
+}
+
 pub(super) fn long_press_layer(row: PressedRow, cx: &mut Context<Smoke>) -> impl IntoElement {
+    row_press_layer(cx, move |app, at| app.sidebar_long_press(row.clone(), at))
+}
+
+pub(super) fn agent_press_layer(menu: AgentMenu, cx: &mut Context<Smoke>) -> impl IntoElement {
+    row_press_layer(cx, move |app, at| {
+        app.shell.sidebar.long_press = None;
+        app.shell.sidebar.agent_menu = Some(AgentMenu { at, ..menu.clone() });
+    })
+}
+
+/// Handles a native long press without forwarding it to the terminal.
+fn row_press_layer(
+    cx: &mut Context<Smoke>,
+    open: impl Fn(&mut Smoke, Point<Pixels>) + Clone + 'static,
+) -> impl IntoElement {
     let entity = cx.entity().downgrade();
     canvas(
         |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
         move |_, hitbox, window, _| {
-            let row = row.clone();
+            let open = open.clone();
             let entity = entity.clone();
             window.on_mouse_event(move |event: &LongPressEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble
@@ -160,7 +255,7 @@ pub(super) fn long_press_layer(row: PressedRow, cx: &mut Context<Smoke>) -> impl
                     return;
                 }
                 let _ = entity.update(cx, |this, cx| {
-                    this.sidebar_long_press(row.clone(), event.start_position);
+                    open(this, event.start_position);
                     cx.notify();
                 });
                 window.prevent_default();

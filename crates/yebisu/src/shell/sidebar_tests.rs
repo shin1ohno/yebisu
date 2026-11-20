@@ -15,6 +15,8 @@ mod rows;
 mod status;
 #[path = "sidebar_tests/tap.rs"]
 mod tap;
+#[path = "sidebar_tests/wave1.rs"]
+mod wave1;
 
 /// A Herdr 1 snapshot fixture with one space, one tab and one agent.
 fn fixture() -> sheprd_client::protocol::ClientShellSnapshot {
