@@ -160,11 +160,7 @@ final class P12QA: XCTestCase {
         XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
-        // A touch synthesized by testmanagerd can reach BackBoard before its
-        // virtual digitizer is registered. BackBoard then sees two touch states
-        // for the same sender and can cancel an otherwise valid menu tap.
-        // Select the real iPadOS menu with its pointer input path instead.
-        applicationMenu.click()
+        applicationMenu.tap()
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
@@ -177,6 +173,9 @@ final class P12QA: XCTestCase {
         springboardHierarchy("p12-menu-" + caseName)
         if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, menuReady) }
         XCTAssertTrue(menuReady, "Native command did not become actionable: \(title)")
+        // Recap can send a touch before BackBoard registers its virtual
+        // digitizer. The trackpad waits for pointer readiness and delivers the
+        // selection or dismissal through the real system menu.
         if observeOnly {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
                            "owner": "com.apple.springboard", "buttonLabel": item.label,

@@ -132,8 +132,8 @@ class P12QASourceTests(unittest.TestCase):
     def test_menu_waits_for_an_actionable_springboard_button_before_picking(self):
         swift = code(SWIFT)
         choose = body(swift, "private func choose(")
-        self.assertNotIn("sleep(1)", choose[choose.index("applicationMenu.click()"):choose.index("if observeOnly {")])
-        self.assertLess(choose.index("applicationMenu.click()"), choose.index("XCTWaiter().wait(for: [actionable]"))
+        self.assertNotIn("sleep(1)", choose[choose.index("applicationMenu.tap()"):choose.index("if observeOnly {")])
+        self.assertLess(choose.index("applicationMenu.tap()"), choose.index("XCTWaiter().wait(for: [actionable]"))
         self.assertLess(choose.index("XCTAssertTrue(menuReady,"), choose.index("item.click()"))
         self.assertIn("exists == true AND enabled == true AND hittable == true", choose)
         hierarchy = body(swift, "private func springboardHierarchy(")
@@ -143,8 +143,8 @@ class P12QASourceTests(unittest.TestCase):
     def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
         swift = code(SWIFT)
         choose = body(swift, "private func choose(")
-        self.assertNotIn(".tap()", choose)
-        self.assertIn("applicationMenu.click()", choose)
+        self.assertEqual(choose.count(".tap()"), 1)
+        self.assertIn("applicationMenu.tap()", choose)
         self.assertIn("point.click()", choose)
         self.assertIn("item.click()", choose)
         self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).click()", choose)
