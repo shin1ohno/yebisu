@@ -98,11 +98,11 @@ fn pinned_actions_not_pushed_out_by_long_tab_names() {
         tab_hit(MAX_TAB_WIDTH + 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Select(1))
     );
-    let left = pinned_left();
+    let right_actions_left = ROW - 2. * PINNED_ACTION_WIDTH;
     for (x, hit) in [
-        (left, TabHit::NewTab),
-        (left + PINNED_ACTION_WIDTH, TabHit::Split),
-        (left + 2.0 * PINNED_ACTION_WIDTH, TabHit::Overflow),
+        (MAX_TAB_WIDTH + 90., TabHit::NewTab),
+        (right_actions_left, TabHit::Split),
+        (right_actions_left + PINNED_ACTION_WIDTH, TabHit::Overflow),
     ] {
         assert_eq!(tab_hit(x, &tabs, ROW, 0.0), Some(hit), "x = {x}");
     }
