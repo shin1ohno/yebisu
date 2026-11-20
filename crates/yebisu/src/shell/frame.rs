@@ -123,12 +123,22 @@ impl Smoke {
     pub(super) fn frame_layout(&self, window: &Window) -> Layout {
         let viewport = window.viewport_size();
         let size = Size::new(f32::from(viewport.width), f32::from(viewport.height));
-        self.layout_for(size, &self.platform_insets(window))
+        self.layout_for(
+            size,
+            &self.platform_insets(window),
+            self.platform_window_controls(window),
+        )
     }
 
     /// `frame_layout` for a window `size` with the platform's `platform`
-    /// insets (safe area and keyboard).
-    pub(crate) fn layout_for(&self, size: Size, platform: &gpui::WindowInsets) -> Layout {
+    /// insets (safe area and keyboard) and the reach of its window
+    /// `controls` past the safe area, per edge.
+    pub(crate) fn layout_for(
+        &self,
+        size: Size,
+        platform: &gpui::WindowInsets,
+        controls: gpui::Edges<gpui::Pixels>,
+    ) -> Layout {
         let safe = platform.safe_area;
         let insets = Insets {
             safe_top: f32::from(safe.top),
@@ -139,6 +149,9 @@ impl Smoke {
             // floating one (or a smaller visual viewport) never resizes the
             // terminal.
             keyboard: fit::docked_keyboard_height(size, fit::ime_keyboard(size, &platform.ime)),
+            // The controls sit in the window's top-left corner (physical
+            // edges, as UIKit reports them).
+            window_controls: f32::from(controls.left),
         };
         layout::compute(&layout::Input {
             // Command-B and the rail's button collapse to 72 at any width (L4).
@@ -161,6 +174,7 @@ impl Smoke {
     ) -> AnyElement {
         let layout = self.frame_layout(window);
         self.shell.frame.withdrawn = layout.withdrawn.len();
+        self.record_window_controls(self.platform_window_controls(window), layout.controls);
         self.observe_frame_bounds(window, cx);
         let board_in_band = self.board_in_band();
         if self.shell.frame.sidebar_collapsed != layout.sidebar_collapsed {
@@ -256,7 +270,7 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if layout.sidebar_collapsed {
-            return self.render_rail(cx).map(|rail| {
+            return self.render_rail(layout.controls.rail_top, cx).map(|rail| {
                 div()
                     .flex_none()
                     .h_full()
@@ -294,7 +308,9 @@ impl Smoke {
                         .h(px(layout::SIDEBAR_HEADER_HEIGHT))
                         .flex()
                         .items_center()
-                        .px_3()
+                        // The window controls sit at the header's left.
+                        .pl(px(layout.controls.header_leading))
+                        .pr(px(layout::SIDEBAR_HEADER_PADDING))
                         // L4: the filter field takes the header's free width.
                         .child(self.render_filter_field())
                         .child(
@@ -348,3 +364,7 @@ mod tests;
 #[cfg(test)]
 #[path = "frame_overlay_tests.rs"]
 mod overlay_tests;
+
+#[cfg(test)]
+#[path = "frame_controls_tests.rs"]
+mod controls_tests;

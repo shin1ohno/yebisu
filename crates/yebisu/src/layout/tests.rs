@@ -4,6 +4,7 @@ use super::{Input, Insets, Layout, Regions, Size, compute};
 
 mod artboards;
 mod clamps;
+mod controls;
 mod find_bar;
 mod insets;
 mod minimum;

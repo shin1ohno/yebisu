@@ -1,9 +1,8 @@
 //! The rail column on screen. The numbers (sizes, badge places) come from
 //! `rail.rs` and `rail_badges.rs`; this file only draws them.
 use super::{
-    EDGE_PAD, FOOTER_BUTTON_HEIGHT, ITEM_GAP, RAIL_FOOTER_HEIGHT, RAIL_HEADER_HEIGHT, RailHost,
-    RailItem, RailItemKind, RailMetrics, RailSpace, RailTarget, new_space_unavailable, rail_items,
-    rail_metrics,
+    EDGE_PAD, FOOTER_BUTTON_HEIGHT, ITEM_GAP, RAIL_FOOTER_HEIGHT, RailHost, RailItem, RailItemKind,
+    RailMetrics, RailSpace, RailTarget, new_space_unavailable, rail_items, rail_metrics,
 };
 use crate::{
     app::Smoke,
@@ -108,9 +107,10 @@ impl Smoke {
             .collect()
     }
 
-    /// The rail: fixed top padding, a scrolling list of hosts and spaces,
-    /// then New space, Hosts, Settings and the expand button, fixed.
-    pub(super) fn rail_column(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// The rail: a fixed `header` (`rail_header`), a scrolling list of hosts
+    /// and spaces, then New space, Hosts, Settings and the expand button,
+    /// fixed.
+    pub(super) fn rail_column(&mut self, header: f32, cx: &mut Context<Self>) -> AnyElement {
         let metrics = rail_metrics(1.0);
         let items = rail_items(&self.rail_hosts());
         let measure = badge_measure(cx, metrics.badge_pt);
@@ -151,7 +151,7 @@ impl Smoke {
             .items_center()
             // The frame draws the 1 pt rule between the sidebar and the column.
             .bg(rgb(RAIL_BG))
-            .child(div().h(px(RAIL_HEADER_HEIGHT)).flex_none())
+            .child(div().h(px(header)).flex_none())
             .child(list)
             .child(
                 div()

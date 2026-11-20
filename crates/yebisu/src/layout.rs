@@ -1,6 +1,7 @@
 //! Window geometry for the SH1-157 layout (L0): a pure function from the
-//! window size, the bottom keyboard, the safe area and the mod region settings
-//! to every rectangle the window shows. No GPUI type, no I/O, no state.
+//! window size, the bottom keyboard, the safe area, the window controls and
+//! the mod region settings to every rectangle the window shows. No GPUI type,
+//! no I/O, no state.
 //!
 //! Values come from the SH1-157 design text (D1, D2, artboards 10 and 11) and
 //! the owner decisions it cites: the terminal never goes below 280×206 (Q1),
@@ -13,8 +14,11 @@
 //! L0 only computes. No render path calls it until L2a wires it in.
 #![cfg_attr(not(test), allow(dead_code))]
 
+mod controls;
 mod height;
 mod width;
+
+pub use controls::ControlsClearance;
 
 /// Expanded sidebar width.
 pub const SIDEBAR_WIDTH: f32 = 300.0;
@@ -28,6 +32,8 @@ pub const STATUS_BAR_HEIGHT: f32 = 44.0;
 pub const FIND_BAR_HEIGHT: f32 = 44.0;
 /// Sidebar header above the list (SplitHalf.dc.html).
 pub const SIDEBAR_HEADER_HEIGHT: f32 = 44.0;
+/// Leading and trailing padding of the full sidebar's header.
+pub const SIDEBAR_HEADER_PADDING: f32 = 12.0;
 /// Sidebar footer under the list and M1: rule 1, padding 4 + 4, New space 44,
 /// Hosts and Settings 44 (SplitHalf.dc.html).
 pub const SIDEBAR_FOOTER_HEIGHT: f32 = 97.0;
@@ -118,8 +124,8 @@ impl Rect {
     }
 }
 
-/// Insets the window keeps clear: the safe area on each edge, and the
-/// software keyboard docked at the bottom.
+/// Insets the window keeps clear: the safe area on each edge, the software
+/// keyboard docked at the bottom, and iPadOS 26's window controls.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Insets {
     pub safe_top: f32,
@@ -127,6 +133,10 @@ pub struct Insets {
     pub safe_right: f32,
     pub safe_bottom: f32,
     pub keyboard: f32,
+    /// How far top-bar content must start from the left safe-area edge to
+    /// clear the window controls (herdr-uikit `window_control_insets`, left
+    /// edge); see `controls.rs`.
+    pub window_controls: f32,
 }
 
 impl Insets {
@@ -289,6 +299,8 @@ pub struct Overlay {
 pub struct Layout {
     pub sidebar: Rect,
     pub sidebar_collapsed: bool,
+    /// What the sidebar keeps clear of iPadOS 26's window controls.
+    pub controls: ControlsClearance,
     pub tab_row: Rect,
     /// Top of the terminal column under the tab row; height 0 when closed.
     pub find_bar: Rect,
@@ -381,6 +393,7 @@ pub fn compute(input: &Input) -> Layout {
     Layout {
         sidebar,
         sidebar_collapsed: columns.collapsed,
+        controls: controls::clearance(&input.insets),
         tab_row,
         find_bar: bands.find_bar,
         status_bar,

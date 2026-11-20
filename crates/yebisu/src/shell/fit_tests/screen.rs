@@ -223,7 +223,7 @@ fn docked_keyboard_shortens_terminal_through_frame_layout(cx: &mut TestAppContex
     };
     let terminal_height = |view: &Entity<Smoke>, cx: &mut VisualTestContext, ime| {
         view.read_with(cx, |this, _| {
-            this.layout_for(window, &with(ime))
+            this.layout_for(window, &with(ime), Edges::default())
                 .terminal
                 .rect()
                 .map(|rect| rect.height)
