@@ -151,12 +151,11 @@ impl Smoke {
         if self.terminal.open {
             return None;
         }
-        if self
+        let opened = self
             .shell
             .hosts_sheet
-            .auto_open(self.setup.loaded, self.setup.hosts.len())
-            && self.shell.hosts_sheet.add.is_some()
-        {
+            .auto_open(self.setup.loaded, self.setup.hosts.len());
+        if opened && self.shell.hosts_sheet.add.is_some() {
             self.read_device_key(cx);
         }
         self.record_setup_observation();
