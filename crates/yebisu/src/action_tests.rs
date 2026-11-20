@@ -280,8 +280,8 @@ fn real_key_adapter_runs_once_and_releases_without_terminal_input(cx: &mut TestA
                     }
                     break;
                 }
-                // The real view laid out once before the keydown.
-                Ok(ClientMessage::ClientShellResize { .. }) => {}
+                // The view publishes its size and claims geometry on focus.
+                Ok(message) if is_layout_notification(&message) => {}
                 other => panic!("unexpected wire event {other:?}"),
             }
         }
@@ -379,6 +379,41 @@ fn palette_escape_fresh_press_recovers_after_release_lost_on_hosts(cx: &mut Test
     palette_escape_sequence(cx, true);
 }
 
+fn is_layout_notification(message: &ClientMessage) -> bool {
+    matches!(
+        message,
+        ClientMessage::ClientShellResize { .. } | ClientMessage::ClientShellFocus { .. }
+    )
+}
+
+fn assert_layout_notification(message: &ClientMessage) {
+    assert!(
+        is_layout_notification(message),
+        "Escape leaked: {message:?}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "Escape leaked: ClientShellPaneInput")]
+fn palette_escape_wire_assertion_still_rejects_a_key_event() {
+    use sheprd_client::protocol::{ClientKeyCode, ClientKeyKind, ClientPaneInputEvent};
+    let message = ClientMessage::ClientShellPaneInput {
+        pane_id: "w1:p1".into(),
+        events: vec![ClientPaneInputEvent::Key {
+            code: ClientKeyCode::Esc,
+            modifiers: 0,
+            kind: ClientKeyKind::Press,
+            repeat_count: 1,
+            shifted_codepoint: None,
+            generated_text: None,
+            tracks_release: false,
+            physical_key_id: None,
+            windows_record: None,
+        }],
+    };
+    assert_layout_notification(&message);
+}
+
 fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
     use gpui::{KeyDownEvent, KeyUpEvent, Modifiers};
     for report_all in [false, true] {
@@ -463,12 +498,9 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
                 assert!(this.terminal.input.next().is_none());
             })
         });
-        // Layout may resize once; no semantic input may reach the wire.
+        // The view may report size or focus; no semantic input may reach the wire.
         while let Ok(message) = receipts.recv_timeout(Duration::from_millis(120)) {
-            assert!(
-                matches!(message, ClientMessage::ClientShellResize { .. }),
-                "Escape leaked: {message:?}"
-            );
+            assert_layout_notification(&message);
         }
         // A fresh press reaches the terminal even if setup swallowed its release.
         cx.update(|window, cx| {
@@ -490,8 +522,8 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
                 this.terminal_key_up(&KeyUpEvent { keystroke: key }, window, cx);
             })
         });
-        // The fixed drain above can end before a late layout resize arrives, so
-        // skip resizes while waiting for the fresh press (as real_key_adapter does).
+        // A layout notification can arrive after the drain, so skip those
+        // messages while waiting for the fresh press (as real_key_adapter does).
         // The view only sends once its foreground work runs, so pump it while waiting.
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
@@ -514,12 +546,12 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
                     );
                     break;
                 }
-                Ok(ClientMessage::ClientShellResize { .. }) => {}
+                Ok(message) if is_layout_notification(&message) => {}
                 other => panic!("expected the fresh Escape press, got {other:?}"),
             }
         }
         // An Escape that leaked late would be a second press. Only the release of
-        // the fresh press (report-all mode) and a late resize may follow.
+        // the fresh press (report-all mode) and layout notifications may follow.
         while let Ok(message) = receipts.recv_timeout(Duration::from_millis(120)) {
             let release_only = |events: &[sheprd_client::protocol::ClientPaneInputEvent]| {
                 events.iter().all(|event| {
@@ -534,9 +566,8 @@ fn palette_escape_sequence(cx: &mut TestAppContext, lose_release: bool) {
             };
             assert!(
                 match &message {
-                    ClientMessage::ClientShellResize { .. } => true,
                     ClientMessage::ClientShellPaneInput { events, .. } => release_only(events),
-                    _ => false,
+                    _ => is_layout_notification(&message),
                 },
                 "Escape leaked: {message:?}"
             );
