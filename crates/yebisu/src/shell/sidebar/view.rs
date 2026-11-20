@@ -84,7 +84,10 @@ pub(crate) fn host_entries(
         record_live(state, host, kind, live);
         if let (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) = (link, kind, snapshot(live)) {
             entry.boot = snap.boot_id.clone();
-            let (spaces, agents) = snapshot_content(host, snap, state);
+            let (mut spaces, agents) = snapshot_content(host, snap, state);
+            for space in &mut spaces {
+                space.current &= entry.selected;
+            }
             entry = entry.with_content(spaces, agents);
         }
         hosts.push(entry);
