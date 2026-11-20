@@ -120,3 +120,57 @@ fn the_host_row_is_selected_when_either_connection_is() {
     assert!(matches!(&rows[..], [ListRow::Host(h)] if h.selected));
     assert!(merge(&[]).is_empty());
 }
+
+#[test]
+fn a_herdr2_destination_from_both_sources_keeps_its_sessions() {
+    use HerdrKind::*;
+    // `host_entries` lists every reader; its Herdr 2 entries carry no
+    // sessions. `herdr2_hosts` lists the same Herdr 2 destination with them.
+    let host_entries = vec![
+        host("me@mini", Herdr1, HostLink::Connected, &["yebisu"]),
+        host("me@pro-dev", Herdr2, HostLink::Connected, &[]),
+        host("me@quiet", Herdr2, HostLink::Connecting, &[]),
+        host("me@nas", Herdr1, HostLink::Connected, &["backup"]),
+    ];
+    let herdr2_hosts = vec![host("me@pro-dev", Herdr2, HostLink::Connected, &["build"])];
+
+    // Concatenated, the sessionless entry comes first and `merge` keeps it:
+    // the session row is lost. This is the input `sources` exists to avoid.
+    let naive = [host_entries.clone(), herdr2_hosts.clone()].concat();
+    assert!(!shape(&merge(&naive)).contains(&"  Herdr2 build on me@pro-dev".to_owned()));
+
+    let rows = merge(&sources(host_entries, herdr2_hosts));
+    assert_eq!(
+        shape(&rows),
+        [
+            "host mini [Herdr1]",
+            "  Herdr1 yebisu on me@mini",
+            "host pro-dev [Herdr2]",
+            "  Herdr2 build on me@pro-dev",
+            "host quiet [Herdr2]",
+            "host nas [Herdr1]",
+            "  Herdr1 backup on me@nas",
+        ]
+    );
+}
+
+#[test]
+fn sources_keep_herdr1_entries_and_append_unmatched_herdr2_hosts() {
+    use HerdrKind::*;
+    let host_entries = vec![host("me@mini", Herdr1, HostLink::Connected, &["yebisu"])];
+    // A Herdr 1 entry in `herdr2_hosts` is ignored: Herdr 1 has one source.
+    let herdr2_hosts = vec![
+        host("me@mini", Herdr1, HostLink::Connected, &["other"]),
+        host("me@pro-dev", Herdr2, HostLink::Connected, &["build"]),
+    ];
+    let rows = merge(&sources(host_entries, herdr2_hosts));
+    assert_eq!(
+        shape(&rows),
+        [
+            "host mini [Herdr1]",
+            "  Herdr1 yebisu on me@mini",
+            "host pro-dev [Herdr2]",
+            "  Herdr2 build on me@pro-dev",
+        ]
+    );
+}

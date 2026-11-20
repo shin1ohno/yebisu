@@ -46,9 +46,10 @@ impl HostName {
     }
 }
 
+/// Formats as [`HostName::display`], the one place the drawn name comes from.
 impl fmt::Display for HostName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.display)
+        f.write_str(self.display())
     }
 }
 
