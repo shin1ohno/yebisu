@@ -297,7 +297,7 @@ fn rail_item(
     let texts: BadgeTexts = badge_texts(item.needs, item.error, mode);
     let spans = badge_spans(&texts, measure);
     let dot = match item.status {
-        Some(status) => div().bg(rgb(status.color())),
+        Some(status) => div().bg(rgb(status.dot_color())),
         None if item.connected => div().bg(rgb(0xa3be8c)),
         None => div().border_2().border_color(rgb(MUTED)),
     };

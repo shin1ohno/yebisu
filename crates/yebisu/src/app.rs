@@ -1,7 +1,7 @@
 use crate::{input::Input, observation::Observation};
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, RenderImage, Window, canvas, div, img, prelude::*,
-    rgb,
+    px, rgb,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -196,8 +196,12 @@ impl Render for Smoke {
             .children(self.p12_qa_controls(cx))
             .into_any_element();
         self.install_native_menus(window, cx);
+        // Every root below draws unsized text at the canvas body size
+        // (shell/style.rs), not GPUI's 16; sized text keeps its own size.
+        let root_text = px(crate::shell::style::text::BASE);
         let screen = div()
             .size_full()
+            .text_size(root_text)
             .on_action(cx.listener(Self::native_command_action))
             .child(screen)
             // QA accessibility layer: qa.state from the first frame (qa_ax.rs).
@@ -208,6 +212,7 @@ impl Render for Smoke {
             return div()
                 .relative()
                 .size_full()
+                .text_size(root_text)
                 .child(screen)
                 .child(sheet)
                 .into_any_element();
@@ -218,6 +223,7 @@ impl Render for Smoke {
         div()
             .size_full()
             .relative()
+            .text_size(root_text)
             .child(screen)
             .child(
                 div()

@@ -165,7 +165,7 @@ impl Smoke {
                         row(
                             ("herdr2-space", i * 4096 + j),
                             SPACE_ROW_HEIGHT,
-                            ("●", space.dot.color()),
+                            ("●", space.dot.dot_color()),
                             space.name.clone(),
                             Some(tabs),
                             space.detail.clone(),
@@ -193,9 +193,9 @@ impl Smoke {
             row(
                 ("herdr2-agent", k),
                 AGENT_ROW_HEIGHT,
-                ("●", status.color()),
+                ("●", status.dot_color()),
                 line.shown.clone(),
-                Some((status.label().to_owned(), status.color())),
+                Some((status.label().to_owned(), status.label_color())),
                 line.place.clone(),
             ),
             &line.row.identity.host,

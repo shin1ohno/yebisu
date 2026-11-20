@@ -1,4 +1,5 @@
 use super::*;
+use sheprd_core_client::wire::Terminal;
 
 #[test]
 fn core_status_maps_to_sidebar_status() {
@@ -35,7 +36,7 @@ fn core_status_reads_a_listed_terminal() {
         "status": {"app": "claude", "state": "error", "title": "review"},
     }))
     .unwrap_or_else(|e| panic!("wire terminal: {e}"));
-    let status = core_status(&terminal);
+    let status = CoreStatus::from(&terminal);
     assert_eq!(status.address, "t7");
     assert_eq!(core_status_to_sidebar(Some(&status)), SidebarStatus::Error);
 }
