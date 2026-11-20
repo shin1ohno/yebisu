@@ -525,7 +525,9 @@ fn record(
                     .collect::<Vec<_>>();
                 serde_json::json!({"input":events})
             }
-            ClientMessage::ClientShellResize { .. } => serde_json::json!({"geometry":true}),
+            ClientMessage::ClientShellResize { .. } | ClientMessage::ClientShellFocus { .. } => {
+                serde_json::json!({"geometry":true})
+            }
             _ => serde_json::json!({"other_message":true}),
         };
         // qa.state's `peer` (UI test redesign S5): P12 waits for its FIFO
