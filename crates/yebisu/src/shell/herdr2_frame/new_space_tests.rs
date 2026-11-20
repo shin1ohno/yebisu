@@ -437,13 +437,15 @@ fn new_space_owns_keys_and_direct_paste_after_forced_terminal_focus(cx: &mut gpu
             )
         })
     });
-    assert!(
-        pane_input_before_fence(&receipts, "forced-focus FIFO fence").is_empty(),
-        "key or Paste reached the peer behind New space"
-    );
     assert_eq!(
         reads, 0,
         "Paste read the terminal clipboard behind New space"
+    );
+    cx.run_until_parked();
+    let leaked = pane_input_before_fence(&receipts, "forced-focus FIFO fence");
+    assert!(
+        leaked.is_empty(),
+        "input reached the peer behind New space: {leaked:?}"
     );
     assert_eq!(owner, KeyOwner::NewSpaceSheet);
     assert!(!owns_text);
