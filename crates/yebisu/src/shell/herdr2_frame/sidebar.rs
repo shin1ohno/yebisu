@@ -337,20 +337,32 @@ impl Smoke {
             }
             return Ok(());
         }
-        if session != core.name()
-            && !core
-                .sessions(view.live.input_epoch)
-                .iter()
-                .any(|row| row.name == session)
-        {
-            return Err(crate::Error::Ssh("Stale Herdr 2 session; tap again".into()));
-        }
-        self.connect_named_core(
-            host.to_owned(),
-            session.to_owned(),
-            address.map(str::to_owned),
+        let expected_core_id = if session != core.name() {
+            let sessions = core.sessions(view.live.input_epoch);
+            let row = sessions.iter().find(|row| row.name == session);
+            let Some(row) = row else {
+                return Err(crate::Error::Ssh("Stale Herdr 2 session; tap again".into()));
+            };
+            if !row.confirmed {
+                return Err(crate::Error::Ssh("Herdr 2 session is unconfirmed".into()));
+            }
+            if let Some(address) = address
+                && !row.statuses.iter().any(|status| status.address == address)
+            {
+                return Err(crate::Error::Ssh("Stale Herdr 2 agent; tap again".into()));
+            }
+            row.core_id.clone()
+        } else {
+            None
+        };
+        self.connect_core_target(
+            crate::core::SessionTarget {
+                host: host.to_owned(),
+                name: session.to_owned(),
+                focus: address.map(str::to_owned),
+                expected_core_id,
+            },
             cx,
-        );
-        Ok(())
+        )
     }
 }

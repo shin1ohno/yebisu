@@ -33,8 +33,14 @@ impl Herdr2State {
             .map_or(HERDR2_SESSION, String::as_str)
     }
 
-    pub(crate) fn select_session(&mut self, host: String, session: String) {
-        self.selected.insert(host, session);
+    pub(crate) fn confirm_session(&mut self, host: &str, session: &str) {
+        if self
+            .selected
+            .get(host)
+            .is_none_or(|selected| selected != session)
+        {
+            self.selected.insert(host.to_owned(), session.to_owned());
+        }
     }
 }
 

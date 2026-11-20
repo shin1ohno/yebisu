@@ -58,8 +58,7 @@ fn batch_key(generation: u64) -> String {
     format!("herdr2-{generation}")
 }
 
-/// Each catalog entry supplies its own tab count. The status mailbox belongs
-/// to the connected session and may contain terminals outside its tab layouts.
+/// One observation batch per host includes every confirmed session.
 pub(crate) fn catalog_content(
     host: &str,
     generation: u64,
@@ -68,36 +67,43 @@ pub(crate) fn catalog_content(
     statuses: &[CoreStatus],
     state: &SidebarState,
 ) -> (Vec<SpaceEntry>, Vec<AgentLine>) {
-    let current_tabs = catalog.iter().find(|entry| entry.name == current);
-    let reported = statuses
+    let reported = catalog
         .iter()
-        .map(|status| (status, core_status_to_sidebar(Some(status))))
+        .filter(|session| session.confirmed)
+        .flat_map(|session| {
+            let statuses = if session.name == current {
+                statuses
+            } else {
+                &session.statuses
+            };
+            statuses
+                .iter()
+                .map(move |entry| ((session, entry), core_status_to_sidebar(Some(entry))))
+        })
         .filter(|(_, status)| status.is_agent())
         .collect::<Vec<_>>();
     let observed = reported
         .iter()
-        .map(|(entry, status)| Observed {
-            pane: pane_identity(current, &entry.address),
+        .map(|((session, entry), status)| Observed {
+            pane: pane_identity(&session.name, &entry.address),
             status: *status,
             seq: 0,
         })
         .collect::<Vec<_>>();
     state.observe(host, HerdrKind::Herdr2, &batch_key(generation), &observed);
+
     let rows = reported
         .into_iter()
-        .map(|(entry, status)| {
+        .map(|((session, entry), status)| {
             let identity = AgentIdentity {
                 host: host.to_owned(),
                 kind: HerdrKind::Herdr2,
-                pane: pane_identity(current, &entry.address),
+                pane: pane_identity(&session.name, &entry.address),
             };
-            let tab = current_tabs
-                .and_then(|session| {
-                    session
-                        .tabs
-                        .iter()
-                        .position(|tab| tab.panes.contains(&entry.address))
-                })
+            let tab = session
+                .tabs
+                .iter()
+                .position(|tab| tab.panes.contains(&entry.address))
                 .map_or(1, |index| index + 1);
             AgentRow {
                 received: state.received(&identity),
@@ -111,25 +117,37 @@ pub(crate) fn catalog_content(
     let spaces = catalog
         .iter()
         .map(|entry| {
-            let current = entry.name == current;
-            space_entry(
+            let agents = rows
+                .iter()
+                .filter(|row| split_pane_identity(&row.identity.pane).0 == entry.name)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut space = space_entry(
                 HerdrKind::Herdr2,
                 SpaceInput {
                     id: entry.name.clone(),
                     name: one_line(&entry.name),
                     tabs: entry.tabs.len(),
                     branch: None,
-                    current,
+                    current: entry.name == current,
                 },
-                if current { &rows } else { &[] },
-            )
+                &agents,
+            );
+            if !entry.confirmed {
+                space.detail = "Session unconfirmed".into();
+            }
+            space
         })
         .collect();
     let lines = rows
         .iter()
         .map(|row| AgentLine {
             shown: crate::shell::sidebar::display_name(row, &rows),
-            place: format!("{} · {}", one_line(current), HostName::new(host)),
+            place: format!(
+                "{} · {}",
+                one_line(split_pane_identity(&row.identity.pane).0),
+                HostName::new(host),
+            ),
             row: row.clone(),
         })
         .collect();
@@ -140,6 +158,10 @@ pub(crate) fn catalog_content(
 pub(super) fn bootstrap_catalog(name: &str) -> Vec<SessionInfo> {
     vec![SessionInfo {
         name: name.to_owned(),
+        confirmed: true,
+        core_id: None,
+        created: 0,
+        statuses: Vec::new(),
         tabs: vec![crate::core::TabInfo {
             id: name.to_owned(),
             label: name.to_owned(),

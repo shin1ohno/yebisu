@@ -14,9 +14,31 @@ impl Smoke {
     }
 
     pub(crate) fn connect_core(&mut self, cx: &mut Context<Self>) {
+        self.remember_connected_core();
         let host = self.core_host();
         let session = self.shell.herdr2.selected_session(&host).to_owned();
-        self.connect_named_core(host, session, None, cx);
+        let _ = self.connect_named_core(host, session, None, cx);
+    }
+
+    pub(crate) fn remember_connected_core(&mut self) {
+        if self.terminal.live.connected
+            && let Some(core) = &self.terminal.core
+        {
+            self.shell
+                .herdr2
+                .confirm_session(&self.terminal.reconnect.target, core.name());
+        }
+    }
+
+    pub(crate) fn check_space_connection(&self) -> crate::Result<()> {
+        let reason = if self.setup.busy {
+            "Wait for host setup to finish before connecting"
+        } else if self.terminal.reconnect.suspended {
+            "Resume the app before connecting"
+        } else {
+            return Ok(());
+        };
+        Err(crate::Error::Ssh(reason.into()))
     }
 
     pub(crate) fn connect_named_core(
@@ -25,14 +47,43 @@ impl Smoke {
         name: String,
         focus: Option<String>,
         cx: &mut Context<Self>,
-    ) {
-        let target = SessionTarget { host, name, focus };
+    ) -> crate::Result<()> {
+        self.connect_core_target(
+            SessionTarget {
+                host,
+                name,
+                focus,
+                expected_core_id: None,
+            },
+            cx,
+        )
+    }
+
+    pub(crate) fn connect_core_target(
+        &mut self,
+        target: SessionTarget,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        let result = self.start_named_core(target, cx);
+        if let Err(error) = &result {
+            self.terminal.live.status = error.to_string();
+            cx.notify();
+        }
+        result
+    }
+
+    fn start_named_core(
+        &mut self,
+        target: SessionTarget,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        self.check_space_connection()?;
+        self.remember_connected_core();
         #[cfg(test)]
         if let Some(backend) = self.terminal.core_test_backend.take() {
-            self.input_transition(|this| {
+            return self.input_transition(|this| {
                 this.connect_core_using_inner(target, cx, move |_, _| Ok(backend))
             });
-            return;
         }
         self.input_transition(|this| {
             this.connect_core_using_inner(target, cx, |host, session| {
@@ -51,7 +102,7 @@ impl Smoke {
                     )))
                 }
             })
-        });
+        })
     }
 
     #[cfg(test)]
@@ -64,10 +115,17 @@ impl Smoke {
             host: self.core_host(),
             name: "default".into(),
             focus: None,
+            expected_core_id: None,
         };
-        self.input_transition(|this| {
-            this.connect_core_using_inner(target, cx, move |host, _| connect(host))
+        let result = self.check_space_connection().and_then(|()| {
+            self.input_transition(|this| {
+                this.connect_core_using_inner(target, cx, move |host, _| connect(host))
+            })
         });
+        if let Err(error) = result {
+            self.terminal.live.status = error.to_string();
+            cx.notify();
+        }
     }
 
     fn connect_core_using_inner(
@@ -77,10 +135,7 @@ impl Smoke {
         connect: impl FnOnce(&str, &str) -> crate::Result<sheprd_core_client::CoreBackend>
         + Send
         + 'static,
-    ) {
-        if self.setup.busy || self.terminal.reconnect.suspended {
-            return;
-        }
+    ) -> crate::Result<()> {
         let host = target.host.clone();
         let name = target.name.clone();
         self.select_host(&host);
@@ -98,36 +153,23 @@ impl Smoke {
         self.terminal.reconnect_pending = false;
         let inbox = self.terminal.link.inbox.clone();
         #[cfg(target_os = "ios")]
-        let root = sheprd_client::local_path::state_dir().map(|p| p.join("herdr2"));
-        #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        let root = if std::env::var_os("YEBISU_CORE_QA").is_some() {
-            // A mock daemon lives for this process only. Keep its saved workspace
-            // across reconnects, separate from real hosts and previous QA runs.
-            root.map(|p| p.join(format!("qa-{}", std::process::id())))
-        } else {
-            root
-        };
+        let root = crate::core::workspace_root();
         #[cfg(not(target_os = "ios"))]
         let root = None;
         let connect_host = host.clone();
         let connect_name = name.clone();
         let column = self.shell.single_pane.mailbox();
-        let result = crate::core::Session::start_named(
+        let session = crate::core::Session::start_named(
             target,
             generation,
             inbox,
             move || connect(&connect_host, &connect_name),
             root,
             column,
-        );
-        match result {
-            Ok(session) => {
-                self.shell.herdr2.select_session(host, name);
-                self.terminal.core = Some(session);
-            }
-            Err(e) => self.terminal.live.status = e.to_string(),
-        }
+        )?;
+        self.terminal.core = Some(session);
         cx.notify();
+        Ok(())
     }
     /// Shared by the Detach control and its real-adapter regression.
     pub(crate) fn detach_core_and_blur(
@@ -143,6 +185,7 @@ impl Smoke {
         self.input_transition(|this| this.detach_core_inner())
     }
     fn detach_core_inner(&mut self) {
+        self.remember_connected_core();
         self.handoff.cancel();
         self.terminal.core.take();
         self.terminal.link.reset();
@@ -158,6 +201,9 @@ impl Smoke {
         image_only: bool,
         cx: &mut Context<Self>,
     ) {
+        if self.new_space_open() {
+            return;
+        }
         #[cfg(test)]
         {
             self.handoff.clipboard_reads += 1;

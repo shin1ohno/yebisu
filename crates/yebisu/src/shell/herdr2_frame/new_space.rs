@@ -24,19 +24,20 @@ pub(super) struct Chooser {
     choice: Option<(usize, HerdrKind)>,
     selected_host: Option<usize>,
     checking: bool,
-    needs_focus: bool,
+    error: Option<String>,
+    focus: Option<gpui::FocusHandle>,
 }
 
 impl Chooser {
     fn new(hosts: Vec<HostChoice>) -> Self {
         Self {
             hosts,
-            needs_focus: true,
             ..Self::default()
         }
     }
 
     fn select_host(&mut self, index: usize) {
+        self.error = None;
         self.selected_host = Some(index);
         self.choice = self
             .hosts
@@ -46,6 +47,7 @@ impl Chooser {
     }
 
     fn select_kind(&mut self, kind: HerdrKind) {
+        self.error = None;
         if let Some((index, _)) = self.choice
             && self.hosts[index].kinds.contains(&kind)
         {
@@ -102,6 +104,7 @@ impl Smoke {
         if self.input_modal() || self.new_space_open() {
             return;
         }
+        self.remember_connected_core();
         let entries = host_entries(&self.shell.sidebar, &self.terminal, &self.board.hidden);
         let remembered = self
             .shell
@@ -130,7 +133,9 @@ impl Smoke {
             this.handoff.sync(None);
             this.handoff.cancel();
             this.handoff.select_mode = false;
-            this.shell.herdr2.new_space = Some(Chooser::new(hosts));
+            let mut chooser = Chooser::new(hosts);
+            chooser.focus = Some(cx.focus_handle());
+            this.shell.herdr2.new_space = Some(chooser);
         });
         cx.notify();
     }
@@ -143,13 +148,7 @@ impl Smoke {
         self.shell.herdr2.new_space = None;
         #[cfg(all(target_os = "ios", not(test)))]
         self.shell.herdr2.host_probe.take();
-        self.refresh_terminal_input();
-        if self.terminal.open {
-            self.terminal_focus.focus(window, cx);
-            self.request_text_retirement();
-        }
-        window.notify_text_input_changed(self.active_focus());
-        cx.notify();
+        self.return_keys_to_terminal(window, cx);
     }
 
     fn create_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -163,6 +162,15 @@ impl Smoke {
         else {
             return;
         };
+        if let Err(error) = self.check_space_connection() {
+            let reason = error.to_string();
+            self.terminal.live.status.clone_from(&reason);
+            if let Some(chooser) = self.shell.herdr2.new_space.as_mut() {
+                chooser.error = Some(reason);
+            }
+            cx.notify();
+            return;
+        }
         self.close_new_space(window, cx);
         match kind {
             HerdrKind::Herdr1 => self.new_herdr1_space(&host, cx),
@@ -172,8 +180,8 @@ impl Smoke {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis();
-                let name = format!("space-{stamp:x}");
-                self.connect_named_core(host, name, None, cx);
+                let name = format!("space-{stamp}");
+                let _ = self.connect_named_core(host, name, None, cx);
             }
         }
         cx.notify();
@@ -294,10 +302,19 @@ impl Smoke {
     pub(crate) fn prepare_new_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
         self.advance_wave1_fixture(window, cx);
-        if let Some(chooser) = self.shell.herdr2.new_space.as_mut()
-            && std::mem::take(&mut chooser.needs_focus)
-        {
-            self.focus.focus(window, cx);
+        self.remember_connected_core();
+        let Some(focus) = self
+            .shell
+            .herdr2
+            .new_space
+            .as_ref()
+            .and_then(|chooser| chooser.focus.as_ref())
+        else {
+            return;
+        };
+        self.terminal.needs_focus = false;
+        if !focus.is_focused(window) {
+            focus.focus(window, cx);
             window.dismiss_virtual_keyboard();
             window.notify_text_input_changed(&self.terminal_focus);
         }
@@ -319,18 +336,32 @@ impl Smoke {
             return;
         }
         self.shell.herdr2.wave1_qa_step += 1;
-        cx.defer_in(window, move |this, _, cx| {
+        cx.defer_in(window, move |this, window, cx| {
             match stage {
                 0 | 1 => {
                     let session = if stage == 0 { "setup" } else { "yebisu" };
-                    this.connect_named_core("qa@pro-dev".into(), session.into(), None, cx);
+                    let _ = this.connect_named_core("qa@pro-dev".into(), session.into(), None, cx);
                 }
                 2 => {
                     if let Err(error) = this.run_action(sheprd_commands::Command::Tab) {
                         tracing::warn!(%error, "Create Wave 1 fixture tab");
                     }
                 }
-                _ if scenario == "new-space" => {
+                _ => {
+                    if let Some(core) = &this.terminal.core {
+                        let output = br#"["setup",["fixture",[{"address":"t1","state":"live","name":"zsh","status":{"title":"External QA agent","state":"working"}}]]]
+["archived",null]
+"#;
+                        let root = crate::core::workspace_root();
+                        if let Err(error) = core.publish_discovery(root.as_deref(), "qa@pro-dev", output) {
+                            tracing::warn!(%error, "Publish Wave 1 fixture sessions");
+                        }
+                    }
+                    if scenario != "new-space" {
+                        window.dismiss_virtual_keyboard();
+                        cx.notify();
+                        return;
+                    }
                     this.setup.hosts = vec!["qa@pro-dev".into(), "qa@mini".into()];
                     this.open_new_space(cx);
                     if let Some(chooser) = this.shell.herdr2.new_space.as_mut() {
@@ -339,7 +370,6 @@ impl Smoke {
                         chooser.select_host(0);
                     }
                 }
-                _ => {}
             }
             cx.notify();
         });
@@ -347,6 +377,7 @@ impl Smoke {
 
     pub(crate) fn render_new_space(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let chooser = self.shell.herdr2.new_space.as_ref()?;
+        let focus = chooser.focus.as_ref()?;
         let picked = chooser.choice;
         let selected_host = chooser.selected_host;
         let checking = chooser.checking;
@@ -397,7 +428,7 @@ impl Smoke {
         let enabled = chooser.selection().is_some();
         let panel = div()
             .id("new-space-panel")
-            .track_focus(&self.focus)
+            .track_focus(focus)
             .flex()
             .flex_col()
             .w_full()
@@ -421,6 +452,11 @@ impl Smoke {
                 panel.child("No Herdr connection available for this host")
             })
             .when(!checking, |panel| panel.child(div().flex().children(kinds)))
+            .children(chooser.error.as_ref().map(|reason| {
+                div()
+                    .text_color(rgb(style::color::RED))
+                    .child(reason.clone())
+            }))
             .child(
                 div()
                     .flex()
@@ -449,6 +485,7 @@ impl Smoke {
                     this.close_new_space(window, cx);
                 }
                 cx.stop_propagation();
+                window.prevent_default();
             }));
         Some(
             div()

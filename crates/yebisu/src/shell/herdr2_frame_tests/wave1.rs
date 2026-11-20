@@ -62,6 +62,7 @@ fn open_session(
                     host: "pro-dev".into(),
                     name: name.into(),
                     focus: None,
+                    expected_core_id: None,
                 },
                 generation,
                 this.terminal.link.inbox.clone(),
@@ -252,6 +253,124 @@ fn herdr2_agent_row_tap_opens_its_terminal(cx: &mut TestAppContext) {
             .map(|core| core.sessions(this.terminal.live.input_epoch))
             .unwrap_or_default();
         assert_eq!(sessions[0].name, "yebisu");
+        this.terminal.core.take();
+    });
+    std::fs::remove_dir_all(root).unwrap_or_else(|error| panic!("clean fixtures: {error}"));
+}
+
+#[gpui::test]
+fn herdr2_external_tabs_and_agents_refresh_and_stale_saved_rows_are_unconfirmed(
+    cx: &mut TestAppContext,
+) {
+    let root = fixture_root("observations");
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    open_session(&view, cx, "saved", &root);
+    open_session(&view, cx, "current", &root);
+
+    let first = br#"["external",["c0ffee",[{"address":"t1","state":"live","name":"agent 1","status":{"state":"working","title":"First"}},{"address":"t2","state":"live","name":"agent 2","status":{"state":"blocked","title":"Second"}}]]]
+["saved",null]
+"#;
+    let second = br#"["external",["c0ffee",[{"address":"t2","state":"live","name":"agent 2","status":{"state":"done","title":"Second"}}]]]"#;
+
+    view.update(cx, |this, cx| {
+        let core = this
+            .terminal
+            .core
+            .as_ref()
+            .unwrap_or_else(|| panic!("current core"));
+        core.statuses_mailbox()
+            .publish(vec![raw("t2", Some("working"))]);
+        core.publish_discovery(Some(&root), "pro-dev", first)
+            .unwrap_or_else(|error| panic!("first catalog: {error}"));
+
+        let row = catalog_row(this);
+        let external = row
+            .spaces
+            .iter()
+            .find(|space| space.id == "external")
+            .unwrap_or_else(|| panic!("external session"));
+        assert_eq!(external.tabs, 2);
+        assert!(external.needs_you);
+        assert!(
+            row.agents
+                .iter()
+                .any(|line| line.row.identity.pane == "external\0t1")
+        );
+        assert!(
+            row.agents
+                .iter()
+                .any(|line| line.row.identity.pane == "current\0t2")
+        );
+        let saved = row
+            .spaces
+            .iter()
+            .find(|space| space.id == "saved")
+            .unwrap_or_else(|| panic!("saved session"));
+        assert_eq!(saved.detail, "Session unconfirmed");
+        let rejected = this.open_herdr2_row(
+            &row.host,
+            &row.boot,
+            row.generation,
+            CoreRow::Space("saved".into()),
+            cx,
+        );
+        assert!(matches!(rejected, Err(error) if error.to_string().contains("unconfirmed")));
+
+        let core = this
+            .terminal
+            .core
+            .as_ref()
+            .unwrap_or_else(|| panic!("current core"));
+        core.publish_discovery(Some(&root), "pro-dev", second)
+            .unwrap_or_else(|error| panic!("second catalog: {error}"));
+        let row = catalog_row(this);
+        let external = row
+            .spaces
+            .iter()
+            .find(|space| space.id == "external")
+            .unwrap_or_else(|| panic!("external session after refresh"));
+        assert_eq!(external.tabs, 1);
+        assert!(!external.needs_you);
+        assert!(
+            !row.agents
+                .iter()
+                .any(|line| line.row.identity.pane == "external\0t1")
+        );
+        assert!(row.agents.iter().any(|line| {
+            line.row.identity.pane == "external\0t2" && line.row.status == SidebarStatus::Done
+        }));
+        this.terminal.reconnect.suspended = true;
+        let rejected = this.open_herdr2_row(
+            &row.host,
+            &row.boot,
+            row.generation,
+            CoreRow::Space("external".into()),
+            cx,
+        );
+        assert!(matches!(rejected, Err(error) if error.to_string().contains("Resume the app")));
+        assert!(this.terminal.live.status.contains("Resume the app"));
+        this.terminal.reconnect.suspended = false;
+        let (peer, _) = crate::core_mock::recorded(false)
+            .unwrap_or_else(|error| panic!("external peer: {error}"));
+        this.terminal.core_test_backend = Some(peer);
+        this.open_herdr2_row(
+            &row.host,
+            &row.boot,
+            row.generation,
+            CoreRow::Agent("external\0t2".into()),
+            cx,
+        )
+        .unwrap_or_else(|error| panic!("external agent: {error}"));
+        assert_eq!(this.shell.herdr2.selected_session("pro-dev"), "current");
+    });
+    wait_for(&view, cx, "external agent's terminal", |this| {
+        this.terminal.live.connected
+            && crate::board::snapshot(&this.terminal.live)
+                .is_some_and(|state| state.focused_pane_id.as_deref() == Some("t2"))
+    });
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.shell.herdr2.selected_session("pro-dev"), "external");
         this.terminal.core.take();
     });
     std::fs::remove_dir_all(root).unwrap_or_else(|error| panic!("clean fixtures: {error}"));
