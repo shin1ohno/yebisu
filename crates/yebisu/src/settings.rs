@@ -73,6 +73,7 @@ enum EditIntent {
     Snapshot,
     Density,
     FontFamily,
+    SidebarDensity,
 }
 
 /// What the settings sheet shows next to its title.
@@ -158,6 +159,11 @@ impl SettingsHost {
         self.edit_values(values, EditIntent::FontFamily);
     }
 
+    // Even the displayed Dense default is explicit when picked before loading.
+    pub(crate) fn edit_sidebar_density(&mut self, values: Values) {
+        self.edit_values(values, EditIntent::SidebarDensity);
+    }
+
     fn edit_values(&mut self, values: Values, intent: EditIntent) {
         if let Err(error) = values.font.validate() {
             self.error = Some(error.to_string());
@@ -171,7 +177,7 @@ impl SettingsHost {
                     self.edited_before_load.font_size = true;
                 }
                 EditIntent::FontFamily => self.edited_before_load.font_family = true,
-                EditIntent::Snapshot => {}
+                EditIntent::Snapshot | EditIntent::SidebarDensity => {}
             }
         }
         if self.draft != values || pending_intent {
@@ -198,7 +204,9 @@ impl SettingsHost {
                     .iter_mut()
                     .zip(input_options::FIELDS)
                 {
-                    *edited |= (field.get)(&self.draft) != (field.get)(&values);
+                    *edited |= (matches!(intent, EditIntent::SidebarDensity)
+                        && field.key == sidebar_density::SIDEBAR_DENSITY.key)
+                        || (field.get)(&self.draft) != (field.get)(&values);
                 }
             }
             self.write_failed = false;

@@ -1,4 +1,4 @@
-//! q7, S-1: eight sections in canvas order, no Sidebar, every page placed.
+//! Settings navigation order and page round trips.
 use crate::settings_pages::{
     Page,
     sections::{GROUPS, Section, section_for_page, sections},
@@ -11,6 +11,7 @@ fn settings_sections_follow_canvas_order() {
         [
             Section::Display,
             Section::Theme,
+            Section::Sidebar,
             Section::Input,
             Section::Shortcuts,
             Section::Connection,
@@ -27,6 +28,7 @@ fn settings_sections_follow_canvas_order() {
         [
             "Display",
             "Theme",
+            "Sidebar",
             "Input",
             "Shortcuts",
             "Connection",
@@ -37,22 +39,19 @@ fn settings_sections_follow_canvas_order() {
     );
     assert_eq!(
         GROUPS.map(|(name, members)| (name, members.len())),
-        [("APPEARANCE", 2), ("BEHAVIOUR", 4), ("CONNECT", 2)]
+        [("APPEARANCE", 3), ("BEHAVIOUR", 4), ("CONNECT", 2)]
     );
 }
 
 #[test]
-fn no_sidebar_section() {
-    assert_eq!(sections().len(), 8);
-    for section in sections() {
-        assert!(
-            !section.title().contains("Sidebar"),
-            "{section:?} is a Sidebar section"
-        );
-    }
-    for (group, _) in GROUPS {
-        assert!(!group.eq_ignore_ascii_case("sidebar"));
-    }
+fn settings_sections_include_sidebar() {
+    assert_eq!(
+        sections()
+            .iter()
+            .filter(|section| section.title() == "Sidebar")
+            .count(),
+        1
+    );
 }
 
 #[test]

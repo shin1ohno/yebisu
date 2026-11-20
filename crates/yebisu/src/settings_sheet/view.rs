@@ -1,7 +1,7 @@
 //! Production shell: SH1-157 accepted sheet clamp; no proposed terminal floor.
 use crate::{
     app::Smoke,
-    settings::{SaveStatus, Values},
+    settings::{SaveStatus, Values, sidebar_density::SidebarDensity},
     settings_pages::{
         Page,
         choices::{self, Choice},
@@ -10,13 +10,23 @@ use crate::{
         sections::{self, Section},
         sheet_layout::sheet_frame,
     },
+    shell::style::{color, metric, radius, shadow, text, tint, weight},
 };
 use gpui::{prelude::*, *};
 
 /// Hidden by design until a supported installed-font picker is proven.
 const FAMILY_PICKER: bool = false;
-/// The sheet's Close button.
-pub(crate) const CLOSE_LABEL: &str = "Close";
+const DONE_LABEL: &str = "Done";
+
+// Settings.dc.html:26–28
+const HEADER_SIDE_WIDTH: f32 = 72.;
+// Settings.dc.html:34
+const SECTION_SIDE_PADDING: f32 = 12.;
+// Settings.dc.html:46
+const CONTENT_PADDING: f32 = 28.;
+const CONTENT_GAP: f32 = 24.;
+// Settings.dc.html:57
+const SEGMENT_SIDE_PADDING: f32 = 14.;
 
 pub(crate) fn button(
     id: impl Into<SharedString>,
@@ -33,15 +43,15 @@ pub(crate) fn button(
         .when(!enabled, |button| {
             button.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
         })
-        .min_h(px(44.))
+        .min_h(px(metric::TOUCH))
         .px_3()
         .py_2()
         .flex_shrink_0()
         .border_1()
-        .border_color(rgb(0x2b2933))
-        .rounded(px(8.))
-        .bg(rgb(0x1c1c22))
-        .text_color(rgb(if enabled { 0xd8dee9 } else { 0xacb2bb }))
+        .border_color(rgb(color::RAISED))
+        .rounded(px(radius::CONTROL))
+        .bg(rgb(color::SURFACE))
+        .text_color(rgb(if enabled { color::TEXT } else { color::MUTED }))
         .child(label)
 }
 impl Smoke {
@@ -73,37 +83,55 @@ impl Smoke {
         );
         let values = self.settings_values();
         let can_edit = self.settings.is_some();
-        let selected = sections::section_for_page(self.settings_page);
+        let section = sections::section_for_page(self.settings_page);
         let mut pages = div()
             .id("settings-categories")
             .flex()
-            .flex_wrap()
-            .gap_2()
+            .flex_col()
+            .gap(px(metric::SEGMENT_INSET))
+            .px(px(metric::INLINE_GAP))
+            .py(px(SECTION_SIDE_PADDING))
+            .min_h_0()
             .overflow_y_scroll();
         for (group, members) in sections::GROUPS {
-            pages = pages.child(div().w_full().text_xs().child(group));
-            for &section in members {
-                pages = pages.child(self.settings_section_button(section, selected, cx));
+            pages = pages.child(
+                group_heading(group)
+                    .px(px(SECTION_SIDE_PADDING))
+                    .pt(px(if group == "APPEARANCE" {
+                        metric::INLINE_GAP
+                    } else {
+                        SECTION_SIDE_PADDING
+                    }))
+                    .pb_1(),
+            );
+            for &member in members {
+                pages = pages.child(self.settings_section_button(member, section, cx));
             }
         }
+        let intro = match self.settings_page {
+            Page::Input => Some(
+                "How keys, Japanese input and selection reach the terminal. Changes apply at once. “Saved” appears after the write succeeds; if it fails, the reason and Retry appear at the top.",
+            ),
+            Page::Connection => Some("How the app reconnects when it returns to the foreground."),
+            _ => None,
+        };
         let content = match self.settings_page {
             Page::Fonts => self.settings_fonts(&values, can_edit, cx),
             Page::Appearance => self.render_p15_settings(cx),
+            Page::Sidebar => self.settings_sidebar(&values, can_edit, cx),
             Page::Keyboard => self.settings_keyboard(cx),
             Page::Input => self.settings_choices(
-                "How keys, Japanese input and selection reach the terminal. Changes apply at once.",
-                &choices::INPUT,
+                &[
+                    (Some("HARDWARE KEYBOARD"), choices::HARDWARE_KEYBOARD),
+                    (Some("SELECTION"), choices::SELECTION),
+                ],
                 &values,
                 can_edit,
                 cx,
             ),
-            Page::Connection => self.settings_choices(
-                "How the app reconnects when it returns to the foreground.",
-                &choices::CONNECTION,
-                &values,
-                can_edit,
-                cx,
-            ),
+            Page::Connection => {
+                self.settings_choices(&[(None, &choices::CONNECTION)], &values, can_edit, cx)
+            }
             Page::DeviceKey => self.settings_keys(cx),
             Page::Notifications => self.render_notification_settings(cx),
             Page::General => div()
@@ -114,71 +142,65 @@ impl Smoke {
                 .child(Document::License.text())
                 .into_any_element(),
         };
-        let status = self.settings.as_ref().map(|host| host.save_status());
-        let retry = matches!(status, Some(SaveStatus::Failed { retry: true, .. }));
-        let status = match status {
-            None => "Settings unavailable".to_owned(),
-            Some(SaveStatus::Saving) => "Saving…".to_owned(),
-            Some(SaveStatus::Saved) => "Saved".to_owned(),
-            Some(SaveStatus::Failed { reason, .. }) => format!("Not saved: {reason}"),
-        };
-        let header = div()
-            .flex()
-            .flex_wrap()
-            .gap_2()
-            .flex_shrink_0()
-            .child("Settings")
-            .child(status)
-            .child(self.notifications.status.clone())
-            .when(retry, |header| {
-                header.child(
-                    button("settings-retry", "Retry", true).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            if let Some(host) = &mut this.settings {
-                                host.retry();
-                            }
-                            cx.notify();
-                        },
-                    )),
-                )
-            })
-            .child(
-                button("settings-close", CLOSE_LABEL, true)
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
-                    )
-                    .children(crate::qa_ax::mark(
-                        crate::qa_ax::ids::SETTINGS_CLOSE,
-                        CLOSE_LABEL,
-                    )),
-            );
-        #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        let header = header.children(self.settings_qa_controls(cx));
         let body = div()
             .flex()
             .min_h_0()
             .flex_1()
             .when(frame.stacked, |d| d.flex_col())
-            .child(pages.when(!frame.stacked, |d| {
-                d.w(px(240.)).flex_col().flex_nowrap().flex_shrink_0()
-            }))
+            .child(if frame.stacked {
+                pages
+                    .max_h(px(frame.height / 3.))
+                    .border_b_1()
+                    .border_color(rgb(color::RAISED))
+            } else {
+                pages
+                    .w(px(metric::SETTINGS_LIST))
+                    .flex_shrink_0()
+                    .border_r_1()
+                    .border_color(rgb(color::RAISED))
+            })
             .child(
                 div()
-                    .id("settings-content")
+                    .id((
+                        ElementId::Name("settings-content".into()),
+                        self.settings_page.id(),
+                    ))
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
                     .overflow_y_scroll()
-                    .p_3()
+                    .p(px(CONTENT_PADDING))
+                    .flex()
+                    .flex_col()
+                    .gap(px(CONTENT_GAP))
+                    .children(section.map(|section| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .id("settings-page-title")
+                                    .role(Role::Heading)
+                                    .text_size(px(text::PAGE_TITLE))
+                                    .line_height(px(text::PAGE_TITLE_LINE))
+                                    .font_weight(weight::SEMIBOLD)
+                                    .child(section.title()),
+                            )
+                            .children(
+                                intro.map(|intro| div().text_color(rgb(color::MUTED)).child(intro)),
+                            )
+                    }))
                     .child(content),
             );
+        let (header, notices) = self.settings_header(cx);
         div()
             .id("settings-overlay")
             .debug_selector(|| "settings-overlay".into())
             .absolute()
             .inset_0()
             .occlude()
-            .bg(rgba(0x101419b0))
+            .bg::<Rgba>(tint::SHEET_SCRIM.into())
             .track_focus(&self.settings_focus)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_scroll(|_, _, cx| cx.stop_propagation())
@@ -199,6 +221,11 @@ impl Smoke {
                 cx.stop_propagation();
             }))
             .child(
+                div().id("settings-backdrop").absolute().inset_0().on_click(
+                    cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
+                ),
+            )
+            .child(
                 div()
                     .id("settings-panel")
                     .debug_selector(|| "settings-panel".into())
@@ -207,22 +234,135 @@ impl Smoke {
                     .top(available.origin.y + px(frame.top))
                     .w(px(frame.width))
                     .h(px(frame.height))
-                    .bg(rgb(0x101419))
-                    .text_color(rgb(0xd8dee9))
+                    .bg(rgb(color::SURFACE))
+                    .text_color(rgb(color::TEXT))
                     .border_1()
-                    .border_color(rgb(0x2b2933))
-                    .rounded(px(18.))
+                    .border_color(rgb(color::RAISED))
+                    .rounded(px(radius::SHEET))
+                    .shadow(vec![shadow::SHEET.box_shadow()])
+                    .overflow_hidden()
+                    .occlude()
                     .flex()
                     .flex_col()
-                    .p_3()
-                    .gap_2()
                     .child(header)
+                    .children(notices)
                     .child(body),
             )
             .into_any_element()
     }
+
+    fn settings_header(&self, cx: &mut Context<Self>) -> (AnyElement, Option<AnyElement>) {
+        let status = self.settings.as_ref().map(|host| host.save_status());
+        let (label, failure) = match status {
+            None => ("Unavailable", None),
+            Some(SaveStatus::Saving) => ("Saving…", None),
+            Some(SaveStatus::Saved) => ("Saved", None),
+            Some(SaveStatus::Failed { reason, retry }) => ("Not saved", Some((reason, retry))),
+        };
+        let header = div()
+            .id("settings-header")
+            .debug_selector(|| "settings-header".into())
+            .h(px(metric::SHEET_HEADER))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .px(px(metric::INLINE_GAP))
+            .border_b_1()
+            .border_color(rgb(color::RAISED))
+            .child(
+                div()
+                    .id("settings-save-state")
+                    .debug_selector(|| "settings-save-state".into())
+                    .role(Role::Status)
+                    .w(px(HEADER_SIDE_WIDTH))
+                    .flex_shrink_0()
+                    .pl(px(metric::INLINE_GAP))
+                    .text_size(px(text::SECONDARY))
+                    .text_color(rgb(color::MUTED))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .id("settings-title")
+                    .debug_selector(|| "settings-title".into())
+                    .flex_1()
+                    .min_w_0()
+                    .text_center()
+                    .text_size(px(text::SHEET_TITLE))
+                    .font_weight(weight::SEMIBOLD)
+                    .child("Settings"),
+            )
+            .child(
+                div()
+                    .id("settings-close")
+                    .debug_selector(|| "settings-close".into())
+                    .role(Role::Button)
+                    .aria_label(DONE_LABEL)
+                    .w(px(HEADER_SIDE_WIDTH))
+                    .h(px(metric::TOUCH))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .font_weight(weight::SEMIBOLD)
+                    .text_color(rgb(color::ACCENT))
+                    .child(DONE_LABEL)
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.end_settings_modal(window, cx)),
+                    )
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::SETTINGS_CLOSE,
+                        DONE_LABEL,
+                    )),
+            );
+        let mut notices = Vec::new();
+        if let Some((reason, retry)) = failure {
+            notices.push(
+                div()
+                    .id("settings-save-failure")
+                    .debug_selector(|| "settings-save-failure".into())
+                    .role(Role::Alert)
+                    .bg(rgb(color::RAISED))
+                    .flex()
+                    .items_center()
+                    .gap(px(metric::INLINE_GAP))
+                    .p(px(metric::INLINE_GAP))
+                    .child(div().flex_1().min_w_0().child(reason))
+                    .when(retry, |band| {
+                        band.child(
+                            button("settings-retry", "Retry", true).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    if let Some(host) = &mut this.settings {
+                                        host.retry();
+                                    }
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                    })
+                    .into_any_element(),
+            );
+        }
+        if self.settings_page == Page::Notifications && !self.notifications.status.is_empty() {
+            notices.push(
+                div()
+                    .id("settings-notification-status")
+                    .px(px(SECTION_SIDE_PADDING))
+                    .role(Role::Status)
+                    .child(self.notifications.status.clone())
+                    .into_any_element(),
+            );
+        }
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        notices.extend(self.settings_qa_controls(cx));
+        let notices = (!notices.is_empty())
+            .then(|| div().flex_shrink_0().children(notices).into_any_element());
+        (header.into_any_element(), notices)
+    }
+
     fn settings_fonts(&self, values: &Values, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
-        let mut view = div().flex().flex_col().gap_2().child("Terminal font");
+        let mut options = segments("Terminal font");
+        let current = Density::from_values(values);
         for density in Density::ALL {
             let label = density.label();
             let qa_mark = match density {
@@ -233,16 +373,25 @@ impl Smoke {
                     crate::qa_ax::mark(crate::qa_ax::ids::SETTINGS_DENSITY_COMPACT, label)
                 }
             };
-            view = view.child(
-                button(format!("density-{density:?}"), label, enabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select_settings_density(density, cx);
-                    }))
-                    .children(qa_mark),
+            options = options.child(
+                segment(
+                    format!("density-{density:?}"),
+                    label,
+                    current == density,
+                    enabled,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_settings_density(density, cx);
+                }))
+                .children(qa_mark),
             );
         }
         let (size, height) = values.font.metrics(values.compact);
-        view = view
+        let mut view = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(choice_row("Terminal font", None, options))
             .child(format!(
                 "Current: {size} px / {height} line · {:?}",
                 Density::from_values(values)
@@ -328,7 +477,18 @@ impl Smoke {
             section.title(),
             true,
         )
-        .when(selected == Some(section), |b| b.bg(rgb(0x2e3440)))
+        .aria_selected(selected == Some(section))
+        .h(px(metric::SETTINGS_ROW))
+        .flex()
+        .items_center()
+        .px(px(SECTION_SIDE_PADDING))
+        .py_0()
+        .border_0()
+        .bg(transparent_black())
+        .when(selected == Some(section), |b| {
+            b.bg::<Rgba>(tint::SELECTED.into())
+                .font_weight(weight::SEMIBOLD)
+        })
         .on_click(cx.listener(move |this, _, _, cx| {
             this.key_ticket = None;
             if let Some(host) = &mut this.settings {
@@ -339,52 +499,68 @@ impl Smoke {
         }))
         .children(section_mark(section))
     }
-    /// Radio rows: one title, its explanation and two choices each.
-    fn settings_choices(
+
+    fn settings_sidebar(
         &self,
-        intro: &'static str,
-        rows: &[Choice],
         values: &Values,
         enabled: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut view = div().flex().flex_col().gap_3().child(intro);
-        for &choice in rows {
-            let current = choice.get(values);
-            let mut options = div().flex().flex_wrap().gap_2();
-            for (value, label) in [(false, choice.labels()[0]), (true, choice.labels()[1])] {
-                let id = format!("settings-{}-{}", choice.id(), u8::from(value));
-                options = options.child(
-                    button(id, label, enabled)
-                        .when(current == value, |b| {
-                            b.bg(rgb(0x2e3440)).border_color(rgb(0x88c0d0))
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.select_settings_choice(choice, value, cx);
-                        }))
-                        .children(choice_mark(choice, value, label)),
-                );
-            }
-            // Canvas row: title and explanation left, the two choices right;
-            // a narrow page wraps the choices under the text.
-            view = view.child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(220.))
-                            .child(choice.title())
-                            .child(div().text_sm().child(choice.detail())),
-                    )
-                    .child(options),
+        let mut options = segments("Board");
+        for (density, label) in [
+            (SidebarDensity::Dense, "Dense"),
+            (SidebarDensity::Roomy, "Roomy"),
+        ] {
+            options = options.child(
+                segment(
+                    format!("settings-sidebar-{label}"),
+                    label,
+                    values.sidebar_density == density,
+                    enabled,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let mut values = this.settings_values();
+                    values.sidebar_density = density;
+                    if let Some(host) = &mut this.settings {
+                        host.edit_sidebar_density(values.clone());
+                    }
+                    this.apply_settings(values, cx);
+                })),
             );
+        }
+        choice_row("Board", None, options).into_any_element()
+    }
+
+    fn settings_choices(
+        &self,
+        groups: &[(Option<&'static str>, &[Choice])],
+        values: &Values,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut view = div().flex().flex_col().gap(px(CONTENT_GAP));
+        for &(title, rows) in groups {
+            let mut group = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .children(title.map(|title| group_heading(title).pb_1()));
+            for &choice in rows {
+                let current = choice.get(values);
+                let mut options = segments(choice.title());
+                for (value, label) in choice.options() {
+                    let id = format!("settings-{}-{}", choice.id(), u8::from(value));
+                    options = options.child(
+                        segment(id, label, current == value, enabled)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_settings_choice(choice, value, cx);
+                            }))
+                            .children(choice_mark(choice, value, label)),
+                    );
+                }
+                group = group.child(choice_row(choice.title(), Some(choice.detail()), options));
+            }
+            view = view.child(group);
         }
         view.into_any_element()
     }
@@ -411,7 +587,11 @@ impl Smoke {
                     "Read or initialize current device key",
                     idle,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.read_device_key(cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.read_device_key(cx)))
+                .children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::KEYS_READ,
+                    "Read or initialize current device key",
+                )),
             )
             .child(
                 button(
@@ -448,6 +628,68 @@ impl Smoke {
     }
 }
 
+fn group_heading(title: &'static str) -> Div {
+    div()
+        .text_size(px(text::SMALL))
+        .font_weight(weight::SEMIBOLD)
+        .text_color(rgb(color::MUTED))
+        .child(title)
+}
+
+fn segments(label: &'static str) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(label))
+        .role(Role::RadioGroup)
+        .aria_label(label)
+        .flex()
+        .flex_shrink_0()
+        .bg(rgb(color::BACKGROUND))
+        .rounded(px(radius::CONTROL))
+        .p(px(metric::SEGMENT_INSET))
+}
+
+fn segment(id: String, label: &'static str, selected: bool, enabled: bool) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
+        .role(Role::RadioButton)
+        .aria_label(label)
+        .aria_toggled(if selected {
+            Toggled::True
+        } else {
+            Toggled::False
+        })
+        .when(!enabled, |button| {
+            button.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
+        })
+        .h(px(metric::SEGMENT))
+        .px(px(SEGMENT_SIDE_PADDING))
+        .flex()
+        .items_center()
+        .rounded(px(radius::RAIL_ITEM))
+        .text_color(rgb(if selected { color::TEXT } else { color::MUTED }))
+        .when(selected, |option| option.bg(rgb(color::RAISED)))
+        .child(label)
+}
+
+fn choice_row(title: &'static str, detail: Option<&'static str>, options: Stateful<Div>) -> Div {
+    div()
+        .min_h(px(metric::SETTINGS_ROW))
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(metric::SIDE))
+        .border_b_1()
+        .border_color(rgb(color::RAISED))
+        .child(div().flex_1().child(title).children(detail.map(|detail| {
+            div()
+                .text_size(px(text::SECONDARY))
+                .text_color(rgb(color::MUTED))
+                .child(detail)
+        })))
+        .child(options)
+}
+
 /// The QA accessibility mark of an Input page choice that SH1-151 sets
 /// (UI test redesign S4), labelled with the text the button paints.
 fn choice_mark(choice: Choice, value: bool, label: &'static str) -> Option<AnyElement> {
@@ -470,6 +712,7 @@ fn section_mark(section: Section) -> Option<AnyElement> {
     match section {
         Section::Display => crate::qa_ax::mark(ids::SETTINGS_PAGE_DISPLAY, title),
         Section::Theme => crate::qa_ax::mark(ids::SETTINGS_PAGE_THEME, title),
+        Section::Sidebar => None,
         Section::Input => crate::qa_ax::mark(ids::SETTINGS_PAGE_INPUT, title),
         Section::Shortcuts => crate::qa_ax::mark(ids::SETTINGS_PAGE_SHORTCUTS, title),
         Section::Connection => crate::qa_ax::mark(ids::SETTINGS_PAGE_CONNECTION, title),

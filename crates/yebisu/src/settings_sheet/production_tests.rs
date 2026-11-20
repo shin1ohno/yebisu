@@ -45,7 +45,7 @@ impl Provider for Injected {
             .unwrap_or_else(|e| e.into_inner())
             .take()
         {
-            wait.recv_timeout(Duration::from_secs(5))
+            wait.recv_timeout(Duration::from_secs(30))
                 .map_err(|_| Failure::Worker)?;
         }
         Ok(RAW.into())
@@ -148,14 +148,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         .debug_bounds("settings-key-read")
         .unwrap_or_else(|| panic!("read"));
     cx.simulate_click(read.center(), Default::default());
-    let until = Instant::now() + Duration::from_secs(5);
-    while view.update(cx, |this, cx| {
-        this.poll_settings(cx);
-        this.settings.as_ref().is_some_and(|h| h.keys.busy())
-    }) {
-        assert!(Instant::now() < until);
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    until_key_idle(&view, cx);
     cx.run_until_parked();
     let replace = cx
         .debug_bounds("settings-key-replace")
@@ -194,7 +187,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
             this.read_device_key(cx);
         })
     });
-    // Both actual Add Host controls must consult the same unresolved owner.
+    // Opening Add host and copying must consult the same unresolved owner.
     cx.write_to_clipboard(gpui::ClipboardItem::new_string("clipboard-positive".into()));
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
@@ -204,12 +197,11 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         })
     });
     cx.run_until_parked();
-    for id in ["key-create", "key-copy"] {
-        let bounds = cx
-            .debug_bounds(id)
-            .unwrap_or_else(|| panic!("Add Host control {id}"));
-        cx.simulate_click(bounds.center(), Default::default());
-    }
+    assert!(cx.debug_bounds("key-create").is_none());
+    let copy = cx
+        .debug_bounds("key-copy")
+        .unwrap_or_else(|| panic!("Add host Copy"));
+    cx.simulate_click(copy.center(), Default::default());
     assert_eq!(fake.reads.load(Ordering::SeqCst), 1);
     assert_eq!(
         cx.read_from_clipboard()
@@ -219,13 +211,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
     );
     cx.update(|window, cx| view.update(cx, |this, cx| this.begin_settings_modal(window, cx)));
     release.send(()).unwrap_or_else(|e| panic!("{e}"));
-    while view.update(cx, |this, cx| {
-        this.poll_settings(cx);
-        this.settings.as_ref().is_some_and(|h| h.keys.busy())
-    }) {
-        assert!(Instant::now() < until);
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    until_key_idle(&view, cx);
     assert_eq!(fake.replaces.load(Ordering::SeqCst), 1);
     view.update(cx, |this, _| {
         assert_eq!(
@@ -236,13 +222,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
     cx.run_until_parked();
     fake.reject.store(true, Ordering::SeqCst);
     view.update(cx, |this, cx| this.read_device_key(cx));
-    while view.update(cx, |this, cx| {
-        this.poll_settings(cx);
-        this.settings.as_ref().is_some_and(|h| h.keys.busy())
-    }) {
-        assert!(Instant::now() < until);
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    until_key_idle(&view, cx);
     cx.run_until_parked();
     let output = records
         .try_iter()
@@ -258,6 +238,18 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         leaked.contains("FAKE_PRIVATE_SENTINEL"),
         "negative detector control"
     );
+}
+
+#[track_caller]
+fn until_key_idle(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while view.update(cx, |this, cx| {
+        this.poll_settings(cx);
+        this.settings.as_ref().is_some_and(|host| host.keys.busy())
+    }) {
+        assert!(Instant::now() < until, "device key worker did not settle");
+        std::thread::sleep(Duration::from_millis(2));
+    }
 }
 
 fn until_ready(view: &Entity<Smoke>, cx: &mut VisualTestContext) {

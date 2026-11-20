@@ -1,8 +1,8 @@
 import XCTest
 
-// P2 keys and restart, through the QA accessibility layer (UI test redesign S2): the key block's
-// controls are found by identifier and every press is confirmed by qa.state, not by reading the
-// screen. The test launches the app itself, both times with the same environment, so p2-check.py
+// P2 keys and restart through the QA accessibility layer: Add host reads the injected key on
+// each launch. Copy is pressed by identifier and confirmed by qa.state.
+// The test launches the app itself, both times with the same environment, so p2-check.py
 // never touches the app while it runs; it reads the app's files only after terminating it.
 extension SmokeQA {
     /// What p2-check.py passes (xcodebuild hands TEST_RUNNER_<name> to the runner as <name>): the
@@ -34,8 +34,6 @@ extension SmokeQA {
         app.launchEnvironment = Self.p2Environment
         app.launch()
         let first = try p2Launch(qa, "P2 first launch")
-        save("p2-initial")
-        try readDeviceKey(qa, "P2 first launch")
         save("p2-key")
 
         // Copy: the app reads its own pasteboard back and publishes the digest and length.
@@ -59,30 +57,16 @@ extension SmokeQA {
         app.launch()
         let restarted = try p2Launch(qa, "P2 restart")
         XCTAssertNotEqual(restarted.launch, first.launch, "a restart is a new process")
-        try readDeviceKey(qa, "P2 restart")
         save("p2-restarted")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// After a launch: the layer is up, the key block shows the injected provider's line (drawn
-    /// only after the provider's view preflight passed), and no key has been read yet.
-    @discardableResult
+    /// Add host opens on first run and reads from the injected provider without a press.
     private func p2Launch(_ qa: QAAx, _ what: String) throws -> QAState {
         let state = try qa.waitState("\(what): qa.state", timeout: 30) { $0.launch > 0 }
         try qa.find(QAAxIDs.keysProvider, timeout: 30)
-        return try qa.waitState("\(what): key block drawn without a key", timeout: 10) {
-            $0.launch == state.launch && $0.bool("key_ready") == false
-        }
-    }
-
-    /// Presses Read or initialize device key until the app reports `key_ready`. A press the app
-    /// never received is repeated once by QAAx.press (Mac mini 6f2d709 lost the first one).
-    private func readDeviceKey(_ qa: QAAx, _ what: String) throws {
-        do {
-            try qa.press(QAAxIDs.keysRead, timeout: 10, what: "\(what): key_ready") { $0.bool("key_ready") == true }
-        } catch {
-            save("p2-no-key")
-            throw error
+        return try qa.waitState("\(what): key ready after Add host opened", timeout: 10) {
+            $0.launch == state.launch && $0.string("sheet") == "add-host" && $0.bool("key_ready") == true
         }
     }
 }
@@ -90,6 +74,5 @@ extension SmokeQA {
 /// The key block's identifiers (crates/yebisu/src/qa_ax_ids.rs; qa-ax-ids-check.py ties them).
 private enum QAAxIDs {
     static let keysProvider = "qa.keys.provider"
-    static let keysRead = "qa.keys.read"
     static let keysCopy = "qa.keys.copy"
 }
