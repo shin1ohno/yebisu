@@ -102,10 +102,10 @@ pub(crate) fn new_space_choices(kinds: &[HerdrKind]) -> Vec<HerdrKind> {
 /// the identity keeps that connection's Herdr kind, so a Herdr 2 terminal
 /// never resolves to a Herdr 1 pane of the same host (or the reverse).
 pub(crate) fn notification_agent(target: &Context, key: &ConnectionKey) -> Option<AgentIdentity> {
-    if target.host != key.host {
+    if target.host != key.host || target.herdr != key.kind {
         return None;
     }
-    notification_identity(target, key.kind)
+    notification_identity(target)
 }
 
 impl Smoke {

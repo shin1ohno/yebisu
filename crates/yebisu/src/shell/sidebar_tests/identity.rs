@@ -68,14 +68,15 @@ fn notification_target_resolves_after_identity_change() {
     let mut snap = fixture();
     let target = Target {
         host: "h".into(),
+        herdr: HerdrKind::Herdr1,
         generation: 1,
         boot: snap.boot_id.clone(),
         pane: Some("w1:p1".into()),
         tab: Some("w1:t1".into()),
         workspace: Some("w1".into()),
     };
-    let identity = notification_identity(&target, HerdrKind::Herdr1)
-        .unwrap_or_else(|| panic!("a pane target has an identity"));
+    let identity =
+        notification_identity(&target).unwrap_or_else(|| panic!("a pane target has an identity"));
     assert_eq!(
         identity,
         AgentIdentity {

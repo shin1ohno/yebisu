@@ -1,4 +1,7 @@
 use super::*;
+#[path = "board_tests/hidden_core.rs"]
+mod hidden_core;
+
 use sheprd_client::ClientEvent;
 use std::{
     sync::Arc,

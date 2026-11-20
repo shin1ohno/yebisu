@@ -27,8 +27,7 @@ impl Smoke {
             AppLifecyclePhase::Background | AppLifecyclePhase::Disconnected => {
                 self.notifications.active = false;
                 self.notifications.invalidate();
-                self.terminal.live.notifications.clear();
-                for terminal in self.board.hidden.values_mut() {
+                for terminal in self.board.terminals_mut(&mut self.terminal) {
                     terminal.live.notifications.clear();
                 }
             }

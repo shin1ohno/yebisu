@@ -2,8 +2,26 @@ use crate::{
     app::Smoke,
     core::{Command, SessionTarget},
     shell::HerdrKind,
+    terminal_view::TerminalView,
 };
 use gpui::{AnyElement, Context, div, prelude::*, rgb};
+
+fn dial_core(host: &str, session: &str) -> crate::Result<sheprd_core_client::CoreBackend> {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    if std::env::var_os("YEBISU_CORE_QA").is_some() {
+        return crate::core_mock::connect();
+    }
+    #[cfg(target_os = "ios")]
+    {
+        crate::core::connect(host, session)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        Err(crate::Error::Ssh(format!(
+            "SSH unavailable in host test: {host}/{session}"
+        )))
+    }
+}
 
 impl Smoke {
     fn core_host(&self) -> String {
@@ -86,24 +104,38 @@ impl Smoke {
                 this.connect_core_using_inner(target, cx, move |_, _| Ok(backend))
             });
         }
-        self.input_transition(|this| {
-            this.connect_core_using_inner(target, cx, |host, session| {
-                #[cfg(all(target_os = "ios", target_abi = "sim"))]
-                if std::env::var_os("YEBISU_CORE_QA").is_some() {
-                    return crate::core_mock::connect();
-                }
-                #[cfg(target_os = "ios")]
-                {
-                    crate::core::connect(host, session)
-                }
-                #[cfg(not(target_os = "ios"))]
-                {
-                    Err(crate::Error::Ssh(format!(
-                        "SSH unavailable in host test: {host}/{session}"
-                    )))
-                }
-            })
-        })
+        self.input_transition(|this| this.connect_core_using_inner(target, cx, dial_core))
+    }
+
+    pub(crate) fn resume_hidden_core(
+        &mut self,
+        host: String,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(terminal) = self.board.hidden_core.get_mut(&host) else {
+            return;
+        };
+        let target = SessionTarget {
+            host,
+            name,
+            focus: None,
+            expected_core_id: None,
+        };
+        let column = self.shell.single_pane.mailbox();
+        #[cfg(test)]
+        let backend = terminal.core_test_backend.take();
+        let result = terminal.start_core(target, column, move |host, name| {
+            #[cfg(test)]
+            if let Some(backend) = backend {
+                return Ok(backend);
+            }
+            dial_core(host, name)
+        });
+        if let Err(error) = result {
+            terminal.live.status = error.to_string();
+        }
+        cx.notify();
     }
 
     #[cfg(test)]
@@ -137,38 +169,10 @@ impl Smoke {
         + Send
         + 'static,
     ) -> crate::Result<()> {
-        let host = target.host.clone();
-        let name = target.name.clone();
-        self.select_host_kind(&host, HerdrKind::Herdr2);
-        self.terminal.core.take();
-        self.terminal.navigating = None;
+        self.select_host_kind(&target.host, HerdrKind::Herdr2);
         self.actions.palette = false;
-        let generation = self.terminal.link.reset_for_core();
-        self.terminal.core_mode = true;
-        self.terminal.reconnect.begin(host.clone());
-        self.terminal.input.detach();
-        self.terminal.live = crate::live::Live::default();
-        self.terminal.size = None;
-        self.terminal.open = true;
-        self.terminal.needs_focus = true;
-        self.terminal.reconnect_pending = false;
-        let inbox = self.terminal.link.inbox.clone();
-        #[cfg(target_os = "ios")]
-        let root = crate::core::workspace_root();
-        #[cfg(not(target_os = "ios"))]
-        let root = None;
-        let connect_host = host.clone();
-        let connect_name = name.clone();
         let column = self.shell.single_pane.mailbox();
-        let session = crate::core::Session::start_named(
-            target,
-            generation,
-            inbox,
-            move || connect(&connect_host, &connect_name),
-            root,
-            column,
-        )?;
-        self.terminal.core = Some(session);
+        self.terminal.start_core(target, column, connect)?;
         cx.notify();
         Ok(())
     }
@@ -188,6 +192,7 @@ impl Smoke {
     fn detach_core_inner(&mut self) {
         self.remember_connected_core();
         self.handoff.cancel();
+        self.terminal.reconnect.core_session_on_return = None;
         self.terminal.core.take();
         self.terminal.link.reset();
         self.terminal.input.detach();
@@ -304,5 +309,44 @@ impl Smoke {
                     })),
             )
             .into_any_element()
+    }
+}
+
+impl TerminalView {
+    fn start_core(
+        &mut self,
+        target: SessionTarget,
+        column: crate::shell::single_pane::Mailbox,
+        connect: impl FnOnce(&str, &str) -> crate::Result<sheprd_core_client::CoreBackend>
+        + Send
+        + 'static,
+    ) -> crate::Result<()> {
+        self.core.take();
+        self.navigating = None;
+        let generation = self.link.reset_for_core();
+        self.core_mode = true;
+        self.reconnect.begin(target.host.clone());
+        self.reconnect.core_session_on_return = None;
+        self.input.detach();
+        self.live = crate::live::Live::default();
+        self.size = None;
+        self.open = true;
+        self.needs_focus = true;
+        self.reconnect_pending = false;
+        #[cfg(target_os = "ios")]
+        let root = crate::core::workspace_root();
+        #[cfg(not(target_os = "ios"))]
+        let root = None;
+        let host = target.host.clone();
+        let name = target.name.clone();
+        self.core = Some(crate::core::Session::start_named(
+            target,
+            generation,
+            self.link.inbox.clone(),
+            move || connect(&host, &name),
+            root,
+            column,
+        )?);
+        Ok(())
     }
 }

@@ -8,6 +8,7 @@ pub(crate) struct Reconnect {
     pub automatic: bool,
     pub suspended: bool,
     pub target: String,
+    pub core_session_on_return: Option<String>,
     generations: BTreeMap<String, u64>,
 }
 impl Default for Reconnect {
@@ -16,6 +17,7 @@ impl Default for Reconnect {
             automatic: true,
             suspended: false,
             target: String::new(),
+            core_session_on_return: None,
             generations: BTreeMap::new(),
         }
     }
@@ -92,7 +94,8 @@ impl Smoke {
                     .chain(self.board.hidden_core.values_mut())
                 {
                     terminal.reconnect_pending = false;
-                    terminal.core.take();
+                    terminal.reconnect.core_session_on_return =
+                        terminal.core.take().map(|core| core.name().to_owned());
                     terminal.link.pause();
                     terminal.input.detach();
                     terminal.live.connected = false;
@@ -134,10 +137,6 @@ impl Smoke {
                     terminal.restore_stop_reason();
                 }
                 let returned = std::mem::replace(&mut self.terminal.reconnect.suspended, false);
-                for terminal in self.board.hidden_core.values_mut() {
-                    // Reattach an inactive core session when the user opens it.
-                    terminal.reconnect.suspended = false;
-                }
                 // Capture only hosts suspended before connect_terminal creates new entries.
                 let hosts = self
                     .board
@@ -152,6 +151,21 @@ impl Smoke {
                         .then(|| host.clone())
                     })
                     .collect::<Vec<_>>();
+                let core_sessions = self
+                    .board
+                    .hidden_core
+                    .iter_mut()
+                    .filter_map(|(host, terminal)| {
+                        let reconnect = &mut terminal.reconnect;
+                        let suspended = std::mem::replace(&mut reconnect.suspended, false);
+                        let name = reconnect.core_session_on_return.take()?;
+                        (returned
+                            && suspended
+                            && reconnect.automatic
+                            && terminal.live.version_mismatch.get().is_none())
+                        .then(|| (host.clone(), name))
+                    })
+                    .collect::<Vec<_>>();
                 if returned
                     && self.terminal.open
                     && self.terminal.reconnect.automatic
@@ -161,6 +175,9 @@ impl Smoke {
                 }
                 for host in hosts {
                     self.start_herdr1_connection(host, cx);
+                }
+                for (host, name) in core_sessions {
+                    self.resume_hidden_core(host, name, cx);
                 }
             }
             // Losing scene focus is not backgrounding: retain both transports,

@@ -113,6 +113,7 @@ fn exercise(
                 tag: case.into(),
                 target: TargetContext {
                     host: "fixture".into(),
+                    herdr: crate::shell::HerdrKind::Herdr1,
                     generation,
                     boot: "boot-v1".into(),
                     pane: Some("w1:p3".into()),

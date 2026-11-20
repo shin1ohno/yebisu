@@ -12,6 +12,28 @@ pub(crate) struct Board {
     pub hidden_core: BTreeMap<String, TerminalView>,
     pub selection: u64,
 }
+impl Board {
+    /// App-wide view traversal starts with the selected terminal.
+    pub(crate) fn terminals<'a>(
+        &'a self,
+        selected: &'a TerminalView,
+    ) -> impl Iterator<Item = &'a TerminalView> {
+        std::iter::once(selected)
+            .chain(self.hidden.values())
+            .chain(self.hidden_core.values())
+    }
+
+    /// Mutable form of `terminals`, in the same order.
+    pub(crate) fn terminals_mut<'a>(
+        &'a mut self,
+        selected: &'a mut TerminalView,
+    ) -> impl Iterator<Item = &'a mut TerminalView> {
+        std::iter::once(selected)
+            .chain(self.hidden.values_mut())
+            .chain(self.hidden_core.values_mut())
+    }
+}
+
 impl TerminalView {
     pub(crate) fn herdr_kind(&self) -> HerdrKind {
         if self.core_mode {
@@ -216,6 +238,7 @@ impl Smoke {
                     .get_mut(&self.terminal.reconnect.target)
             };
             if let Some(previous) = previous_core {
+                previous.reconnect.core_session_on_return = None;
                 previous.core.take();
                 previous.link.reset();
                 previous.live = Live::default();

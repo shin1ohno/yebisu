@@ -77,7 +77,7 @@ fn current_target_validation_rejects_host_boot_generation_and_incoherence() {
     let mut live = ready();
     let event = Event::capture(&live, valid_event(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture: {e:?}"));
-    let context = event.context("fixture".into(), 8);
+    let context = event.context("fixture".into(), HerdrKind::Herdr1, 8);
     assert_eq!(context.validate(&live, "fixture", 8), Ok(()));
     assert_eq!(context.validate(&live, "other", 8), Err(Failure::Stale));
     assert_eq!(context.validate(&live, "fixture", 9), Err(Failure::Stale));
@@ -185,7 +185,7 @@ fn reader_lock_contention_is_undecided_and_only_a_decided_mismatch_revokes() {
     let live = ready();
     let event = Event::capture(&live, valid_event(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture: {e:?}"));
-    let context = event.context("fixture".into(), 8);
+    let context = event.context("fixture".into(), HerdrKind::Herdr1, 8);
     let inbox = Arc::new(Mutex::new(live));
     let validity = Validity::default();
     let (locked, wait_locked) = mpsc::channel();
@@ -227,7 +227,7 @@ fn a_snapshot_waiting_for_its_surface_neither_drops_nor_cancels_a_notification()
     live.pending_snapshot = live.snapshot.clone();
     let event = Event::capture(&live, valid_event(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture during projection change: {e:?}"));
-    let context = event.context("fixture".into(), 8);
+    let context = event.context("fixture".into(), HerdrKind::Herdr1, 8);
     assert_eq!(
         context.validate(&live, "fixture", 8),
         Err(Failure::Incoherent)
@@ -248,7 +248,7 @@ fn a_decided_mismatch_in_a_snapshot_waiting_for_its_surface_is_invalid_not_undec
     let mut live = ready();
     let event = Event::capture(&live, valid_event(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture: {e:?}"));
-    let context = event.context("fixture".into(), 8);
+    let context = event.context("fixture".into(), HerdrKind::Herdr1, 8);
     // The newest snapshot no longer holds the target pane (it was closed), but its
     // surface has not arrived: the answer is already decided.
     let mut without_pane: ClientShellSnapshot =
