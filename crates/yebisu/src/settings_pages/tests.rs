@@ -17,6 +17,7 @@ fn pages_are_the_supported_allowlist() {
         [
             "fonts",
             "appearance",
+            "sidebar",
             "keyboard",
             "ipad-key",
             "general",

@@ -194,7 +194,7 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
             this.read_device_key(cx);
         })
     });
-    // Both actual Add Host controls must consult the same unresolved owner.
+    // Opening Add host and copying must consult the same unresolved owner.
     cx.write_to_clipboard(gpui::ClipboardItem::new_string("clipboard-positive".into()));
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
@@ -204,12 +204,11 @@ fn p11_f01_f03_f07_f18_f24_f25_actual_buttons_single_owner_and_nonsecret_receipt
         })
     });
     cx.run_until_parked();
-    for id in ["key-create", "key-copy"] {
-        let bounds = cx
-            .debug_bounds(id)
-            .unwrap_or_else(|| panic!("Add Host control {id}"));
-        cx.simulate_click(bounds.center(), Default::default());
-    }
+    assert!(cx.debug_bounds("key-create").is_none());
+    let copy = cx
+        .debug_bounds("key-copy")
+        .unwrap_or_else(|| panic!("Add host Copy"));
+    cx.simulate_click(copy.center(), Default::default());
     assert_eq!(fake.reads.load(Ordering::SeqCst), 1);
     assert_eq!(
         cx.read_from_clipboard()

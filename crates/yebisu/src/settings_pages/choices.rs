@@ -24,6 +24,9 @@ pub(crate) const INPUT: [Choice; 6] = [
     Choice::Copy,
 ];
 
+pub(crate) const HARDWARE_KEYBOARD: &[Choice] = INPUT.split_at(4).0;
+pub(crate) const SELECTION: &[Choice] = INPUT.split_at(4).1;
+
 /// The Connection page's rows.
 pub(crate) const CONNECTION: [Choice; 1] = [Choice::Return];
 
@@ -77,6 +80,14 @@ impl Choice {
             Self::StartSelection => ["Double tap", "Drag"],
             Self::Copy => ["Manual", "On selection"],
             Self::Return => ["Tap", "Automatic"],
+        }
+    }
+
+    pub(crate) const fn options(self) -> [(bool, &'static str); 2] {
+        let [off, on] = self.labels();
+        match self {
+            Self::StartSelection => [(true, on), (false, off)],
+            _ => [(false, off), (true, on)],
         }
     }
 

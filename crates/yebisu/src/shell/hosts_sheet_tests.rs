@@ -57,3 +57,6 @@ fn probe(herdr1: bool, herdr2: bool, outdated: bool) -> Probe {
         outdated,
     }
 }
+
+#[path = "hosts_sheet_tests/wave_one.rs"]
+mod wave_one;

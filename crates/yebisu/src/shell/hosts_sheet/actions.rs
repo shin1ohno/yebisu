@@ -30,6 +30,8 @@ impl Smoke {
         // A saved host is already trusted: Open signs in at once.
         if mode == SheetMode::Open {
             self.hosts_sign_in(cx);
+        } else {
+            self.read_device_key(cx);
         }
     }
 

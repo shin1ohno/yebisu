@@ -20,6 +20,7 @@ mod tests;
 pub(crate) enum Page {
     Fonts,
     Appearance,
+    Sidebar,
     Keyboard,
     DeviceKey,
     General,
@@ -32,9 +33,10 @@ pub(crate) enum Page {
 impl Page {
     // The sheet walks sections::GROUPS since L1; only tests list every page.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Fonts,
         Self::Appearance,
+        Self::Sidebar,
         Self::Keyboard,
         Self::DeviceKey,
         Self::General,
@@ -47,6 +49,7 @@ impl Page {
         match self {
             Self::Fonts => "fonts",
             Self::Appearance => "appearance",
+            Self::Sidebar => "sidebar",
             Self::Keyboard => "keyboard",
             Self::DeviceKey => "ipad-key",
             Self::General => "general",

@@ -5,23 +5,38 @@ use crate::{
     app::Smoke,
     layout::SIDEBAR_WIDTH,
     setup::Job,
-    shell::add_host::{AddHostStep, SheetMode, sheet_height, sheet_width},
+    shell::{
+        add_host::{AddHostStep, SHEET_WIDTH, SheetMode, sheet_height, sheet_width},
+        style::{color, metric, radius, shadow, text, tint, weight},
+    },
 };
 use gpui::{
-    AnyElement, Context, ElementId, MouseButton, Role, SharedString, Stateful, Window, canvas, div,
-    prelude::*, px, rgb, rgba,
+    AnyElement, Context, ElementId, MouseButton, Rgba, Role, SharedString, Stateful, Window,
+    canvas, div, prelude::*, px, rgb,
 };
 
-const PANEL: u32 = 0x1c1c22;
-const BORDER: u32 = 0x2b2933;
-const INK: u32 = 0xd8dee9;
-const MUTED: u32 = 0xacb2bb;
-const ACCENT: u32 = 0x88c0d0;
-const GREEN: u32 = 0xa3be8c;
-const FIELD: u32 = 0x101419;
-/// The key block's buttons; each text is also the button's QA accessibility
-/// label (`qa_ax::ids::KEYS_READ`, `KEYS_COPY`).
-const KEY_READ_LABEL: &str = "Read or initialize device key";
+// AddHost.dc.html:29–33
+const ADD_HOST_TOP: f32 = 96.;
+const HEADER_BUTTON_WIDTH: f32 = 88.;
+// AddHost.dc.html:29–83, rendered panel from y=96 through y=720.
+const REFERENCE_HEIGHT: f32 = 624.;
+// AddHost.dc.html:36
+const BODY_TOP_PADDING: f32 = 20.;
+const BODY_SIDE_PADDING: f32 = 24.;
+const BODY_GAP: f32 = 20.;
+// AddHost.dc.html:41–45
+const BADGE_SIZE: f32 = 24.;
+const STEP_INDENT: f32 = 34.;
+const KEY_PADDING_Y: f32 = 10.;
+const KEY_PADDING_X: f32 = 12.;
+// AddHost.dc.html:61–62
+const HOST_CONTROL_HEIGHT: f32 = 48.;
+// AddHost.dc.html:64
+const FINGERPRINT_CARD: u32 = 0x22222a;
+const FINGERPRINT_SIDE_PADDING: f32 = 14.;
+// AddHost.dc.html:75
+const UPCOMING_STEP_OPACITY: f32 = 0.6;
+
 const KEY_COPY_LABEL: &str = "Copy authorized_keys line";
 
 fn button(
@@ -37,39 +52,70 @@ fn button(
         .debug_selector(move || id.to_string())
         .role(Role::Button)
         .aria_label(label.clone())
-        .min_h(px(44.))
+        .min_h(px(metric::TOUCH))
         .px_4()
         .flex()
         .items_center()
         .justify_center()
         .flex_shrink_0()
-        .rounded(px(8.))
-        .bg(rgb(if primary && enabled { ACCENT } else { BORDER }))
-        .text_color(rgb(if primary && enabled {
-            FIELD
-        } else if enabled {
-            INK
+        .rounded(px(radius::CONTROL))
+        .bg(rgb(if primary && enabled {
+            color::ACCENT
         } else {
-            MUTED
+            color::RAISED
+        }))
+        .text_color(rgb(if primary && enabled {
+            color::BACKGROUND
+        } else if enabled {
+            color::TEXT
+        } else {
+            color::MUTED
         }))
         .when(!enabled, |button| button.opacity(0.45))
         .child(label)
 }
 
+fn header_text_button(id: &'static str, label: &'static str, enabled: bool) -> Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .role(Role::Button)
+        .aria_label(label)
+        .when(!enabled, |button| {
+            button.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
+        })
+        .w(px(HEADER_BUTTON_WIDTH))
+        .h(px(metric::TOUCH))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(rgb(if enabled { color::ACCENT } else { color::MUTED }))
+        .child(label)
+}
+
+fn step() -> gpui::Div {
+    div().flex().flex_col().gap(px(metric::ROW_GAP))
+}
+
 fn badge(number: u8, done: bool, active: bool) -> impl IntoElement {
     div()
-        .size(px(24.))
+        .size(px(BADGE_SIZE))
         .flex()
         .items_center()
         .justify_center()
         .rounded_full()
-        .font_weight(gpui::FontWeight::BOLD)
-        .when(done, |d| d.bg(rgb(GREEN)).text_color(rgb(FIELD)))
+        .font_weight(weight::BOLD)
+        .when(done, |d| {
+            d.bg(rgb(color::GREEN)).text_color(rgb(color::BACKGROUND))
+        })
         .when(!done && active, |d| {
-            d.bg(rgb(ACCENT)).text_color(rgb(FIELD))
+            d.bg(rgb(color::ACCENT)).text_color(rgb(color::BACKGROUND))
         })
         .when(!done && !active, |d| {
-            d.border_2().border_color(rgb(MUTED)).text_color(rgb(MUTED))
+            d.border_2()
+                .border_color(rgb(color::MUTED))
+                .text_color(rgb(color::MUTED))
         })
         .child(number.to_string())
 }
@@ -78,9 +124,14 @@ fn step_title(number: u8, done: bool, active: bool, title: &'static str) -> impl
     div()
         .flex()
         .items_center()
-        .gap_2()
+        .gap(px(metric::ROW_GAP))
         .child(badge(number, done, active))
-        .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+        .child(
+            div()
+                .text_size(px(text::NAME))
+                .font_weight(weight::SEMIBOLD)
+                .child(title),
+        )
 }
 
 impl Smoke {
@@ -100,9 +151,14 @@ impl Smoke {
         if self.terminal.open {
             return None;
         }
-        self.shell
+        if self
+            .shell
             .hosts_sheet
-            .auto_open(self.setup.loaded, self.setup.hosts.len());
+            .auto_open(self.setup.loaded, self.setup.hosts.len())
+            && self.shell.hosts_sheet.add.is_some()
+        {
+            self.read_device_key(cx);
+        }
         self.record_setup_observation();
         let sidebar_width = SIDEBAR_WIDTH.min(f32::from(window.viewport_size().width));
         let hosts = self.setup.hosts.clone();
@@ -129,9 +185,9 @@ impl Smoke {
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .bg(rgb(PANEL))
+            .bg(rgb(color::SURFACE))
             .border_r_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(color::RAISED))
             .child(
                 div()
                     .h(px(44.))
@@ -142,8 +198,8 @@ impl Smoke {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(MUTED))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(rgb(color::MUTED))
+                            .font_weight(weight::SEMIBOLD)
                             .child("HOSTS"),
                     ),
             )
@@ -175,8 +231,8 @@ impl Smoke {
                 .id("first-run")
                 .size_full()
                 .flex()
-                .bg(rgb(FIELD))
-                .text_color(rgb(INK))
+                .bg(rgb(color::BACKGROUND))
+                .text_color(rgb(color::TEXT))
                 .track_focus(&self.focus)
                 .child(sidebar)
                 .child(div().id("first-run-terminal-column").flex_1().h_full())
@@ -198,8 +254,19 @@ impl Smoke {
         }
         let available = window.fully_visible_bounds();
         let width = sheet_width(f32::from(available.size.width));
-        let height = sheet_height(f32::from(available.size.height));
-        let body = if self.shell.hosts_sheet.add.is_some() {
+        let available_height = f32::from(available.size.height);
+        let margin = crate::layout::OVERLAY_MARGIN / 2.;
+        let is_add = self.shell.hosts_sheet.add.is_some();
+        let top = if is_add
+            && width == SHEET_WIDTH
+            && available_height >= ADD_HOST_TOP + REFERENCE_HEIGHT + margin
+        {
+            ADD_HOST_TOP
+        } else {
+            margin
+        };
+        let height = (sheet_height(available_height) - (top - margin)).max(0.);
+        let body = if is_add {
             self.add_host_sheet(cx)
         } else {
             self.hosts_list_sheet(cx)
@@ -210,7 +277,7 @@ impl Smoke {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(rgba(0x101419a8))
+            .bg::<Rgba>(tint::SHEET_SCRIM.into())
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(
@@ -219,16 +286,17 @@ impl Smoke {
                     .debug_selector(|| "hosts-panel".into())
                     .absolute()
                     .left(available.origin.x + px((f32::from(available.size.width) - width) / 2.))
-                    .top(available.origin.y + px(16.))
+                    .top(available.origin.y + px(top))
                     .w(px(width))
                     .max_h(px(height))
                     .flex()
                     .flex_col()
-                    .bg(rgb(PANEL))
-                    .text_color(rgb(INK))
+                    .bg(rgb(color::SURFACE))
+                    .text_color(rgb(color::TEXT))
                     .border_1()
-                    .border_color(rgb(BORDER))
-                    .rounded(px(18.))
+                    .border_color(rgb(color::RAISED))
+                    .rounded(px(radius::SHEET))
+                    .shadow(vec![shadow::SHEET.box_shadow()])
                     .overflow_hidden()
                     .child(body),
             );
@@ -243,92 +311,95 @@ impl Smoke {
             .items_center()
             .px_2()
             .border_b_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(color::RAISED))
             .child(div().w(px(104.)).flex().justify_start().child(left))
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .justify_center()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .font_weight(weight::SEMIBOLD)
                     .child(title),
             )
             .child(div().w(px(104.)).flex().justify_end().child(right))
             .into_any_element()
     }
 
-    /// The iPad's public key and its copy button (step 1 and the list sheet).
-    fn key_block(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let busy = self.setup.busy;
-        let line = self
-            .settings
-            .as_ref()
-            .and_then(|h| h.keys.line())
-            .map(str::to_owned);
+    /// The public line is truncated for display and copied in full.
+    fn key_block(&self, cx: &mut Context<Self>) -> AnyElement {
+        let keys = self.settings.as_ref().map(|host| &host.keys);
+        let line = keys.and_then(|keys| keys.line());
         let key_ready = line.is_some();
         crate::qa_ax::report("key_ready", || key_ready.into());
-        let qa_label = self.key_qa_label();
+        let key_text = line.map_or_else(
+            || keys.map_or("Device key unavailable.", |keys| keys.label()),
+            |line| line,
+        );
+        let key_needs_attention = keys.is_some_and(|keys| keys.failure.is_some());
+        let provider_mark = self
+            .key_qa_label()
+            .and_then(|label| crate::qa_ax::mark(crate::qa_ax::ids::KEYS_PROVIDER, label));
         div()
             .flex()
             .flex_col()
-            .gap_2()
-            .children(qa_label.map(|label| {
-                div()
-                    .text_sm()
-                    .text_color(rgb(MUTED))
-                    .child(label)
-                    .children(crate::qa_ax::mark(crate::qa_ax::ids::KEYS_PROVIDER, label))
-            }))
+            .gap(px(metric::INLINE_GAP))
             .child(
                 div()
                     .id("device-key-line")
+                    .relative()
                     .w_full()
-                    .overflow_hidden()
-                    .px_3()
-                    .py_2()
-                    .rounded(px(8.))
+                    .min_w_0()
+                    .truncate()
+                    .px(px(KEY_PADDING_X))
+                    .py(px(KEY_PADDING_Y))
+                    .rounded(px(radius::CONTROL))
                     .border_1()
-                    .border_color(rgb(BORDER))
-                    .bg(rgb(FIELD))
-                    .text_sm()
-                    .text_color(rgb(MUTED))
+                    .border_color(rgb(color::RAISED))
+                    .bg(rgb(color::BACKGROUND))
+                    .text_size(px(text::SECONDARY))
+                    .text_color(rgb(color::MUTED))
                     .font_family("SauceCodePro Nerd Font Mono")
-                    .child(line.unwrap_or_else(|| "No public key loaded.".into())),
+                    .child(key_text.to_owned())
+                    .children(provider_mark),
             )
             .child(
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap_2()
+                    .items_center()
+                    .gap(px(KEY_PADDING_X))
                     .child(
-                        button("key-create", KEY_READ_LABEL, !busy, false)
-                            .on_click(cx.listener(|this, _, _, cx| this.read_device_key(cx)))
-                            .children(crate::qa_ax::mark(
-                                crate::qa_ax::ids::KEYS_READ,
-                                KEY_READ_LABEL,
-                            )),
+                        button(
+                            "key-copy",
+                            KEY_COPY_LABEL,
+                            !self.setup.busy && key_ready,
+                            false,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if !this.setup.busy && this.copy_device_key(cx) {
+                                this.setup.status = "Copied restricted public key.".into();
+                                this.qa_ax_key_copied();
+                                cx.notify();
+                            }
+                        }))
+                        .children(crate::qa_ax::mark(
+                            crate::qa_ax::ids::KEYS_COPY,
+                            KEY_COPY_LABEL,
+                        )),
                     )
                     .child(
-                        button("key-copy", KEY_COPY_LABEL, !busy && key_ready, false)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if !this.setup.busy && this.copy_device_key(cx) {
-                                    this.setup.status = "Copied restricted public key.".into();
-                                    this.qa_ax_key_copied();
-                                    cx.notify();
-                                }
-                            }))
-                            .children(crate::qa_ax::mark(
-                                crate::qa_ax::ids::KEYS_COPY,
-                                KEY_COPY_LABEL,
-                            )),
+                        div()
+                            .text_color(rgb(color::MUTED))
+                            .child("Add it to ~/.ssh/authorized_keys on the host."),
                     ),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(MUTED))
-                    .child("Add it to ~/.ssh/authorized_keys on the host."),
-            )
+            .when(key_needs_attention, |block| {
+                block.child(
+                    div()
+                        .text_color(rgb(color::MUTED))
+                        .child("To try again, read the device key in Settings › Hosts and keys."),
+                )
+            })
             .into_any_element()
     }
 
@@ -337,7 +408,7 @@ impl Smoke {
         let mut rows = div().id("hosts-rows").flex().flex_col().gap_2();
         let hosts = self.setup.hosts.clone();
         if hosts.is_empty() {
-            rows = rows.child(div().text_color(rgb(MUTED)).child("No hosts yet."));
+            rows = rows.child(div().text_color(rgb(color::MUTED)).child("No hosts yet."));
         }
         for (index, host) in hosts.into_iter().enumerate() {
             let open = host.clone();
@@ -399,7 +470,6 @@ impl Smoke {
             .on_click(cx.listener(|this, _, _, cx| this.hosts_open_add(SheetMode::Add, "", cx)))
             .into_any_element();
         let header = self.sheet_header("Hosts", close, add);
-        let key = self.key_block(cx);
         div()
             .id("hosts-list-sheet")
             .flex()
@@ -418,15 +488,9 @@ impl Smoke {
                     .child(rows)
                     .child(
                         div()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("This iPad"),
-                    )
-                    .child(key)
-                    .child(
-                        div()
                             .id("setup-status")
                             .text_sm()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(color::MUTED))
                             .child(self.setup.status.clone()),
                     )
                     .child(developer),
@@ -452,15 +516,15 @@ impl Smoke {
             .id("target-field")
             .flex_1()
             .min_w_0()
-            .h(px(48.))
+            .h(px(HOST_CONTROL_HEIGHT))
             .px_3()
             .flex()
             .items_center()
             .overflow_hidden()
-            .rounded(px(8.))
+            .rounded(px(radius::CONTROL))
             .border_1()
-            .border_color(rgb(ACCENT))
-            .bg(rgb(FIELD))
+            .border_color(rgb(color::ACCENT))
+            .bg(rgb(color::BACKGROUND))
             .relative()
             .on_click(cx.listener(|this, _, window, cx| {
                 this.focus.focus(window, cx);
@@ -490,17 +554,20 @@ impl Smoke {
             );
         let scan_control = if scanning {
             button("host-scan-cancel", "Cancel", true, false)
+                .h(px(HOST_CONTROL_HEIGHT))
                 .on_click(cx.listener(|this, _, _, cx| this.hosts_cancel_scan(cx)))
         } else {
-            button("host-scan", "Scan host key", flow.can_scan(), false)
+            button("host-scan", "Scan", flow.can_scan(), false)
+                .h(px(HOST_CONTROL_HEIGHT))
+                .aria_label("Scan host key")
                 .on_click(cx.listener(|this, _, _, cx| this.hosts_scan(cx)))
         };
         let mut check = div()
-            .ml(px(34.))
+            .ml(px(STEP_INDENT))
             .flex()
             .flex_col()
             .gap_2()
-            .child(div().text_color(rgb(MUTED)).child("Host"))
+            .child(div().text_color(rgb(color::MUTED)).child("Host"))
             .child(div().flex().gap_2().child(field).child(scan_control));
         if scanning {
             check = check.child(div().id("scan-progress").child("Scanning…"));
@@ -509,16 +576,18 @@ impl Smoke {
             check = check.child(
                 div()
                     .id("fingerprint-box")
-                    .p_3()
+                    .bg(rgb(FINGERPRINT_CARD))
+                    .px(px(FINGERPRINT_SIDE_PADDING))
+                    .py(px(KEY_PADDING_X))
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .rounded(px(12.))
+                    .rounded(px(radius::CARD))
                     .border_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(color::RAISED))
                     .child(
                         div()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(color::MUTED))
                             .child("Compare this with the host before you trust it:"),
                     )
                     .child(
@@ -533,18 +602,18 @@ impl Smoke {
                             .justify_end()
                             .gap_2()
                             .child(
-                                button("host-reject", "Not this host", !trusting, false).on_click(
-                                    cx.listener(|this, _, _, cx| this.hosts_reject_key(cx)),
-                                ),
+                                button("host-reject", "Not this host", !trusting, false)
+                                    .bg(gpui::transparent_black())
+                                    .text_color(rgb(color::MUTED))
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.hosts_reject_key(cx)),
+                                    ),
                             )
                             .child(
-                                button(
-                                    "host-trust",
-                                    "Trust the compared fingerprint and save",
-                                    flow.can_trust(),
-                                    true,
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| this.hosts_trust(cx))),
+                                button("host-trust", "Trust key", flow.can_trust(), true)
+                                    .aria_label("Trust the compared fingerprint and save")
+                                    .font_weight(weight::SEMIBOLD)
+                                    .on_click(cx.listener(|this, _, _, cx| this.hosts_trust(cx))),
                             ),
                     ),
             );
@@ -553,45 +622,54 @@ impl Smoke {
             check = check.child(self.notice_block(notice.lines(), "notice-host-key"));
         }
         let mut sign_in = div()
-            .ml(px(34.))
+            .ml(px(STEP_INDENT))
             .flex()
             .flex_col()
-            .gap_2()
-            .child(div().text_color(rgb(MUTED)).child(
-            "Checks SSH sign-in, then opens Herdr 1. If only Herdr 2 runs there, it opens Herdr 2.",
-        ));
+            .gap(px(metric::INLINE_GAP))
+            .child(div().text_color(rgb(color::MUTED)).child(
+                "Checks SSH sign-in, then opens Herdr 1. If only Herdr 2 runs there, it opens Herdr 2. If sign-in fails or no Herdr answers, this step shows the reason and Retry.",
+            ));
         if session.signing_in {
             sign_in = sign_in.child(div().id("sign-in-progress").child("Signing in…"));
         }
-        if host_done {
-            let retry = session.notice.as_ref().is_some_and(|n| n.offers_retry());
-            sign_in = sign_in.child(
-                button(
-                    "host-auth",
-                    if retry {
-                        "Retry"
-                    } else {
-                        "Sign in and open Herdr"
-                    },
-                    session.can_sign_in(),
-                    true,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.hosts_sign_in(cx))),
-            );
-            if let Some(notice) = &session.notice {
-                sign_in = sign_in.child(self.notice_block(notice.lines(), "notice-sign-in"));
+        if let Some(notice) = session.notice.as_ref().filter(|_| host_done) {
+            if notice.offers_retry() {
+                sign_in = sign_in.child(
+                    button("host-auth", "Retry", session.can_sign_in(), true)
+                        .on_click(cx.listener(|this, _, _, cx| this.hosts_sign_in(cx))),
+                );
             }
+            sign_in = sign_in.child(self.notice_block(notice.lines(), "notice-sign-in"));
         }
-        let cancel = button("hosts-add-cancel", "Cancel", true, false)
-            .on_click(cx.listener(|this, _, window, cx| {
+        let cancel = header_text_button("hosts-add-cancel", "Cancel", true).on_click(cx.listener(
+            |this, _, window, cx| {
                 this.hosts_close(cx);
                 this.return_keys_to_terminal(window, cx);
-            }))
-            .into_any_element();
-        let connect = button("hosts-add-connect", "Connect", session.can_sign_in(), false)
-            .on_click(cx.listener(|this, _, _, cx| this.hosts_sign_in(cx)))
-            .into_any_element();
-        let header = self.sheet_header(session.mode.title(), cancel, connect);
+            },
+        ));
+        let connect = header_text_button("hosts-add-connect", "Connect", session.can_sign_in())
+            .on_click(cx.listener(|this, _, _, cx| this.hosts_sign_in(cx)));
+        let header = div()
+            .id("add-host-header")
+            .debug_selector(|| "add-host-header".into())
+            .h(px(metric::SHEET_HEADER))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .px(px(metric::INLINE_GAP))
+            .border_b_1()
+            .border_color(rgb(color::RAISED))
+            .child(cancel)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_center()
+                    .text_size(px(text::SHEET_TITLE))
+                    .font_weight(weight::SEMIBOLD)
+                    .child(session.mode.title()),
+            )
+            .child(connect);
         let key = self.key_block(cx);
         div()
             .id("add-host-sheet")
@@ -604,27 +682,32 @@ impl Smoke {
                     .id("add-host-body")
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p_4()
+                    .pt(px(BODY_TOP_PADDING))
+                    .px(px(BODY_SIDE_PADDING))
+                    .pb(px(BODY_SIDE_PADDING))
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap(px(BODY_GAP))
                     .child(
-                        div().text_color(rgb(MUTED)).child(
+                        div().text_color(rgb(color::MUTED)).child(
                             "Connect to a computer that runs Herdr over SSH. This iPad checks the host key before it signs in.",
                         ),
                     )
-                    .child(step_title(1, key_ready, !key_ready, "Allow this iPad on the host"))
-                    .child(div().ml(px(34.)).child(key))
-                    .child(step_title(2, host_done, !host_done, "Check the host key"))
-                    .child(check)
-                    .child(step_title(3, false, host_done, "Sign in and open Herdr"))
-                    .child(sign_in)
                     .child(
-                        div()
-                            .id("setup-status")
-                            .text_sm()
-                            .text_color(rgb(MUTED))
-                            .child(self.setup.status.clone()),
+                        step()
+                            .child(step_title(1, key_ready, !key_ready, "Allow this iPad on the host"))
+                            .child(div().ml(px(STEP_INDENT)).child(key)),
+                    )
+                    .child(
+                        step()
+                            .child(step_title(2, host_done, !host_done, "Check the host key"))
+                            .child(check),
+                    )
+                    .child(
+                        step()
+                            .when(!host_done, |step| step.opacity(UPCOMING_STEP_OPACITY))
+                            .child(step_title(3, false, host_done, "Sign in and open Herdr"))
+                            .child(sign_in),
                     ),
             )
             .into_any_element()
@@ -637,7 +720,7 @@ impl Smoke {
             .flex_col()
             .gap_1()
             .p_3()
-            .rounded(px(8.))
+            .rounded(px(radius::CONTROL))
             .border_1()
             .border_color(rgb(0xbf616a))
             .children(lines.into_iter().map(|line| div().child(line)))
