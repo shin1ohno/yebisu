@@ -4,19 +4,14 @@
 //! selection). While the search field owns focus that policy must be absent,
 //! so the SDK's default text-input rules let the field Cut its own text.
 #![allow(clippy::unwrap_used)]
-use super::available;
+use super::regression_tests::install;
 use crate::{
     app::Smoke,
     edit_menu::{Availability, MenuPresenter, MenuToken},
     handoff::Selection,
 };
 use gpui::{AnyWindowHandle, Entity, Pixels, Point, TestAppContext, VisualTestContext};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 type Published = Rc<RefCell<Vec<Option<Availability>>>>;
 struct Recorder(Published);
@@ -76,24 +71,11 @@ fn search_field_focus_withdraws_the_terminal_edit_policy_only_while_it_has_focus
 ) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let log = Published::default();
-    let (client, _receipts) = crate::find::peer::connect().unwrap();
+    let (client, _receipts) = crate::find::peer::connect_quiet(false).unwrap();
     view.update(cx, |this, _| {
         this.edit_menu.presenter = Box::new(Recorder(log.clone()));
-        this.select_host("p13-peer");
-        let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, Ok(client));
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !view.update(cx, |this, cx| {
-        this.poll_terminal(cx);
-        available(&this.terminal) && this.terminal.live.surface.is_some()
-    }) {
-        assert!(
-            Instant::now() < deadline,
-            "capable receiving peer never ready"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    install(&view, cx, "p13-peer", client);
     cx.update(|window, cx| {
         window.activate_window();
         view.update(cx, |this, cx| this.terminal_focus.focus(window, cx));

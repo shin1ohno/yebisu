@@ -3,94 +3,21 @@
 //! search is closed, the retirement fence is open and no draw has happened;
 //! otherwise it keeps its inert retired reply and sends nothing.
 #![allow(clippy::unwrap_used)]
-use super::available;
+use super::{
+    available,
+    regression_tests::{barrier, install as install_peer},
+};
 use crate::{app::Smoke, find::field::Field};
 use gpui::{
     Bounds, ElementInputHandler, Entity, InputHandler, TestAppContext, VisualTestContext, Window,
 };
 use sheprd_client::protocol::{ClientMessage, ClientPaneInputEvent};
-use std::{
-    sync::mpsc::Receiver,
-    time::{Duration, Instant},
-};
+use std::sync::mpsc::Receiver;
 
 pub(super) fn install(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Receiver<ClientMessage> {
-    let (client, receipts) = crate::find::peer::connect().unwrap();
-    view.update(cx, |this, _| {
-        this.select_host("p13-forward");
-        let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, Ok(client));
-    });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !view.update(cx, |this, cx| {
-        this.poll_terminal(cx);
-        available(&this.terminal)
-    }) {
-        assert!(Instant::now() < deadline, "P13 peer startup");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let (client, receipts) = crate::find::peer::connect_quiet(false).unwrap();
+    install_peer(view, cx, "p13-forward", client);
     receipts
-}
-
-/// Terminal input events the receiving peer saw before `label`'s barrier.
-fn barrier(
-    view: &Entity<Smoke>,
-    cx: &mut VisualTestContext,
-    receipts: &Receiver<ClientMessage>,
-    label: &str,
-) -> Vec<ClientPaneInputEvent> {
-    view.update(cx, |this, _| {
-        this.terminal
-            .link
-            .handle
-            .as_ref()
-            .unwrap()
-            .request(
-                "boot-v1",
-                sheprd_client::Method::PaneScroll,
-                serde_json::json!({"pane_id":"w1:p1","offset_from_bottom":100,"p13_barrier":label}),
-            )
-            .unwrap();
-    });
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut events = Vec::new();
-    loop {
-        match receipts
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap()
-        {
-            ClientMessage::ClientShellPaneInput {
-                pane_id,
-                events: next,
-            } => {
-                assert_eq!(pane_id, "w1:p1", "forwarded input reached a wrong pane");
-                events.extend(next);
-            }
-            ClientMessage::ClientShellEndpointRequest { request, .. } => {
-                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
-                if request["params"]["p13_barrier"] == label {
-                    return events;
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// A barrier returns when its request reaches the peer, before the peer's
-/// scroll surface and reply. `open_find` gives up when the connection reader
-/// holds the inbox (`find_view.rs` try_lock), so let those replies land and
-/// drain them before opening search again.
-fn settle(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    std::thread::sleep(Duration::from_millis(200));
-    while !view.update(cx, |this, cx| {
-        this.poll_terminal(cx);
-        available(&this.terminal) && this.terminal.link.inbox.try_lock().is_ok()
-    }) {
-        assert!(Instant::now() < deadline, "P13 peer did not settle");
-        std::thread::sleep(Duration::from_millis(5));
-    }
 }
 
 /// The handler GPUI keeps on the platform window for this field.
@@ -197,7 +124,6 @@ fn retired_field_forwards_to_the_terminal_only_until_the_first_post_close_draw(
 
     // Reopened search, same frame and an open fence: the old field must reach
     // neither the terminal nor the new search field.
-    settle(&view, cx);
     cx.update(|window, cx| {
         let old = close(&view, window, cx);
         acknowledge(&view, window, cx);

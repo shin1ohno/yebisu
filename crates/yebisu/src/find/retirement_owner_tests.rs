@@ -6,13 +6,10 @@
 //! The SDK callback can also drain while GPUI's app is still borrowed; it must
 //! then acknowledge once from a foreground task instead of being dropped.
 #![allow(clippy::unwrap_used)]
-use super::available;
+use super::regression_tests::install;
 use crate::{app::Smoke, find::retirement::deliver_find_retirement, settings::SettingsHost};
-use gpui::{Entity, TestAppContext, VisualTestContext};
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use gpui::TestAppContext;
+use std::path::PathBuf;
 
 #[gpui::test]
 fn close_hands_input_back_while_the_startup_settings_store_is_loaded(cx: &mut TestAppContext) {
@@ -20,21 +17,11 @@ fn close_hands_input_back_while_the_startup_settings_store_is_loaded(cx: &mut Te
         .join("../../target/p13-tests")
         .join(format!("{}-retirement-owner", std::process::id()));
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, _receipts) = crate::find::peer::connect().unwrap();
+    let (client, _receipts) = crate::find::peer::connect_quiet(false).unwrap();
     view.update(cx, |this, _| {
         this.settings = Some(SettingsHost::open(root.clone()).unwrap());
-        this.select_host("p13-owner");
-        let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, Ok(client));
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !view.update(cx, |this, cx| {
-        this.poll_terminal(cx);
-        available(&this.terminal)
-    }) {
-        assert!(Instant::now() < deadline, "P13 peer startup");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    install(&view, cx, "p13-owner", client);
     cx.update(|window, cx| {
         window.activate_window();
         view.update(cx, |this, cx| {
@@ -64,27 +51,11 @@ fn close_hands_input_back_while_the_startup_settings_store_is_loaded(cx: &mut Te
     let _ = std::fs::remove_dir_all(root);
 }
 
-fn connected(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
-    let (client, _receipts) = crate::find::peer::connect().unwrap();
-    view.update(cx, |this, _| {
-        this.select_host("p13-deferred");
-        let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, Ok(client));
-    });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !view.update(cx, |this, cx| {
-        this.poll_terminal(cx);
-        available(&this.terminal)
-    }) {
-        assert!(Instant::now() < deadline, "P13 peer startup");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 #[gpui::test]
 fn retirement_callback_inside_a_borrowed_update_acknowledges_once_later(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    connected(&view, cx);
+    let (client, _receipts) = crate::find::peer::connect_quiet(false).unwrap();
+    install(&view, cx, "p13-deferred", client);
     cx.update(|window, cx| {
         window.activate_window();
         view.update(cx, |this, cx| {

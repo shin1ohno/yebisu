@@ -1,6 +1,6 @@
 //! Production field + reader + Link + controlled receiving socket, not a model.
 #![allow(clippy::unwrap_used)]
-use super::available;
+use super::regression_tests::install;
 use crate::{app::Smoke, find::State, live::Live};
 use gpui::{EntityInputHandler, KeyDownEvent, Keystroke, TestAppContext};
 use sheprd_client::{
@@ -23,26 +23,8 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
     cx: &mut TestAppContext,
 ) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, receipts) = crate::find::peer::connect().unwrap();
-    view.update(cx, |this, _| {
-        this.select_host("p13-peer");
-        let generation = this.terminal.link.reset();
-        this.terminal.link.install(generation, Ok(client));
-    });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if view.update(cx, |this, cx| {
-            this.poll_terminal(cx);
-            available(&this.terminal)
-        }) {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "capable receiving peer never ready"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let (client, receipts) = crate::find::peer::connect_search_only().unwrap();
+    install(&view, cx, "p13-peer", client);
     let field = cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.open_find(window, cx);
@@ -101,13 +83,9 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_find(cx);
-                this.find
-                    .as_ref()
-                    .unwrap()
-                    .search
-                    .result
-                    .as_ref()
-                    .is_some_and(|r| r.current != before)
+                let search = &this.find.as_ref().unwrap().search;
+                search.state == State::Matches
+                    && search.result.as_ref().is_some_and(|r| r.current != before)
             }) {
                 break;
             }
@@ -115,6 +93,8 @@ fn production_field_searches_utf8_paints_and_restores_one_fresh_terminal_commit(
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+    // The last step result has passed through the connection reader and been
+    // applied by poll_find. No other replies can follow it in this fixture.
     cx.update(|window, cx| {
         field.update(cx, |field, cx| {
             field.replace_and_mark_text_in_range(None, "変換中", Some(0..1), window, cx);
