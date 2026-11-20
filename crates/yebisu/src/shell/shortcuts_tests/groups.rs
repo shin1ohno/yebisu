@@ -61,8 +61,19 @@ fn shortcuts_show_the_canvas_focus_and_app_groups() {
             .iter()
             .map(|(_, row)| row.label.as_str())
             .collect();
+        let order: Vec<_> = collapsed.iter().map(|(action, _)| action.clone()).collect();
         match group {
             ShortcutGroup::Tabs => {
+                assert_eq!(
+                    order,
+                    [
+                        PopoverAction::Catalog(Command::Tab),
+                        PopoverAction::Catalog(Command::CloseTab),
+                        PopoverAction::Catalog(Command::NextTab),
+                        PopoverAction::Catalog(Command::PreviousTab),
+                        PopoverAction::Focus(ShortcutGroup::Tabs),
+                    ]
+                );
                 assert_eq!(
                     labels
                         .iter()
@@ -74,15 +85,24 @@ fn shortcuts_show_the_canvas_focus_and_app_groups() {
                 assert_eq!(expanded.len() - collapsed.len(), 9);
             }
             ShortcutGroup::Panes => {
+                assert_eq!(
+                    order,
+                    [
+                        PopoverAction::Catalog(Command::SplitRight),
+                        PopoverAction::Catalog(Command::SplitDown),
+                        PopoverAction::Catalog(Command::ClosePane),
+                        PopoverAction::Catalog(Command::NextPane),
+                        PopoverAction::Catalog(Command::PreviousPane),
+                        PopoverAction::Focus(ShortcutGroup::Panes),
+                        PopoverAction::Catalog(Command::Zoom),
+                    ]
+                );
                 assert!(labels.contains(&"Focus Left · Right · Up · Down"));
                 assert_eq!(expanded.len() - collapsed.len(), 4);
             }
             ShortcutGroup::App => {
                 assert_eq!(
-                    collapsed
-                        .iter()
-                        .map(|(action, _)| action.clone())
-                        .collect::<Vec<_>>(),
+                    order,
                     [
                         PopoverAction::Catalog(Command::ToggleSidebar),
                         PopoverAction::Catalog(Command::Palette),

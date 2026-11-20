@@ -28,6 +28,8 @@ const FOOTER_HEIGHT: f32 = 48.;
 // Shortcuts.dc.html:63.
 const ARROW_RIGHT: f32 = 52.;
 const ARROW_HEIGHT: f32 = 10.;
+// Shortcuts.dc.html:44 renders the direction names on two lines.
+const FOCUS_LABEL_LINE: f32 = 16.;
 pub(crate) const TITLE: &str = "Keyboard shortcuts";
 pub(crate) const HINT: &str = "Hold ⌘ anywhere to see this list. Tap a row to run it.";
 pub(crate) const CHANGE_IN_SETTINGS: &str = "Change in Settings › Input";
@@ -222,6 +224,7 @@ impl Smoke {
     ) -> impl IntoElement {
         let id = row.label.clone();
         let enabled = row.enabled;
+        let focus_directions = action == PopoverAction::Focus(ShortcutGroup::Panes);
         div()
             .id(gpui::ElementId::Name(format!("shell-shortcut-{id}").into()))
             .h(px(ROW_HEIGHT))
@@ -237,7 +240,15 @@ impl Smoke {
             } else {
                 color::DISABLED
             }))
-            .child(div().min_w_0().truncate().child(row.label))
+            .child(
+                div()
+                    .min_w_0()
+                    .when(focus_directions, |label| {
+                        label.line_height(px(FOCUS_LABEL_LINE))
+                    })
+                    .when(!focus_directions, |label| label.truncate())
+                    .child(row.label),
+            )
             .child(
                 div()
                     .flex_none()

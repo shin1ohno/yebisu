@@ -105,9 +105,19 @@ fn is_grouped_focus(command: Command) -> bool {
 
 fn canvas_rows(
     group: ShortcutGroup,
-    rows: Vec<(Command, ShortcutRow)>,
+    mut rows: Vec<(Command, ShortcutRow)>,
     expanded: bool,
 ) -> Vec<(PopoverAction, ShortcutRow)> {
+    // Shortcuts.dc.html:30–52. Keep the catalog's order inside a focus group.
+    rows.sort_by_key(|(command, _)| match command {
+        Command::Tab | Command::SplitRight | Command::ToggleSidebar => 0,
+        Command::CloseTab | Command::SplitDown | Command::Palette => 1,
+        Command::NextTab | Command::ClosePane => 2,
+        Command::PreviousTab | Command::NextPane => 3,
+        Command::TabNumber(_) | Command::PreviousPane => 4,
+        Command::FocusLeft | Command::FocusRight | Command::FocusUp | Command::FocusDown => 5,
+        _ => 6,
+    });
     let mut shown = Vec::new();
     let mut focus_inserted = false;
     let focus_enabled = rows
