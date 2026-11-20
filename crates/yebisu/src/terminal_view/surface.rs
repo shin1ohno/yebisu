@@ -9,6 +9,31 @@ use sheprd_client::protocol::{ClientShellSnapshot, PaneSurfaceFrame};
 use std::sync::Arc;
 
 impl TerminalView {
+    pub(super) fn report_surface_focus(&mut self, active: bool) {
+        if self.core_mode || (active && (self.reconnect.suspended || self.navigating.is_some())) {
+            return;
+        }
+        let (Some(handle), Some(snapshot)) = (&self.link.handle, &self.live.snapshot) else {
+            return;
+        };
+        let boot = &snapshot.boot_id;
+        let generation = self.link.generation;
+        let reported = self
+            .surface_focus
+            .as_ref()
+            .filter(|(link, id, _)| *link == generation && id == boot)
+            .map(|(_, _, focused)| *focused);
+        if reported.unwrap_or(false) == active {
+            return;
+        }
+        // Herdr applies a resize to the shared PTY only for the tab's geometry
+        // controller. Report focus after queuing the measured size so a newly
+        // active view claims it before Herdr crops the PTY's bottom rows.
+        if handle.set_focus(boot, active).is_ok() {
+            self.surface_focus = Some((generation, boot.clone(), active));
+        }
+    }
+
     pub(crate) fn column_bounds(&self) -> Bounds<Pixels> {
         let geometry = self.geometry;
         self.canvas_bounds

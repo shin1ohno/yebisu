@@ -27,6 +27,8 @@ pub(crate) struct TerminalView {
     pub font: crate::settings::font::TerminalFont,
     pub compact: bool,
     pub size: Option<ConnectOptions>,
+    /// Last focus report, scoped to the connection generation and server boot.
+    pub(crate) surface_focus: Option<(u64, String, bool)>,
     pub input: crate::terminal_input::TerminalInput,
     pub geometry: crate::input_geometry::InputGeometry,
     pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
@@ -197,11 +199,15 @@ impl Smoke {
             self.start_host_connection(host, cx);
         }
         self.poll_hidden(cx);
+        for hidden in self.board.hidden.values_mut() {
+            hidden.report_surface_focus(false);
+        }
         self.sync_handoff();
         if self.terminal.reconnect.suspended {
             return;
         }
         if !self.terminal.open {
+            self.terminal.report_surface_focus(false);
             // The Hosts list does not disconnect the current host. Keep draining its
             // reader exactly as a hidden host is, so a notification that arrives
             // while the terminal is closed is delivered now instead of aging out.
@@ -239,6 +245,9 @@ impl Smoke {
         let compact = self.terminal.compact;
         let selection = self.board.selection;
         move |bounds, _, window, cx| {
+            // The canvas can extend past an ancestor's clip. Use the same
+            // visible rectangle for the wire size, painting and input.
+            let bounds = bounds.intersect(&window.content_mask().bounds);
             let current = entity.update(cx,|this,cx| {
                     if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
                     let (font_size,line_height) = this.terminal.font.metrics(this.terminal.compact);
@@ -261,7 +270,14 @@ impl Smoke {
                         cell_width_px: (cell_width*window.scale_factor()).round() as u32,
                         cell_height_px: (line_height*window.scale_factor()).round() as u32,
                     };
-                    terminal.resize_if_ready(options);
+                    if viewport.width >= gpui::px(cell_width)
+                        && viewport.height >= gpui::px(line_height)
+                    {
+                        terminal.resize_if_ready(options);
+                        if shown.is_some() && terminal.size == Some(options) {
+                            terminal.report_surface_focus(window.is_window_active());
+                        }
+                    }
                     terminal.input.sync(&terminal.live, generation, terminal.size);
                     if let Some((snapshot, surface)) = shown.as_ref() {
                         let mut highlights = this.handoff.selection.as_ref()
@@ -301,7 +317,11 @@ impl Smoke {
             self.request_find_retirement(window, cx);
         }
         self.enforce_pane_mode(window, cx);
-        if let Some(too_small) = self.render_too_small(window, cx) {
+        let too_small = self.render_too_small(window, cx);
+        if !window.is_window_active() || too_small.is_some() {
+            self.terminal.report_surface_focus(false);
+        }
+        if let Some(too_small) = too_small {
             return too_small;
         }
         let legacy = self.legacy_bands();
@@ -443,6 +463,7 @@ impl Smoke {
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .overflow_hidden()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {

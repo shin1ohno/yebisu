@@ -85,3 +85,6 @@ fn check_stale_paint(cx: &mut TestAppContext, switch: bool) {
         }
     }
 }
+
+#[path = "terminal_view_tests/viewport.rs"]
+mod viewport;
