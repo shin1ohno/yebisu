@@ -74,15 +74,27 @@ pub(crate) struct TabInfo {
 pub(crate) struct SessionInfo {
     pub(crate) name: String,
     pub(crate) tabs: Vec<TabInfo>,
+    pub(crate) confirmed: bool,
+    pub(crate) core_id: Option<String>,
+    pub(crate) statuses: Vec<crate::shell::herdr2_frame::CoreStatus>,
+    pub(crate) created: u64,
 }
 
 pub(crate) struct SessionTarget {
     pub(crate) host: String,
     pub(crate) name: String,
     pub(crate) focus: Option<String>,
+    pub(crate) expected_core_id: Option<String>,
 }
 
-type SessionList = Arc<Mutex<Option<(u64, Vec<SessionInfo>)>>>;
+type SessionList = Arc<Mutex<SessionLists>>;
+
+#[derive(Default)]
+struct SessionLists {
+    current: Option<(u64, Vec<SessionInfo>)>,
+    #[cfg(any(target_os = "ios", test))]
+    external: Option<Vec<SessionInfo>>,
+}
 
 pub(crate) struct Session {
     queue: SyncSender<Queued>,
@@ -138,6 +150,7 @@ impl Session {
                 host,
                 name: "default".into(),
                 focus: None,
+                expected_core_id: None,
             },
             generation,
             inbox,
@@ -216,20 +229,25 @@ impl Session {
                         .ok()
                     });
                     #[cfg(all(target_os = "ios", not(test)))]
-                    let discovered = if cfg!(target_abi = "sim")
+                    let _discovery = if cfg!(target_abi = "sim")
                         && std::env::var_os("YEBISU_CORE_QA").is_some()
                     {
-                        Vec::new()
+                        None
                     } else {
-                        discover_host(&target.host, || stopped.load(Ordering::Acquire))
-                            .inspect_err(|error| tracing::warn!(%error, "List Herdr 2 sessions"))
-                            .map_or_else(|_| Vec::new(), |host| host.sessions)
+                        start_discovery(
+                            target.host.clone(),
+                            target.name.clone(),
+                            root.clone(),
+                            worker_sessions.clone(),
+                            shared.clone(),
+                            stopped.clone(),
+                        )
+                        .inspect_err(|error| tracing::warn!(%error, "Herdr 2 discovery poll"))
+                        .ok()
                     };
-                    #[cfg(any(not(target_os = "ios"), test))]
-                    let discovered = Vec::new();
                     worker::run(
                         backend,
-                        (target, discovered),
+                        target,
                         generation,
                         (&shared, &worker_sessions),
                         (&stopped, &worker_epoch, &column),
@@ -237,6 +255,7 @@ impl Session {
                         root,
                     )
                 })();
+                stopped.store(true, Ordering::Release);
                 if let Err(error) = result {
                     tracing::warn!(%error, "Herdr 2 connection stopped");
                     if let Ok(mut live) = shared.lock() {
@@ -281,12 +300,43 @@ impl Session {
 
     /// Match the catalog to the input epoch of the Live view the caller drew.
     pub(crate) fn sessions(&self, viewed_epoch: u64) -> Vec<SessionInfo> {
-        self.sessions
+        let lists = self
+            .sessions
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some((_, rows)) = lists
+            .current
             .as_ref()
             .filter(|(epoch, _)| *epoch == viewed_epoch)
-            .map_or_else(Vec::new, |(_, sessions)| sessions.clone())
+        else {
+            return Vec::new();
+        };
+        #[cfg(any(target_os = "ios", test))]
+        if let Some(external) = &lists.external {
+            let mut merged = rows
+                .iter()
+                .filter(|row| row.name == self.name)
+                .chain(external)
+                .cloned()
+                .collect::<Vec<_>>();
+            sort_sessions(&mut merged);
+            return merged;
+        }
+        rows.clone()
+    }
+
+    #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+    pub(crate) fn publish_discovery(
+        &self,
+        root: Option<&std::path::Path>,
+        host: &str,
+        output: &[u8],
+    ) -> crate::Result<()> {
+        publish_discovery(
+            &self.sessions,
+            worker::inactive_sessions(root, host, self.name(), parse_discovery(output))?,
+        );
+        Ok(())
     }
 
     pub fn send(&self, command: Command) -> crate::Result<()> {
@@ -302,12 +352,9 @@ impl Session {
 #[cfg(all(target_os = "ios", not(test)))]
 pub(crate) struct HostDiscovery {
     pub(crate) installed: bool,
-    pub(crate) sessions: Vec<String>,
 }
 
-/// herdr-core keeps its named namespaces under XDG_STATE_HOME/herdr-core.
-/// Read those directories through the pinned SSH client without starting
-/// any daemon. The SDK validates each name again when opening a session.
+/// Check whether a Herdr 2 binary is available on a chooser destination.
 #[cfg(all(target_os = "ios", not(test)))]
 pub(crate) fn discover_host(
     host: &str,
@@ -318,9 +365,6 @@ pub(crate) fn discover_host(
 for bin in "$(command -v hc 2>/dev/null || true)" "$(command -v herdr-core 2>/dev/null || true)" "$HOME/.local/bin/hc" "$HOME/.local/bin/herdr-core" "$HOME/.cargo/bin/hc" "$HOME/.cargo/bin/herdr-core" /opt/homebrew/bin/hc /opt/homebrew/bin/herdr-core /usr/local/bin/hc /usr/local/bin/herdr-core; do
     [ -n "$bin" ] && [ -f "$bin" ] && [ -x "$bin" ] || continue
     printf 'installed\000'
-    for session in "${XDG_STATE_HOME:-$HOME/.local/state}/herdr-core/"*; do
-        [ -d "$session" ] && printf '%s\000' "${session##*/}"
-    done
     exit 0
 done
 "#;
@@ -330,28 +374,20 @@ done
     if !exit.success() {
         return Err(crate::Error::Ssh("Herdr 2 discovery did not finish".into()));
     }
-    let mut fields = output.split(|byte| *byte == 0);
-    let installed = fields.next() == Some(b"installed");
-    let sessions = if installed {
-        fields
-            .filter_map(|field| {
-                let name = std::str::from_utf8(field).ok()?;
-                if name.is_empty()
-                    || name.chars().any(char::is_control)
-                    || sheprd_client::core_connect_command(name).is_err()
-                {
-                    return None;
-                }
-                Some(name.to_owned())
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
     Ok(HostDiscovery {
-        installed,
-        sessions,
+        installed: output == b"installed\0",
     })
+}
+
+#[cfg(target_os = "ios")]
+pub(crate) fn workspace_root() -> Option<std::path::PathBuf> {
+    let root = sheprd_client::local_path::state_dir()?.join("herdr2");
+    #[cfg(target_abi = "sim")]
+    if std::env::var_os("YEBISU_CORE_QA").is_some() {
+        // Keep a mock namespace across reconnects in the same process.
+        return Some(root.join(format!("qa-{}", std::process::id())));
+    }
+    Some(root)
 }
 
 #[cfg(target_os = "ios")]
@@ -394,4 +430,134 @@ impl std::io::Write for SshStream {
     fn flush(&mut self) -> std::io::Result<()> {
         std::io::Write::flush(&mut self.stream)
     }
+}
+
+type Observations = std::collections::BTreeMap<String, Option<ExternalObservation>>;
+
+struct ExternalObservation {
+    core_id: String,
+    terminals: Vec<sheprd_core_client::wire::Terminal>,
+}
+
+fn sort_sessions(rows: &mut [SessionInfo]) {
+    rows.sort_by(|left, right| {
+        (left.created == 0, left.created, &left.name).cmp(&(
+            right.created == 0,
+            right.created,
+            &right.name,
+        ))
+    });
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn publish_discovery(lists: &SessionList, rows: Vec<SessionInfo>) -> bool {
+    let mut lists = lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if lists.external.as_ref() == Some(&rows) {
+        return false;
+    }
+    lists.external = Some(rows);
+    true
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn parse_discovery(output: &[u8]) -> Observations {
+    let valid = |name: &str| {
+        !name.is_empty()
+            && name.trim() == name
+            && !name.chars().any(char::is_control)
+            && sheprd_client::core_connect_command(name).is_ok()
+    };
+    if let Some(names) = output.strip_prefix(b"\0") {
+        return names
+            .split(|byte| *byte == 0)
+            .filter_map(|field| std::str::from_utf8(field).ok())
+            .filter(|name| valid(name))
+            .map(|name| (name.to_owned(), None))
+            .collect();
+    }
+    output
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| {
+            type WireRow = (
+                String,
+                Option<(String, Vec<sheprd_core_client::wire::Terminal>)>,
+            );
+            let (name, observation) = serde_json::from_slice::<WireRow>(line).ok()?;
+            let observation = observation.and_then(|(core_id, terminals)| {
+                (!core_id.is_empty()).then_some(ExternalObservation { core_id, terminals })
+            });
+            valid(&name).then_some((name, observation))
+        })
+        .collect()
+}
+
+#[cfg(all(target_os = "ios", not(test)))]
+fn start_discovery(
+    host: String,
+    current: String,
+    root: Option<std::path::PathBuf>,
+    mailbox: SessionList,
+    inbox: Arc<Mutex<Live>>,
+    stop: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    use std::{thread, time::Duration};
+
+    // Query the existing daemon socket. hc connect and hc ls may start a core,
+    // which is only appropriate for an explicit user connection.
+    const DISCOVER: &str = concat!(
+        r#"if command -v python3 >/dev/null 2>&1; then
+    exec python3 - <<'YEBISU_CORE_DISCOVERY'
+"#,
+        include_str!("shell/herdr2_frame/discover.py"),
+        r#"
+YEBISU_CORE_DISCOVERY
+fi
+printf '\000'
+for session in "${XDG_STATE_HOME:-$HOME/.local/state}/herdr-core/"*; do
+    [ -d "$session" ] && printf '%s\000' "${session##*/}"
+done
+exit 0
+"#,
+    );
+
+    thread::Builder::new()
+        .name("yebisu-core-discovery".into())
+        .spawn(move || {
+            let stopped = || stop.load(Ordering::Acquire);
+            while !stopped() {
+                let observed = sheprd_client::run_ssh_command(
+                    &host,
+                    DISCOVER,
+                    Duration::from_secs(3),
+                    48_000,
+                    stopped,
+                )
+                .map(|(exit, output)| {
+                    if exit.success() {
+                        parse_discovery(&output)
+                    } else {
+                        Observations::new()
+                    }
+                })
+                .unwrap_or_default();
+                if !stopped()
+                    && let Ok(rows) =
+                        worker::inactive_sessions(root.as_deref(), &host, &current, observed)
+                    && publish_discovery(&mailbox, rows)
+                    && let Ok(mut live) = inbox.lock()
+                {
+                    live.dirty = true;
+                }
+                // The active session still uses its own one-second listing.
+                for _ in 0..50 {
+                    if stopped() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        })
+        .map(drop)
 }

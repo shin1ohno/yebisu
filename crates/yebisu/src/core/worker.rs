@@ -1,6 +1,7 @@
 use super::{
-    Command, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
+    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
     screen::{self, Screen},
+    sort_sessions,
     store::{self, Saved, Tab, Workspace},
 };
 use crate::{live::Live, shell::single_pane::Mailbox};
@@ -21,18 +22,31 @@ use std::{
 
 pub(super) fn run(
     backend: CoreBackend,
-    target: (SessionTarget, Vec<String>),
+    target: SessionTarget,
     generation: u64,
     outputs: (&Arc<Mutex<Live>>, &SessionList),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
     commands: Receiver<Queued>,
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
-    let (SessionTarget { host, name, focus }, discovered) = target;
+    let SessionTarget {
+        host,
+        name,
+        focus,
+        expected_core_id,
+    } = target;
     let (inbox, session_list) = outputs;
     let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
+    if expected_core_id
+        .as_ref()
+        .is_some_and(|id| id != &backend.core().hello().core.id)
+    {
+        return Err(crate::Error::Ssh(
+            "Herdr 2 session changed; tap its refreshed row".into(),
+        ));
+    }
     let storage = store::LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -44,7 +58,11 @@ pub(super) fn run(
         workspace.created = store::milliseconds(std::time::SystemTime::now());
     }
     let available = backend.core().list(false)?.terminals;
-    reconcile(&mut workspace, &available);
+    if expected_core_id.is_some() {
+        reconcile_live(&mut workspace, &available);
+    } else {
+        reconcile(&mut workspace, &available);
+    }
     if let Some(address) = focus
         && !focus_address(&mut workspace, &address, &available)
     {
@@ -63,29 +81,9 @@ pub(super) fn run(
         return Ok(());
     }
     store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
-    let mut sessions = store::sessions(root.as_deref(), &host)?
-        .into_iter()
-        .filter(|session| session != &name)
-        .filter_map(|session| {
-            let workspace = store::load_workspace(root.as_deref(), &host, &session)
-                .inspect_err(|error| tracing::warn!(%error, %session, "Read Herdr 2 layout"))
-                .ok()?;
-            Some((workspace.created, session_info(session, &workspace)))
-        })
-        .collect::<Vec<_>>();
-    sessions.push((workspace.created, session_info(name.clone(), &workspace)));
-    sessions.sort_by(|(left_time, left), (right_time, right)| {
-        (left_time, &left.name).cmp(&(right_time, &right.name))
-    });
-    let mut sessions = sessions.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
-    for session in discovered {
-        if !sessions.iter().any(|entry| entry.name == session) {
-            sessions.push(SessionInfo {
-                name: session,
-                tabs: Vec::new(),
-            });
-        }
-    }
+    let mut sessions = inactive_sessions(root.as_deref(), &host, &name, Observations::new())?;
+    sessions.push(session_info(name.clone(), &workspace, true, Vec::new()));
+    sort_sessions(&mut sessions);
     drop(storage);
     let mut published_epoch = None;
     #[cfg(test)]
@@ -319,7 +317,7 @@ pub(super) fn run(
             }
             store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
             if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
-                *entry = session_info(name.clone(), &workspace);
+                *entry = session_info(name.clone(), &workspace, true, Vec::new());
             }
             changed = true;
         }
@@ -563,9 +561,78 @@ fn reconcile(workspace: &mut Workspace, available: &[ListedTerminal]) {
         .unwrap_or(0);
 }
 
-fn session_info(name: String, workspace: &Workspace) -> SessionInfo {
+fn reconcile_live(workspace: &mut Workspace, available: &[ListedTerminal]) {
+    reconcile(workspace, available);
+    let mut seen = workspace
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.layout.ids.iter().map(|id| id.as_str().to_owned()))
+        .collect::<std::collections::HashSet<_>>();
+    for info in available {
+        if info.state == TerminalState::Live
+            && !seen.contains(&info.address)
+            && let Ok(mut tab) = new_tab(info)
+        {
+            // The first pane of a surviving split may have exited. Never reuse
+            // the split's stored tab id for an independently discovered pane.
+            while workspace.tabs.iter().any(|existing| existing.id == tab.id) {
+                tab.id.push('+');
+            }
+            seen.insert(info.address.clone());
+            workspace.tabs.push(tab);
+        }
+    }
+}
+
+pub(super) fn inactive_sessions(
+    root: Option<&std::path::Path>,
+    host: &str,
+    current: &str,
+    mut observed: Observations,
+) -> crate::Result<Vec<SessionInfo>> {
+    let mut names = store::sessions(root, host)?;
+    names.extend(observed.keys().cloned());
+    names.sort();
+    names.dedup();
+    let mut rows = names
+        .into_iter()
+        .filter(|name| name != current)
+        .map(|name| {
+            let mut saved = store::load_workspace(root, host, &name)
+                .inspect_err(|error| tracing::warn!(%error, %name, "Read Herdr 2 layout"))
+                .unwrap_or_default();
+            if let Some(Some(row)) = observed.remove(&name) {
+                reconcile_live(&mut saved, &row.terminals);
+                let statuses = row
+                    .terminals
+                    .iter()
+                    .filter(|terminal| terminal.state == TerminalState::Live)
+                    .map(crate::shell::herdr2_frame::CoreStatus::from)
+                    .collect();
+                let mut session = session_info(name, &saved, true, statuses);
+                session.core_id = Some(row.core_id);
+                session
+            } else {
+                session_info(name, &saved, false, Vec::new())
+            }
+        })
+        .collect::<Vec<_>>();
+    sort_sessions(&mut rows);
+    Ok(rows)
+}
+
+fn session_info(
+    name: String,
+    workspace: &Workspace,
+    confirmed: bool,
+    statuses: Vec<crate::shell::herdr2_frame::CoreStatus>,
+) -> SessionInfo {
     SessionInfo {
         name,
+        confirmed,
+        core_id: None,
+        statuses,
+        created: workspace.created,
         tabs: workspace
             .tabs
             .iter()
@@ -588,7 +655,7 @@ fn session_info(name: String, workspace: &Workspace) -> SessionInfo {
 }
 
 fn publish_sessions(list: &SessionList, epoch: u64, sessions: &[SessionInfo]) {
-    *list
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((epoch, sessions.to_vec()));
+    list.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .current = Some((epoch, sessions.to_vec()));
 }
