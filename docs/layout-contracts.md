@@ -647,7 +647,7 @@ directory belongs to the owner of its module.
 |---|---|---|
 | A sidebar | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_status.rs`, `shell/sidebar_list.rs`, `shell/footer.rs`, `shell/footer/**`, `shell/filter.rs`, the header part of `shell/frame.rs` | MAIN-01 (collapse, `yebisu`, search, ＋), MAIN-02 host collapse, MAIN-04, MAIN-06 to 15, MIX-01 and H2-07 (one list for both Herdrs), MIX-02, agent pins, task and pane names on AGENTS rows (R26), density Dense / Roomy |
 | B rail | `shell/rail.rs`, `shell/rail/**`, `shell/rail_badges.rs` | RAIL-02 to 07, the long-press menu (R20) |
-| C tab row, menus, status bar | `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/edit_bar.rs`, `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/mods.rs` | MAIN-16 to 18, 21, 22, RAIL-01 and R21 (space name ▾), RAIL-08, SEL-01, SEL-03, H2-03 (Herdr 2 Paste image enabled: remove the edit bar's `HERDR2_IMAGE_REASON` gate), H2-04, SC-01 to 04, MM-02, the Copy as one line item, the Shortcuts hint only with a hardware keyboard (R32), the flaky `overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal` (`shell/frame_overlay_tests.rs`) |
+| C tab row, menus, status bar | `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/edit_bar.rs`, `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/mods.rs`, `native_menus.rs` (the file that registers the iPadOS menu bar's items, `Smoke::install_native_menus`) | MAIN-16 to 18, 21, 22, RAIL-01 and R21 (space name ▾), RAIL-08, SEL-01, SEL-03, H2-03 (Herdr 2 Paste image enabled: remove the edit bar's `HERDR2_IMAGE_REASON` gate), H2-04, SC-01 to 04, MM-02, the Copy as one line item's placement (9.5), the Shortcuts hint only with a hardware keyboard (R32), the flaky `overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal` (`shell/frame_overlay_tests.rs`) |
 | D terminal surface | `terminal_view.rs`, `find_view.rs`, `upstream/terminal_painter.rs`, `upstream/terminal_painter/**`, selection and copy handling | MAIN-03 (no Find band), SEL-02, SEL-04, MAIN-19 and H2-05 (pane borders; for Herdr 1 first establish that pane geometry is available, else stop and return to the owner), MAIN-23, Copy as one line (R58) |
 | E sheets | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `settings_sheet.rs`, `settings_sheet/**`, `settings_pages/**` | ADD-01 to 06 (read the device key when the sheet opens, R15), SET-01 to 08 (Settings › Sidebar returns), close on a backdrop tap (R46) |
 | F Herdr 2 | `shell/herdr2_frame.rs`, `shell/herdr2_frame/**` | H2-01 several sessions, H2-02, H2-06, SPEC-01 (New space picks the host and Herdr 1 or 2), SC-02's Herdr 2 commands |
@@ -685,10 +685,20 @@ patch.
   whole; a string that is not a target shows as written). The destination
   stays the identity and the only thing SSH connects to; the display name is
   never saved or used as a key. A, B and C draw `display()` wherever a host
-  name is shown.
-- **`shell::sidebar_status`**: `SidebarStatus::color()` follows
+  name is shown. Until they do, `merge` fills `ListSpace::host` from
+  `destination()` and `Display` formats through `display()`, so the iOS
+  binary's `-D warnings` lint sees both in use without an allow.
+- **`shell::sidebar_status`**: `SidebarStatus::dot_color()` follows
   SidebarSpec's legend (Needs you and Error red, Working yellow, Done green,
-  Idle accent, Unknown and no status slate).
+  Idle accent, Unknown and no status slate) and colours dots only (space,
+  AGENTS and rail). `SidebarStatus::label_color()` colours the AGENTS status
+  word and keeps its pre-Wave 0a colours (`#bf616a #88c0d0 #a3be8c #9ca3af
+  #b48ead`), so no word loses contrast on the sidebar (the slate dot colour
+  would draw Unknown at 2.44:1). Stream A restyles the words per
+  Main.dc.html:94, :101, :108: Needs you `color::YELLOW` at `weight::BOLD`,
+  every other word `color::MUTED` (11.55:1 and 8.45:1 on `#16161b`), and
+  replaces `status_words_keep_their_colours_while_the_dots_change` with
+  `agents_status_word_is_bold_yellow_needs_you_or_muted`.
   `pub(crate) enum AgentGroup { NeedsYou, Error, Pinned, Working, Done, Idle, Unknown, NoStatus }`
   and `AgentGroup::of(status: SidebarStatus, pinned: bool) -> AgentGroup`:
   the AGENTS order is the declaration order (owner decision: Needs you,
@@ -699,20 +709,43 @@ patch.
 - **`shell::sidebar_list`** (MIX-01, H2-07):
   `pub(crate) struct HostConnection { kind: HerdrKind, link: HostLink }`,
   `pub(crate) struct ListHost { name: HostName, connections: Vec<HostConnection>, selected: bool }`,
-  `pub(crate) struct ListSpace { host: String, kind: HerdrKind, entry: SpaceEntry }`,
-  `pub(crate) enum ListRow { Host(ListHost), Space(ListSpace) }`, and
-  `pub(crate) fn merge(hosts: &[HostEntry]) -> Vec<ListRow>`: one host row
-  per destination where its first entry stands, then its Herdr 1 spaces,
-  then its Herdr 2 sessions. Stream A draws the list from `merge`; stream F
-  keeps producing Herdr 2 `HostEntry` values (`herdr2_frame::session`), one
-  `SpaceEntry` per session, and does not edit `sidebar_list.rs`.
+  `pub(crate) struct ListSpace { host: String, kind: HerdrKind, boot: String, generation: u64, entry: SpaceEntry }`,
+  `ListSpace::tap(&self) -> SidebarTap`,
+  `pub(crate) enum ListRow { Host(ListHost), Space(ListSpace) }`,
+  `pub(crate) fn sources(host_entries: Vec<HostEntry>, herdr2_hosts: Vec<HostEntry>) -> Vec<HostEntry>`,
+  and `pub(crate) fn merge(hosts: &[HostEntry]) -> Vec<ListRow>`: one host
+  row per destination where its first entry stands, then its Herdr 1
+  spaces, then its Herdr 2 sessions. Stream A draws the list from
+  `merge(&sources(host_entries(..), herdr2_hosts(..)))`; stream F keeps
+  producing Herdr 2 `HostEntry` values (`herdr2_frame::session`), one
+  `SpaceEntry` per session, and does not edit `sidebar_list.rs`. The two
+  contracts below are fixed by Wave 0a's tests:
+  - *Connection identity.* Each `ListSpace` copies `boot` and `generation`
+    from its `HostEntry` when the list is built, as the Herdr 1 space row
+    does today (`sidebar::view::space_row`). A taps with `ListSpace::tap()`,
+    which sends those drawn values; it never re-reads the current boot or
+    generation at tap time. So a row drawn before a reconnect is rejected
+    ("Stale board row", `board::navigate_board_inner`) even when the new
+    connection has a space with the same ID:
+    `a_row_drawn_before_a_reconnect_to_the_same_workspace_id_is_rejected`
+    (`shell/sidebar_list_reconnect_tests.rs`).
+  - *One source for Herdr 2 rows.* `herdr2_frame::sidebar::herdr2_hosts`
+    (F) is the only source of Herdr 2 entries; `sidebar::view::host_entries`
+    (A) also returns every Herdr 2 reader but without sessions, and
+    `sources` replaces such an entry, where it stands, by the
+    `herdr2_hosts` entry of the same destination. Neither A nor F
+    concatenates the two lists (`merge` keeps the first entry of a kind,
+    so the session-bearing row would be dropped):
+    `a_herdr2_destination_from_both_sources_keeps_its_sessions`,
+    `sources_keep_herdr1_entries_and_append_unmatched_herdr2_hosts`
+    (`shell/sidebar_list_tests.rs`).
 - **Sidebar density**: `settings::sidebar_density::SidebarDensity { Dense, Roomy }`
   (default Dense = the artboards' rows), stored as
   `"sidebar_density": "roomy"` through `input_options::FIELDS`
   (`SIDEBAR_DENSITY`); `settings::Values::sidebar_density`; the live value
   is `SidebarState::density`, set when the settings load and by
   `apply_settings`. Stream E adds the Settings › Sidebar page and calls
-  `apply_settings` with the new value; stream A draws by
+  `apply_settings` with the new value under the selection rule in 9.5; stream A draws by
   `self.shell.sidebar.density` and decides Roomy's extra room. Stream A
   also retires `board_density_toggle_removed` (`shell/sidebar_tests/rows.rs`).
 - **`CoreStatus`**: the herdr-gpui pin is 9327f448, so
@@ -736,6 +769,8 @@ Host tests named as below, in a new topic file under the module's
   `agents_list_puts_pinned_after_needs_you_and_error`,
   `agent_pin_survives_restart_and_drops_closed_panes`,
   `agent_row_shows_task_title_and_pane_name`,
+  `agents_status_word_is_bold_yellow_needs_you_or_muted`,
+  `space_tap_after_reconnect_uses_the_drawn_connection`,
   `sidebar_density_changes_row_heights`.
 - **B**: `rail_marks_only_the_current_space`,
   `rail_space_dot_is_the_most_urgent_agent`,
@@ -752,7 +787,9 @@ Host tests named as below, in a new topic file under the module's
   `edit_bar_has_shadow_medium_weight_and_cancel_icon`,
   `herdr2_paste_image_is_enabled`,
   `overflow_menu_matches_the_canvas_geometry`,
-  `copy_as_one_line_is_in_the_menus`,
+  `copy_as_one_line_follows_copy_in_the_edit_bar`,
+  `copy_as_one_line_is_in_the_edit_menu_with_option_command_c`,
+  `copy_as_one_line_is_not_in_the_overflow_menu`,
   `shortcuts_hint_only_with_a_hardware_keyboard`,
   `mods_item_has_icon_count_badge_and_label`; and
   `overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal`
@@ -761,11 +798,13 @@ Host tests named as below, in a new topic file under the module's
   `terminal_padding_follows_the_canvas`,
   `selection_fill_is_the_canvas_tint`,
   `pane_borders_draw_the_name_above_a_one_point_border`,
-  `copy_as_one_line_joins_wrapped_rows`.
+  `copy_as_one_line_joins_wrapped_rows`,
+  `option_command_c_copies_as_one_line`.
 - **E**: `settings_header_is_saved_title_done`,
   `two_way_choices_are_segments`,
   `settings_sections_include_sidebar`,
   `sidebar_page_sets_the_density`,
+  `density_chosen_before_load_survives_a_saved_roomy`,
   `add_host_header_buttons_are_text_buttons`,
   `device_key_is_read_when_the_sheet_opens`,
   `tapping_the_backdrop_closes_the_sheet`.
@@ -773,12 +812,50 @@ Host tests named as below, in a new topic file under the module's
   `herdr2_tab_row_matches_herdr1`,
   `herdr2_agent_row_tap_opens_its_terminal`,
   `new_space_asks_for_the_host_and_the_herdr`,
-  `herdr2_sessions_merge_into_the_sidebar_list`.
+  `herdr2_sessions_merge_into_the_sidebar_list` (through `sources`, with a
+  Herdr 2 host that `host_entries` also returns).
 - **H1**: `screen_stays_awake_while_connected`,
   `screen_may_sleep_after_the_last_disconnect`.
 
 Wave 0a's own tests: `style_tests.rs` (the canvas values),
-`sidebar_status_tests.rs` (the legend colours and `AgentGroup`),
-`sidebar_list_tests.rs` (`merge`), `hosts/display_tests.rs`
+`sidebar_status_tests.rs` (the dot legend, the unchanged status-word
+colours and their contrast, and `AgentGroup`),
+`sidebar_list_tests.rs` (`merge` and `sources`),
+`sidebar_list_reconnect_tests.rs` (a stale merged row after a reconnect), `hosts/display_tests.rs`
 (`HostName`), `settings/sidebar_density_tests.rs` (storage and the live
 value), and `herdr2_frame_tests/status.rs` (`CoreStatus::from`).
+
+### 9.5 Copy as one line and the density choice (review of PR 90)
+
+- **Copy as one line (owner decision 2026-11-20 17:0x, "編集バーとメニューバー").**
+  Stream C places the item in two entries and nowhere else: the edit bar,
+  as the button right after Copy (`shell/edit_bar.rs`), and the iPadOS menu
+  bar's Edit menu as "Copy as One Line" with ⌥⌘C. It is not in the …
+  menu (`shell/overflow_menu.rs`). The menu bar is registered in
+  `native_menus.rs` (`Smoke::install_native_menus`, today a `Terminal`
+  menu built from `actions::catalog` rows and the host menus), which C
+  owns for this work. Native items are keyless (the label advertises the
+  shortcut), so the ⌥⌘C key itself is handled next to ⌘C in
+  `terminal_controls.rs`, D's selection and copy handling, and calls the
+  same join D writes. C first confirms how the pinned GPUI turns a `Menu`
+  titled `Edit` into the system Edit menu; if it cannot reach that menu,
+  C stops and returns to the controller. Tests: C
+  `copy_as_one_line_follows_copy_in_the_edit_bar`,
+  `copy_as_one_line_is_in_the_edit_menu_with_option_command_c`,
+  `copy_as_one_line_is_not_in_the_overflow_menu`; D
+  `copy_as_one_line_joins_wrapped_rows`, `option_command_c_copies_as_one_line`.
+- **Density selection before the settings load (stream E).** The Sidebar
+  page may be shown before `SettingsHost` has loaded the file. A density
+  the user picks then is explicit intent and the loaded value does not
+  overwrite it, even when the pick equals the displayed default (Dense):
+  the page calls a `SettingsHost::edit_sidebar_density(values)` that marks
+  the `SIDEBAR_DENSITY` entry of `edited_before_load.choices` as edited
+  regardless of a value change, as `edit_density` and `edit_font_family`
+  already do (`EditIntent`). `settings.rs` is a Wave 0a file, so E sends
+  that change as a patch in its PR. Gating the control on
+  `settings.is_some()` alone (as `settings_sheet/view.rs` gates the other
+  controls) is not enough: an unchanged Dense pick sets no flag and the
+  saved Roomy would replace it. Test:
+  `density_chosen_before_load_survives_a_saved_roomy` (file saves Roomy;
+  before the load completes, Dense is picked; after the load the draft and
+  the file say Dense).
