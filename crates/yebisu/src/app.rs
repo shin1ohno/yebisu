@@ -1,7 +1,7 @@
 use crate::{input::Input, observation::Observation};
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, RenderImage, Window, canvas, div, img, prelude::*,
-    rgb,
+    px, rgb,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -38,6 +38,7 @@ pub(crate) struct Smoke {
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     pub(crate) menu_qa: crate::edit_menu_qa_sh1_152::MenuQa,
     pub(crate) front_layers: crate::front_layer::FrontLayers,
+    pub(crate) keep_awake: crate::keep_awake::KeepAwake,
     pub(crate) actions: crate::actions::Actions,
     pub(crate) native_menus: crate::native_menus::NativeMenus,
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
@@ -100,6 +101,8 @@ impl Smoke {
                         this.poll_find(cx);
                         this.poll_terminal(cx);
                         this.collect_notifications(cx);
+                        // After the polls, so it sees each host's latest status.
+                        this.sync_keep_awake(cx);
                     })
                     .is_err()
                 {
@@ -146,6 +149,7 @@ impl Smoke {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             p12_qa: Default::default(),
             front_layers: Default::default(),
+            keep_awake: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
@@ -192,8 +196,12 @@ impl Render for Smoke {
             .children(self.p12_qa_controls(cx))
             .into_any_element();
         self.install_native_menus(window, cx);
+        // Every root below draws unsized text at the canvas body size
+        // (shell/style.rs), not GPUI's 16; sized text keeps its own size.
+        let root_text = px(crate::shell::style::text::BASE);
         let screen = div()
             .size_full()
+            .text_size(root_text)
             .on_action(cx.listener(Self::native_command_action))
             .child(screen)
             // QA accessibility layer: qa.state from the first frame (qa_ax.rs).
@@ -204,6 +212,7 @@ impl Render for Smoke {
             return div()
                 .relative()
                 .size_full()
+                .text_size(root_text)
                 .child(screen)
                 .child(sheet)
                 .into_any_element();
@@ -214,6 +223,7 @@ impl Render for Smoke {
         div()
             .size_full()
             .relative()
+            .text_size(root_text)
             .child(screen)
             .child(
                 div()

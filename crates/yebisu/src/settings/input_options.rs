@@ -1,9 +1,10 @@
 //! SH1-157 L1 (Q7, q7): the Input options and the Return policy in the
-//! settings file. Each is a two-way choice stored by name. A missing key
-//! (a file written before L1) or a name this build does not know loads the
-//! default, never an error, so an old or newer file still opens. A default
-//! value is not written, which keeps the file of an owner who never changed
-//! these options identical to the one older builds wrote.
+//! settings file, and since the design fidelity plan's Wave 0a the Sidebar
+//! density (`sidebar_density.rs`). Each is a two-way choice stored by name.
+//! A missing key (a file written before L1) or a name this build does not
+//! know loads the default, never an error, so an old or newer file still
+//! opens. A default value is not written, which keeps the file of an owner
+//! who never changed these options identical to the one older builds wrote.
 use super::Values;
 use serde_json::{Map, Value};
 
@@ -75,8 +76,15 @@ pub(crate) const RETURN_POLICY: Field = Field {
     set: |v, on| v.reconnect_automatic = on,
 };
 
-/// Every field this module stores.
-pub(crate) const FIELDS: [&Field; 4] = [&OPTION_KEY, &COMMAND_KEY, &CANDIDATES, &RETURN_POLICY];
+/// Every two-way choice the settings file stores, in edit-tracking order
+/// (`Edited::choices` has one flag per entry).
+pub(crate) const FIELDS: &[&Field] = &[
+    &OPTION_KEY,
+    &COMMAND_KEY,
+    &CANDIDATES,
+    &RETURN_POLICY,
+    &super::sidebar_density::SIDEBAR_DENSITY,
+];
 
 /// Reads every field of `document` into `values`.
 pub(super) fn load(document: &Value, values: &mut Values) {

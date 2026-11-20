@@ -120,6 +120,12 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
                 self.assertFalse(menu.decisions("pull_request", [path], tmp)["layout-smoke"])
 
+    def test_keep_awake_only_changes_skip_layout_smoke_on_pull_requests(self):
+        # P2, P3 and P10 do not test the display idle timer.
+        for path in ("crates/yebisu/src/keep_awake.rs", "crates/yebisu/src/keep_awake/tests.rs"):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
+                self.assertFalse(menu.decisions("pull_request", [path], tmp)["layout-smoke"])
+
     def test_main_push_schedule_and_manual_run_select_layout_smoke(self):
         for event in ("push", "schedule", "workflow_dispatch"):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as tmp:

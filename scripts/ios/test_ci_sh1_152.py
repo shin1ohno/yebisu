@@ -112,6 +112,8 @@ UNRELATED = {
     "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
     "hosts": "outside the checks: host list, called from terminal_view.rs",
+    "keep_awake": "display idle timer synced by app.rs and reconnect.rs; the edit-menu checks assert selection, "
+                  "editing and input behavior without testing display sleep",
     "keys": "outside the checks: device keys, called from settings/key_ops.rs",
     "native_menus_qa": "P12 native menu QA scene (YEBISU_P12_QA), called from app.rs",
     "notification_settings": "unreferenced",
@@ -145,6 +147,11 @@ class PathFilterTests(unittest.TestCase):
                                         "crates/yebisu/src/host_settings/store.rs", "crates/yebisu/src/native_menus_qa.rs", "crates/yebisu/src/p11_observer.rs",
                                         "crates/yebisu/src/reconnect.rs", "crates/yebisu/src/upstream/mod.rs", "crates/yebisu/src/setup.rs",
                                         "crates/yebisu/locales/en/main.ftl", "crates/yebisu/src/handoff_cjk_tests.rs"))
+
+    def test_keep_awake_only_changes_skip_it(self):
+        for path in ("crates/yebisu/src/keep_awake.rs", "crates/yebisu/src/keep_awake/tests.rs"):
+            with self.subTest(path=path):
+                self.assertFalse(self.edit_menu(path))
 
     def test_push_to_main_and_manual_runs_always_run_it(self):
         self.assertTrue(self.edit_menu("crates/yebisu/src/find/search.rs", event="push"))

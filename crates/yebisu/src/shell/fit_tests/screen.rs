@@ -1,7 +1,11 @@
 //! L9 rules on the real screen: each test draws `Smoke` in a test window, so
 //! it goes through the production caller (the frame, the status bar, the
 //! terminal screen), not only the pure function (layout follow-up W1/W2).
-use crate::{app::Smoke, layout::Regions, mock_peer};
+use crate::{
+    app::Smoke,
+    layout::{ControlsReach, Regions},
+    mock_peer,
+};
 use gpui::{
     Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualContext as _, VisualTestContext,
     point, px, size,
@@ -223,7 +227,7 @@ fn docked_keyboard_shortens_terminal_through_frame_layout(cx: &mut TestAppContex
     };
     let terminal_height = |view: &Entity<Smoke>, cx: &mut VisualTestContext, ime| {
         view.read_with(cx, |this, _| {
-            this.layout_for(window, &with(ime))
+            this.layout_for(window, &with(ime), ControlsReach::default())
                 .terminal
                 .rect()
                 .map(|rect| rect.height)

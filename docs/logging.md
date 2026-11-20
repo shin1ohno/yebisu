@@ -13,7 +13,8 @@ policy is recorded as a model in PROVENANCE.tsv; no new source file was copied.
 
 The file schema has exactly `time` (Unix seconds), `pid`, and `event` (a
 program-owned, allowlisted static code). It records startup, window result,
-lifecycle, connection transitions and error categories. It does not serialize
+lifecycle, connection transitions, the display keep-awake hold (`keep_awake_on`,
+`keep_awake_off`, `keep_awake_refused`) and error categories. It does not serialize
 tracing messages, span fields, host messages, addresses, terminal output,
 keys, IME, clipboard data, credentials or error bodies. A panic hook enqueues
 only `panic`; it never formats the panic payload into the file. The original

@@ -11,7 +11,7 @@ use std::{
 };
 
 /// A Herdr 1 terminal on the private peer, drawn in the frame at 1200x1000.
-fn terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext) {
+pub(super) fn terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1200.), px(1000.)));
     let (client, _receipts) =

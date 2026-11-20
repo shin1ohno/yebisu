@@ -1,4 +1,8 @@
 //! Container-local endpoint persistence; host fingerprints are always read from pins.
+mod display;
+
+pub(crate) use display::HostName;
+
 use crate::{Error, Result};
 use herdr_ssh::{KnownHosts, Pins, Target};
 use std::{

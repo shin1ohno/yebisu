@@ -10,6 +10,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod report;
+use report::DropReport;
+
 /// Queue bound of the app's observation writer. Hosted edit-menu and
 /// layout-smoke files peak at 40 records in one second (runs 44356754798 to
 /// 44406830068); p10, which records four paints a frame, peaks at 107 on the
@@ -39,8 +42,9 @@ pub(crate) struct Observation {
     /// Records sent and written, when a writer thread owns the file; `flush`
     /// waits on it.
     progress: Option<Arc<Progress>>,
-    #[cfg(test)]
-    diagnostics: Option<SyncSender<String>>,
+    /// Reports coalesced drops on a worker so the recording thread never
+    /// writes to stderr. Disabled when there is no sender.
+    report: Option<DropReport>,
 }
 
 /// How far the writer has got: records the senders queued and records the
@@ -54,19 +58,39 @@ static NEXT_OBSERVATION: std::sync::atomic::AtomicUsize = std::sync::atomic::Ato
 
 impl Observation {
     fn with_sender(sender: Option<SyncSender<Value>>, window: usize, full_wait: Duration) -> Self {
+        let report = sender
+            .is_some()
+            .then(|| DropReport::spawn(Box::new(std::io::stderr())));
         Self {
             sender,
             window,
             dropped: Arc::new(AtomicU64::new(0)),
             full_wait,
             progress: None,
-            #[cfg(test)]
-            diagnostics: None,
+            report,
         }
     }
+
+    /// Sends the drop lines to `sender` (one line per message) instead of
+    /// stderr.
     #[cfg(test)]
     pub(crate) fn capture_diagnostics(&mut self, sender: SyncSender<String>) {
-        self.diagnostics = Some(sender);
+        self.report = Some(DropReport::spawn(Box::new(report::Lines::new(sender))));
+    }
+
+    /// Prints drop lines into `out` instead of stderr.
+    #[cfg(test)]
+    pub(crate) fn report_drops_to(&mut self, out: Box<dyn Write + Send>) {
+        self.report = Some(DropReport::spawn(out));
+    }
+
+    /// Waits up to `bound` until the reporter thread has printed every drop
+    /// counted so far; `false` if it has not. Never called while drawing.
+    #[cfg(test)]
+    pub(crate) fn wait_for_drop_report(&self, bound: Duration) -> bool {
+        self.report
+            .as_ref()
+            .is_none_or(|report| report.wait_printed(bound))
     }
 
     #[cfg(test)]
@@ -189,12 +213,12 @@ impl Observation {
         }
         if let Err(reason) = self.send(sender, value) {
             self.dropped.fetch_add(1, Ordering::AcqRel);
-            let message = format!("smoke observation dropped: {reason}");
-            #[cfg(test)]
-            if let Some(sink) = &self.diagnostics {
-                let _ = sink.try_send(message.clone());
+            // Only counters and a non-blocking wake here: the reporter
+            // thread writes the stderr line (review of PR 87, 16ef79e:
+            // a blocked stderr pipe must not hold the drawing thread).
+            if let Some(report) = &self.report {
+                report.count(reason);
             }
-            eprintln!("{message}");
             return false;
         }
         true
@@ -225,7 +249,7 @@ impl Observation {
     }
 
     /// Sends one record, waiting up to `full_wait` for room in a full queue.
-    fn send(&self, sender: &SyncSender<Value>, mut value: Value) -> Result<(), &'static str> {
+    fn send(&self, sender: &SyncSender<Value>, mut value: Value) -> Result<(), report::Reason> {
         let deadline = Instant::now() + self.full_wait;
         loop {
             match sender.try_send(value) {
@@ -235,10 +259,10 @@ impl Observation {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Disconnected(_)) => return Err("disconnected"),
+                Err(TrySendError::Disconnected(_)) => return Err(report::Reason::Disconnected),
                 Err(TrySendError::Full(back)) => {
                     if Instant::now() >= deadline {
-                        return Err("full");
+                        return Err(report::Reason::Full);
                     }
                     value = back;
                     std::thread::sleep(Duration::from_millis(1));

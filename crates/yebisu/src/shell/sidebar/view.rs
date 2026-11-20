@@ -277,7 +277,7 @@ impl Smoke {
                     .flex_row()
                     .gap_2()
                     .min_w_0()
-                    .child(div().text_color(rgb(space.dot.color())).child("●"))
+                    .child(div().text_color(rgb(space.dot.dot_color())).child("●"))
                     .child(
                         div()
                             .flex_1()
@@ -329,7 +329,7 @@ impl Smoke {
                     .flex_row()
                     .gap_2()
                     .min_w_0()
-                    .child(div().text_color(rgb(status.color())).child("●"))
+                    .child(div().text_color(rgb(status.dot_color())).child("●"))
                     .child(
                         div()
                             .flex_1()
@@ -341,7 +341,7 @@ impl Smoke {
                         div()
                             .flex_shrink_0()
                             .text_sm()
-                            .text_color(rgb(status.color()))
+                            .text_color(rgb(status.label_color()))
                             .child(status.label()),
                     ),
             )

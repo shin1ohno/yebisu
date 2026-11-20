@@ -37,6 +37,9 @@ impl Smoke {
         // Outside `lifecycle_inner`: its early return for a second Background
         // or a Disconnected while already suspended must not skip the flush.
         self.flush_before_suspension(phase);
+        // Outside it as well, so that early return cannot keep the display lit.
+        self.keep_awake.lifecycle(phase);
+        self.sync_keep_awake(cx);
     }
 
     /// UIKit may suspend the process right after Inactive or Background, and

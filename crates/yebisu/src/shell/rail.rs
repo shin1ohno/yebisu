@@ -150,6 +150,14 @@ pub(crate) const RAIL_HEADER_HEIGHT: f32 = EDGE_PAD;
 pub(crate) const RAIL_FOOTER_HEIGHT: f32 =
     FOOTER_BUTTONS as f32 * (FOOTER_BUTTON_HEIGHT + ITEM_GAP) + EDGE_PAD;
 
+/// The rail's header height: `RAIL_HEADER_HEIGHT`, or the band L0 keeps for
+/// iPadOS 26's window controls (`ControlsClearance::rail_top`) while they
+/// show. The rail is too narrow to hold anything beside the controls, so its
+/// list starts under them.
+pub(crate) fn rail_header(controls_top: f32) -> f32 {
+    RAIL_HEADER_HEIGHT.max(controls_top)
+}
+
 /// Splits `available` height; the list takes what the fixed parts leave and
 /// scrolls when its `content` is taller than that.
 pub(crate) fn rail_sections(available: f32, content: f32) -> RailSections {
@@ -211,8 +219,13 @@ impl Smoke {
 
     /// The rail column. The frame calls it only when the sidebar is collapsed
     /// (`sidebar_mode(..) == Rail`); it draws the column unconditionally.
-    pub(crate) fn render_rail(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(self.rail_column(cx))
+    /// `controls_top` is L0's `ControlsClearance::rail_top`.
+    pub(crate) fn render_rail(
+        &mut self,
+        controls_top: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        Some(self.rail_column(rail_header(controls_top), cx))
     }
 }
 
