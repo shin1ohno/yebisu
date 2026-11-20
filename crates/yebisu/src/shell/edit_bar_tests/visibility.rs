@@ -42,7 +42,7 @@ fn edit_bar_only_while_selecting() {
 }
 
 #[test]
-fn paste_image_is_disabled_with_a_reason_on_herdr_2() {
+fn herdr2_paste_image_is_enabled() {
     let state = ChromeState {
         selecting: true,
         connected: true,
@@ -54,8 +54,12 @@ fn paste_image_is_disabled_with_a_reason_on_herdr_2() {
         .iter()
         .find(|p| p.action == EntryAction::PasteImage)
         .unwrap_or_else(|| panic!("Paste image entry"));
-    assert!(!image.enabled);
-    assert_eq!(image.reason, Some("Herdr 2 accepts text only"));
+    assert!(image.enabled);
+    let menu = crate::shell::overflow_menu::overflow_menu_items(&state);
+    assert!(menu.iter().any(|entry| {
+        entry.item == crate::shell::overflow_menu::OverflowItem::PasteImage && entry.enabled
+    }));
+    assert_eq!(image.reason, None);
     assert!(
         points
             .iter()
@@ -85,4 +89,19 @@ fn the_view_draws_the_bar_only_while_typing_is_paused(cx: &mut gpui::TestAppCont
         this.handoff.selection = None;
     });
     assert!(!drawn(cx), "selection gone");
+}
+
+#[test]
+fn edit_bar_has_shadow_medium_weight_and_cancel_icon() {
+    use crate::shell::{
+        edit_bar::edit_bar_surface,
+        style::{shadow, weight},
+        tab_row::icons::Icon,
+    };
+    use gpui::Styled;
+    let mut bar = edit_bar_surface();
+    let style = bar.style();
+    assert_eq!(style.box_shadow, Some(vec![shadow::EDIT_BAR.box_shadow()]));
+    assert_eq!(style.text.font_weight, Some(weight::MEDIUM));
+    assert_eq!(Icon::Cancel.size(), (14., 14.));
 }
