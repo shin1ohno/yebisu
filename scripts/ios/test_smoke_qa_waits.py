@@ -38,6 +38,7 @@ def statements(function):
 
 
 class LifecycleWaits(unittest.TestCase):
+    """P0 waits on qa.state since the UI test redesign S6 (before: OCR of one word of the input)."""
     def setUp(self):
         self.source = swift_source()
         self.test = statements(body(self.source, "func testInputAndLifecycleReceipts("))
@@ -46,9 +47,9 @@ class LifecycleWaits(unittest.TestCase):
         """Statements that directly follow each statement starting with prefix."""
         return [self.test[at + 1] for at, line in enumerate(self.test) if line.startswith(prefix) and at + 1 < len(self.test)]
 
-    def test_no_fixed_sleep_follows_home_activate_or_portrait_typing(self):
+    def test_no_fixed_sleep_follows_home_activate_or_typing(self):
         for prefix in ("XCUIDevice.shared.press(.home)", "app.activate()", 'app.typeText("P0-input")',
-                       'app.typeText("-returned")', 'app.typeText("-idle")'):
+                       'app.typeText("-returned")', 'app.typeText("-rotated")', 'app.typeText("-idle")'):
             with self.subTest(prefix=prefix):
                 steps = self.following(prefix)
                 self.assertTrue(steps, prefix + " not found")
@@ -59,17 +60,23 @@ class LifecycleWaits(unittest.TestCase):
         text = "\n".join(self.test)
         self.assertIn("press(.home)\n" + 'try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")', text)
         self.assertIn('app.activate()\ntry requireState(app, [.runningForeground], "activate() after press(.home)")', text)
-        for word in ("input", "returned", "idle"):
-            self.assertIn(f'try waitForRenderedText("{word}", what:', text)
+        for value in ("P0-input", "P0-input-returned", "P0-input-returned-rotated", "P0-input-returned-rotated-idle"):
+            self.assertIn(f'try waitP0Input(qa, "{value}", what:', text)
+        # The input values are the oracle's: smoke_oracle.EXPECTED.
+        oracle = (Path(__file__).with_name("smoke_oracle.py")).read_text()
+        for value in ("P0-input", "P0-input-returned", "P0-input-returned-rotated", "P0-input-returned-rotated-idle"):
+            self.assertIn(f'"{value}"', oracle)
+        wait = body(self.source, "func waitP0Input(")
+        self.assertIn('$0.string("p0_input") == text', wait)
 
     def test_a_failed_wait_stops_the_test_at_once(self):
         self.assertIn("continueAfterFailure = false", "\n".join(self.test))
-        for signature in ("func requireState(", "func waitForRenderedText("):
-            with self.subTest(signature=signature):
-                function = body(self.source, signature)
-                self.assertIn("XCTFail(", function)
-                self.assertIn("throw NSError(", function)
-                self.assertIn("timeout", function)
+        function = body(self.source, "func requireState(")
+        self.assertIn("XCTFail(", function)
+        self.assertIn("throw NSError(", function)
+        self.assertIn("timeout", function)
+        # waitP0Input goes through QAAx.waitState, which throws a named timeout.
+        self.assertIn("try qa.waitState(", body(self.source, "func waitP0Input("))
 
     def test_state_wait_asks_xctest_to_refresh_the_state(self):
         # Run 43770292492: polling `app.state` alone kept reporting runningForeground for 30 s
@@ -86,8 +93,30 @@ class LifecycleWaits(unittest.TestCase):
         stages = [line for line in self.test if line.startswith("save(")]
         self.assertEqual(stages, ['save("initial")', 'save("returned")', 'save("rotated")',
                                   'save("idle-before")', 'save("idle")', 'save("image-clear")'])
-        self.assertIn("sleep(60)", self.test)
+        self.assertIn("holdIdle(qa, seconds: 60)", self.test)
         self.assertIn("XCTAssertEqual(app.state, .runningForeground)", self.test)
+        # 6 slices of sleep(10): the 60 s the oracle requires between idle-before and idle.
+        idle = body(self.source, "func holdIdle(")
+        self.assertIn("stride(from: 10, through: seconds, by: 10)", idle)
+        self.assertIn("sleep(10)", idle)
+
+    def test_s6_idle_wait_is_measured_by_name(self):
+        """S5 follow-up S6-2: the idle wait is no longer met by an OCR screenshot, and how long
+        XCTest waited for the app to idle is printed (run 44547820393 attempt 1: 80 s)."""
+        text = "\n".join(self.test)
+        idle = body(self.source, "func holdIdle(")
+        self.assertIn("qa.read()", idle)
+        self.assertIn("slow qa.state reads while idle", idle)
+        self.assertIn("P0 idle: typeText('-idle') took", text)
+        self.assertLess(text.index("let typing = Date()"), text.index('app.typeText("-idle")'))
+        for call in S3Identifiers.OCR + ("XCUIScreen.main.screenshot()", "withNormalizedOffset"):
+            self.assertNotIn(call, text)
+        # The press on the P0 control and the keyboard's hide key replaced two window points.
+        self.assertIn("try qa.press(QAIds.p0Tap", text)
+        self.assertIn('try qa.hideKeyboard("P0 image-clear")', text)
+        driver = (Path(__file__).with_name("smoke-check.py")).read_text()
+        self.assertIn("SIMCTL_CHILD_YEBISU_QA_AX='1'", driver)
+        self.assertIn("idle_report(", driver)
 
 
 class P9Timeout(unittest.TestCase):
@@ -156,6 +185,74 @@ class S3Identifiers(unittest.TestCase):
     def test_p9_runs_the_press_logic_checks(self):
         command = p9.xcodebuild_test_command(Path("project"), "DEVICE", Path("derived"), Path("result.xcresult"))
         self.assertIn("-only-testing:SmokeOracle/QAAxLogicTests", command)
+
+
+
+
+class S6Identifiers(unittest.TestCase):
+    """UI test redesign S6: P11, P14 and P15 press QA identifiers and wait on qa.state."""
+    TESTS = ("func testP11Settings(", "private func observerProbe(", "func testP14ConnectedNotifications(",
+             "func testP15Theme(")
+
+    def setUp(self):
+        self.source = swift_source()
+
+    def test_no_ocr_or_window_point(self):
+        for signature in self.TESTS:
+            function = "\n".join(statements(body(self.source, signature)))
+            with self.subTest(test=signature):
+                for call in S3Identifiers.OCR:
+                    self.assertNotIn(call, function)
+                self.assertNotIn("withNormalizedOffset", function)
+                self.assertNotIn("sleep(", function.replace("Thread.sleep(forTimeInterval: 0.2)", ""))
+                self.assertIn('launchEnvironment["YEBISU_QA_AX"] = "1"', function)
+                self.assertIn("continueAfterFailure = false", function)
+
+    def test_the_old_presses_in_the_old_order(self):
+        p11 = body(self.source, "func testP11Settings(")
+        self.assertEqual(re.findall(r"qa\.press\((QAIds\.\w+)", p11), ["QAIds.p11Probe", "QAIds.settingsClose"])
+        self.assertIn("try pressLarger(qa)", p11)
+        larger = body(self.source, "func pressLarger(")
+        self.assertIn("try qa.press(QAIds.fontLarger", larger)
+        self.assertIn("self.fontSize($0) == size + 1", larger)
+        p14 = body(self.source, "func testP14ConnectedNotifications(")
+        self.assertEqual(re.findall(r"(?:qa\.press\(|p14Next\(qa, step: )(QAIds\.\w+|\d)", p14),
+                         ["QAIds.terminalInput", "1", "QAIds.toast", "2", "3", "4", "5"])
+        # PR 84 review F3: nothing slow between the toast's appearance and its press.
+        shown, pressed = p14.index('"the toast is up"'), p14.index("try qa.press(QAIds.toast")
+        self.assertNotIn("save(", p14[shown:pressed])
+        self.assertLess(pressed, p14.index('save("p14-toast")'))
+        self.assertIn('XCTAssertLessThanOrEqual(frame.maxY, keyboardTop + 2, "toast is covered by the software keyboard")', p14)
+        p15 = body(self.source, "func testP15Theme(")
+        self.assertEqual(re.findall(r"tapAppearance\(qa", p15), ["tapAppearance(qa"] * 3)
+        self.assertEqual(re.findall(r'typeP15\(qa, app, "([^"]+)", ui: &ui\)', p15), ["P15-start", "P15-end"])
+        self.assertIn('try pressHostRow(qa, QAIds.sidebarHostBeta, host: "qa-beta")', p15)
+
+    def test_no_name_is_declared_twice_in_one_test_body(self):
+        """Swift does not compile here: a constant declared twice at a test's top level (1ad3b91's
+        `shown` in P14) broke the whole SmokeOracle build on the Mac mini."""
+        for path in sorted(TESTS.glob("*.swift")):
+            text = path.read_text()
+            for match in re.finditer(r"\n    (?:private )?func (\w+)\(", text):
+                function = body(text, match.group(0).strip())
+                names = re.findall(r"\n        (?:let|var) (\w+)\b", function)
+                with self.subTest(file=path.name, function=match.group(1)):
+                    self.assertEqual(len(names), len(set(names)), names)
+
+    def test_vision_is_left_only_for_the_p15_host_text(self):
+        """The owner decision keeps screenshot checks where the text is the subject: P15's host
+        block. No other UI test imports Vision."""
+        for path in sorted(TESTS.glob("*.swift")):
+            with self.subTest(file=path.name):
+                text = path.read_text()
+                if path.name == "SmokeQA+Theme.swift":
+                    self.assertEqual(text.count("VNRecognizeTextRequest()"), 1)
+                    self.assertIn("VNRecognizeTextRequest()", body(text, "private func p15Host("))
+                else:
+                    self.assertNotIn("import Vision", text)
+                    self.assertNotIn("VNRecognizeTextRequest", text)
+        p12 = Path(__file__).with_name("p12-qa") / "Tests" / "P12QA.swift"
+        self.assertNotIn("import Vision", p12.read_text())
 
 
 if __name__ == "__main__":

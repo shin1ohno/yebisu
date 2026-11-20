@@ -40,12 +40,12 @@ provided evidence was produced. The artifact excludes `build/` and the local
 files disappear when the job finishes. This checks Simulator
 rendering and lifecycle behavior, not physical IME or hardware keyboard behavior.
 
-## layout-smoke job and SmokeQA label check
+## layout-smoke job and QA identifier check
 
 | Job | Runs | Limit | Selected by |
 |---|---|---|---|
 | `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | the `layout=` pattern of the `changes` job: the harness scripts above, `scripts/ios/smoke-qa/`, and the app modules those three drive; pushes to main and manual runs always run it |
-| `check`, step `SmokeQA labels` | `scripts/ios/smokeqa-labels-check.py`: ties every text SmokeQA taps or OCR-matches to the app source that paints it, or to an allow-list entry with its reason | within the 60-minute `check` job | every pull request that selects `check` |
+| `check`, step `QA identifiers` | `scripts/ios/qa-ax-ids-check.py`: every QA identifier a Swift UI test presses is a constant of `crates/yebisu/src/qa_ax_ids.rs` that the app marks (UI test redesign S6 replaced the SmokeQA label check, which tied every text SmokeQA tapped or OCR-matched to the app source that painted it) | within the 60-minute `check` job | every pull request that selects `check` |
 
 These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
 the finished-phase checks P4 to P8, R3, R5, CJK and SH1-155, three remain that are neither in
@@ -379,37 +379,81 @@ under an 8-core CPU load.)
   not complete a click. Same class as the lost presses under "Show that a menu
   is closed before the next tap" below; not on the known-class list.
 
-### XCUITest OCR rules
+### XCUITest identifier rules
 
-(2026-11-16: PR 55, PR 57.)
+(2026-11-20: UI test redesign S6. They replace the OCR rules of PR 55 and PR 57; owner decision
+`ui-test-redesign-decision.json`.)
 
-- Locate every control once, before any held request, then tap the recorded
-  coordinates (PR 55 `locateFixtures` finds all 13 P12 controls before the first
-  held `pane.split`; PR 57 reuses the first `Paste` box for the second tap).
-- Match whole words so `Paste` never hits `Paste image`: split recognised text
-  on whitespace and exclude `Paste` followed by `image`/`Image`. `locateText`
-  still uses the suffix test; the whole-word match is open (L19).
-- Show that a menu is closed before the next tap. A hosted press can be lost: in
-  run 44297932478 (job 134779801456) the press that should close the `...` menu left
-  it open (screen recording at 47.8 s and 48.4 s), and SH154's QA Image only tap only
-  closed it, so `QA image ready` never came. `closeOverflowMenu` waits for `Select
-  text` to leave the screen and presses once more, saying why.
-- Never run an OCR search while a request is held. The pinned sheprd-client
-  `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`);
-  a request held that long drops the connection. Hold one request per local
-  case and release it before the next search.
+No UI test reads text off the screen to find, press or confirm a control. The OCR helpers
+(`locateText`, `recognize`, `wholeWordRange`, `ocrLineCount`, `tapText`, `tapTextBox`,
+`tapRecorded`, `tapMenuItem`, `textVisible`, `waitForRenderedText`, `openSettings`,
+`openOverflowMenu`, `closeOverflowMenu`, `scrollBoard`) and `smokeqa-labels-check.py` are gone;
+`test_smoke_qa_probe.py` fails if one comes back.
+
+- Find a control by its QA identifier. The app marks the GPUI control with `qa_ax::mark(id,
+  label)` (Simulator build with `YEBISU_QA_AX` only); `id` is a constant of
+  `crates/yebisu/src/qa_ax_ids.rs` and `label` is the constant the control draws, so the two
+  cannot drift apart. The Swift side names it in `QAIds.swift`; `qa-ax-ids-check.py` (the
+  `QA identifiers` step of `check`) fails on an identifier that is not a constant or that
+  nothing marks. Every test that uses the layer sets `YEBISU_QA_AX` in its launch environment
+  (P0, launched by `smoke-check.py`, gets it as `SIMCTL_CHILD_YEBISU_QA_AX`).
+- Press with a real touch and confirm by `qa.state`. `QAAx.press` taps the element's own
+  coordinate and waits until `presses[id]` grew and the step's effect holds in `qa.state`.
+  `isHittable` is never a verdict (S0: it ignores a GPUI menu backdrop over the control).
+- Repeat a lost press once, and say why. A press that moved neither `presses[id]` nor a screen
+  field (`screen`, `sheet`, `menu`, `active`) is sent once more and recorded in
+  `QAAx.Session.retries`; one that something else took, or one that reached the control
+  without its effect, fails by name with the last `qa.state`.
+- Wait on `qa.state`, not on a delay or the screen. A test waits for the field its step changes
+  (`p0_input`, `font_size`, `theme`, `host`, `observer`, `p14`, `p12`, `peer`, ...). Setup that
+  is not under test is a launch variable (`YEBISU_QA_START_SELECTION`, the QA modes), not a
+  sequence of presses.
+- Show that a menu or sheet is closed before the next press: wait until `menu` or `sheet` is
+  null (run 44297932478, job 134779801456: a lost close press left the `...` menu open and the
+  next tap only closed it).
+- After a launch, wait until a touch reaches GPUI before the first real press. The first touch
+  after a launch can reach nothing while `qa.state` already shows the screen (PR 84 run
+  44618790826, edit-menu E3f-text: the recording shows the relaunched window still black at the
+  press). `QAAx.touchReady` presses a marked empty space with no handler (`qa.sh1-152.empty`,
+  `qa.p12.empty`) until GPUI counts the press, at most 8 times, and logs how many it took.
+- Wait for the software keyboard to settle only when something may have moved it
+  (`QAAx.keyboardMayMove` / `settleIfMoved`): a rising keyboard moves the controls above it.
+- Keep the queries inside a held request few, and measure them. The pinned sheprd-client
+  `COMMAND_TIMEOUT` is 60 s (herdr-gpui f63688b, `crates/sheprd-client/src/limits.rs:19`); a
+  request held that long drops the connection, and any XCTest query (a read, a tap) can first
+  wait for the app to idle (60-80 s on an old runner image: run 44547820393 attempt 1, F11, F15).
+  The test cannot remove that wait, only make it less likely to land in a hold: P12 keeps the
+  frames `locateFixtures` found at the start for the controls it presses inside a hold, reads `qa.state` every 250 ms there instead
+  of every 50 ms, and records the reads of each hold (`hold-queries`, the oracle's
+  `hold_queries`, with a `warning` once a hold window passes 40 s). Hold one request per local
+  case and release it before the next.
+- Read the app's files only after it was terminated. Every driver terminates the app after
+  XCTest (also when XCTest failed) and only then copies or reads its JSONL files; the checks
+  there are the receiving-side evidence, not the test's waits.
+- Text stays a screenshot check only where the text is the subject. One is left: P15's host
+  settings block (`SmokeQA+Theme.swift`, `p15Host`) reads the screenshot with Vision to show
+  the current host and never the old one; the test first waits until `qa.state` shows that host.
+
+The Mac-mini-only tests follow the same rules: P11 (`testP11Settings`, run by
+`p11-check.py`; `testP11Observer{Text,Drawing,Modal,Disabled}`, run by
+`p11-observer-check.py` with the `test-support` build), P14 (`p14-check.py --lease-id <id>`)
+and P15 (`p15-check.py`). Each runs on a leased Mac mini against a disposable Simulator
+(`HERDR_IOS_SIMULATOR=<udid>`); see their docs (`p11-status.md`, `p14-native-qa.md`,
+`p15-readonly-model/INTEGRATED-CANDIDATE.md`).
 
 ### P12 receipts, retries and negative controls
 
-(2026-11-18: P12 reliability PR; jobs 134018333353, 134059155142 and 134160368350.)
+(2026-11-18: P12 reliability PR; jobs 134018333353, 134059155142 and 134160368350. Updated for
+the UI test redesign S5 and S6.)
 
-- Wait on the receiving side, not on a delay. After each fixture tap `P12QA`
-  polls the app's own `Documents/p0-smoke.jsonl` (`p12-check.py` passes the
-  directory as `TEST_RUNNER_P12_DOCUMENTS`, the way `sh1-152-check.py` does)
-  for one more `p12-setup-end` of that step. Only newline-terminated lines
-  count, as in `live_jsonl.py`. A reveal waits on the Springboard control
-  (`exists` and `hittable`), as before.
-- Repeat once, and say why. A tap without a receipt (5 s) and a swipe without a
+- Wait on the receiving side, not on a delay. Since S5 each fixture control is pressed by its
+  identifier (`qa.p12.<step>`) and `P12QA` waits until `qa.state` shows one more
+  `p12-setup-end` of that step (`p12.setup`); it reads no file of the app while it runs
+  (before S5 it polled `Documents/p0-smoke.jsonl` through `TEST_RUNNER_P12_DOCUMENTS`). The
+  Finish step also waits until its FIFO fence reached the private peer (`qa.state` `peer`).
+  `p12-check.py` terminates the app after XCTest and only then copies `app.jsonl` and
+  `peer.jsonl`. A reveal waits on the Springboard control (`exists` and `hittable`), as before.
+- Repeat once, and say why. A press that reached nothing (5 s) and a swipe without a
   revealed menu bar (10 s) are repeated once. Each repeat is a `fixture-retry` or
   `reveal-retry` record in `p12-ui-events.json` with its reason; the oracle
   accepts at most one per control or case and prints all of them under `retries`
@@ -417,6 +461,12 @@ under an 8-core CPU load.)
   (P12-fixture, class B). No assertion was weakened: the received-receipt check,
   the revealed-menu-bar assertion, the hierarchy and menu-close checks and every
   oracle correlation are unchanged.
+- The first touch after launch: `touchReady` presses the panel's empty strip (`qa.p12.empty`,
+  no handler) until GPUI counts it (at most 8 presses) and records how many it took.
+- Inside a hold (S6): the local and Release presses use the frames `locateFixtures` found at the
+  start (not read again right before a case: that went with 2 lost Springboard taps in 9 runs) and read
+  `qa.state` every 250 ms; each hold's reads and their seconds are a `hold-queries` record and
+  appear under `hold_queries` in the verdict, beside the hold's length.
 - The events attachment is added in `tearDown`, so a failed run keeps
   `p12-ui-events.json` (before, a failed assertion skipped the `defer` and the
   reveal and menu-close records were lost).

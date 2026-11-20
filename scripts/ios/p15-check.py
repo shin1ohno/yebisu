@@ -26,9 +26,11 @@ SEED = dict(version=1, language="en-US", theme="owner-default", compact=False,
             future=dict(preserve=42))
 
 
-# Page button text on the settings sheet: PageId::id() is shown as is. This must
-# equal the SmokeQA constant, because OCR matching is case-sensitive.
+# The Theme section's button title (settings_pages/sections.rs) and its QA identifier
+# (crates/yebisu/src/qa_ax_ids.rs, SETTINGS_PAGE_THEME). Since the UI test redesign S6
+# SmokeQA presses the identifier; the title is no longer read off the screen.
 APPEARANCE_PAGE = "Theme"
+APPEARANCE_ID = "qa.settings.page.theme"
 CONTROLS = ("P15-start", "P15-end")
 # xcresulttool export attachments: <name>_<index>_<UUID><ext>
 ATTACHMENT = re.compile(r"^(?P<base>.+)_(?P<index>\d+)_(?P<uuid>[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-"
@@ -64,25 +66,36 @@ def attachment_files(manifest, root):
 
 
 def check_page_label(rust_sections, rust_view, swift):
-    """The section button label, the OCR constant and the checker must agree.
+    """The section button, its QA identifier and SmokeQA's press agree (UI test redesign S6).
 
-    SH1-157 L1: the sheet lists sections (settings_pages/sections.rs); the
-    appearance page is the Theme section, whose button shows section.title().
+    SH1-157 L1: the sheet lists sections (settings_pages/sections.rs); the appearance page
+    is the Theme section, whose button shows section.title() and carries the mark
+    SETTINGS_PAGE_THEME. SmokeQA presses that identifier through tapAppearance, three times.
     """
     ids = re.findall(r'Self::Theme\s*=>\s*"([^"]+)"', rust_sections)
     if len(ids) != 1:
         raise ValueError("settings_pages: Theme section title not found exactly once")
     if not re.search(r'button\(\s*format!\("settings-page-\{\}",\s*page\.id\(\)\),\s*section\.title\(\)', rust_view):
         raise ValueError("settings_sheet: section button no longer shows section.title() as its label")
-    constants = re.findall(r'\blet appearancePage = "([^"]+)"', swift)
-    if constants != [ids[0]]:
-        raise ValueError("SmokeQA appearancePage must equal the section title " + repr(ids[0]))
     if ids[0] != APPEARANCE_PAGE:
         raise ValueError("p15-check APPEARANCE_PAGE must equal the section title " + repr(ids[0]))
-    if re.search(r'tapText\("([Aa]ppearance|Theme)"', swift):
-        raise ValueError("SmokeQA taps a literal Appearance label instead of appearancePage")
-    if len(re.findall(r"tapText\(appearancePage", swift)) != 1 or len(re.findall(r"tapAppearance\(in:", swift)) != 3:
-        raise ValueError("SmokeQA must tap appearancePage through tapAppearance exactly three times")
+    if not re.search(r"Section::Theme\s*=>\s*crate::qa_ax::mark\(\s*ids::SETTINGS_PAGE_THEME\s*,\s*title\s*\)", rust_view):
+        raise ValueError("settings_sheet: the Theme section button is not marked SETTINGS_PAGE_THEME")
+    code = re.sub(r"//[^\n]*", "", swift)  # comments may quote the old label
+    if re.search(r'"(?:Appearance|Theme)"', code):
+        raise ValueError("SmokeQA names a literal Appearance/Theme label instead of the Theme page identifier")
+    if (len(re.findall(r"qa\.press\(QAIds\.settingsPageTheme", code)) != 1
+            or len(re.findall(r"tapAppearance\(qa", code)) != 3):
+        raise ValueError("SmokeQA must press QAIds.settingsPageTheme through tapAppearance exactly three times")
+
+
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write. Exit 3 is simctl's
+    'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P15 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
 def delivered_text(messages):
@@ -292,9 +305,9 @@ def validate(records, disk):
 
 def validate_ui_wire(records, messages, ui):
     """Installed GUI + private peer evidence; not remote-settings/SSH proof."""
-    ocr = [r.get("count") for r in ui if r.get("kind") == "ocr-match" and r.get("label") == APPEARANCE_PAGE]
-    if ocr != [1, 1, 1]:
-        raise ValueError("the appearance label must match exactly one OCR line on each tap: " + repr(ocr))
+    marked = [r.get("count") for r in ui if r.get("kind") == "qa-match" and r.get("id") == APPEARANCE_ID]
+    if marked != [1, 1, 1]:
+        raise ValueError("the Theme page identifier must be marked exactly once on each press: " + repr(marked))
     picks = [r.get("label") for r in ui if r.get("kind") == "theme-click"]
     if picks != ["High contrast", "Owner default", "High contrast"]:
         raise ValueError("actual GUI theme choices missing")
@@ -392,6 +405,10 @@ def main():
     parser.add_argument("--own-root", type=Path)
     parser.add_argument("--expected-head")
     parser.add_argument("--simulator")
+    # The watchdog stops XCTest at the first FIFO marker the peer has not received after 10 s
+    # (TODO.md: P15-start has not reached the board peer on the Mac mini). --no-watch lets the
+    # test run to its end so its other steps are exercised; the oracle below still judges FIFO.
+    parser.add_argument("--no-watch", action="store_true")
     args = parser.parse_args()
     environment = os.environ.copy()
     provenance = None
@@ -462,9 +479,12 @@ def main():
              "-derivedDataPath", str(derived),
              "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO",
              "-only-testing:SmokeOracle/SmokeQA/testP15Theme"], ROOT, environment,
-            lambda process: watch_fifo(process, records_path, previous, peer_path, peer_previous))
+            (lambda process: process.wait()) if args.no_watch else
+            (lambda process: watch_fifo(process, records_path, previous, peer_path, peer_previous)))
     finally:
-        # Even failed XCTest/oracle runs retain receiving files before validation.
+        terminate(device)
+        # The app is stopped first (UI test redesign S2, S6 for P15), so no file is read while it
+        # may still write; even failed XCTest/oracle runs retain receiving files before validation.
         records = [json.loads(line) for line in records_path.read_text().splitlines()[previous:]] if records_path.exists() else []
         disk = json.loads(settings.read_text())
         messages = [json.loads(line) for line in peer_path.read_text().splitlines()[peer_previous:]] if peer_path.exists() else []

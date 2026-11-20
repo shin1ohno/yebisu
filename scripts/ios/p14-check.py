@@ -10,6 +10,15 @@ ROOT = Path(__file__).resolve().parents[2]
 NAMES = ["p14-toast", "p14-focus", "p14-quiet", "p14-invalid", "p14-disconnect", "p14-stale-tap"]
 
 
+def terminate(device):
+    """Stops the app so none of its files is read while it may still write (UI test redesign S2:
+    files are read only after terminate; S6 for P14). Exit 3 is simctl's 'nothing to terminate'."""
+    result = subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], text=True, capture_output=True)
+    print("P14 terminate before reading the app's files: exit", result.returncode, (result.stderr or "").strip(), flush=True)
+    if result.returncode not in (0, 3):
+        raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
+
+
 def validate(records, messages, sent, attachments):
     steps = [r for r in records if r.get("kind") == "p14-step"]
     if [r.get("step") for r in steps] != [1, 2, 3, 4, 5]:
@@ -84,6 +93,7 @@ def main():
     bundle = run("bash", "scripts/ios/bundle.sh", "--package", "yebisu", "--bin", "yebisu").strip().splitlines()[-1]
     device = run("bash", "-c", 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR"').split()[0]
     run("xcrun", "simctl", "install", device, bundle)
+    terminate(device)  # an earlier check's app may still run; its files are moved aside below
     container = Path(run("xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data").strip())
     for name in ["p0-smoke.jsonl", "p4-peer.jsonl", "p14-sent.jsonl"]:
         path = container / "Documents" / name
@@ -105,6 +115,8 @@ def main():
     except (subprocess.CalledProcessError, ValueError) as error:
         failure = error
     finally:
+        # The app is stopped first, so no file is read while it may still write.
+        terminate(device)
         # Preserve primary bytes even on failed XCTest or oracle; never promote models.
         for name in ["p0-smoke.jsonl", "p4-peer.jsonl", "p14-sent.jsonl"]:
             path = container / "Documents" / name

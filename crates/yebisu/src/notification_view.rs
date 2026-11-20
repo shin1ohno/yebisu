@@ -609,9 +609,18 @@ impl Smoke {
             .text_color(rgb(0xeceff4));
         if let Some(toast) = &self.notifications.toast {
             let tag = toast.tag.clone();
-            panel = panel.child(div().id("notification-toast").child(toast.title).on_click(
-                cx.listener(move |this, _, _, cx| this.open_notification(&tag, false, cx)),
-            ));
+            panel = panel.child(
+                div()
+                    .id("notification-toast")
+                    .child(toast.title)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_notification(&tag, false, cx)),
+                    )
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::NOTIFICATION_TOAST,
+                        toast.title,
+                    )),
+            );
         }
         if !status.is_empty() {
             panel = panel.child(status.to_owned());

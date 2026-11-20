@@ -1,5 +1,6 @@
 """p3, p9 and p10 (S2), the edit-menu job's sh1-152, sh1-153, p8-native, selection-settings and
-sh1-156 (S4), and p12 (S5) read the app's files only after the app was terminated (UI test redesign).
+sh1-156 (S4), p12 (S5), and smoke-check (P0), p11, p14 and p15 (S6) read the app's files only after the
+app was terminated (UI test redesign).
 
 They used to read p0-smoke.jsonl, p9-core-wire.jsonl and p10-settings.jsonl right after XCTest,
 with the app possibly still writing (plan 1.3: the same risk that failed p2 three times on 11-18)."""
@@ -14,7 +15,8 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 DRIVERS = {"p3-check.py": "P3", "p9-check.py": "P9", "p10-check.py": "P10", "sh1-153-check.py": "SH1-153",
            "p8-native-check.py": "P8", "selection-settings-check.py": "SH1-151", "sh1-156-check.py": "SH1-156",
-           "sh1-152-check.py": "SH1-152", "p12-check.py": "P12"}
+           "sh1-152-check.py": "SH1-152", "p12-check.py": "P12", "smoke-check.py": "P0", "p11-check.py": "P11",
+           "p14-check.py": "P14", "p15-check.py": "P15"}
 
 
 def load(file):
@@ -26,7 +28,7 @@ def load(file):
 
 def main_text(file):
     text = (HERE / file).read_text()
-    return text[text.index("def main():"):]
+    return text[text.index("def main(") :]
 
 
 def xctest_at(text):
@@ -42,7 +44,9 @@ class OrderTests(unittest.TestCase):
         reads = {"p3-check.py": "collect(result", "p9-check.py": "collect_evidence(", "p10-check.py": "observations.read_text().splitlines()[previous:]",
                  "sh1-153-check.py": "shutil.copyfile(container", "p8-native-check.py": "shutil.copyfile(container",
                  "selection-settings-check.py": "live_jsonl.read_records(observations", "sh1-156-check.py": "shutil.copyfile(container",
-                 "sh1-152-check.py": "shutil.copyfile(path, directory", "p12-check.py": "shutil.copyfile(documents / source"}
+                 "sh1-152-check.py": "shutil.copyfile(path, directory", "p12-check.py": "shutil.copyfile(documents / source",
+                 "smoke-check.py": "shutil.copyfile(receipts", "p11-check.py": 'records=[record for line in (container/"Documents/p0-smoke.jsonl")',
+                 "p14-check.py": '(out / name).write_bytes(path.read_bytes())', "p15-check.py": "records = [json.loads(line)"}
         for file, read in reads.items():
             with self.subTest(driver=file):
                 text = main_text(file)

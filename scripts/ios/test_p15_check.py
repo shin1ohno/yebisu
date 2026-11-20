@@ -69,7 +69,7 @@ class ThemeOracle(unittest.TestCase):
 
 class InstalledUIWireOracle(unittest.TestCase):
     def fixture(self):
-        ui = [dict(kind="ocr-match", label=p15.APPEARANCE_PAGE, count=1) for _ in range(3)]
+        ui = [dict(kind="qa-match", id=p15.APPEARANCE_ID, count=1) for _ in range(3)]
         ui += [dict(kind="theme-click", label=label) for label in
                ["High contrast", "Owner default", "High contrast"]]
         records = []
@@ -147,17 +147,23 @@ class InstalledUIWireOracle(unittest.TestCase):
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, "input dropped by the app.*" + reason):
                 p15.validate_ui_wire(records, messages, ui)
 
-    # N-d / P2-13(c): the page label must match exactly one OCR line on every tap
-    def test_appearance_label_must_match_exactly_one_ocr_line(self):
+    # N-d / P2-13(c): the Theme page must be marked exactly once on every press (S6: the
+    # identifier replaced the count of OCR lines carrying its title)
+    def test_theme_page_identifier_must_be_marked_exactly_once(self):
         for counts in ([0, 1, 1], [1, 2, 1], [1, 1, 3], [1, 1], [1, 1, 1, 1]):
             records, messages, ui = self.fixture()
-            ui = [r for r in ui if r.get("kind") != "ocr-match"]
-            ui = [dict(kind="ocr-match", label=p15.APPEARANCE_PAGE, count=n) for n in counts] + ui
-            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, "exactly one OCR line"):
+            ui = [r for r in ui if r.get("kind") != "qa-match"]
+            ui = [dict(kind="qa-match", id=p15.APPEARANCE_ID, count=n) for n in counts] + ui
+            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, "marked exactly once"):
                 p15.validate_ui_wire(records, messages, ui)
         records, messages, ui = self.fixture()
-        ui = [r for r in ui if r.get("kind") != "ocr-match"]
-        with self.assertRaisesRegex(ValueError, "exactly one OCR line"):
+        ui = [r for r in ui if r.get("kind") != "qa-match"]
+        with self.assertRaisesRegex(ValueError, "marked exactly once"):
+            p15.validate_ui_wire(records, messages, ui)
+        # The old OCR record no longer counts.
+        records, messages, ui = self.fixture()
+        ui = [dict(r, kind="ocr-match", label=p15.APPEARANCE_PAGE) if r.get("kind") == "qa-match" else r for r in ui]
+        with self.assertRaisesRegex(ValueError, "marked exactly once"):
             p15.validate_ui_wire(records, messages, ui)
 
 
@@ -375,22 +381,31 @@ class PageLabel(unittest.TestCase):
     def test_checked_in_sources_agree(self):
         p15.check_page_label(*self.sources())
 
-    # L1: the Swift constant goes back to the display name
-    def test_l1_swift_constant_with_a_capital_fails(self):
+    # L1: SmokeQA goes back to a literal label instead of the identifier
+    def test_l1_literal_label_fails(self):
         pages, view, swift = self.sources()
-        swift = swift.replace('let appearancePage = "Theme"', 'let appearancePage = "appearance"')
-        with self.assertRaisesRegex(ValueError, "appearancePage must equal the section title"):
-            p15.check_page_label(pages, view, swift)
+        changed = swift.replace("qa.press(QAIds.settingsPageTheme", 'pressLabel("Theme"', 1)
+        self.assertNotEqual(changed, swift)
+        with self.assertRaisesRegex(ValueError, "literal Appearance/Theme label|exactly three times"):
+            p15.check_page_label(pages, view, changed)
 
-    def test_l1_literal_tap_fails(self):
+    def test_l1_press_count_fails(self):
         pages, view, swift = self.sources()
-        with self.assertRaisesRegex(ValueError, "literal Appearance"):
-            p15.check_page_label(pages, view, swift.replace("tapText(appearancePage", 'tapText("Appearance"', 1))
+        with self.assertRaisesRegex(ValueError, "exactly three times"):
+            p15.check_page_label(pages, view, swift.replace("try tapAppearance(qa", "try other(qa", 1))
+
+    # S6: the Theme section button loses its mark
+    def test_unmarked_theme_button_fails(self):
+        pages, view, swift = self.sources()
+        changed = view.replace("Section::Theme => crate::qa_ax::mark(ids::SETTINGS_PAGE_THEME, title)", "Section::Theme => None")
+        self.assertNotEqual(changed, view)
+        with self.assertRaisesRegex(ValueError, "not marked SETTINGS_PAGE_THEME"):
+            p15.check_page_label(pages, changed, swift)
 
     # L2: the section title changes in Rust
     def test_l2_page_id_change_fails(self):
         pages, view, swift = self.sources()
-        with self.assertRaisesRegex(ValueError, "appearancePage must equal the section title"):
+        with self.assertRaisesRegex(ValueError, "APPEARANCE_PAGE must equal the section title"):
             p15.check_page_label(pages.replace('Self::Theme => "Theme"', 'Self::Theme => "Themes"'), view, swift)
 
     # L3: the button stops showing section.title()

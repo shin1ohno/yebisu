@@ -93,6 +93,29 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("self.pending($0) == false", idle)
         self.assertIn("Missing fixture control/state: P12 Idle", idle)
 
+    def test_presses_inside_a_hold_query_the_app_less(self):
+        """S6 (S5 follow-up S6-1): the local and release presses of a hold use frames found before
+        the hold and sparse qa.state reads, and the reads are recorded per hold."""
+        swift = code(SWIFT)
+        test = body(swift, "func testInstalledTerminalMenu(")
+        # PR 84: the frames are read once, by locateFixtures, not right before the Remote case.
+        self.assertNotIn("recordHeldFrames", swift)
+        self.assertIn("heldFrames[control.id] = try qa.find(control.id", body(swift, "private func locateFixtures("))
+        self.assertLess(test.index("try locateFixtures()"), test.index("try fixture(remote)"))
+        self.assertIn("try fixture(local, held: true)", test)
+        self.assertIn('try fixture("release", held: true)', test)
+        self.assertIn('"kind": "hold-queries"', test)
+        held = body(swift, "private func heldPress(")
+        for gone in ("qa.press(", "qa.find(", "waitState("):
+            self.assertNotIn(gone, held)
+        self.assertIn("usleep(Self.heldReadInterval)", held)
+        self.assertIn("PressVerdict.of(before: before, after: last, id: id)", held)
+        self.assertIn("qa.session.dropFirstPress.remove(id)", held)
+        self.assertIn("qa.session.retries.append(", held)
+        self.assertIn("heldReadInterval: useconds_t = 250_000", swift)
+        # Outside a hold every fixture still goes through QAAx.press.
+        self.assertIn("qa.press(id, timeout: Self.receiptTimeout", body(swift, "private func fixture("))
+
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
         table = re.search(r"const FIXTURES: \[\(&str, &str\); 13\] = \[(.*?)\];", rust, re.S).group(1)

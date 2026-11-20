@@ -4,11 +4,25 @@ use crate::settings_sheet::button;
 use gpui::canvas;
 use sheprd_client::protocol::ClientPaneInputEvent;
 
+/// The P14 control's text, also its QA accessibility label.
+const NEXT: &str = "P14 next";
+
 impl Smoke {
     pub(super) fn p14_controls(&self, cx: &Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_P14_QA")?;
+        // UI test redesign S6: the step, the toast and the status line the panel draws, so
+        // testP14ConnectedNotifications waits for them instead of reading the screen.
+        let state = &self.notifications;
+        crate::qa_ax::report("p14", || {
+            serde_json::json!({
+                "step": state.qa_step,
+                "toast": state.toast.as_ref().map(|toast| toast.title),
+                "status": state.visible_status(),
+            })
+        });
         Some(
-            button("p14-next", "P14 next", self.notifications.qa_step < 5)
+            button("p14-next", NEXT, self.notifications.qa_step < 5)
+                .children(crate::qa_ax::mark(crate::qa_ax::ids::P14_NEXT, NEXT))
                 .on_click(cx.listener(|this, _, _, cx| this.p14_next(cx)))
                 .into_any_element(),
         )

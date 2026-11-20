@@ -410,6 +410,19 @@ class P12OracleTests(unittest.TestCase):
 
 
 
+class P12HoldQueriesTests(unittest.TestCase):
+    """S6 (S5 follow-up S6-1): the reads made inside a hold are reported beside the hold."""
+    def test_hold_queries_are_reported_not_judged(self):
+        data = fixture()
+        self.assertEqual(p12.validate(*data)["hold_queries"], [])
+        data[2].append(dict(kind="hold-queries", case="remote", reads=5, readSeconds=0.25, started=10.0, ended=26.5))
+        data[2].append(dict(kind="hold-queries", case="rearm", reads=4, readSeconds=61.0, started=40.0, ended=101.0))
+        self.assertEqual(p12.validate(*data)["hold_queries"],
+                         [dict(case="remote", reads=5, read_seconds=0.25, hold_seconds=16.5),
+                          dict(case="rearm", reads=4, read_seconds=61.0, hold_seconds=61.0,
+                               warning="hold window 61.0 s is above 40 s of the 60 s COMMAND_TIMEOUT")])
+
+
 class P12RetryTests(unittest.TestCase):
     """The harness repeats a fixture tap or a reveal swipe once and logs why; the oracle names and bounds it."""
 

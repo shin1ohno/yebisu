@@ -1,20 +1,47 @@
 import XCTest
-import Vision
 
 // P0 input and lifecycle receipts, P3 terminal.
 extension SmokeQA {
+    /// Waits until the P0 input field holds `text` (qa.state `p0_input`, what the field draws).
+    /// Before S6 a Vision pass looked for one word of it on the screen.
+    func waitP0Input(_ qa: QAAx, _ text: String, what: String) throws {
+        try qa.waitState("\(what): p0_input is '\(text)'", timeout: 20) { $0.string("p0_input") == text }
+    }
+
+    /// Holds still for `seconds` in 10 s slices, reading qa.state once after each slice (a read is
+    /// no input, so the app stays idle for smoke_oracle.py's 60 s interval). A read that takes long
+    /// shows when XCTest started to wait for the app to idle (S5 follow-up S6-2: run 44547820393
+    /// attempt 1 waited 80 s at the first query after the 60 s, then its screenshot timed out).
+    func holdIdle(_ qa: QAAx, seconds: Int) {
+        var slow: [String] = []
+        for slice in stride(from: 10, through: seconds, by: 10) {
+            sleep(10)
+            let start = Date()
+            let state = qa.read()
+            let took = Date().timeIntervalSince(start)
+            print(String(format: "P0 idle t=%ld s: qa.state read took %.2f s (seq %ld)", slice, took, state?.seq ?? -1))
+            if took > 5 { slow.append(String(format: "t=%ld s %.1f s", slice, took)) }
+        }
+        if !slow.isEmpty { print("P0 idle: slow qa.state reads while idle (XCTest waited for the app to idle): \(slow)") }
+    }
+
     func testInputAndLifecycleReceipts() throws {
         // A failed state wait below must stop the test at once under its own name,
         // not turn into three 30 s snapshot timeouts on whatever comes next.
         continueAfterFailure = false
+        // smoke-check.py launched the app with YEBISU_SMOKE_OBSERVE and, since S6, YEBISU_QA_AX.
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
         XCUIDevice.shared.orientation = .portrait
         app.activate()
         try requireState(app, [.runningForeground], "initial activate()")
-        try waitForRenderedText("Async counter", what: "first paint after launch")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.425)).tap()
+        // Before S6: OCR read "Async counter". The tap control is marked when the P0 screen is drawn.
+        try qa.waitState("first paint after launch: the P0 screen", timeout: 20) { $0.string("screen") == "p0" }
+        try qa.find(QAIds.p0Tap, timeout: 20)
+        // Before S6: a tap at the window point (0.5, 0.425), on the same "Tap / type" control.
+        try qa.press(QAIds.p0Tap, what: "the P0 control counted the tap") { ($0.int("taps") ?? 0) >= 1 }
         app.typeText("P0-input")
-        try waitForRenderedText("input", what: "typed 'P0-input' received")
+        try waitP0Input(qa, "P0-input", what: "typed 'P0-input' received")
         save("initial")
         XCUIDevice.shared.press(.home)
         // activate() issued while the Home press is still being handled leaves the app
@@ -22,26 +49,33 @@ extension SmokeQA {
         try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "activate() after press(.home)")
-        try waitForRenderedText("input", what: "repaint of 'P0-input' after returning")
+        try waitP0Input(qa, "P0-input", what: "repaint of 'P0-input' after returning")
         app.typeText("-returned")
-        try waitForRenderedText("returned", what: "typed '-returned' received")
+        try waitP0Input(qa, "P0-input-returned", what: "typed '-returned' received")
         save("returned")
         XCUIDevice.shared.orientation = .landscapeLeft
         sleep(2)
         // The native keyboard covers the input field in landscape, so no screen text
-        // shows this value. smoke_oracle.py still requires its receipt in app.jsonl.
+        // shows this value; qa.state does, and smoke_oracle.py still requires its receipt.
         app.typeText("-rotated")
-        sleep(2)
+        try waitP0Input(qa, "P0-input-returned-rotated", what: "typed '-rotated' received")
         save("rotated")
         XCUIDevice.shared.orientation = .portrait
         sleep(2)
         save("idle-before")
-        sleep(60)
+        holdIdle(qa, seconds: 60)
+        // typeText waits for the app to idle first (C-anim); the time is printed by name so a
+        // long wait is told from a lost input.
+        let typing = Date()
         app.typeText("-idle")
-        try waitForRenderedText("idle", what: "typed '-idle' received")
+        let typed = Date().timeIntervalSince(typing)
+        print(String(format: "P0 idle: typeText('-idle') took %.2f s%@", typed,
+                     typed > 20 ? " (XCTest waited for the app to idle, class C-anim; see the animations-running records)" : ""))
+        try waitP0Input(qa, "P0-input-returned-rotated-idle", what: "typed '-idle' received")
         save("idle")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.96)).tap()
-        sleep(2)
+        // Before S6: a tap at (0.97, 0.96), the iPad keyboard's hide key; now that key as a UIKit
+        // element, confirmed by qa.state.
+        try qa.hideKeyboard("P0 image-clear")
         save("image-clear")
         XCTAssertEqual(app.state, .runningForeground)
         // This liveness assertion is auxiliary. smoke_oracle.py asserts rendered

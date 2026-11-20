@@ -1,5 +1,4 @@
 import XCTest
-import Vision
 
 // SH1-153 edit menu, P8 native editing, SH1-154 core image.
 extension SmokeQA {
