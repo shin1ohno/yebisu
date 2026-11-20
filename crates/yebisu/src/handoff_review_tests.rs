@@ -233,9 +233,8 @@ fn outside_release_ends_drag_and_copies_once_before_buttonless_move(cx: &mut Tes
         g.grid.size.height > px(60.),
         "real terminal must be laid out"
     );
-    let at = |col: f32| {
-        g.terminal_grid().origin + point(px((col + 0.5) * g.cell_width), px(2.5 * g.cell_height))
-    };
+    let at =
+        |col: f32| g.grid.origin + point(px((col + 0.5) * g.cell_width), px(2.5 * g.cell_height));
     cx.write_to_clipboard(ClipboardItem::new_string("untouched".into()));
     cx.simulate_mouse_move(at(1.), None, Modifiers::default());
     cx.simulate_mouse_down(at(1.), MouseButton::Left, Modifiers::default());

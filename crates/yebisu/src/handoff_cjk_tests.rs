@@ -123,9 +123,8 @@ fn sh1_150_real_selection_and_clipboard_adapter(cx: &mut TestAppContext) {
             "Select moved the terminal"
         );
         assert_eq!(g.grid.size, before.grid.size, "Select resized the terminal");
-        let at = |x: f32| {
-            g.terminal_grid().origin + point(px((x + 0.5) * g.cell_width), px(2.5 * g.cell_height))
-        };
+        let at =
+            |x: f32| g.grid.origin + point(px((x + 0.5) * g.cell_width), px(2.5 * g.cell_height));
         cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));
         cx.simulate_mouse_down(at(1.), MouseButton::Left, Default::default());
         cx.simulate_mouse_move(at(9.), Some(MouseButton::Left), Default::default());

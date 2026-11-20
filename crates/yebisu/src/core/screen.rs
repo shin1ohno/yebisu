@@ -68,11 +68,11 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
     }
     if count > 1 {
         use gpui::{Bounds, Point, px, size};
-        let geometry = InputGeometry {
-            grid: Bounds::new(Point::default(), size(px(column.width), px(column.height))),
-            cell_width: column.cell_width,
-            cell_height: column.cell_height,
-        };
+        let geometry = InputGeometry::from_canvas(
+            Bounds::new(Point::default(), size(px(column.width), px(column.height))),
+            column.cell_width,
+            column.cell_height,
+        );
         let budget = geometry.equal_pane_viewport(count, vertical);
         let budget = crate::terminal::viewport(
             budget.width.into(),

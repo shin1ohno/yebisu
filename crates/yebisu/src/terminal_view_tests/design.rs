@@ -33,7 +33,7 @@ fn terminal_padding_follows_the_canvas(cx: &mut TestAppContext) {
     let area = cx
         .debug_bounds("terminal-input")
         .unwrap_or_else(|| panic!("terminal input"));
-    let grid = geometry.terminal_grid();
+    let grid = geometry.grid;
     assert_eq!(grid.origin - area.origin, point(px(14.), px(12.)));
     assert_eq!(area.size - grid.size, size(px(28.), px(24.)));
     view.read_with(cx, |this, _| {
@@ -70,11 +70,11 @@ fn terminal_padding_follows_the_canvas(cx: &mut TestAppContext) {
 fn pane_borders_draw_the_name_above_a_one_point_border(cx: &mut TestAppContext) {
     let (_, cx) = cx.add_window_view(|_, _| Empty);
     let surface = split_surface();
-    let geometry = InputGeometry {
-        grid: Bounds::new(point(px(0.), px(0.)), size(px(800.), px(500.))),
-        cell_width: 10.,
-        cell_height: 20.,
-    };
+    let geometry = InputGeometry::from_canvas(
+        Bounds::new(point(px(0.), px(0.)), size(px(800.), px(500.))),
+        10.,
+        20.,
+    );
     let panes = geometry.framed_panes(&surface);
     let [left, right] = panes.as_slice() else {
         panic!("expected two pane outlines")
@@ -96,7 +96,8 @@ fn pane_borders_draw_the_name_above_a_one_point_border(cx: &mut TestAppContext) 
 
     let outline = right.outline;
     let left_outline = left.outline;
-    cx.draw(geometry.grid.origin, geometry.grid.size, |_, _| {
+    let canvas_bounds = geometry.canvas_bounds();
+    cx.draw(canvas_bounds.origin, canvas_bounds.size, |_, _| {
         canvas(
             |_, _, _| (),
             move |_, _, window, cx| {

@@ -29,6 +29,7 @@ pub(crate) struct TerminalView {
     pub size: Option<ConnectOptions>,
     pub input: crate::terminal_input::TerminalInput,
     pub geometry: crate::input_geometry::InputGeometry,
+    pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     pub show_options: bool,
     pub needs_focus: bool,
     pub reconnect_pending: bool,
@@ -248,7 +249,8 @@ impl Smoke {
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::from_palette(this.local_theme));
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
-                    terminal.geometry = crate::input_geometry::InputGeometry { grid: bounds, cell_width, cell_height: line_height };
+                    terminal.geometry = crate::input_geometry::InputGeometry::from_canvas(bounds, cell_width, line_height);
+                    terminal.canvas_bounds = Some(bounds);
                     let shown = terminal.coherent_frame();
                     let panes = shown.as_ref().map_or_else(Vec::new, |(_, surface)| {
                         terminal.geometry.framed_panes(surface)

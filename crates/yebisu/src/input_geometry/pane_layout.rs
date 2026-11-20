@@ -19,7 +19,13 @@ pub(crate) struct PanePlacement<'a> {
 
 impl InputGeometry {
     fn pane_area(&self) -> Bounds<Pixels> {
-        inset(self.grid, OUTER_SIDE, OUTER_TOP, OUTER_SIDE, OUTER_SIDE)
+        inset(
+            self.canvas_bounds(),
+            OUTER_SIDE,
+            OUTER_TOP,
+            OUTER_SIDE,
+            OUTER_SIDE,
+        )
     }
 
     /// Project daemon cells into UIKit points. Split gutters in the daemon's
@@ -107,7 +113,7 @@ impl InputGeometry {
     /// each axis and leave one cell for rounding at a daemon split boundary.
     pub(crate) fn viewport_size(&self, panes: &[PanePlacement<'_>]) -> Size<Pixels> {
         if panes.is_empty() {
-            return self.terminal_grid().size;
+            return self.grid.size;
         }
         let area = self.pane_area().size;
         let mut available = area;

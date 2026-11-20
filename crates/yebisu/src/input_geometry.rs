@@ -9,6 +9,7 @@ pub(crate) use pane_layout::PanePlacement;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct InputGeometry {
+    /// Actual cell area. The terminal chrome sits outside these bounds.
     pub grid: Bounds<Pixels>,
     pub cell_width: f32,
     pub cell_height: f32,
@@ -19,13 +20,25 @@ impl InputGeometry {
     const TERMINAL_PADDING_X: f32 = 14.;
     const TERMINAL_PADDING_Y: f32 = 12.;
 
-    pub fn terminal_grid(&self) -> Bounds<Pixels> {
-        inset(
-            self.grid,
-            Self::TERMINAL_PADDING_X,
-            Self::TERMINAL_PADDING_Y,
-            Self::TERMINAL_PADDING_X,
-            Self::TERMINAL_PADDING_Y,
+    pub fn from_canvas(bounds: Bounds<Pixels>, cell_width: f32, cell_height: f32) -> Self {
+        Self {
+            grid: inset(
+                bounds,
+                Self::TERMINAL_PADDING_X,
+                Self::TERMINAL_PADDING_Y,
+                Self::TERMINAL_PADDING_X,
+                Self::TERMINAL_PADDING_Y,
+            ),
+            cell_width,
+            cell_height,
+        }
+    }
+
+    pub fn canvas_bounds(&self) -> Bounds<Pixels> {
+        let padding = point(px(Self::TERMINAL_PADDING_X), px(Self::TERMINAL_PADDING_Y));
+        Bounds::from_corners(
+            self.grid.origin - padding,
+            self.grid.bottom_right() + padding,
         )
     }
 
@@ -59,16 +72,11 @@ impl InputGeometry {
             });
             return Bounds::new(origin, size(px(self.cell_width), px(self.cell_height)));
         }
-        terminal::input_cursor_bounds(
-            surface,
-            self.terminal_grid().origin,
-            self.cell_width,
-            self.cell_height,
-        )
+        terminal::input_cursor_bounds(surface, self.grid.origin, self.cell_width, self.cell_height)
     }
 
     pub fn area(&self, surface: Option<&PaneSurfaceFrame>) -> Bounds<Pixels> {
-        let grid = self.terminal_grid();
+        let grid = self.grid;
         let Some(surface) = surface else { return grid };
         let panes = self.framed_panes(surface);
         if let Some(popup) = &surface.popup
@@ -120,8 +128,8 @@ impl InputGeometry {
                 rect,
             );
         }
-        let grid = self.terminal_grid();
-        if anchor.is_none() && !self.contains(position) {
+        let grid = self.grid;
+        if anchor.is_none() && !self.canvas_bounds().contains(&position) {
             return None;
         }
         // In a single pane the padding still belongs to the terminal. An
