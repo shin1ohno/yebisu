@@ -44,11 +44,8 @@ fn closed_by_escape<'a>(
 ) {
     ledger(CLOSING_HELD);
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, receipts) = crate::find::peer::connect().unwrap();
+    let (client, receipts) = crate::find::peer::connect_quiet(report_all).unwrap();
     install(&view, cx, host, client);
-    view.update(cx, |this, _| {
-        this.terminal.link.inbox.lock().unwrap().keyboard_report_all = report_all;
-    });
     let field = open(&view, cx);
     cx.update(|window, cx| {
         field.update(cx, |field, cx| field.key(&key("escape", false), window, cx))
