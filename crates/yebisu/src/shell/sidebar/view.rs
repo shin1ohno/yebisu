@@ -4,8 +4,8 @@ use super::{
     icons::{self, Icon},
     long_press::{AgentMenu, PressedRow, agent_press_layer, long_press_layer},
     model::{
-        AgentLine, HostEntry, HostLink, OfflineReason, SpaceEntry, agents_list_with_pins,
-        host_link, order_hosts, record_live, snapshot_content,
+        AgentLine, HostEntry, HostLink, OfflineReason, agents_list_with_pins, host_link,
+        order_hosts, record_live, snapshot_content,
     },
 };
 use crate::{
@@ -95,7 +95,7 @@ pub(crate) fn host_entries<'a>(
 
 /// Keep the identity of the connection the rendered space came from.
 #[cfg(test)]
-pub(super) fn space_tap(host: &HostEntry, space: &SpaceEntry) -> SidebarTap {
+pub(super) fn space_tap(host: &HostEntry, space: &super::model::SpaceEntry) -> SidebarTap {
     ListSpace {
         host: host.host.clone(),
         kind: host.kind,
@@ -580,7 +580,7 @@ impl Smoke {
             HerdrKind::Herdr1 => "sidebar-agent",
             HerdrKind::Herdr2 => "sidebar-core-agent",
         };
-        let row_id = format!("{prefix}-{}-{}", id.host, id.pane);
+        let row_id = format!("{prefix}-{}-{}", id.host, id.pane.escape_default());
         let boot = host.boot.clone();
         let generation = host.generation;
         div()
