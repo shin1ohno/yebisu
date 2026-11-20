@@ -1,4 +1,5 @@
-//! L3: the sidebar's own status type (S-8). Owner: L3.
+//! L3: the sidebar's own status type (S-8). Owner: stream A.
+use super::style::color;
 use sheprd_client::protocol::AgentStatus;
 
 /// Seven states an AGENTS row or a space dot can show. Herdr 1 supplies five
@@ -58,15 +59,18 @@ impl SidebarStatus {
         }
     }
 
-    /// Dot colour (SidebarSpec legend); grey for no agent and no status.
+    /// Dot colour (SidebarSpec.dc.html:38 legend): red for Needs you and
+    /// Error, yellow Working, green Done, the accent for Idle, and slate for
+    /// no agent and no status. The legend has no Unknown; it is slate too
+    /// (Wave 0a brief), so an agent with an unknown state looks like no
+    /// status, and its row text tells them apart.
     pub(crate) const fn color(self) -> u32 {
         match self {
-            Self::NeedsYou | Self::Error => 0xbf616a,
-            Self::Working => 0x88c0d0,
-            Self::Done => 0xa3be8c,
-            Self::Idle => 0x9ca3af,
-            Self::Unknown => 0xb48ead,
-            Self::NoStatus => 0x6b7280,
+            Self::NeedsYou | Self::Error => color::RED,
+            Self::Working => color::YELLOW,
+            Self::Done => color::GREEN,
+            Self::Idle => color::ACCENT,
+            Self::Unknown | Self::NoStatus => color::SLATE,
         }
     }
 }
@@ -81,3 +85,7 @@ pub(crate) fn from_agent_status(status: AgentStatus) -> SidebarStatus {
         AgentStatus::Unknown => SidebarStatus::Unknown,
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_status_tests.rs"]
+mod tests;
