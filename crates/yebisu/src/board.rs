@@ -205,7 +205,22 @@ impl Smoke {
             self.terminal.open = true;
             return;
         }
-        if let Some(core) = &self.terminal.core {
+        if self.terminal.reconnect.target != host {
+            // Keep a core reader only while staying on the same destination.
+            // Leaving the destination must still stop its worker and tunnel.
+            let previous_core = if self.terminal.core_mode {
+                Some(&mut self.terminal)
+            } else {
+                self.board
+                    .hidden_core
+                    .get_mut(&self.terminal.reconnect.target)
+            };
+            if let Some(previous) = previous_core {
+                previous.core.take();
+                previous.link.reset();
+                previous.live = Live::default();
+            }
+        } else if let Some(core) = &self.terminal.core {
             core.invalidate_input();
         }
         self.terminal.input.detach();
@@ -261,6 +276,9 @@ impl Smoke {
             .iter_mut()
             .chain(&mut self.board.hidden_core)
         {
+            if terminal.core_mode && terminal.core.is_none() {
+                continue;
+            }
             if let Some(mut live) = terminal.link.take_update() {
                 // Hidden host clipboard effects are consumed, never replayed on selection.
                 live.clipboard.clear();
