@@ -1,10 +1,9 @@
+mod pane_names;
+mod surface;
+
 use crate::{
-    app::Smoke,
-    link::Link,
-    live::Live,
-    settings_pages::toolbar_sync::ToolbarSetting,
-    terminal_painter::{Ground, TerminalPainter},
-    theme::Theme,
+    app::Smoke, link::Link, live::Live, settings_pages::toolbar_sync::ToolbarSetting,
+    terminal_painter::TerminalPainter, theme::Theme,
 };
 use gpui::{AnyElement, ClipboardItem, Context, div, font, prelude::*, rgb};
 use sheprd_client::{ConnectOptions, ConnectTarget};
@@ -250,26 +249,24 @@ impl Smoke {
                     terminal.painter.set_appearance(font_size,line_height,Theme::from_palette(this.local_theme));
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
                     terminal.geometry = crate::input_geometry::InputGeometry { grid: bounds, cell_width, cell_height: line_height };
+                    let shown = terminal.coherent_frame();
+                    let panes = shown.as_ref().map_or_else(Vec::new, |(_, surface)| {
+                        terminal.geometry.framed_panes(surface)
+                    });
+                    let viewport = terminal.viewport_size(&panes);
                     let options = ConnectOptions {
-                        surface_size: crate::terminal::viewport(f32::from(bounds.size.width),f32::from(bounds.size.height),cell_width,line_height),
+                        surface_size: crate::terminal::viewport(f32::from(viewport.width),f32::from(viewport.height),cell_width,line_height),
                         cell_width_px: (cell_width*window.scale_factor()).round() as u32,
                         cell_height_px: (line_height*window.scale_factor()).round() as u32,
                     };
                     terminal.resize_if_ready(options);
                     terminal.input.sync(&terminal.live, generation, terminal.size);
-                    if let (Some(snapshot),Some(surface)) = (&terminal.live.snapshot,&terminal.live.surface)
-                        && crate::live::coherent(snapshot,surface) {
-                        let mut highlights = this.handoff.selection.as_ref().map(|s|s.highlights()).unwrap_or_default();
+                    if let Some((snapshot, surface)) = shown.as_ref() {
+                        let mut highlights = this.handoff.selection.as_ref()
+                            .map(|selection| selection.surface_highlights(surface))
+                            .unwrap_or_default();
                         highlights.extend(search_highlights);
-                        window.with_content_mask(Some(gpui::ContentMask { bounds }),|window| {
-                            terminal.painter.paint_frame(&surface.frame,bounds.origin,Some(bounds.size),Ground::Opaque,cell_width,&face,if surface.popup.is_none() { &highlights } else { &[] },&surface.panes,None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Main }),window,cx);
-                            if let Some(popup) = &surface.popup {
-                                let origin = bounds.origin+crate::terminal::popup_origin(&surface.frame,&popup.frame,cell_width,line_height);
-                                terminal.painter.paint_frame(&popup.frame,origin,None,Ground::Opaque,cell_width,&face,&highlights,&[],None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Popup(&popup.terminal_id) }),window,cx);
-                            }
-                            terminal.painter.paint_composition(&terminal.input.composition.text,
-                                terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
-                        });
+                        terminal.paint_surface((snapshot, surface), &panes, &highlights, &face, window, cx);
                         this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"select_mode":this.handoff.select_mode,"selection_blocks_input":this.handoff.blocks_input(),"text_input_paused":terminal.input.requires_gesture(),"input_ready":terminal.input.ready,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
@@ -319,8 +316,8 @@ impl Smoke {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(0x101419))
-            .text_color(rgb(0xd8dee9))
+            .bg(rgb(crate::shell::style::color::BACKGROUND))
+            .text_color(rgb(crate::shell::style::color::TEXT))
             .track_focus(&self.terminal_focus)
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
@@ -429,7 +426,6 @@ impl Smoke {
                 view.children(self.input_qa_controls(cx))
             })
             .when(legacy.handoff, |view| view.child(self.handoff_controls(cx)))
-            .child(self.render_find(cx))
             .when(legacy.qa_controls, |view| {
                 view.children(self.p13_qa_controls(cx))
                     .children(self.handoff_qa_controls(cx))
@@ -441,6 +437,7 @@ impl Smoke {
             .child(
                 div()
                     .id("terminal-input")
+                    .debug_selector(|| "terminal-input".into())
                     .flex_1()
                     .min_h_0()
                     .w_full()
@@ -500,3 +497,7 @@ impl Smoke {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_view_tests/design.rs"]
+mod design_tests;

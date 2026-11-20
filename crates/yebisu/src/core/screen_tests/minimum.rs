@@ -39,10 +39,20 @@ fn division_that_would_undercut_the_minimum_gives_the_whole_column() -> crate::R
     let metrics = Some(column(600.0, 300.0, (10.0, 20.0)));
     let whole = size(60, 15)?;
     assert_eq!(pane_size_for(whole, 2, true, metrics)?, whole);
-    // 600 x 800 pt side by side divides: 29 columns each and one line cell
-    // between them (L8 frame line, plan v2 7.14), 290 pt per pane.
+    // The same test at 600 pt wide: the two bordered panes and their padding
+    // cannot hold 28 text columns each. Jumping between the unframed and
+    // framed resize budgets must not make that decision oscillate.
     let metrics = Some(column(600.0, 800.0, (10.0, 20.0)));
-    let sent = pane_size_for(size(60, 40)?, 2, false, metrics)?;
-    assert_eq!((sent.cols(), sent.rows()), (29, 40));
+    assert_eq!(
+        pane_size_for(size(57, 38)?, 2, false, metrics)?,
+        size(57, 38)?
+    );
+    assert_eq!(
+        pane_size_for(size(51, 36)?, 2, false, metrics)?,
+        size(51, 36)?
+    );
+    let metrics = Some(column(700.0, 800.0, (10.0, 20.0)));
+    let sent = pane_size_for(size(61, 36)?, 2, false, metrics)?;
+    assert_eq!((sent.cols(), sent.rows()), (30, 36));
     Ok(())
 }

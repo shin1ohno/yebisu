@@ -134,3 +134,29 @@ fn underline_runs_have_no_seams(cx: &mut TestAppContext) {
         }
     }
 }
+
+#[gpui::test]
+fn selection_fill_is_the_canvas_tint(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, _| Empty);
+    let canvas_tint = Rgba {
+        r: 136. / 255.,
+        g: 192. / 255.,
+        b: 208. / 255.,
+        a: 0.38,
+    };
+    let quads = paint_row(
+        cx,
+        row(&[0x101419; 4], 0),
+        vec![Highlight {
+            row: 0,
+            columns: 1..3,
+            tint: Tint::Selection,
+        }],
+        (0., 10.),
+    );
+    assert!(
+        quads
+            .iter()
+            .any(|quad| quad.background == canvas_tint.into())
+    );
+}

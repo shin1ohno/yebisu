@@ -5,6 +5,7 @@ mod glyphs;
 mod graphics;
 mod grid;
 mod images;
+mod pane_chrome;
 
 use self::area::whole;
 pub(crate) use self::area::{Layer, Part, Span, cell_ranges, clip, covers};
@@ -30,10 +31,6 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// The selection tints the cells it covers instead of replacing their colors:
-/// a terminal's own background is meaningful, and the glyphs above it stay
-/// readable on every theme.
-const SELECTION_ALPHA: u32 = 0x59;
 /// Search matches tint like the selection, the current one strongly enough to
 /// find at a glance among the others.
 const MATCH_ALPHA: u32 = 0x4d;
@@ -56,7 +53,11 @@ pub(crate) enum Tint {
 impl Tint {
     fn color(self, theme: &Theme) -> Rgba {
         match self {
-            Self::Selection => rgba((theme.primary() << 8) | SELECTION_ALPHA),
+            Self::Selection => crate::shell::style::Tint {
+                rgb: theme.primary(),
+                ..crate::shell::style::tint::SELECTION
+            }
+            .into(),
             Self::Match => rgba((theme.palette[3] << 8) | MATCH_ALPHA),
             Self::CurrentMatch => rgba((theme.palette[3] << 8) | CURRENT_MATCH_ALPHA),
             Self::CopyCursor => rgba((theme.cursor << 8) | CURRENT_MATCH_ALPHA),
@@ -429,6 +430,40 @@ impl TerminalPainter {
         window: &mut Window,
         cx: &mut App,
     ) {
+        self.paint_frame_area(
+            frame,
+            origin,
+            available,
+            ground,
+            cell_width,
+            font,
+            highlights,
+            panes,
+            part.map(|part| part.area),
+            part.map(|part| part.layer),
+            images,
+            window,
+            cx,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_frame_area(
+        &mut self,
+        frame: &FrameData,
+        origin: Point<Pixels>,
+        available: Option<Size<Pixels>>,
+        ground: Ground,
+        cell_width: f32,
+        font: &Font,
+        highlights: &[Highlight],
+        panes: &[PaneSurfacePane],
+        area: Option<&[Span]>,
+        layer: Option<Layer>,
+        images: Option<PlacedImages<'_>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         if frame.width == 0 {
             return;
         }
@@ -457,14 +492,14 @@ impl TerminalPainter {
         let extend_last_row =
             background.height > grid.size.height && !last_row_has_separator(frame);
         let whole_area;
-        let area = match part {
-            Some(part) => part.area,
+        let area = match area {
+            Some(area) => area,
             None => {
                 whole_area = whole(frame);
                 &whole_area
             }
         };
-        let draws = |layer| part.is_none_or(|part| part.layer == layer);
+        let draws = |target| layer.is_none_or(|layer| layer == target);
         // Over a backdrop a hidden cell's background is not painted, so its
         // glyphs, graphics, and decorations, drawn in that color, would show.
         let shows_through =
@@ -490,7 +525,7 @@ impl TerminalPainter {
             placed.into_iter().partition(|(z, ..)| below_text(*z));
         // Text shares the backgrounds' layer unless something must come
         // between them: images below the text, or another region's cells.
-        let text_with_backgrounds = part.is_none() && below.is_empty();
+        let text_with_backgrounds = layer.is_none() && below.is_empty();
         // A layer gives all its primitives one draw order, skipping GPUI's
         // per-primitive BoundsTree insert that dominates large grids. Within a
         // layer quads draw before glyphs, so decorations and the cursor take a

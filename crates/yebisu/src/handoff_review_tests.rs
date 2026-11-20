@@ -28,8 +28,9 @@ fn clipboard_shortcuts_honor_all_command_priority_combinations(cx: &mut TestAppC
                     control: bits & 4 != 0,
                     function: bits & 8 != 0,
                 };
-                let clipboard_route = (bits == 0 || (key == "v" && bits == 1))
-                    && !(command_control && terminal_priority);
+                let clipboard_route =
+                    (bits == 0 || (key == "v" && bits == 1) || (key == "c" && bits == 2))
+                        && !(command_control && terminal_priority);
                 let terminal_route = !clipboard_route && command_control;
                 let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
                 cx.update(|window, _| window.activate_window());

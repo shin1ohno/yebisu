@@ -296,16 +296,19 @@ impl Smoke {
             return;
         }
         if event.keystroke.modifiers.platform
-            && !event.keystroke.modifiers.alt
             && !event.keystroke.modifiers.control
             && !event.keystroke.modifiers.function
-            && (event.keystroke.key == "v"
+            && ((event.keystroke.key == "v" && !event.keystroke.modifiers.alt)
                 || (event.keystroke.key == "c" && !event.keystroke.modifiers.shift))
             && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
         {
             if !event.is_held {
                 if event.keystroke.key == "c" {
-                    self.copy_selection(cx);
+                    if event.keystroke.modifiers.alt {
+                        self.copy_selection_as_one_line(cx);
+                    } else {
+                        self.copy_selection(cx);
+                    }
                 } else {
                     self.start_paste(event.keystroke.modifiers.shift, cx);
                 }

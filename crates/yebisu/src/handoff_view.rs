@@ -41,8 +41,16 @@ impl Smoke {
         }
     }
     pub(crate) fn copy_selection(&mut self, cx: &mut Context<Self>) {
+        self.copy_selection_with(false, cx);
+    }
+    pub(crate) fn copy_selection_as_one_line(&mut self, cx: &mut Context<Self>) {
+        self.copy_selection_with(true, cx);
+    }
+    fn copy_selection_with(&mut self, join_wrapped: bool, cx: &mut Context<Self>) {
         self.sync_handoff();
-        if let Some(text) = self.handoff.selection.as_ref().and_then(Selection::text) {
+        if let Some(text) = self.handoff.selection.as_ref().and_then(|selection| {
+            selection.surface_text(self.terminal.live.surface.as_ref()?, join_wrapped)
+        }) {
             #[cfg(test)]
             {
                 self.handoff.clipboard_writes += 1;
@@ -238,6 +246,9 @@ impl Smoke {
         if self.handoff.stamp.is_some()
             && (self.handoff.select_mode || self.handoff.drag_select || event.click_count >= 2)
         {
+            let Some(cell) = self.selection_cell(event.position, None) else {
+                return;
+            };
             // With Start: Drag (the default) every press starts a selection.
             // A press released on its own cell without Select is a tap, which
             // the status line asks for: selection_up turns it into typing.
@@ -252,14 +263,12 @@ impl Smoke {
                 .as_ref()
                 .map(|p| &p.frame)
                 .unwrap_or(&surface.frame);
-            if let Some(cell) = self.selection_cell(event.position) {
-                self.handoff.selection = Some(Selection {
-                    frame: std::sync::Arc::new(frame.clone()),
-                    anchor: cell,
-                    end: cell,
-                    dragging: true,
-                });
-            }
+            self.handoff.selection = Some(Selection {
+                frame: std::sync::Arc::new(frame.clone()),
+                anchor: cell,
+                end: cell,
+                dragging: true,
+            });
         } else {
             self.handoff.selection = None;
             if !self.find_handoff.paused {
@@ -269,39 +278,24 @@ impl Smoke {
         }
         cx.notify();
     }
-    fn selection_cell(&self, point: gpui::Point<gpui::Pixels>) -> Option<(u16, u16)> {
+    fn selection_cell(
+        &self,
+        point: gpui::Point<gpui::Pixels>,
+        anchor: Option<(u16, u16)>,
+    ) -> Option<(u16, u16)> {
         let surface = self.terminal.live.surface.as_ref()?;
-        let frame = surface
-            .popup
-            .as_ref()
-            .map(|p| &p.frame)
-            .unwrap_or(&surface.frame);
-        if frame.width == 0 || frame.height == 0 {
-            return None;
-        }
-        let geometry = self.terminal.geometry;
-        let origin = if surface.popup.is_some() {
-            geometry.area(Some(surface)).origin
-        } else {
-            geometry.grid.origin
-        };
-        Some((
-            ((f32::from(point.x - origin.x) / geometry.cell_width)
-                .floor()
-                .max(0.) as u16)
-                .min(frame.width - 1),
-            ((f32::from(point.y - origin.y) / geometry.cell_height)
-                .floor()
-                .max(0.) as u16)
-                .min(frame.height - 1),
-        ))
+        self.terminal.geometry.cell_at(surface, point, anchor)
     }
     pub(crate) fn selection_move(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
         if event.pressed_button != Some(gpui::MouseButton::Left) {
             return;
         }
         self.sync_handoff();
-        let cell = self.selection_cell(event.position);
+        let cell = self
+            .handoff
+            .selection
+            .as_ref()
+            .and_then(|selection| self.selection_cell(event.position, Some(selection.anchor)));
         if let Some(selection) = &mut self.handoff.selection
             && selection.dragging
             && let Some(cell) = cell
