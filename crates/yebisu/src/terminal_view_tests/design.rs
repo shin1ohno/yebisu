@@ -62,7 +62,7 @@ fn terminal_padding_follows_the_canvas(cx: &mut TestAppContext) {
             geometry.cell_at(surface, candidate.origin, None),
             Some((cursor.x, cursor.y))
         );
-        assert_eq!(geometry.cell_at(surface, area.origin, None), None);
+        assert_eq!(geometry.cell_at(surface, area.origin, None), Some((0, 0)));
     });
 }
 
