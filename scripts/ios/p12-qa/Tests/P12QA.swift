@@ -3,7 +3,7 @@
 // by QA identifier (qa.p12.*, crates/yebisu/src/qa_ax_ids.rs) and pressed with a real touch, and
 // each press is confirmed by the app's qa.state (`p12.setup` counts the p12-setup-end records), so
 // nothing reads text off the screen or the app's files while it runs. QAAx.swift is the SmokeQA
-// helper; p12-check.py copies it next to this file. The OS menu (Springboard) part is unchanged.
+// helper; p12-check.py copies it next to this file. The native menu is driven through Springboard.
 import XCTest
 
 final class P12QA: XCTestCase {
@@ -148,7 +148,7 @@ final class P12QA: XCTestCase {
         let owner = springboard
         let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
         let reveal = revealMenuBar(applicationMenu, caseName: caseName)
-        hierarchy("p12-revealed-" + caseName)
+        springboardHierarchy("p12-revealed-" + caseName)
         // Screenshots taken while the OS menu is open are failure evidence only: on a
         // hosted runner one of them can stall for the 30 s XCTest limit while the
         // Simulator is not drawing. Success is proved by the Springboard hierarchy.
@@ -160,17 +160,18 @@ final class P12QA: XCTestCase {
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
         applicationMenu.tap()
-        sleep(1)
+        // The menu belongs to Springboard. Let its row become interactive before
+        // the pick, and leave yebisu's AX snapshots out of the open-menu window.
+        let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
+        let actionable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: item)
+        let menuReady = XCTWaiter().wait(for: [actionable], timeout: 3) == .completed
         // The current-focus menu stays a screenshot: it is the only visual proof of
         // the rebuilt menu after the stale rejection.
         if observeOnly { screenshot("p12-menu-" + caseName) }
-        hierarchy("p12-menu-" + caseName)
-        // Do not fall back to GPUI toolbar text or an app helper action.
-        let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
-        let listed = item.waitForExistence(timeout: 3)
-        if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, listed && item.isEnabled) }
-        XCTAssertTrue(listed, "Native command missing: \(title)")
-        XCTAssertTrue(item.isEnabled, "Captured native command must start enabled")
+        springboardHierarchy("p12-menu-" + caseName)
+        if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, menuReady) }
+        XCTAssertTrue(menuReady, "Native command did not become actionable: \(title)")
         if observeOnly {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
                            "owner": "com.apple.springboard", "buttonLabel": item.label,
@@ -302,7 +303,7 @@ final class P12QA: XCTestCase {
             lastMenuClosed = Date()
         } else {
             screenshot("p12-menu-still-open-" + caseName)
-            hierarchy("p12-menu-still-open-" + caseName)
+            springboardHierarchy("p12-menu-still-open-" + caseName)
         }
         XCTAssertTrue(closed, "OS menu still open 5 s after the \(step) tap of '\(title)' in case \(caseName): "
                       + "the tap was lost (class A); compare tapTime with the p12-menu-build records")
@@ -428,7 +429,8 @@ final class P12QA: XCTestCase {
     /// 50 ms), and each query can wait for the app to idle (60-80 s on an old runner image), which
     /// would push the hold past the client's 60 s COMMAND_TIMEOUT. Here the control's frame was found
     /// by locateFixtures, before any hold, and qa.state is read every 250 ms until `presses[id]` and the step's
-    /// p12-setup-end both grew. The decisions are QAAx.press's: a press that moved nothing is sent
+    /// p12-setup-end both grew. The receipt window starts after the synchronous tap returns.
+    /// The decisions are QAAx.press's: a press that moved nothing is sent
     /// once more (logged as a retry), one that something else took or that never arrives fails.
     private func heldPress(_ id: String, step: String, before: QAState, ended: Int) throws {
         let frame = try XCTUnwrap(heldFrames[id], "no frame recorded before the hold for \(id)")
@@ -440,15 +442,18 @@ final class P12QA: XCTestCase {
             } else {
                 app.coordinate(withNormalizedOffset: .zero).withOffset(point).tap()
             }
+            let receiptStarted = ProcessInfo.processInfo.systemUptime
             var last: QAState?
-            while Date().timeIntervalSince(start) < Double(attempt) * Self.receiptTimeout {
-                usleep(Self.heldReadInterval)
-                guard let state = qa.read() else { continue }
-                last = state
-                if state.presses(id) > before.presses(id) && setupEnds(state, step) > ended {
-                    print(String(format: "P12 held press %@ confirmed after %.3f s (attempt %ld)", id, Date().timeIntervalSince(start), attempt))
-                    return
+            while true {
+                if let state = qa.read() {
+                    last = state
+                    if state.presses(id) > before.presses(id) && setupEnds(state, step) > ended {
+                        print(String(format: "P12 held press %@ confirmed after %.3f s (attempt %ld)", id, Date().timeIntervalSince(start), attempt))
+                        return
+                    }
                 }
+                if ProcessInfo.processInfo.systemUptime - receiptStarted >= Self.receiptTimeout { break }
+                usleep(Self.heldReadInterval)
             }
             if let last, last.presses(id) > before.presses(id) {
                 throw QAAxError.pressWithoutEffect(id: id, what: "p12-setup-end for \(step)", seconds: Date().timeIntervalSince(start), last: last.text)
@@ -493,8 +498,8 @@ final class P12QA: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
-    private func hierarchy(_ name: String) {
-        let attachment = XCTAttachment(string: "APP\n\(app.debugDescription)\nSPRINGBOARD\n\(springboard.debugDescription)")
+    private func springboardHierarchy(_ name: String) {
+        let attachment = XCTAttachment(string: "\nSPRINGBOARD\n\(springboard.debugDescription)")
         attachment.name = name + "-hierarchy"
         attachment.lifetime = .keepAlways
         add(attachment)

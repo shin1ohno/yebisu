@@ -116,6 +116,30 @@ class P12QASourceTests(unittest.TestCase):
         # Outside a hold every fixture still goes through QAAx.press.
         self.assertIn("qa.press(id, timeout: Self.receiptTimeout", body(swift, "private func fixture("))
 
+    def test_held_receipt_budget_excludes_synchronous_tap_and_checks_first_read(self):
+        # Run 44704476837 spent more than two receipt windows in the first tap,
+        # which skipped both confirmation loops even though the controls ran.
+        held = body(code(SWIFT), "private func heldPress(")
+        tap = held.index(".tap()")
+        window = held.index("let receiptStarted = ProcessInfo.processInfo.systemUptime")
+        read = held.index("qa.read()")
+        deadline = held.index("ProcessInfo.processInfo.systemUptime - receiptStarted >= Self.receiptTimeout")
+        self.assertLess(tap, window)
+        self.assertLess(window, read)
+        self.assertLess(read, deadline)
+        self.assertLess(deadline, held.index("usleep(Self.heldReadInterval)"))
+
+    def test_menu_waits_for_an_actionable_springboard_button_before_picking(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        self.assertNotIn("sleep(1)", choose[choose.index("applicationMenu.tap()"):choose.index("if observeOnly {")])
+        self.assertLess(choose.index("applicationMenu.tap()"), choose.index("XCTWaiter().wait(for: [actionable]"))
+        self.assertLess(choose.index("XCTAssertTrue(menuReady,"), choose.index("item.tap()"))
+        self.assertIn("exists == true AND enabled == true AND hittable == true", choose)
+        hierarchy = body(swift, "private func springboardHierarchy(")
+        self.assertIn("springboard.debugDescription", hierarchy)
+        self.assertNotIn("app.debugDescription", hierarchy)
+
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
         table = re.search(r"const FIXTURES: \[\(&str, &str\); 13\] = \[(.*?)\];", rust, re.S).group(1)
