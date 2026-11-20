@@ -307,28 +307,6 @@ impl Smoke {
             cx.notify();
         }
     }
-    /// The legacy band's Find button. While the find bar is open it draws
-    /// nothing here: the frame shows the bar at the top of the terminal column
-    /// (q8, `render_find_bar`).
-    pub(crate) fn render_find(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        if self.find.is_some() {
-            return div().into_any_element();
-        }
-        let enabled = available(&self.terminal);
-        div()
-            .id("terminal-search-open")
-            .px_4()
-            .py_2()
-            .child(if enabled {
-                "Find"
-            } else {
-                State::Unsupported.label()
-            })
-            .when(enabled, |view| {
-                view.on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx)))
-            })
-            .into_any_element()
-    }
     /// The open find bar: one 44 pt row at the top of the terminal column,
     /// directly under the tab row (q8). `None` while closed.
     pub(crate) fn render_find_bar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {

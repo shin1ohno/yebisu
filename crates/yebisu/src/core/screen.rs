@@ -1,11 +1,14 @@
 use crate::shell::herdr2_frame::panes::{PaneRect, frame_lines, pane_rects};
 use crate::{
+    input_geometry::InputGeometry,
     layout::{PaneMode, pane_mode},
     live::Live,
     shell::single_pane::ColumnMetrics,
 };
 use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
-use sheprd_client::protocol::{CellData, ClientShellSnapshot, PaneSurfaceFrame};
+use sheprd_client::protocol::{
+    CellData, ClientShellPane, ClientShellSnapshot, PaneSurfaceFrame, PaneSurfacePane, SurfaceRect,
+};
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -13,6 +16,7 @@ pub(super) struct Screen {
     pub frame: Option<FrameData>,
     pub keys: KeyReporting,
     pub ended: bool,
+    pub title: Option<String>,
 }
 impl Screen {
     pub fn apply(&mut self, update: SurfaceUpdate) {
@@ -36,6 +40,9 @@ impl Screen {
             }
             SurfaceUpdate::KeyReporting(keys) => self.keys = keys,
             SurfaceUpdate::Ended(_) => self.ended = true,
+            SurfaceUpdate::Title(title) => {
+                self.title = (!title.trim().is_empty()).then_some(title);
+            }
             _ => {}
         }
     }
@@ -58,6 +65,34 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
     };
     if pane_mode(column.width, count) == PaneMode::Single {
         return true;
+    }
+    if count > 1 {
+        use gpui::{Bounds, Point, px, size};
+        let geometry = InputGeometry::from_canvas(
+            Bounds::new(Point::default(), size(px(column.width), px(column.height))),
+            column.cell_width,
+            column.cell_height,
+        );
+        let budget = geometry.equal_pane_viewport(count, vertical);
+        let budget = crate::terminal::viewport(
+            budget.width.into(),
+            budget.height.into(),
+            column.cell_width,
+            column.cell_height,
+        );
+        let budget = pane_rects(budget.cols, budget.rows, count, vertical);
+        let (least_cols, least_rows) = column.minimum_cells();
+        if budget.len() < count
+            || budget.first().is_none_or(|pane| {
+                if vertical {
+                    pane.rows < least_rows
+                } else {
+                    pane.cols < least_cols
+                }
+            })
+        {
+            return true;
+        }
     }
     let (least_cols, least_rows) = column.minimum_cells();
     let Some(each) = rects.first() else {
@@ -250,16 +285,58 @@ pub(super) fn publish_for(
         agent_order: vec![],
         workspaces: vec![],
         tabs: vec![],
-        panes: vec![],
+        panes: screens
+            .iter()
+            .zip(&saved.ids)
+            .enumerate()
+            .map(|(index, (screen, pane))| ClientShellPane {
+                pane_id: pane.as_str().to_owned(),
+                workspace_id: "herdr-2".into(),
+                tab_id: "core".into(),
+                label: screen.title.clone(),
+                cwd: None,
+                foreground_cwd: None,
+                focused: index == saved.active,
+                right_click_passthrough: false,
+            })
+            .collect(),
         agents: vec![],
         commands: vec![],
     };
+    let panes = rects
+        .iter()
+        .zip(&saved.ids)
+        .enumerate()
+        .filter(|(index, _)| !single || *index == saved.active)
+        .map(|(index, (rect, pane_id))| {
+            let rect = SurfaceRect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.cols,
+                height: rect.rows,
+            };
+            PaneSurfacePane {
+                pane_id: pane_id.as_str().to_owned(),
+                content_revision: revision,
+                rect,
+                inner_rect: rect,
+                scrollbar_rect: None,
+                scroll: None,
+                focused: index == saved.active,
+                mouse_reporting: false,
+                sgr_pixel_mouse: false,
+                alternate_screen_active: false,
+                pixel_width: 0,
+                pixel_height: 0,
+            }
+        })
+        .collect();
     let surface = PaneSurfaceFrame {
         boot_id: boot,
         projection_revision: revision,
         surface_revision: revision,
         frame,
-        panes: vec![],
+        panes,
         splits: vec![],
         popup: None,
         graphics: Default::default(),
