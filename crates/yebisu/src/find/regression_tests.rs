@@ -213,7 +213,7 @@ fn d5_retirement_ack_rejects_changed_owners_and_native_identities(cx: &mut TestA
         "replacement",
     ] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        let (client, _receipts) = crate::find::peer::connect().unwrap();
+        let (client, _receipts) = crate::find::peer::connect_quiet(false).unwrap();
         install(&view, cx, "d5-owner", client);
         open(&view, cx);
         cx.update(|window, cx| {
