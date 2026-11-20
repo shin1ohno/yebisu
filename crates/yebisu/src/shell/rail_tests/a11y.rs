@@ -10,12 +10,7 @@ fn rail_full_name_in_accessibility_label() {
     let hosts = vec![host(
         "pro-dev",
         true,
-        vec![space(
-            "w1",
-            long,
-            NeedsYou,
-            &[NeedsYou, NeedsYou, Error, Idle],
-        )],
+        vec![space("w1", long, &[NeedsYou, NeedsYou, Error, Idle])],
     )];
     let items = rail_items(&hosts);
     let label = items[1].accessibility_label();
@@ -36,14 +31,11 @@ fn rows_list_hosts_then_their_spaces() {
     let mut current = host(
         "pro-dev",
         true,
-        vec![
-            space("w1", "yebisu", Working, &[Working]),
-            space("w2", "", Idle, &[]),
-        ],
+        vec![space("w1", "yebisu", &[Working]), space("w2", "", &[])],
     );
     current.current = true;
     current.spaces[0].focused = true;
-    let offline = host("mini", false, vec![space("w9", "stale", Idle, &[Idle])]);
+    let offline = host("mini", false, vec![space("w9", "stale", &[Idle])]);
     let items = rail_items(&[current, offline]);
     let names: Vec<_> = items.iter().map(|i| (i.kind, i.name.as_str())).collect();
     assert_eq!(
@@ -56,7 +48,7 @@ fn rows_list_hosts_then_their_spaces() {
         ],
         "an offline host keeps no spaces and an unnamed space gets its number"
     );
-    assert!(items[0].current && items[1].current && !items[2].current);
+    assert!(!items[0].current && items[1].current && !items[2].current);
     assert!(items[1].accessibility_label().ends_with(", current"));
     assert_eq!(items[0].target, RailTarget::Host("pro-dev".into()));
     assert_eq!(

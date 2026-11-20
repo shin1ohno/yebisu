@@ -53,7 +53,10 @@ fn sidebar_collapses_last() {
 fn header_and_footer_stay_fixed() {
     let available = 834.0;
     let reference = rail_sections(available, 0.0);
-    assert_eq!(reference.header, RAIL_HEADER_HEIGHT);
+    assert_eq!(
+        reference.header,
+        RAIL_HEADER_HEIGHT + 44.0 + 6.0 + 1.0 + 6.0
+    );
     assert_eq!(reference.footer, RAIL_FOOTER_HEIGHT);
     for content in [0.0, 56.0, 400.0, 5000.0] {
         let sections = rail_sections(available, content);
@@ -73,6 +76,6 @@ fn header_and_footer_stay_fixed() {
     assert_eq!(short.list, 0.0);
     assert_eq!(
         (short.header, short.footer),
-        (RAIL_HEADER_HEIGHT, RAIL_FOOTER_HEIGHT)
+        (reference.header, RAIL_FOOTER_HEIGHT)
     );
 }

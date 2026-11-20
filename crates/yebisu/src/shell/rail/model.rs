@@ -1,7 +1,7 @@
 //! The rail's rows as plain data: hosts and their spaces, with the counts of
 //! agents that need the user. No GPUI type, so the rules are tested directly.
-use crate::shell::rail_badges::badge_accessibility;
 use crate::shell::{HerdrKind, sidebar_status::SidebarStatus};
+use crate::{hosts::HostName, shell::rail_badges::badge_accessibility};
 
 /// One space of a host, as the rail needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,8 +9,6 @@ pub(crate) struct RailSpace {
     pub(crate) workspace_id: String,
     pub(crate) number: usize,
     pub(crate) label: String,
-    /// The space's own status (its dot).
-    pub(crate) status: SidebarStatus,
     /// The status of every agent in the space (the badge counts).
     pub(crate) agents: Vec<SidebarStatus>,
     /// The space the terminal shows now.
@@ -62,6 +60,8 @@ pub(crate) struct RailItem {
     pub(crate) current: bool,
     pub(crate) needs: usize,
     pub(crate) error: usize,
+    pub(crate) boot: String,
+    pub(crate) generation: u64,
     pub(crate) target: RailTarget,
 }
 
@@ -118,16 +118,19 @@ fn space_name(space: &RailSpace) -> String {
 pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
     let mut items = Vec::new();
     for host in hosts {
+        let display = HostName::new(&host.name).to_string();
         items.push(RailItem {
             kind: RailItemKind::Host,
-            name: host.name.clone(),
-            host: host.name.clone(),
+            name: display.clone(),
+            host: display.clone(),
             herdr: host.kind,
             status: None,
             connected: host.connected,
-            current: host.current,
+            current: false,
             needs: 0,
             error: 0,
+            boot: host.boot.clone(),
+            generation: host.generation,
             target: RailTarget::Host(host.name.clone()),
         });
         if !host.connected {
@@ -137,13 +140,22 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
             items.push(RailItem {
                 kind: RailItemKind::Space,
                 name: space_name(space),
-                host: host.name.clone(),
+                host: display.clone(),
                 herdr: host.kind,
-                status: Some(space.status),
+                status: Some(
+                    space
+                        .agents
+                        .iter()
+                        .copied()
+                        .min_by_key(|status| status.rank())
+                        .unwrap_or(SidebarStatus::NoStatus),
+                ),
                 connected: true,
                 current: host.current && space.focused,
                 needs: count(&space.agents, SidebarStatus::NeedsYou),
                 error: count(&space.agents, SidebarStatus::Error),
+                boot: host.boot.clone(),
+                generation: host.generation,
                 target: RailTarget::Space {
                     host: host.name.clone(),
                     workspace_id: space.workspace_id.clone(),

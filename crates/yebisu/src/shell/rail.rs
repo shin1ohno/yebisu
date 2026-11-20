@@ -16,6 +16,8 @@ use crate::{
 };
 use gpui::{AnyElement, Context};
 
+mod icons;
+mod menu;
 mod model;
 mod view;
 
@@ -31,6 +33,8 @@ pub(crate) struct RailState {
     pub(super) widths_recorded: bool,
     /// The sidebar filter text (`filter.rs`).
     pub(super) filter: String,
+    menu: Option<menu::RailMenu>,
+    menu_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -112,15 +116,20 @@ pub(crate) struct RailMetrics {
     pub(crate) badge_height: f32,
 }
 
-pub(crate) const LABEL_PT: f32 = 11.0;
+pub(crate) const LABEL_PT: f32 = super::style::text::SMALL;
+// Rail.dc.html:24, :25, :28, :30, :47.
 /// Height of a host or space button at the default text scale.
 pub(crate) const ITEM_BASE_HEIGHT: f32 = 56.0;
 /// Padding above the list and below the footer; the gap between buttons.
 pub(crate) const EDGE_PAD: f32 = 8.0;
 pub(crate) const ITEM_GAP: f32 = 6.0;
-pub(crate) const FOOTER_BUTTON_HEIGHT: f32 = 44.0;
-/// New space, Hosts, Settings and the expand button.
-pub(crate) const FOOTER_BUTTONS: usize = 4;
+pub(crate) const FOOTER_BUTTON_HEIGHT: f32 = super::style::metric::TOUCH;
+/// Hosts, Settings and the expand button.
+pub(crate) const FOOTER_BUTTONS: usize = 3;
+const DIVIDER_WIDTH: f32 = 40.0;
+const HOST_DIVIDER_MARGIN: f32 = 4.0;
+const HEADER_CONTROLS_HEIGHT: f32 =
+    FOOTER_BUTTON_HEIGHT + 2.0 * ITEM_GAP + super::style::metric::LINE;
 
 pub(crate) fn rail_metrics(text_scale: f32) -> RailMetrics {
     let scale = if text_scale.is_finite() {
@@ -150,10 +159,8 @@ pub(crate) const RAIL_HEADER_HEIGHT: f32 = EDGE_PAD;
 pub(crate) const RAIL_FOOTER_HEIGHT: f32 =
     FOOTER_BUTTONS as f32 * (FOOTER_BUTTON_HEIGHT + ITEM_GAP) + EDGE_PAD;
 
-/// The rail's header height: `RAIL_HEADER_HEIGHT`, or the band L0 keeps for
-/// iPadOS 26's window controls (`ControlsClearance::rail_top`) while they
-/// show. The rail is too narrow to hold anything beside the controls, so its
-/// list starts under them.
+/// Clearance above the New space button. The rail is too narrow to put it
+/// beside iPadOS window controls so the entire header starts below them.
 pub(crate) fn rail_header(controls_top: f32) -> f32 {
     RAIL_HEADER_HEIGHT.max(controls_top)
 }
@@ -161,9 +168,10 @@ pub(crate) fn rail_header(controls_top: f32) -> f32 {
 /// Splits `available` height; the list takes what the fixed parts leave and
 /// scrolls when its `content` is taller than that.
 pub(crate) fn rail_sections(available: f32, content: f32) -> RailSections {
-    let list = (available - RAIL_HEADER_HEIGHT - RAIL_FOOTER_HEIGHT).max(0.0);
+    let header = rail_header(0.0) + HEADER_CONTROLS_HEIGHT;
+    let list = (available - header - RAIL_FOOTER_HEIGHT).max(0.0);
     RailSections {
-        header: RAIL_HEADER_HEIGHT,
+        header,
         list,
         footer: RAIL_FOOTER_HEIGHT,
         list_scrolls: content > list,
@@ -199,6 +207,7 @@ impl Smoke {
         if self.sidebar_forced_rail() {
             return;
         }
+        self.dismiss_rail_menu();
         self.actions.board_hidden ^= true;
     }
 
@@ -208,6 +217,7 @@ impl Smoke {
         if self.sidebar_forced_rail() {
             return false;
         }
+        self.dismiss_rail_menu();
         self.actions.board_hidden = false;
         true
     }
