@@ -183,6 +183,68 @@ def profile_helper():
     return load_helper("profile.py")
 
 
+# Xcode writes these into every bundle it builds. bundle.sh links with Cargo and
+# copies Info.plist, so the distribution build stamps them from the Xcode in use.
+# App Store Connect rejects a bundle without them (validate-app 90507 for
+# DTPlatformName, 90534 for the SDK and Xcode) and a 64-bit binary whose
+# UIRequiredDeviceCapabilities lacks arm64 (90502).
+SDK_KEYS = ("BuildMachineOSBuild", "DTCompiler", "DTPlatformBuild", "DTPlatformName",
+            "DTPlatformVersion", "DTSDKBuild", "DTSDKName", "DTXcode", "DTXcodeBuild")
+APPLE_BUILD = r"[0-9]{1,3}[A-Z][0-9]{1,6}[a-z]?"
+SDK_VERSION = r"[0-9]{1,3}\.[0-9]{1,2}(?:\.[0-9]{1,2})?"
+XCODE_VERSION = rf"Xcode ([0-9]{{1,2}})\.([0-9])(?:\.([0-9]))?\nBuild version ({APPLE_BUILD})"
+
+
+def probe(argv, pattern):
+    """Read one value from Xcode's tools. An error names the probe, never its output."""
+    label = " ".join(argv)
+    try:
+        output = run(argv, capture_output=True, text=True, errors="replace", timeout=120).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError(f"{label} failed") from error
+    match = re.fullmatch(pattern, output.strip())
+    if match is None:
+        raise ValueError(f"{label} printed an unexpected value")
+    return match
+
+
+def sdk_metadata():
+    """The Info.plist keys Xcode would write for the iphoneos SDK and this Mac."""
+    sdk = probe(["xcrun", "--sdk", "iphoneos", "--show-sdk-version"], SDK_VERSION)[0]
+    sdk_build = probe(["xcrun", "--sdk", "iphoneos", "--show-sdk-build-version"], APPLE_BUILD)[0]
+    major, minor, patch, xcode_build = probe(["xcodebuild", "-version"], XCODE_VERSION).groups()
+    machine = probe(["sw_vers", "-buildVersion"], APPLE_BUILD)[0]
+    # DTXcode is four digits: the major version in two, then minor and patch.
+    return {"BuildMachineOSBuild": machine, "DTCompiler": "com.apple.compilers.llvm.clang.1_0",
+            "DTPlatformBuild": sdk_build, "DTPlatformName": "iphoneos", "DTPlatformVersion": sdk,
+            "DTSDKBuild": sdk_build, "DTSDKName": "iphoneos" + sdk,
+            "DTXcode": f"{int(major):02d}{minor}{patch or 0}", "DTXcodeBuild": xcode_build}
+
+
+def require_store_metadata(info):
+    """Refuse a bundle App Store Connect rejects before anything signs or sends it."""
+    missing = [key for key in SDK_KEYS if not isinstance(info.get(key), str) or not info[key]]
+    if missing:
+        raise ValueError("bundle lacks Xcode SDK keys App Store Connect requires: " + ", ".join(missing))
+    if (info["DTPlatformName"] != "iphoneos" or info["DTSDKName"] != "iphoneos" + info["DTPlatformVersion"]
+            or not re.fullmatch(r"[0-9]{4}", info["DTXcode"])):
+        raise ValueError("bundle Xcode SDK keys do not describe an iphoneos build")
+    capabilities = info.get("UIRequiredDeviceCapabilities")
+    if not (isinstance(capabilities, list) and "arm64" in capabilities
+            or isinstance(capabilities, dict) and capabilities.get("arm64") is True):
+        raise ValueError("UIRequiredDeviceCapabilities must include arm64 for App Store Connect")
+
+
+def stamp_sdk_metadata(app, metadata):
+    path = app / "Info.plist"
+    info = plistlib.loads(path.read_bytes())
+    if not isinstance(info, dict):
+        raise ValueError("unsigned bundle Info.plist must be a dictionary")
+    info.update(metadata)
+    require_store_metadata(info)
+    path.write_bytes(plistlib.dumps(info))
+
+
 def package(args):
     # Files are injected by the CI secret provider. No login keychain is opened.
     certificate = required_file("IOS_P12_FILE")
@@ -196,6 +258,7 @@ def package(args):
     info = plistlib.loads((app / "Info.plist").read_bytes())
     if not isinstance(info, dict) or info.get("CFBundleIdentifier") != BUNDLE or info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
         raise ValueError("expected the yebisu iPhoneOS bundle identity")
+    require_store_metadata(info)
     if any(path.is_symlink() for path in app.rglob("*")):
         raise ValueError("bundle symlinks need an explicit packaging policy")
     if any(path.suffix in {".framework", ".dylib", ".appex", ".app", ".xpc"} for path in app.rglob("*")):
@@ -284,6 +347,7 @@ def ipa_metadata(ipa):
         raise ValueError("IPA bundle identity differs from the existing app")
     if info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
         raise ValueError("IPA must contain an iPhoneOS app")
+    require_store_metadata(info)
     for field in ("CFBundleVersion", "CFBundleShortVersionString"):
         if not isinstance(info.get(field), str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", info[field]):
             raise ValueError(f"IPA is missing valid {field}")
@@ -351,6 +415,8 @@ def main():
         elif args.stage == "build":
             if not os.environ.get("CARGO_TARGET_DIR"):
                 raise ValueError("CARGO_TARGET_DIR must name this job's isolated target directory")
+            # Probe Xcode before the long build, so a broken toolchain stops it early.
+            metadata = sdk_metadata()
             env = dict(os.environ, HERDR_IOS_TEAM="", HERDR_IOS_BUNDLE_ID=BUNDLE)
             result = subprocess.run(["bash", "scripts/ios/bundle.sh", "--package", "yebisu",
                                      "--bin", "yebisu", "--target", TARGET, "--release",
@@ -362,6 +428,7 @@ def main():
             app = Path(result.stdout.strip().splitlines()[-1])
             if not (app / "Info.plist").is_file():
                 raise ValueError("unsigned bundle output is missing")
+            stamp_sdk_metadata(app, metadata)
             load_helper("icons.py").compile_icons(app)
             print(app)
         elif args.stage == "package":

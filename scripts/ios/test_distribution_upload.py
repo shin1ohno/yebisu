@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
-from distribution_fixtures import ICON_INFO, ICON_FILES
+from distribution_fixtures import ICON_INFO, ICON_FILES, SDK_INFO
 
 # Shaped like the ES256 JWT altool signs with the .p8; derived, so no injected value matches it.
 JWT = ("eyJhbGciOiJFUzI1NiIsImtpZCI6IkZJWFRVUkVLRVkiLCJ0eXAiOiJKV1QifQ"
@@ -45,7 +45,7 @@ class UploadTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.ipa = self.root / "fixture package.ipa"
         self.info = dict(CFBundleIdentifier=d.BUNDLE, CFBundleSupportedPlatforms=["iPhoneOS"],
-                         CFBundleVersion="12.3", CFBundleShortVersionString="1.2.0", **ICON_INFO)
+                         CFBundleVersion="12.3", CFBundleShortVersionString="1.2.0", **ICON_INFO, **SDK_INFO)
         self.key = self.root / "injected key with spaces.p8"
         self.key.write_bytes(b"FIXTURE ONLY; NOT A PRIVATE KEY")
         self.env = dict(ASC_KEY_FILE=str(self.key), ASC_KEY_ID="FIXTUREKEY",
