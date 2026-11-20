@@ -129,11 +129,9 @@ impl InputGeometry {
             );
         }
         let grid = self.grid;
-        if anchor.is_none() && !self.canvas_bounds().contains(&position) {
+        if anchor.is_none() && !self.contains(position) {
             return None;
         }
-        // In a single pane the padding still belongs to the terminal. An
-        // edge press selects the nearest cell, as an outside drag does.
         self.cell_in(position - grid.origin, whole(&surface.frame))
     }
 

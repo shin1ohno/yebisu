@@ -238,7 +238,7 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         self.sync_handoff();
-        if !self.terminal.column_bounds().contains(&event.position) {
+        if !self.terminal.geometry.contains(event.position) {
             return;
         }
         self.terminal_focus.focus(window, cx);
