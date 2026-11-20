@@ -63,6 +63,7 @@ final class P12QA: XCTestCase {
 
     func testInstalledTerminalMenu() throws {
         continueAfterFailure = false
+        XCTAssertTrue(XCUIDevice.shared.supportsPointerInteraction, "P12 requires an iPad with pointer support")
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
@@ -159,7 +160,11 @@ final class P12QA: XCTestCase {
         XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
         XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
         XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
-        applicationMenu.tap()
+        // A touch synthesized by testmanagerd can reach BackBoard before its
+        // virtual digitizer is registered. BackBoard then sees two touch states
+        // for the same sender and can cancel an otherwise valid menu tap.
+        // Select the real iPadOS menu with its pointer input path instead.
+        applicationMenu.click()
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
@@ -178,7 +183,7 @@ final class P12QA: XCTestCase {
                            "time": Date().timeIntervalSince1970])
             let point = try dismissPoint(clearOf: item, caseName: "focus-current")
             let dismissTime = Date().timeIntervalSince1970
-            point.tap()
+            point.click()
             assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
@@ -193,9 +198,9 @@ final class P12QA: XCTestCase {
         if enabled { XCTAssertTrue(tapped, "Enabled item must remain hittable") }
         let pickStart = Date().timeIntervalSince1970
         let buttonLabel = item.label
-        if tapped { item.tap() }
-        else { try dismissPoint(clearOf: item, caseName: caseName).tap() }
-        // A pick or dismiss tap that was lost leaves the menu open, and the next
+        if tapped { item.click() }
+        else { try dismissPoint(clearOf: item, caseName: caseName).click() }
+        // A pick or dismiss that was lost leaves the menu open, and the next
         // fixture tap would then only close it (L17 class A). Fail here, by name.
         let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
                                           step: tapped ? "pick" : "dismiss", tapTime: pickStart)
@@ -290,7 +295,7 @@ final class P12QA: XCTestCase {
     }
 
     /// Waits on the observable condition (the picked or dismissed menu item is gone).
-    /// `tapTime` is the instant of the tap, so the oracle can match it to a menu build.
+    /// `tapTime` is the start of the input, using the historical evidence key.
     @discardableResult
     private func assertMenuClosed(_ item: XCUIElement, title: String, caseName: String, step: String,
                                   tapTime: TimeInterval) -> Bool {
@@ -305,8 +310,8 @@ final class P12QA: XCTestCase {
             screenshot("p12-menu-still-open-" + caseName)
             springboardHierarchy("p12-menu-still-open-" + caseName)
         }
-        XCTAssertTrue(closed, "OS menu still open 5 s after the \(step) tap of '\(title)' in case \(caseName): "
-                      + "the tap was lost (class A); compare tapTime with the p12-menu-build records")
+        XCTAssertTrue(closed, "OS menu still open 5 s after the \(step) click of '\(title)' in case \(caseName): "
+                      + "the click was lost; compare tapTime with the p12-menu-build records")
         return closed
     }
 

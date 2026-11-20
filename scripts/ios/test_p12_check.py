@@ -132,13 +132,24 @@ class P12QASourceTests(unittest.TestCase):
     def test_menu_waits_for_an_actionable_springboard_button_before_picking(self):
         swift = code(SWIFT)
         choose = body(swift, "private func choose(")
-        self.assertNotIn("sleep(1)", choose[choose.index("applicationMenu.tap()"):choose.index("if observeOnly {")])
-        self.assertLess(choose.index("applicationMenu.tap()"), choose.index("XCTWaiter().wait(for: [actionable]"))
-        self.assertLess(choose.index("XCTAssertTrue(menuReady,"), choose.index("item.tap()"))
+        self.assertNotIn("sleep(1)", choose[choose.index("applicationMenu.click()"):choose.index("if observeOnly {")])
+        self.assertLess(choose.index("applicationMenu.click()"), choose.index("XCTWaiter().wait(for: [actionable]"))
+        self.assertLess(choose.index("XCTAssertTrue(menuReady,"), choose.index("item.click()"))
         self.assertIn("exists == true AND enabled == true AND hittable == true", choose)
         hierarchy = body(swift, "private func springboardHierarchy(")
         self.assertIn("springboard.debugDescription", hierarchy)
         self.assertNotIn("app.debugDescription", hierarchy)
+
+    def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        self.assertNotIn(".tap()", choose)
+        self.assertIn("applicationMenu.click()", choose)
+        self.assertIn("point.click()", choose)
+        self.assertIn("item.click()", choose)
+        self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).click()", choose)
+        self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
+        self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
 
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
