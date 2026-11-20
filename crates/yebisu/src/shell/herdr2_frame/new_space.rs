@@ -105,7 +105,11 @@ impl Smoke {
             return;
         }
         self.remember_connected_core();
-        let entries = host_entries(&self.shell.sidebar, &self.terminal, &self.board.hidden);
+        let entries = host_entries(
+            &self.shell.sidebar,
+            &self.terminal,
+            self.board.hidden.iter().chain(&self.board.hidden_core),
+        );
         let remembered = self
             .shell
             .herdr2
@@ -243,11 +247,7 @@ impl Smoke {
 
     fn new_herdr1_space(&mut self, host: &str, cx: &mut Context<Self>) {
         use sheprd_commands::Command::Workspace;
-        self.select_host(host);
-        if self.terminal.core_mode {
-            self.detach_core();
-            self.terminal.core_mode = false;
-        }
+        self.select_host_kind(host, HerdrKind::Herdr1);
         if crate::actions::catalog(&self.terminal)
             .iter()
             .any(|action| action.info.command == Workspace && action.available)

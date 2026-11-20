@@ -171,14 +171,13 @@ impl Smoke {
         self.shell.frame.withdrawn = layout.withdrawn.len();
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
         self.observe_frame_bounds(window, cx);
-        let board_in_band = self.board_in_band();
         if self.shell.frame.sidebar_collapsed != layout.sidebar_collapsed {
             self.shell.frame.sidebar_collapsed = layout.sidebar_collapsed;
             // A notify inside render does not draw again by itself; defer it
             // so the corrected frame follows in the same effect cycle.
             cx.defer_in(window, |_, _, cx| cx.notify());
         }
-        let sidebar = self.render_sidebar_column(&layout, board_in_band, cx);
+        let sidebar = self.render_sidebar_column(&layout, cx);
         let geometry = frame_geometry(&layout, sidebar.is_some());
         let mut body = Some(body);
         // The bar fits the terminal column it floats over (L5 N-3).
@@ -263,7 +262,6 @@ impl Smoke {
     fn render_sidebar_column(
         &mut self,
         layout: &Layout,
-        board_in_band: bool,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if layout.sidebar_collapsed {
@@ -276,20 +274,7 @@ impl Smoke {
                     .into_any_element()
             });
         }
-        let list = match self.render_sidebar_list(cx) {
-            Some(list) => Some(list),
-            // Herdr 2: L8's sessions (herdr2_frame::sidebar), once a Herdr 2
-            // host has listed them. With no such host the list stays empty,
-            // but the column still draws: the L2b footer is the only place of
-            // Hosts, Settings and New space once the toolbar is retired
-            // (Integration 2). Integration 1 S3 dropped the column while it
-            // was empty; with the footer in it, it is not.
-            None if self.terminal.core_mode => self.render_herdr2_sidebar_list(cx),
-            // The body drew the board this frame (a resize just widened the
-            // window past the collapse width): never draw it twice.
-            None if board_in_band => None,
-            None => Some(self.render_board(cx)),
-        };
+        let list = self.render_sidebar_list(cx);
         Some(
             div()
                 .id("shell-sidebar")
@@ -307,7 +292,7 @@ impl Smoke {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .children(list),
+                        .child(list),
                 )
                 .children(self.render_sidebar_footer(cx))
                 .into_any_element(),

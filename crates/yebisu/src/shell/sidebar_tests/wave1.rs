@@ -102,7 +102,12 @@ fn host_row_second_line_names_ssh_herdr_and_state() {
         ),
     ] {
         assert_eq!(
-            HostEntry::new("h", kind, link).connection_detail(),
+            crate::shell::sidebar_list::ListHost {
+                name: HostName::new("h"),
+                connections: vec![crate::shell::sidebar_list::HostConnection { kind, link }],
+                selected: false,
+            }
+            .connection_detail(),
             expected
         );
     }
@@ -112,7 +117,7 @@ fn host_row_second_line_names_ssh_herdr_and_state() {
 fn host_rows_show_the_display_name() {
     let destination = "user@pro-dev.home.local";
     let host = HostEntry::new(destination, HerdrKind::Herdr1, HostLink::Connected);
-    assert_eq!(host.display_name(), "pro-dev");
+    assert_eq!(HostName::new(&host.host).display(), "pro-dev");
     assert_eq!(host.host, HostName::new(destination).destination());
 }
 
@@ -279,6 +284,47 @@ fn space_tap_after_reconnect_uses_the_drawn_connection(cx: &mut TestAppContext) 
             panic!("the old row was accepted");
         };
         assert!(error.to_string().contains("Stale board row"), "{error}");
+    });
+}
+
+#[gpui::test]
+fn stale_sidebar_pin_request_leaves_pins_unchanged(cx: &mut TestAppContext) {
+    let app = cx.new(Smoke::new);
+    app.update(cx, |app, cx| {
+        let snapshot = fixture();
+        let pane = snapshot
+            .panes
+            .first()
+            .unwrap_or_else(|| panic!("fixture pane"));
+        let id = AgentIdentity {
+            host: "h".into(),
+            kind: HerdrKind::Herdr1,
+            pane: pane.pane_id.clone(),
+        };
+        let boot = snapshot.boot_id.clone();
+        app.select_host("h");
+        let drawn = app.terminal.link.generation;
+        app.terminal.link.reset();
+        app.terminal.live.connected = true;
+        app.terminal
+            .live
+            .apply(ClientEvent::Snapshot(Arc::new(snapshot)));
+
+        let error = app.toggle_sidebar_agent_pin(id.clone(), &boot, drawn, cx);
+        assert!(matches!(
+            error,
+            Err(crate::Error::NativeMenu(
+                "Agent pane changed; reopen the menu"
+            ))
+        ));
+        assert!(!app.shell.sidebar.is_agent_pinned(&id, &boot));
+
+        let current = app.terminal.link.generation;
+        assert!(
+            app.toggle_sidebar_agent_pin(id.clone(), &boot, current, cx)
+                .is_ok()
+        );
+        assert!(app.shell.sidebar.is_agent_pinned(&id, &boot));
     });
 }
 

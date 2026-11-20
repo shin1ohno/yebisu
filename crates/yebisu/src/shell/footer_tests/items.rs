@@ -14,7 +14,10 @@ fn sidebar_footer_has_new_space_hosts_settings() {
         };
         let points = footer_entry_points(&state);
         assert!(points.iter().any(|point| {
-            point.action == EntryAction::NewSpace && point.place == Place::SidebarHeader
+            point.action == EntryAction::NewSpace
+                && point.place == Place::SidebarHeader
+                && point.enabled
+                && point.reason.is_none()
         }));
         assert!(!points.iter().any(|point| {
             point.action == EntryAction::NewSpace && point.place == Place::SidebarFooter
@@ -43,5 +46,15 @@ fn sidebar_footer_has_new_space_hosts_settings() {
     assert_eq!(FooterItem::Hosts.label(), "Hosts");
     assert_eq!(FooterItem::Settings.label(), "Settings");
     assert_eq!(FOOTER_ROW_HEIGHT, 44.0);
-    assert_eq!(1.0 + 2.0 * FOOTER_PADDING + FOOTER_ROW_HEIGHT, 53.0);
+}
+
+#[gpui::test]
+fn sidebar_footer_height_matches_the_rendered_footer(cx: &mut TestAppContext) {
+    let (view, cx, _wire) = connected(cx);
+    view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    let footer = cx
+        .debug_bounds("shell-sidebar-footer")
+        .unwrap_or_else(|| panic!("sidebar footer not painted"));
+    assert_eq!(footer.size.height, px(crate::layout::SIDEBAR_FOOTER_HEIGHT));
 }

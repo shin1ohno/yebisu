@@ -1,6 +1,7 @@
 use crate::{
     app::Smoke,
     core::{Command, SessionTarget},
+    shell::HerdrKind,
 };
 use gpui::{AnyElement, Context, div, prelude::*, rgb};
 
@@ -138,7 +139,7 @@ impl Smoke {
     ) -> crate::Result<()> {
         let host = target.host.clone();
         let name = target.name.clone();
-        self.select_host(&host);
+        self.select_host_kind(&host, HerdrKind::Herdr2);
         self.terminal.core.take();
         self.terminal.navigating = None;
         self.actions.palette = false;

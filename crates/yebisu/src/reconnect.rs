@@ -85,7 +85,12 @@ impl Smoke {
                 self.handoff.cancel();
                 self.handoff.selection = None;
                 self.terminal.reconnect.suspended = true;
-                for terminal in self.board.hidden.values_mut() {
+                for terminal in self
+                    .board
+                    .hidden
+                    .values_mut()
+                    .chain(self.board.hidden_core.values_mut())
+                {
                     terminal.reconnect_pending = false;
                     terminal.core.take();
                     terminal.link.pause();
@@ -120,10 +125,19 @@ impl Smoke {
             }
             AppLifecyclePhase::Active => {
                 self.terminal.restore_stop_reason();
-                for terminal in self.board.hidden.values_mut() {
+                for terminal in self
+                    .board
+                    .hidden
+                    .values_mut()
+                    .chain(self.board.hidden_core.values_mut())
+                {
                     terminal.restore_stop_reason();
                 }
                 let returned = std::mem::replace(&mut self.terminal.reconnect.suspended, false);
+                for terminal in self.board.hidden_core.values_mut() {
+                    // Reattach an inactive core session when the user opens it.
+                    terminal.reconnect.suspended = false;
+                }
                 // Capture only hosts suspended before connect_terminal creates new entries.
                 let hosts = self
                     .board
@@ -146,7 +160,7 @@ impl Smoke {
                     self.connect_terminal(cx);
                 }
                 for host in hosts {
-                    self.start_host_connection(host, cx);
+                    self.start_herdr1_connection(host, cx);
                 }
             }
             // Losing scene focus is not backgrounding: retain both transports,

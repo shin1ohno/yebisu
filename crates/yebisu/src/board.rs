@@ -1,5 +1,5 @@
 //! Snapshot-only board. Hidden hosts retain their sole event reader and mailbox.
-use crate::{app::Smoke, live::Live, terminal_view::TerminalView};
+use crate::{app::Smoke, live::Live, shell::HerdrKind, terminal_view::TerminalView};
 use gpui::{AnyElement, Context, div, prelude::*, rgb};
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::collections::BTreeMap;
@@ -9,8 +9,19 @@ pub(crate) const BOARD_HEIGHT: f32 = 180.;
 #[derive(Default)]
 pub(crate) struct Board {
     pub hidden: BTreeMap<String, TerminalView>,
+    pub hidden_core: BTreeMap<String, TerminalView>,
     pub selection: u64,
 }
+impl TerminalView {
+    pub(crate) fn herdr_kind(&self) -> HerdrKind {
+        if self.core_mode {
+            HerdrKind::Herdr2
+        } else {
+            HerdrKind::Herdr1
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Target {
     Space(String),
@@ -145,6 +156,41 @@ impl Smoke {
         self.input_transition(|this| this.select_host_inner(host))
     }
     pub(crate) fn select_host_inner(&mut self, host: &str) {
+        let kind = if self.terminal.reconnect.target == host {
+            self.terminal.herdr_kind()
+        } else if !self.board.hidden.contains_key(host) && self.board.hidden_core.contains_key(host)
+        {
+            HerdrKind::Herdr2
+        } else {
+            HerdrKind::Herdr1
+        };
+        self.select_host_kind_inner(host, kind);
+    }
+
+    pub(crate) fn select_host_kind(&mut self, host: &str, kind: HerdrKind) {
+        self.input_transition(|this| this.select_host_kind_inner(host, kind))
+    }
+
+    pub(crate) fn terminal_for(&self, host: &str, kind: HerdrKind) -> Option<&TerminalView> {
+        if self.terminal.reconnect.target == host && self.terminal.herdr_kind() == kind {
+            Some(&self.terminal)
+        } else {
+            match kind {
+                HerdrKind::Herdr1 => self.board.hidden.get(host),
+                HerdrKind::Herdr2 => self.board.hidden_core.get(host),
+            }
+        }
+    }
+
+    pub(crate) fn herdr1_terminal_mut(&mut self, host: &str) -> Option<&mut TerminalView> {
+        if self.terminal.reconnect.target == host && !self.terminal.core_mode {
+            Some(&mut self.terminal)
+        } else {
+            self.board.hidden.get_mut(host)
+        }
+    }
+
+    fn select_host_kind_inner(&mut self, host: &str, kind: HerdrKind) {
         if !self.terminal.open {
             let marked = if self.smoke_mode {
                 self.input.marked.is_some()
@@ -155,18 +201,21 @@ impl Smoke {
         }
         self.handoff.cancel();
         self.handoff.selection = None;
-        if self.terminal.reconnect.target == host {
+        if self.terminal.reconnect.target == host && self.terminal.herdr_kind() == kind {
             self.terminal.open = true;
             return;
         }
-        self.terminal.core.take();
-        if self.terminal.core_mode {
-            self.terminal.link.reset();
-            self.terminal.live = Live::default();
+        if let Some(core) = &self.terminal.core {
+            core.invalidate_input();
         }
         self.terminal.input.detach();
         let discarded = self.terminal.input.requires_gesture();
-        let mut next = self.board.hidden.remove(host).unwrap_or_default();
+        let mut next = match kind {
+            HerdrKind::Herdr1 => self.board.hidden.remove(host),
+            HerdrKind::Herdr2 => self.board.hidden_core.remove(host),
+        }
+        .unwrap_or_default();
+        next.core_mode = kind == HerdrKind::Herdr2;
         next.input.retain_discard(discarded);
         if self.settings.is_some() {
             next.compact = self.terminal.compact;
@@ -180,9 +229,12 @@ impl Smoke {
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();
         if !previous.reconnect.target.is_empty() {
-            self.board
-                .hidden
-                .insert(previous.reconnect.target.clone(), previous);
+            let hidden = if previous.core_mode {
+                &mut self.board.hidden_core
+            } else {
+                &mut self.board.hidden
+            };
+            hidden.insert(previous.reconnect.target.clone(), previous);
         }
         self.terminal.reconnect.target = host.to_owned();
         self.terminal.input.detach();
@@ -194,33 +246,32 @@ impl Smoke {
     pub(crate) fn record_board(&self, host: &str, live: &Live) {
         // Every reader update reaches here, drawn or not: the sidebar's
         // AGENTS receive order is recorded now, not when the list renders.
-        let core = if host == self.terminal.reconnect.target {
-            self.terminal.core_mode
-        } else {
-            self.board.hidden.get(host).is_some_and(|t| t.core_mode)
-        };
-        let kind = if core {
-            crate::shell::HerdrKind::Herdr2
-        } else {
-            crate::shell::HerdrKind::Herdr1
-        };
+        self.record_board_connection(host, self.terminal.herdr_kind(), live);
+    }
+
+    fn record_board_connection(&self, host: &str, kind: HerdrKind, live: &Live) {
         crate::shell::sidebar::model::record_live(&self.shell.sidebar, host, kind, live);
-        self.observation.record(serde_json::json!({"kind":"board", "host":host, "selected":host == self.terminal.reconnect.target, "revision":snapshot(live).map(|s|s.revision), "rows":rows(live).iter().map(|r|r.label.clone()).collect::<Vec<_>>(), "states":rows(live).iter().map(|r|status(r.status).0).collect::<Vec<_>>() }));
+        self.observation.record(serde_json::json!({"kind":"board", "host":host, "selected":host == self.terminal.reconnect.target && kind == self.terminal.herdr_kind(), "revision":snapshot(live).map(|s|s.revision), "rows":rows(live).iter().map(|r|r.label.clone()).collect::<Vec<_>>(), "states":rows(live).iter().map(|r|status(r.status).0).collect::<Vec<_>>() }));
     }
     pub(crate) fn poll_hidden(&mut self, cx: &mut Context<Self>) {
         let mut updates = Vec::new();
-        for (host, terminal) in &mut self.board.hidden {
+        for (host, terminal) in self
+            .board
+            .hidden
+            .iter_mut()
+            .chain(&mut self.board.hidden_core)
+        {
             if let Some(mut live) = terminal.link.take_update() {
                 // Hidden host clipboard effects are consumed, never replayed on selection.
                 live.clipboard.clear();
                 terminal.live = live;
                 finish_navigation(terminal);
-                updates.push(host.clone());
+                updates.push((host.clone(), terminal.herdr_kind()));
             }
         }
-        for host in &updates {
-            if let Some(terminal) = self.board.hidden.get(host) {
-                self.record_board(host, &terminal.live);
+        for (host, kind) in &updates {
+            if let Some(terminal) = self.terminal_for(host, *kind) {
+                self.record_board_connection(host, *kind, &terminal.live);
             }
         }
         if !updates.is_empty() {
@@ -243,7 +294,10 @@ impl Smoke {
         boot: &str,
         generation: u64,
     ) -> crate::Result<()> {
-        self.select_host(host);
+        if self.terminal_for(host, HerdrKind::Herdr1).is_none() {
+            return Err(crate::Error::Ssh("Stale board row; tap again".into()));
+        }
+        self.select_host_kind_inner(host, HerdrKind::Herdr1);
         self.terminal.input.detach();
         let terminal = &mut self.terminal;
         let mut live = terminal

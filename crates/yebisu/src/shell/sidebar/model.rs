@@ -248,11 +248,8 @@ impl HostEntry {
         self
     }
 
-    pub(super) fn display_name(&self) -> String {
-        HostName::new(&self.host).display().to_owned()
-    }
-
-    /// The existing Herdr 2 renderer's detail, until A2 switches it over.
+    #[cfg(test)]
+    /// The model's abbreviated status label.
     pub(crate) fn detail(&self) -> &'static str {
         match (self.link, self.kind) {
             (HostLink::Connected, HerdrKind::Herdr1) => "SSH · Herdr 1",
@@ -260,20 +257,6 @@ impl HostEntry {
             (HostLink::Connecting, _) => "Connecting…",
             (HostLink::Offline(reason), _) => reason.label(),
         }
-    }
-
-    /// The connection type and state are available as text as well as a dot.
-    pub(super) fn connection_detail(&self) -> String {
-        let version = match self.kind {
-            HerdrKind::Herdr1 => "Herdr 1",
-            HerdrKind::Herdr2 => "Herdr 2",
-        };
-        let status = match self.link {
-            HostLink::Connected => "Connected",
-            HostLink::Connecting => "Connecting…",
-            HostLink::Offline(reason) => reason.label(),
-        };
-        format!("SSH · {version} · {status}")
     }
 }
 
@@ -296,6 +279,7 @@ pub(crate) fn order_hosts(hosts: &mut [HostEntry], saved: &[String]) {
 
 /// AGENTS across every host: status-sending terminals only, in Q5 order.
 /// `hosts` is in Hosts order (`order_hosts`); a first batch follows it.
+#[cfg(test)]
 pub(crate) fn agents_list(hosts: &[HostEntry]) -> Vec<AgentLine> {
     agents_list_with_pins(hosts, &|_, _| None)
 }

@@ -10,7 +10,7 @@
 use super::{
     HerdrKind,
     sidebar::{
-        model::{HostEntry, HostLink, SpaceEntry},
+        model::{HostEntry, HostLink, OfflineReason, SpaceEntry},
         view::SidebarTap,
     },
 };
@@ -32,6 +32,56 @@ pub(crate) struct ListHost {
     pub(crate) connections: Vec<HostConnection>,
     /// The host of the terminal on screen.
     pub(crate) selected: bool,
+}
+
+impl ListHost {
+    pub(super) fn link(&self) -> HostLink {
+        if self
+            .connections
+            .iter()
+            .any(|c| c.link == HostLink::Connected)
+        {
+            HostLink::Connected
+        } else if self
+            .connections
+            .iter()
+            .any(|c| c.link == HostLink::Connecting)
+        {
+            HostLink::Connecting
+        } else {
+            self.connections
+                .iter()
+                .map(|connection| connection.link)
+                .find(|link| *link != HostLink::Offline(OfflineReason::NotConnected))
+                .unwrap_or(HostLink::Offline(OfflineReason::NotConnected))
+        }
+    }
+
+    pub(super) fn connection_detail(&self) -> String {
+        let link = self.link();
+        let mut detail = String::from("SSH");
+        let mut answered = 0;
+        for connection in &self.connections {
+            if link == HostLink::Connected && connection.link != link {
+                continue;
+            }
+            detail.push_str(match connection.kind {
+                HerdrKind::Herdr1 => " · Herdr 1",
+                HerdrKind::Herdr2 => " · Herdr 2",
+            });
+            answered += 1;
+        }
+        // SidebarMixed.dc.html:35 shows the two responding daemons together.
+        if answered == 2 && link == HostLink::Connected {
+            return detail;
+        }
+        let status = match link {
+            HostLink::Connected => "Connected",
+            HostLink::Connecting => "Connecting…",
+            HostLink::Offline(reason) => reason.label(),
+        };
+        format!("{detail} · {status}")
+    }
 }
 
 /// A space row: a Herdr 1 space or a Herdr 2 session, with the connection
