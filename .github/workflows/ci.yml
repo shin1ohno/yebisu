@@ -243,6 +243,44 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
+      # Cargo cache, the same two steps in every job that compiles Rust. It holds
+      # the registry and git sources `cargo fetch` downloads and this job's own
+      # compiled dependencies (deps/, build/ and .fingerprint/ of each target
+      # directory the job's cargo commands write), so the job compiles only what
+      # changed. Nothing else under target/ is kept: no .app bundle (bundle.sh
+      # writes it beside the executable, outside deps/), no Simulator, XCTest or
+      # evidence directory, no signing material (CI has none; testflight.yml has
+      # its own isolated target directory and no cache). The key names the runner,
+      # this job, the toolchain, the Xcode that provides the iOS SDK and linker,
+      # Cargo.lock, and the manifests and cargo config that set profiles and
+      # features. A miss falls back only to an entry of the same job, toolchain
+      # and Xcode; an exact hit is not saved again, so a lockfile or manifest
+      # change makes one new entry per job. actions/cache only warns when the
+      # service fails and fail-on-cache-miss stays off, so neither a miss nor a
+      # cache error fails the job. The step runs after the guarded toolchain
+      # install, and every fetch and build still runs through `just guarded`.
+      - name: Cargo cache key
+        id: cargo-cache-key
+        run: echo "xcode=$({ xcodebuild -version || echo unknown; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/aarch64-apple-ios/debug/deps/
+            target/aarch64-apple-ios/debug/build/
+            target/aarch64-apple-ios/debug/.fingerprint/
+            target/aarch64-apple-ios-sim/debug/deps/
+            target/aarch64-apple-ios-sim/debug/build/
+            target/aarch64-apple-ios-sim/debug/.fingerprint/
+          key: cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml', '.cargo/config.toml') }}
+          restore-keys: |
+            cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-
       - name: Install simulator tools
         run: brew install just xcodegen
       - name: Fetch
@@ -273,6 +311,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
+      # Cargo cache: the same two steps as edit-menu (see the comment there).
+      - name: Cargo cache key
+        id: cargo-cache-key
+        run: echo "xcode=$({ xcodebuild -version || echo unknown; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/aarch64-apple-ios/debug/deps/
+            target/aarch64-apple-ios/debug/build/
+            target/aarch64-apple-ios/debug/.fingerprint/
+            target/aarch64-apple-ios-sim/debug/deps/
+            target/aarch64-apple-ios-sim/debug/build/
+            target/aarch64-apple-ios-sim/debug/.fingerprint/
+          key: cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml', '.cargo/config.toml') }}
+          restore-keys: |
+            cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-
       - name: Install simulator tools
         run: brew install just xcodegen
       - name: Fetch
@@ -311,6 +372,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
+      # Cargo cache: the same two steps as edit-menu (see the comment there).
+      - name: Cargo cache key
+        id: cargo-cache-key
+        run: echo "xcode=$({ xcodebuild -version || echo unknown; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/aarch64-apple-ios/debug/deps/
+            target/aarch64-apple-ios/debug/build/
+            target/aarch64-apple-ios/debug/.fingerprint/
+            target/aarch64-apple-ios-sim/debug/deps/
+            target/aarch64-apple-ios-sim/debug/build/
+            target/aarch64-apple-ios-sim/debug/.fingerprint/
+          key: cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml', '.cargo/config.toml') }}
+          restore-keys: |
+            cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-
       - name: Install just
         run: brew install just
       - name: Fetch
@@ -359,6 +443,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
+      # Cargo cache: the same two steps as edit-menu (see the comment there).
+      - name: Cargo cache key
+        id: cargo-cache-key
+        run: echo "xcode=$({ xcodebuild -version || echo unknown; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/aarch64-apple-ios/debug/deps/
+            target/aarch64-apple-ios/debug/build/
+            target/aarch64-apple-ios/debug/.fingerprint/
+            target/aarch64-apple-ios-sim/debug/deps/
+            target/aarch64-apple-ios-sim/debug/build/
+            target/aarch64-apple-ios-sim/debug/.fingerprint/
+          key: cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml', '.cargo/config.toml') }}
+          restore-keys: |
+            cargo-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml') }}-xcode-${{ steps.cargo-cache-key.outputs.xcode }}-
       - name: Install simulator tools
         run: brew install just xcodegen
       - name: Fetch
