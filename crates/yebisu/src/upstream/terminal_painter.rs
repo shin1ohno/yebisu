@@ -5,6 +5,7 @@ mod glyphs;
 mod graphics;
 mod grid;
 mod images;
+#[path = "../terminal_view/pane_chrome.rs"]
 mod pane_chrome;
 
 use self::area::whole;
