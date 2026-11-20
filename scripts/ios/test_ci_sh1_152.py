@@ -54,8 +54,8 @@ def git(repo, *args):
                           check=True, capture_output=True, text=True).stdout.strip()
 
 
-def decisions(event, changed, tmp):
-    """Runs the real filter step in a throwaway repository and returns {job: 'run'|'skip'}."""
+def decisions(event, changed, tmp, *, skipped_jobs="", invalid_diff=False):
+    """Runs the real filter step in a throwaway repository and returns the boolean outputs."""
     repo = Path(tmp) / "repo"
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
@@ -74,7 +74,11 @@ def decisions(event, changed, tmp):
     script.write_text(filter_script())
     output = Path(tmp) / "output"
     output.write_text("")
-    env = {**os.environ, "EVENT_NAME": event, "BASE_SHA": base, "HEAD_SHA": head, "RUNNER_TEMP": str(tmp), "GITHUB_OUTPUT": str(output)}
+    env = {
+        **os.environ, "EVENT_NAME": event, "BASE_SHA": "missing" if invalid_diff else base,
+        "HEAD_SHA": head, "RUNNER_TEMP": str(tmp), "GITHUB_OUTPUT": str(output),
+        "SKIPPED_JOBS": skipped_jobs,
+    }
     result = subprocess.run(["bash", str(script)], cwd=repo, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return {k: v == "true" for k, v in (line.split("=") for line in output.read_text().split())}
@@ -247,7 +251,7 @@ class PathFilterTests(unittest.TestCase):
     def test_unrelated_jobs_keep_their_own_filters(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(decisions("pull_request", ["crates/yebisu/src/find/search.rs"], tmp),
-                             {"check": True, "simulator-smoke": True, "edit-menu": False, "layout-smoke": False})
+                             {"check": True, "simulator-smoke": True, "edit-menu": False, "layout-smoke": False, "layout-mutations": False})
 
 
 if __name__ == "__main__":

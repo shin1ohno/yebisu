@@ -4,57 +4,183 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *' # 03:00 JST
 permissions:
   contents: read
 # Superseded pull_request runs are cancelled; main pushes are never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || 'on-demand' }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # Cheap Linux job that decides which macOS jobs a pull request needs, so a
-  # change that cannot affect a job does not queue it on a macOS runner. Pushes
-  # to main and workflow_dispatch always run every job. The diff is the whole
-  # pull request against its merge base, never just the latest push, so a green
-  # head always means every relevant job passed on the current content. If the
-  # diff cannot be computed, every job runs. A change to this file selects
-  # every macOS job, so a workflow edit is exercised by its own pull request.
+  # Select PR jobs from the whole diff against the merge base. On a main push,
+  # only reuse complete PR jobs that tested the same tree. The nightly run
+  # bypasses both decisions.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       check: ${{ steps.filter.outputs.check }}
       simulator-smoke: ${{ steps.filter.outputs.simulator-smoke }}
       edit-menu: ${{ steps.filter.outputs.edit-menu }}
       layout-smoke: ${{ steps.filter.outputs.layout-smoke }}
+      layout-mutations: ${{ steps.filter.outputs.layout-mutations }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Find complete PR jobs for this main tree
+        id: reuse
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import subprocess
+
+          MACOS_JOBS = ("check", "simulator-smoke", "edit-menu", "layout-smoke")
+          SHA = re.compile(r"[0-9a-f]{40}")
+          CHECKOUT_SHA = re.compile(
+              r"^\S+ \[command\][^\n]+/git log -1 --format=%H\n\S+ ([0-9a-f]{40})$",
+              re.MULTILINE,
+          )
+
+          def api(path, *, raw=False):
+              response = subprocess.run(
+                  ["gh", "api", path], check=True, capture_output=True, text=True, timeout=15
+              ).stdout
+              return response if raw else json.loads(response)
+
+          def require(condition, reason):
+              if not condition:
+                  raise ValueError(reason)
+
+          def tree(repo, sha):
+              require(SHA.fullmatch(sha), "commit SHA is missing or invalid")
+              commit = api(f"{repo}/git/commits/{sha}")
+              tree_sha = commit["tree"]["sha"]
+              require(commit["sha"] == sha and SHA.fullmatch(tree_sha), "invalid Git commit evidence")
+              return tree_sha
+
+          def complete(job, run_id, head):
+              steps = job["steps"]
+              return (
+                  job["run_id"] == run_id and job["head_sha"] == head
+                  and job["status"] == "completed" and job["conclusion"] == "success"
+                  and job["runner_id"] > 0 and steps
+                  and steps[0]["name"] == "Set up job" and steps[-1]["name"] == "Complete job"
+                  and all(step["status"] == "completed" and step["conclusion"] == "success" for step in steps)
+              )
+
+          def reusable_jobs(repository, sha):
+              repo = f"repos/{repository}"
+              main_tree = tree(repo, sha)
+              prs = api(f"{repo}/commits/{sha}/pulls?per_page=100")
+              require(len(prs) == 1, "main commit has no unique associated PR")
+              pr = prs[0]
+              require(
+                  pr["base"]["repo"]["full_name"] == repository and pr["base"]["ref"] == "main"
+                  and pr["merged_at"] and pr["merge_commit_sha"] == sha,
+                  "associated PR was not merged into main at this commit",
+              )
+              head = pr["head"]["sha"]
+              require(main_tree == tree(repo, head), "main and PR head trees differ")
+
+              runs = api(f"{repo}/actions/workflows/ci.yml/runs?head_sha={head}&event=pull_request&per_page=100")
+              require(runs["total_count"] == len(runs["workflow_runs"]) == 1, "PR head has no unique CI run")
+              run = runs["workflow_runs"][0]
+              require(
+                  run["event"] == "pull_request" and run["head_sha"] == head
+                  and run["path"].split("@", 1)[0] == ".github/workflows/ci.yml"
+                  and run["head_branch"] == pr["head"]["ref"]
+                  and run["head_repository"]["full_name"] == pr["head"]["repo"]["full_name"]
+                  and run["created_at"] <= pr["merged_at"] and run["status"] == "completed"
+                  and all(ref["number"] == pr["number"] for ref in run["pull_requests"]),
+                  "CI run does not identify a completed run for this PR",
+              )
+              run_id, attempt = run["id"], run["run_attempt"]
+              require(type(run_id) is int and type(attempt) is int and min(run_id, attempt) > 0, "invalid run or attempt ID")
+              result = api(f"{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+              jobs = result["jobs"]
+              require(result["total_count"] == len(jobs), "incomplete job listing")
+
+              reused = {}
+              for name in MACOS_JOBS:
+                  matches = [job for job in jobs if job["name"] == name]
+                  if len(matches) != 1 or not complete(matches[0], run_id, head):
+                      continue
+                  job = matches[0]
+                  if name == "check" and not any(
+                      step["name"] == "Layout geometry source mutations" for step in job["steps"]
+                  ):
+                      continue
+                  job_id = job["id"]
+                  require(type(job_id) is int and job_id > 0, "invalid job ID")
+                  if name == "edit-menu":
+                      # The jobs API reports the PR head even though this job
+                      # checks out the synthetic merge commit. Check its tree too.
+                      logs = api(f"{repo}/actions/jobs/{job_id}/logs", raw=True)
+                      commits = CHECKOUT_SHA.findall(logs)
+                      if len(commits) != 1 or tree(repo, commits[0]) != main_tree:
+                          continue
+                  reused[name] = f"https://github.com/{repository}/actions/runs/{run_id}/job/{job_id}"
+              return pr["number"], main_tree, reused
+
+          def main():
+              try:
+                  pr, tree_sha, reused = reusable_jobs(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"])
+              except (KeyError, TypeError, ValueError, subprocess.SubprocessError, OSError) as error:
+                  print(f"PR evidence unavailable ({error}); running every macOS job.")
+                  return
+              if not reused:
+                  print("No macOS job passed every step on the matching PR tree.")
+                  return
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  print(f"jobs={' '.join(reused)}", file=output)
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                  print(f"### macOS jobs already verified on PR #{pr}\n", file=summary)
+                  print(f"Matching tree: `{tree_sha}`\n", file=summary)
+                  for name, url in reused.items():
+                      print(f"{name}: skipped, all steps passed in {url} (tree {tree_sha})")
+                      print(f"- [{name}]({url})", file=summary)
+
+          if __name__ == "__main__":
+              main()
+          PYTHON
       - name: Select jobs by changed paths
         id: filter
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SKIPPED_JOBS: ${{ steps.reuse.outputs.jobs }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed.txt"
           all=false
+          diff_available=false
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            echo "Event $EVENT_NAME runs every job."
             all=true
           elif ! git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$changed"; then
-            echo "Could not diff $BASE_SHA...$HEAD_SHA; running every job."
+            echo "Could not diff $BASE_SHA...$HEAD_SHA; running PR jobs without path filters."
             all=true
           else
+            diff_available=true
             echo "Changed files in the pull request:"
             sed 's/^/  /' "$changed"
           fi
           # Everything each job compiles or bundles: the crate, its toolchain
           # and lockfile, the fonts bundle.sh copies, the just entry point,
-          # the disk guard, and the bundling scripts. This workflow file selects
-          # every job because it defines them.
+          # the disk guard, and the bundling scripts. An edit to this workflow
+          # selects every macOS job that can run on a PR.
           build='^(\.github/workflows/ci\.yml$|crates/|\.cargo/|assets/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh)$)'
           # check also runs clippy (clippy.toml), the repository checks, every
           # unit test under scripts/, the provenance register, and reads
@@ -65,9 +191,7 @@ jobs:
           # edit-menu is narrower than $build:
           # a pull request runs it only when a file the four checks drive
           # changes, so a change to other crates/yebisu code (search, hosts,
-          # notifications, ...) skips it. Pushes to main and workflow_dispatch
-          # still run all four (all=true above), so a break from an unrelated
-          # change is found after merge. The files, and why each is listed:
+          # notifications, ...) skips it. The files, and why each is listed:
           #   build harness     every check runs scripts/ios/bundle.sh, which
           #                     cargo-builds the crate (Cargo.toml and Cargo.lock
           #                     pin the SDK and GPUI, rust-toolchain.toml and
@@ -177,51 +301,43 @@ jobs:
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) skips edit-menu.
           menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|qa_ax|qa_ax_core|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
-          # layout-smoke runs the Mac-mini-only Simulator checks that still exist
-          # (p2-check.py, p3-check.py, p10-check.py, through ci-layout-smoke.py). It
-          # follows edit-menu's rule: a pull request runs it only when a file those
-          # checks drive changes, and test_ci_layout_smoke.py fails for any module
-          # main.rs declares that is neither matched here nor in its reviewed
-          # exclusion list, so adding a module forces a decision. Pushes to main and
-          # workflow_dispatch run it always (all=true above). Where it differs from
-          # edit-menu, and why:
-          #   p2   (YEBISU_P2_OBSERVE, YEBISU_P11_KEYS_QA, YEBISU_QA_AX)  app_setup.rs,
-          #        keys/, setup/ and settings_view.rs: the key provider screen and its
-          #        restart; qa_ax*.rs: the QA accessibility layer p2 presses through
-          #   p3   (YEBISU_TERMINAL_QA)  the terminal screen on the private wire peer:
-          #        terminal_*, input*, mock_peer, board, theme, hosts/, handoff_view,
-          #        notification_view (the overlay is laid out against the keyboard)
-          #   p10  (YEBISU_SETTINGS_QA)  settings/, settings_sheet/, settings_pages/,
-          #        reconnect.rs (the Home and activate lifecycle it asserts)
-          #   all three (fix/observation-drop): qa_stderr.rs (the app's stderr copy,
-          #        written in every QA launch) and app_stderr.py, which p10 uses to
-          #        collect it and fail on a lost record (p2 and p3 belong to the UI
-          #        test redesign streams and do not collect it yet)
-          #   all three (SH1-157): shell.rs and shell/ (the frame around the terminal,
-          #        the Hosts sheet p2 drives, the first-run frame), layout.rs and
-          #        layout/ (the geometry the frame and the settings sheet use)
-          # The core, hand-off paste, native-edit and edit-menu QA scenes are driven by
-          # edit-menu and simulator-smoke, not by these three checks, so they are not
-          # listed (see UNRELATED in test_ci_layout_smoke.py).
-          layout='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|sim\.sh|bundle-provenance\.py|compiler_inputs\.py|screenshot-color\.py|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-layout-smoke\.py|p2-check\.py|p3-check\.py|p10-check\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|app_setup|actions|board|edit_menu|edit_menu_gestures|handoff|handoff_view|hosts|i18n|input|input_geometry|input_retirement|keys|layout|link|live|mock_commands|mock_notifications|mock_peer|native_menus|native_retirement|notification_view|observation|qa_ax|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|qa_stderr|reconnect|setup|settings|settings_sheet|settings_view|shell|terminal_controls|terminal_input|terminal_view|theme)\.rs$|notifications/preferences\.rs$|commands\.ftl$|locales/|(hosts|keys|layout|live|notification_view|observation|settings|settings_pages|settings_sheet|setup|shell|theme_picker)/)))'
-          decide() {
-            if [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
-              echo "$1=true" >> "$GITHUB_OUTPUT"
+          # Plan section 4.2: mutation targets, their tests and build inputs.
+          mutations='^(crates/yebisu/src/(layout|shell|settings|settings_pages|core/screen|terminal_input)(\.rs$|/|_tests)|scripts/ios/layout-mutations\.py$|scripts/guarded\.py$|\.github/workflows/ci\.yml$|Cargo\.(lock|toml)$|crates/yebisu/Cargo\.toml$|rust-toolchain\.toml$|\.cargo/|justfile$)'
+          emit() {
+            echo "$1=$2" >> "$GITHUB_OUTPUT"
+            if [[ "$2" == true ]]; then
               echo "$1: run"
             else
-              echo "$1=false" >> "$GITHUB_OUTPUT"
               echo "$1: skip"
+            fi
+          }
+          decide() {
+            if [[ "$EVENT_NAME" == push && " $SKIPPED_JOBS " == *" $1 "* ]]; then
+              emit "$1" false
+            elif [[ "$all" == true ]] || grep -Eq "$2" "$changed"; then
+              emit "$1" true
+            else
+              emit "$1" false
             fi
           }
           decide check "$check"
           decide simulator-smoke "$smoke"
           decide edit-menu "$menu"
-          decide layout-smoke "$layout"
-  # Commit subjects are the release changelog, so every pull request is
-  # checked, including ones that start no macOS job. Same command as
-  # `just check-commits`; the script needs only Python.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            emit layout-smoke false
+            if [[ "$diff_available" == true ]] && grep -Eq "$mutations" "$changed"; then
+              emit layout-mutations true
+            else
+              emit layout-mutations false
+            fi
+          else
+            decide layout-smoke ''
+            emit layout-mutations true
+          fi
+  # The release changelog uses commit subjects. Check every PR, including ones
+  # with no macOS jobs, and the commits introduced by the main tip at night.
   commit-subjects:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -229,9 +345,16 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Commit subjects
-        run: python3 scripts/release/check-commit-messages.py range origin/main..HEAD
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          range=origin/main..HEAD
+          if [[ "$EVENT_NAME" == schedule ]]; then
+            range=HEAD^..HEAD
+          fi
+          python3 scripts/release/check-commit-messages.py range "$range"
   edit-menu:
     needs: changes
     if: needs.changes.outputs.edit-menu == 'true'
@@ -420,9 +543,10 @@ jobs:
           name: p12-mutation-evidence
           path: target/p12-mutations/
       - name: Layout geometry source mutations
+        if: needs.changes.outputs.layout-mutations == 'true'
         run: python3 scripts/ios/layout-mutations.py
       - name: Upload layout mutation evidence
-        if: always()
+        if: always() && needs.changes.outputs.layout-mutations == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: layout-mutation-evidence
@@ -433,7 +557,7 @@ jobs:
   # (target/ios-layout-smoke/durations.json) to measure the 60-minute budget.
   layout-smoke:
     needs: changes
-    if: needs.changes.outputs.layout-smoke == 'true'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.changes.outputs.layout-smoke == 'true'
     runs-on: macos-26
     timeout-minutes: 60
     steps:
