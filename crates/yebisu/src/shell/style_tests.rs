@@ -195,10 +195,14 @@ fn text_sizes_and_weights_equal_the_canvas() {
         (weight::MEDIUM, 500., "Main.dc.html:89"),
         (weight::SEMIBOLD, 600., "Main.dc.html:36"),
         (weight::BOLD, 700., "Main.dc.html:41"),
-        (REGULAR, 400., "unset"),
+        (weight::REGULAR, 400., "unset"),
     ];
     for (value, canvas, line) in weights {
-        assert_eq!(value, FontWeight(canvas), "{line} font-weight: {canvas}");
+        assert_eq!(
+            value,
+            gpui::FontWeight(canvas),
+            "{line} font-weight: {canvas}"
+        );
     }
 }
 

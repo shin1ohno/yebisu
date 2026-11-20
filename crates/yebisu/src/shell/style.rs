@@ -1,5 +1,6 @@
 //! The canvas's visual values, in one place (design fidelity plan, Wave 0a).
-//! Owner: integrator; Wave 1 streams read it and send a patch to change it.
+//! Owner: the controller; Wave 1 streams read it and send a patch to change
+//! it (docs/layout-contracts.md section 9).
 //!
 //! The reference is the canvas "yebisu iPad layout" (owner decision
 //! 2026-11-20). Each value cites the artboard line it comes from (the files
@@ -16,7 +17,7 @@
 //! Lengths are points. Region sizes (sidebar 300, rail 72, tab row 36, status
 //! bar 44, sidebar header 44) stay in `crate::layout`, and sidebar row heights
 //! (host 64, space 56, agent 44) in `shell::sidebar`; they are not repeated.
-use gpui::{BoxShadow, FontWeight, Hsla, Rgba, point, px};
+use gpui::{BoxShadow, Hsla, Rgba, point, px};
 
 /// Colours, `0xRRGGBB`.
 pub(crate) mod color {
@@ -218,10 +219,12 @@ pub(crate) mod text {
     pub(crate) const HEADING_TRACKING_EM: f32 = 0.06;
 }
 
-/// Text weights. Unset text is regular (400).
+/// Text weights.
 pub(crate) mod weight {
     use gpui::FontWeight;
 
+    /// Body text; what unset text draws, for a view that resets bold text.
+    pub(crate) const REGULAR: FontWeight = FontWeight::NORMAL;
     /// "Needs you first" and the edit bar's buttons (Main.dc.html:89;
     /// Selection.dc.html:85).
     pub(crate) const MEDIUM: FontWeight = FontWeight::MEDIUM;
@@ -283,9 +286,6 @@ pub(crate) mod metric {
     pub(crate) const SEGMENT: f32 = 40.;
     pub(crate) const SEGMENT_INSET: f32 = 2.;
 }
-
-/// The body weight, for a view that resets bold text (unset text is this).
-pub(crate) const REGULAR: FontWeight = FontWeight::NORMAL;
 
 #[cfg(test)]
 #[path = "style_tests.rs"]

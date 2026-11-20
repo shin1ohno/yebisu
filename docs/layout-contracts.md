@@ -674,7 +674,7 @@ patch.
   - `text::{BASE, NAME, SECONDARY, SMALL, SHEET_TITLE, PAGE_TITLE, PAGE_TITLE_LINE, AGENT_LINE, HEADING_TRACKING_EM}: f32`
     (13, 14, 12, 11, 15, 18, 26, 16, 0.06; GPUI has no letter spacing, so
     the tracking is recorded, not drawn);
-  - `weight::{MEDIUM, SEMIBOLD, BOLD}: gpui::FontWeight` and `REGULAR`;
+  - `weight::{REGULAR, MEDIUM, SEMIBOLD, BOLD}: gpui::FontWeight`;
   - `metric::{TOUCH, DOT, SMALL_DOT, RING, HEADING_ROW, HEADING_GAP, SIDE, ROW_GAP, INLINE_GAP, SPACE_INDENT, CURRENT_LINE, DETAIL_INDENT, LINE, PANE_NAME_INSET, MENU_WIDTH, MENU_ITEM, MENU_PADDING, SHEET_HEADER, SETTINGS_LIST, SETTINGS_ROW, SEGMENT, SEGMENT_INSET}: f32`.
   Region sizes stay in `crate::layout` and row heights in `shell::sidebar`.
 - **Root text size**: `app.rs` sets `text_size(style::text::BASE)` on every
