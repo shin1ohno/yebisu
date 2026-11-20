@@ -2,7 +2,7 @@
 //!
 //! A rail button is 64 pt wide. The badges sit in it with an 8 pt inset on
 //! each side: Error top left, Needs you top right, the status dot between
-//! them (plan v2 7.9; `Rail.dc.html:37`). With three 16 pt wide parts the
+//! them (plan v2 7.9; `Rail.dc.html:41`). With three 16 pt wide parts the
 //! gaps are exactly 2 pt (left badge x 8 to 24, dot x 26 to 38, right badge
 //! x 40 to 56). A count that renders wider than 16 pt does not fit; the rail
 //! then shows one combined number at the top right instead.
@@ -22,7 +22,7 @@ pub(crate) const DOT_SIZE: f32 = 12.0;
 /// The least space between a badge and the dot.
 pub(crate) const MIN_GAP: f32 = 2.0;
 /// Badge digits are 11 pt bold (D10: nothing in the rail is smaller).
-pub(crate) const BADGE_TEXT_PT: f32 = 11.0;
+pub(crate) const BADGE_TEXT_PT: f32 = super::style::text::SMALL;
 /// A count above this is written `99+`.
 pub(crate) const COUNT_CAP: usize = 99;
 
