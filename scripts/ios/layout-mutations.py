@@ -173,11 +173,11 @@ CASES = [
     ("l8-error-order", "shell/herdr2_frame.rs", "Some(StatusState::Error) => SidebarStatus::Error,",
      "Some(StatusState::Error) => SidebarStatus::NeedsYou,",
      "shell::herdr2_frame::tests::session::herdr2_error_after_needs_you"),
-    # L8: New space creates a Herdr 2 session before the sessions task (q4).
-    ("l8-new-space", "shell/herdr2_frame.rs",
-     "                enabled: false,\n                reason: Some(HERDR2_NEW_SPACE),",
-     "                enabled: true,\n                reason: Some(HERDR2_NEW_SPACE),",
-     "shell::herdr2_frame::tests::entry::new_space_offers_only_herdr1_until_sessions_task"),
+    # L8: New space defaults to Herdr 1 on hosts running both kinds.
+    ("l8-new-space", "shell/herdr2_frame/new_space.rs",
+     "            .and_then(|host| host.kinds.last())",
+     "            .and_then(|host| host.kinds.first())",
+     "shell::herdr2_frame::new_space::tests::new_space_asks_for_the_host_and_the_herdr"),
 ]
 
 

@@ -201,14 +201,14 @@ pub(crate) fn shortcut_candidate(
     }
     catalog(terminal)
         .into_iter()
+        .filter(|action| !terminal.core_mode || core_recognizes(action.info.command))
         .find(|a| {
-            (!terminal.core_mode || core_recognizes(a.info.command))
-                && a.shortcuts.iter().any(|s| {
-                    Keystroke::parse(s).is_ok_and(|mut binding| {
-                        normalize_shortcut(&mut binding);
-                        binding.key == key.key && binding.modifiers == key.modifiers
-                    })
+            a.shortcuts.iter().any(|s| {
+                Keystroke::parse(s).is_ok_and(|mut binding| {
+                    normalize_shortcut(&mut binding);
+                    binding.key == key.key && binding.modifiers == key.modifiers
                 })
+            })
         })
         .map(|a| a.info.command)
 }
