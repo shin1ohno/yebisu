@@ -164,15 +164,20 @@ final class P12QA: XCTestCase {
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
-        let actionable = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: item)
-        let menuReady = XCTWaiter().wait(for: [actionable], timeout: 3) == .completed
+        let available = waitForEnabledMenuItem(item)
+        let hittable = available && item.isHittable
         // The current-focus menu stays a screenshot: it is the only visual proof of
         // the rebuilt menu after the stale rejection.
         if observeOnly { screenshot("p12-menu-" + caseName) }
         springboardHierarchy("p12-menu-" + caseName)
-        if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, menuReady) }
-        XCTAssertTrue(menuReady, "Native command did not become actionable: \(title)")
+        if !observeOnly { screenshotOnFailure("p12-menu-" + caseName, hittable) }
+        if !available {
+            let exists = item.exists
+            let enabled = exists && item.isEnabled
+            XCTFail("Native command availability wait expired: '\(title)' in case \(caseName), exists=\(exists), enabled=\(enabled)")
+            return
+        }
+        XCTAssertTrue(hittable, "Native command isHittable=false after becoming available: '\(title)' in case \(caseName)")
         // Recap can send a touch before BackBoard registers its virtual
         // digitizer. The trackpad waits for pointer readiness and delivers the
         // selection or dismissal through the real system menu.
@@ -209,6 +214,15 @@ final class P12QA: XCTestCase {
                        "started": pickStart, "ended": Date().timeIntervalSince1970,
                        "enabled": enabled, "tapped": tapped, "negative": negative, "menuClosed": menuClosed])
         screenshot("p12-after-" + caseName)
+    }
+
+    private func waitForEnabledMenuItem(_ item: XCUIElement) -> Bool {
+        // The first SpringBoard query can take seconds. Sample it before starting the
+        // wait and keep hittability checks out of the availability predicate.
+        if item.exists && item.isEnabled { return true }
+        let available = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true"), object: item)
+        return XCTWaiter().wait(for: [available], timeout: 3) == .completed
     }
 
     /// Swipes down from the top edge and waits on the observable condition (the OS
