@@ -143,6 +143,9 @@ fn f24_child_panic_sink_probe() -> TestResult {
     assert!(messages.recv()?.to_string().contains("queue-positive"));
     drop(messages);
     observation.record(serde_json::json!({"raw":"FAKE_PRIVATE_SENTINEL FAKE_PUBLIC_KEY_SENTINEL"}));
+    // The drop lines come from the observation's reporter thread; let it
+    // print them before this process exits.
+    assert!(observation.wait_for_drop_report(std::time::Duration::from_secs(5)));
     install_panic_hook();
     tracing::subscriber::with_default(Capture(send), || {
         record("startup");

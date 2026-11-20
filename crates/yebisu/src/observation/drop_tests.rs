@@ -2,7 +2,10 @@
 //! integration: hosted p10 run 44406830068 job 135164241872 lost its
 //! `settings-lifecycle` records with no trace in the job or the artifact).
 use super::*;
-use std::sync::mpsc::Receiver;
+use std::{
+    sync::{Mutex, mpsc::Receiver},
+    thread::ThreadId,
+};
 
 fn next(records: &Receiver<Value>) -> Value {
     records
@@ -111,4 +114,157 @@ fn the_writer_limit_is_written_to_the_file() {
     assert_eq!(lines.len(), 3, "{text}");
     assert_eq!(lines[2]["kind"], "observation-limit");
     assert_eq!(lines[2]["written"], 2);
+}
+
+/// Stands for a stderr nobody drains: each write says which thread made it,
+/// then blocks until the test sends a release.
+struct StalledStderr {
+    writers: SyncSender<ThreadId>,
+    release: Receiver<()>,
+    text: Arc<Mutex<Vec<u8>>>,
+}
+
+impl Write for StalledStderr {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = self.writers.send(std::thread::current().id());
+        let _ = self.release.recv();
+        self.text
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Use real stderr with libtest capture disabled so this fails if the
+/// recording thread calls `eprintln!` directly, bypassing the reporter.
+#[test]
+fn a_full_queue_returns_at_once_and_the_caller_never_writes_stderr() {
+    const PROBE: &str = "YEBISU_OBSERVATION_STDERR_LOCK_PROBE";
+    if std::env::var_os(PROBE).is_none() {
+        let output = std::process::Command::new(
+            std::env::current_exe().unwrap_or_else(|error| panic!("{error}")),
+        )
+        .args([
+            "--exact",
+            "observation::drop_tests::a_full_queue_returns_at_once_and_the_caller_never_writes_stderr",
+            "--nocapture",
+        ])
+        .env(PROBE, "1")
+        .output()
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            output.status.success(),
+            "stderr lock probe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("smoke observation dropped: full (count 1)"),
+            "the worker must report the full queue after stderr is unlocked"
+        );
+        return;
+    }
+
+    let (locked, lock_ready) = sync_channel(0);
+    let (release, released) = sync_channel::<()>(0);
+    let holder = std::thread::spawn(move || {
+        let _lock = std::io::stderr().lock();
+        let _ = locked.send(());
+        let _ = released.recv();
+    });
+    let (send, records) = sync_channel(1);
+    let observation = Observation::injected_with_wait(send, Duration::from_secs(2));
+    assert!(observation.try_record(serde_json::json!({"kind": "fill"})));
+    lock_ready.recv().unwrap_or_else(|error| panic!("{error}"));
+
+    let (finished, finish) = sync_channel(1);
+    let producer = observation.clone();
+    let caller = std::thread::spawn(move || {
+        producer.record_without_waiting(serde_json::json!({"kind": "lost"}));
+        let _ = finished.send(());
+    });
+    let returned = finish.recv_timeout(Duration::from_millis(500));
+    drop(release);
+    assert!(holder.join().is_ok());
+    assert!(caller.join().is_ok());
+    assert!(
+        returned.is_ok(),
+        "recording waited on a full queue or stderr"
+    );
+    assert!(observation.wait_for_drop_report(Duration::from_secs(5)));
+    assert_eq!(next(&records)["kind"], "fill");
+}
+
+/// The reporter coalesces drops even when its sink stalls and writes only
+/// from the worker.
+#[test]
+fn a_stalled_reporter_coalesces_drops_without_holding_the_caller() {
+    let (send, records) = sync_channel(1);
+    let mut observation = Observation::injected(send);
+    let (writers_send, writers) = sync_channel(16);
+    let (release, released) = sync_channel(16);
+    let text = Arc::new(Mutex::new(Vec::new()));
+    observation.report_drops_to(Box::new(StalledStderr {
+        writers: writers_send,
+        release: released,
+        text: text.clone(),
+    }));
+    assert!(observation.try_record(serde_json::json!({"kind": "fill"})));
+    let caller = std::thread::current().id();
+    assert!(!observation.try_record(serde_json::json!({"kind": "lost"})));
+    let writer = writers
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|e| panic!("no drop line was written: {e}"));
+    assert_ne!(
+        writer, caller,
+        "the drop line was written on the recording thread"
+    );
+    // The reporter is now stuck in its first write, like `eprintln!` on a
+    // full stderr pipe. Drops keep returning at once.
+    let started = Instant::now();
+    for _ in 0..200 {
+        assert!(!observation.try_record(serde_json::json!({"kind": "lost"})));
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "200 drops took {elapsed:?} with stderr stalled"
+    );
+    assert!(
+        !observation.wait_for_drop_report(Duration::from_millis(20)),
+        "positive control: the stalled reporter has not printed yet"
+    );
+    for _ in 0..16 {
+        let _ = release.send(());
+    }
+    assert!(observation.wait_for_drop_report(Duration::from_secs(5)));
+    assert!(
+        writers.try_iter().all(|thread| thread != caller),
+        "a later drop line was written on the recording thread"
+    );
+    let text = String::from_utf8(
+        text.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone(),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let mut total = 0;
+    for line in text.lines() {
+        let count = line
+            .strip_prefix("smoke observation dropped: full (count ")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .and_then(|count| count.parse::<u64>().ok())
+            .unwrap_or_else(|| panic!("unexpected drop line {line:?}"));
+        total += count;
+    }
+    assert_eq!(total, 201, "{text}");
+    assert!(
+        text.lines().count() < 201,
+        "drops are coalesced while stderr is stalled: {text}"
+    );
+    assert_eq!(next(&records)["kind"], "fill");
 }

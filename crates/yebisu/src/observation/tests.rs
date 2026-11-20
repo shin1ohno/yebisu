@@ -25,12 +25,13 @@ fn f24_actual_observation_sinks_and_queue_diagnostics_have_negative_control() {
     let output = String::from_utf8(jsonl).unwrap_or_else(|e| panic!("{e}"));
     assert!(output.contains("nonsecret-positive-control"));
     assert!(clean(&output));
+    assert!(observation.wait_for_drop_report(Duration::from_secs(5)));
     let diagnostics = errors.try_iter().collect::<Vec<_>>();
     assert_eq!(
         diagnostics,
         vec![
-            "smoke observation dropped: full",
-            "smoke observation dropped: disconnected"
+            "smoke observation dropped: full (count 1)",
+            "smoke observation dropped: disconnected (count 1)"
         ]
     );
     assert!(clean(&diagnostics.join("\n")));
