@@ -15,7 +15,8 @@ integrator owns it. Integration 1 merged `origin/main` aed154e (PR 70
 c33b746, PR 71) and the Wave 1 streams listed in section 7.
 
 The amendments of section 8 (review 0e80, 2026-11-18) override the text
-above and below where they differ.
+above and below where they differ. Section 9 is the contract of a later
+plan, the design fidelity and fork port of 2026-11-20.
 
 ## 1. Rules for every stream
 
@@ -607,3 +608,177 @@ goes away at the end of Wave 3.
   reads `Filter · not available yet`, and terminal input is what it was before
   W; TODO.md tracks rebuilding it as a UIKit text-input target with IME
   support.
+
+## 9. Design fidelity plan, Wave 1 (2026-11-20)
+
+The plan makes yebisu follow the canvas "yebisu iPad layout" and ports the
+herdr-gpui fork's iPad work (`mellow-squishing-wilkinson.md`, approved
+2026-11-20; owner decisions in
+`codex-controller-2026-11-12/yebisu-design-fidelity-and-fork-port-decision.json`;
+gap IDs such as MAIN-20 from `yebisu-design-gap/gap.md`, fork rows such as
+R27 from `yebisu-fork-port/inventory.md`). Wave 0a (this section's PR)
+froze the shared values and types below. Sections 1 to 8 describe the
+SH1-157 sprint; of them, only the repository rules of section 1 rule 5
+apply here.
+
+### 9.1 Rules
+
+1. Each stream branches from `origin/main` after Wave 0a merges (A and D
+   after the window-control overlap fix merges), opens one PR to `main`, and
+   edits only the files it owns (9.2). A stream that must edit another
+   stream's file stops and asks the controller, who serializes the two or
+   merges them into one stream.
+2. Colours, sizes, weights, radii, shadows and repeated lengths come from
+   `shell/style.rs`. A view does not declare its own copy of a canvas value;
+   a missing value is a patch to the controller, not a local constant.
+3. Unsized text is 13 pt (the root sets `style::text::BASE`); a view sets a
+   size only where the canvas differs from 13.
+4. The UI typeface stays the iPadOS system font; only sizes and weights
+   follow the canvas (owner decision).
+5. Each PR puts a Simulator screenshot next to the matching artboard PNG
+   (1376×1032 landscape unless the artboard is another size).
+
+### 9.2 File ownership
+
+Paths are under `crates/yebisu/src/`. A `*_tests.rs` file or `*_tests/`
+directory belongs to the owner of its module.
+
+| Stream | Files (no other stream edits them) | Work |
+|---|---|---|
+| A sidebar | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_status.rs`, `shell/sidebar_list.rs`, `shell/footer.rs`, `shell/footer/**`, `shell/filter.rs`, the header part of `shell/frame.rs` | MAIN-01 (collapse, `yebisu`, search, ＋), MAIN-02 host collapse, MAIN-04, MAIN-06 to 15, MIX-01 and H2-07 (one list for both Herdrs), MIX-02, agent pins, task and pane names on AGENTS rows (R26), density Dense / Roomy |
+| B rail | `shell/rail.rs`, `shell/rail/**`, `shell/rail_badges.rs` | RAIL-02 to 07, the long-press menu (R20) |
+| C tab row, menus, status bar | `shell/tab_row.rs`, `shell/overflow_menu.rs`, `shell/status_bar.rs`, `shell/edit_bar.rs`, `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/mods.rs` | MAIN-16 to 18, 21, 22, RAIL-01 and R21 (space name ▾), RAIL-08, SEL-01, SEL-03, H2-03 (Herdr 2 Paste image enabled: remove the edit bar's `HERDR2_IMAGE_REASON` gate), H2-04, SC-01 to 04, MM-02, the Copy as one line item, the Shortcuts hint only with a hardware keyboard (R32), the flaky `overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal` (`shell/frame_overlay_tests.rs`) |
+| D terminal surface | `terminal_view.rs`, `find_view.rs`, `upstream/terminal_painter.rs`, `upstream/terminal_painter/**`, selection and copy handling | MAIN-03 (no Find band), SEL-02, SEL-04, MAIN-19 and H2-05 (pane borders; for Herdr 1 first establish that pane geometry is available, else stop and return to the owner), MAIN-23, Copy as one line (R58) |
+| E sheets | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `settings_sheet.rs`, `settings_sheet/**`, `settings_pages/**` | ADD-01 to 06 (read the device key when the sheet opens, R15), SET-01 to 08 (Settings › Sidebar returns), close on a backdrop tap (R46) |
+| F Herdr 2 | `shell/herdr2_frame.rs`, `shell/herdr2_frame/**` | H2-01 several sessions, H2-02, H2-06, SPEC-01 (New space picks the host and Herdr 1 or 2), SC-02's Herdr 2 commands |
+| H1 app behaviour | app start and stop handling | keep the screen awake while connected (R54) |
+
+Wave 0a's own files stay with the controller after it merges:
+`shell/style.rs`, `shell/style_tests.rs`, `hosts.rs`, `hosts/display.rs`,
+`settings.rs`, `settings/input_options.rs`, `settings/sidebar_density.rs`,
+`settings_view.rs`, `app.rs`. A stream that needs a change there sends a
+patch.
+
+### 9.3 Shared values and types (Wave 0a)
+
+- **`shell::style`** (`shell/style.rs`), every value cited to its artboard
+  line and checked by `style_tests.rs`:
+  - `color::{BACKGROUND, SURFACE, RAISED, SEPARATOR, MUTED, TEXT, ACCENT, GREEN, YELLOW, RED, SLATE, DISABLED}: u32`
+    (`#101419 #1c1c22 #2b2933 #3b3945 #acb2bb #d8dee9 #88c0d0 #a3be8c #ebcb8b #bf616a #4c566a #6c7480`);
+  - `pub(crate) struct Tint { rgb: u32, alpha: f32 }` with `From<Tint>` for
+    `gpui::Rgba` and `gpui::Hsla`; `tint::{SELECTED, CURRENT_ROW, SELECTION, SHEET_SCRIM, POPOVER_SCRIM}`;
+  - `pub(crate) struct Shadow { y: f32, blur: f32, alpha: f32 }`,
+    `Shadow::box_shadow(self) -> gpui::BoxShadow`;
+    `shadow::{SHEET, POPOVER, EDIT_BAR}`;
+  - `radius::{SHEET, POPOVER, CARD, EDIT_BAR, CONTROL, RAIL_ITEM, BADGE}: f32`;
+  - `text::{BASE, NAME, SECONDARY, SMALL, SHEET_TITLE, PAGE_TITLE, PAGE_TITLE_LINE, AGENT_LINE, HEADING_TRACKING_EM}: f32`
+    (13, 14, 12, 11, 15, 18, 26, 16, 0.06; GPUI has no letter spacing, so
+    the tracking is recorded, not drawn);
+  - `weight::{MEDIUM, SEMIBOLD, BOLD}: gpui::FontWeight` and `REGULAR`;
+  - `metric::{TOUCH, DOT, SMALL_DOT, RING, HEADING_ROW, HEADING_GAP, SIDE, ROW_GAP, INLINE_GAP, SPACE_INDENT, CURRENT_LINE, DETAIL_INDENT, LINE, PANE_NAME_INSET, MENU_WIDTH, MENU_ITEM, MENU_PADDING, SHEET_HEADER, SETTINGS_LIST, SETTINGS_ROW, SEGMENT, SEGMENT_INSET}: f32`.
+  Region sizes stay in `crate::layout` and row heights in `shell::sidebar`.
+- **Root text size**: `app.rs` sets `text_size(style::text::BASE)` on every
+  root of `Smoke::render`.
+- **`hosts::HostName`** (MAIN-20): `HostName::new(destination: &str) -> Self`,
+  `destination(&self) -> &str`, `display(&self) -> &str`, and `Display`.
+  The display name is the destination host's first DNS label (an IP stays
+  whole; a string that is not a target shows as written). The destination
+  stays the identity and the only thing SSH connects to; the display name is
+  never saved or used as a key. A, B and C draw `display()` wherever a host
+  name is shown.
+- **`shell::sidebar_status`**: `SidebarStatus::color()` follows
+  SidebarSpec's legend (Needs you and Error red, Working yellow, Done green,
+  Idle accent, Unknown and no status slate).
+  `pub(crate) enum AgentGroup { NeedsYou, Error, Pinned, Working, Done, Idle, Unknown, NoStatus }`
+  and `AgentGroup::of(status: SidebarStatus, pinned: bool) -> AgentGroup`:
+  the AGENTS order is the declaration order (owner decision: Needs you,
+  Error, pinned, Working, Done, Idle). A pin never moves an agent out of
+  Needs you or Error. Stream A replaces `status.rank()` in
+  `agent_order_in` with `AgentGroup::of(row.status, pinned)`; without pins
+  the two orders are the same (`without_pins_the_group_keeps_the_status_rank`).
+- **`shell::sidebar_list`** (MIX-01, H2-07):
+  `pub(crate) struct HostConnection { kind: HerdrKind, link: HostLink }`,
+  `pub(crate) struct ListHost { name: HostName, connections: Vec<HostConnection>, selected: bool }`,
+  `pub(crate) struct ListSpace { host: String, kind: HerdrKind, entry: SpaceEntry }`,
+  `pub(crate) enum ListRow { Host(ListHost), Space(ListSpace) }`, and
+  `pub(crate) fn merge(hosts: &[HostEntry]) -> Vec<ListRow>`: one host row
+  per destination where its first entry stands, then its Herdr 1 spaces,
+  then its Herdr 2 sessions. Stream A draws the list from `merge`; stream F
+  keeps producing Herdr 2 `HostEntry` values (`herdr2_frame::session`), one
+  `SpaceEntry` per session, and does not edit `sidebar_list.rs`.
+- **Sidebar density**: `settings::sidebar_density::SidebarDensity { Dense, Roomy }`
+  (default Dense = the artboards' rows), stored as
+  `"sidebar_density": "roomy"` through `input_options::FIELDS`
+  (`SIDEBAR_DENSITY`); `settings::Values::sidebar_density`; the live value
+  is `SidebarState::density`, set when the settings load and by
+  `apply_settings`. Stream E adds the Settings › Sidebar page and calls
+  `apply_settings` with the new value; stream A draws by
+  `self.shell.sidebar.density` and decides Roomy's extra room. Stream A
+  also retires `board_density_toggle_removed` (`shell/sidebar_tests/rows.rs`).
+- **`CoreStatus`**: the herdr-gpui pin is 9327f448, so
+  `shell::herdr2_frame::CoreStatus` is `sheprd_core_client::CoreStatus`
+  (1e105efaf). `CoreStatus::from(&Terminal)` replaces the removed
+  `core_status`, and the status poll calls `CoreBackend::statuses`.
+
+### 9.4 Tests each stream adds
+
+Host tests named as below, in a new topic file under the module's
+`*_tests/` directory, plus the Simulator screenshot of 9.1 rule 5.
+
+- **A**: `sidebar_header_has_collapse_title_search_and_new_space`,
+  `host_row_chevron_collapses_its_spaces`,
+  `sidebar_draws_one_list_for_herdr1_and_herdr2`,
+  `host_row_second_line_names_ssh_herdr_and_state`,
+  `host_rows_show_the_display_name`,
+  `connecting_host_dot_is_a_yellow_ring`,
+  `space_row_shows_label_and_singular_tab_count`,
+  `needs_you_badge_and_error_tag_follow_the_canvas`,
+  `agents_list_puts_pinned_after_needs_you_and_error`,
+  `agent_pin_survives_restart_and_drops_closed_panes`,
+  `agent_row_shows_task_title_and_pane_name`,
+  `sidebar_density_changes_row_heights`.
+- **B**: `rail_marks_only_the_current_space`,
+  `rail_space_dot_is_the_most_urgent_agent`,
+  `rail_draws_a_rule_between_hosts`,
+  `rail_labels_use_the_display_name`,
+  `rail_footer_buttons_follow_the_canvas`,
+  `rail_long_press_opens_the_row_menu`.
+- **C**: `selected_tab_has_tint_underline_dot_and_semibold`,
+  `tab_name_is_number_and_agent_or_process`,
+  `new_tab_button_follows_the_last_tab`,
+  `rail_mode_tab_row_shows_the_space_switcher`,
+  `status_bar_shows_the_display_name_and_icons`,
+  `selection_status_counts_characters_and_names_copy`,
+  `edit_bar_has_shadow_medium_weight_and_cancel_icon`,
+  `herdr2_paste_image_is_enabled`,
+  `overflow_menu_matches_the_canvas_geometry`,
+  `copy_as_one_line_is_in_the_menus`,
+  `shortcuts_hint_only_with_a_hardware_keyboard`,
+  `mods_item_has_icon_count_badge_and_label`; and
+  `overflow_menu_closes_on_an_outside_press_that_stays_out_of_the_terminal`
+  passes 20 runs in a row.
+- **D**: `no_find_band_above_the_terminal_while_find_is_closed`,
+  `terminal_padding_follows_the_canvas`,
+  `selection_fill_is_the_canvas_tint`,
+  `pane_borders_draw_the_name_above_a_one_point_border`,
+  `copy_as_one_line_joins_wrapped_rows`.
+- **E**: `settings_header_is_saved_title_done`,
+  `two_way_choices_are_segments`,
+  `settings_sections_include_sidebar`,
+  `sidebar_page_sets_the_density`,
+  `add_host_header_buttons_are_text_buttons`,
+  `device_key_is_read_when_the_sheet_opens`,
+  `tapping_the_backdrop_closes_the_sheet`.
+- **F**: `herdr2_lists_every_session`,
+  `herdr2_tab_row_matches_herdr1`,
+  `herdr2_agent_row_tap_opens_its_terminal`,
+  `new_space_asks_for_the_host_and_the_herdr`,
+  `herdr2_sessions_merge_into_the_sidebar_list`.
+- **H1**: `screen_stays_awake_while_connected`,
+  `screen_may_sleep_after_the_last_disconnect`.
+
+Wave 0a's own tests: `style_tests.rs` (the canvas values),
+`sidebar_status_tests.rs` (the legend colours and `AgentGroup`),
+`sidebar_list_tests.rs` (`merge`), `hosts/display_tests.rs`
+(`HostName`), `settings/sidebar_density_tests.rs` (storage and the live
+value), and `herdr2_frame_tests/status.rs` (`CoreStatus::from`).
