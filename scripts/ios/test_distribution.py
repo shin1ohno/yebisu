@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import Mock, patch
-from distribution_fixtures import ICON_INFO, add_icons
+from distribution_fixtures import ICON_INFO, PROBE_OUTPUT, SDK_INFO, add_icons
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
 d = importlib.util.module_from_spec(SPEC)
@@ -62,11 +62,16 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             app = Path(temporary) / "yebisu.app"
             app.mkdir()
-            (app / "Info.plist").write_bytes(b"fixture")
+            (app / "Info.plist").write_bytes(plistlib.dumps({"UIRequiredDeviceCapabilities": ["arm64"]}))
             result = subprocess.CompletedProcess([], 3, stdout=str(app) + "\n")
+
+            def tools(command, **kwargs):
+                if command[0] == "bash":
+                    return result
+                return subprocess.CompletedProcess(command, 0, stdout=PROBE_OUTPUT[tuple(command)])
             with patch.dict(os.environ, {"CARGO_TARGET_DIR": temporary, "HERDR_IOS_TEAM": "UNWANTED"}), \
                     patch.object(sys, "argv", ["distribution.py", "build"]), \
-                    patch.object(subprocess, "run", return_value=result) as runner, \
+                    patch.object(subprocess, "run", side_effect=tools) as runner, \
                     patch.object(d, "load_helper") as icons:
                 self.assertEqual(d.main(), 0)
                 icons.return_value.compile_icons.assert_called_once_with(app)
@@ -86,7 +91,7 @@ class DistributionTests(unittest.TestCase):
             (app / "fixture").write_bytes(b"fixture")
             (app / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": d.BUNDLE, "CFBundleSupportedPlatforms": ["iPhoneOS"],
-                "CFBundleExecutable": "fixture", **ICON_INFO}))
+                "CFBundleExecutable": "fixture", **ICON_INFO, **SDK_INFO}))
             add_icons(app)
             secret = root / "fixture-secret"
             secret.write_bytes(b"not a real credential")

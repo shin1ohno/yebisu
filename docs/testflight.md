@@ -40,7 +40,7 @@ job の段は次の順に動きます。秘密ファイル（`.p12`、profile、
 
 1. `Require the origin/main tip`: HEAD が `main` の先端と一致するかを確かめます。
 2. `Validate environment secrets`（`testflight-secrets.py validate`）: 8 つの secrets の有無と形式、ref、run number、Cargo version を検査します。ファイルは書きません。brew・rustup・cargo より前に動き、不足は名前だけを表示して失敗します。
-3. Xcode と SDK の記録、Rust と just の導入、`cargo fetch`、release device bundle のビルド。
+3. Xcode と SDK の記録、Rust と just の導入、`cargo fetch`、release device bundle のビルド。ビルドは使用中の Xcode の SDK メタデータを bundle の Info.plist に書き込みます（「Info.plist の SDK メタデータ」）。
 4. `Write private signing and upload files`（`testflight-secrets.py materialize`）: `ASC_KEY_P8`・`IOS_P12_BASE64`・`IOS_PROFILE_BASE64` の 3 つだけを受け取り、`$RUNNER_TEMP/yebisu-testflight` を mode 700 で新しく作り、3 つのファイルを mode 600 で書きます。ディレクトリが既にあれば（ビルドが先に作った symlink を含む）失敗します。
 5. `Sign and package for TestFlight`（`distribution.py package`）。
 6. `Upload to App Store Connect`（`distribution.py upload`）。
@@ -55,6 +55,29 @@ macos-26 上で Xcode/SDK を記録し、repository の Rust pin と `aarch64-ap
 marketing version は Cargo version、`CFBundleVersion` は workflow run number です。1..9999 を許容し、10000 到達前には採番方式の変更が必要です。再実行は同じ build number なので、既に ASC が受理した run の再送は重複になります。新しい手動 run を開始してください。手動配布後も marketing version は同じまま新しい build number を付けられます。
 
 upload のツール受理と TestFlight 配達は別です。所有者が ASC の validation/processing、internal group の配達、iPad 上のインストール・上書き起動・設定と Keychain 資格情報の保持を確認します。配布 build は `scripts/ios/icons.py` で不透明 RGB の Y アイコン（iPad 各サイズと1024px marketing）を生成し、`xcrun actool` で `Assets.car` と PNG を作り、生成された icon plist entries を bundle に統合します。package/upload は catalog・参照 PNG・plist entries の欠落を拒否します。macOS CI は実 actool の bundle と IPA を検査し、欠落の負例も確認します。AppIcon を含む完成 IPA、配布用 SDK メタデータ、privacy/encryption 宣言の ASC 受理は初回実アップロードで検証します。CI 成功だけで TestFlight 配布完了とは報告しません。[Apple の upload 手順](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)と[外部テスターの審査手順](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/)を参照してください。
+
+## Info.plist の SDK メタデータ
+
+`scripts/ios/bundle.sh` は、Cargo でリンクした実行ファイルに `scripts/ios/Info.plist` を写して bundle を組み立てます。Xcode でビルドした bundle には SDK と Xcode の情報を示すキーを Xcode が書き込みますが、この経路では書き込まれません。App Store Connect は、これらのキーがない bundle を次のエラーで拒否します。
+
+- 90507: `DTPlatformName` の値がありません。
+- 90534: 対応していない SDK または Xcode でビルドされています（SDK と Xcode のキーがありません）。
+- 90502: 64-bit のスライスを持つのに、`UIRequiredDeviceCapabilities` に `arm64` がありません。
+
+`scripts/ios/Info.plist` は `UIRequiredDeviceCapabilities` に `arm64` を宣言します。template にあるため、Simulator と `just ipad` の bundle にも入ります。`distribution.py build` は、使用中の Xcode から次のキーを読み取り、bundle の Info.plist に書き込みます。読み取り（probe）は Cargo のビルドより前に行い、書き込みは bundle.sh が unsigned bundle を返した後、アイコン生成の前に行います。DT* キーを書き込むのは配布 build だけです。
+
+| キー | 値 | 取得元 |
+| --- | --- | --- |
+| `DTPlatformName` | `iphoneos` | 固定 |
+| `DTPlatformVersion` | SDK version（例 `27.2`） | `xcrun --sdk iphoneos --show-sdk-version` |
+| `DTSDKName` | `iphoneos` + SDK version（例 `iphoneos27.2`） | 同上 |
+| `DTSDKBuild`、`DTPlatformBuild` | SDK build（例 `24B8118`） | `xcrun --sdk iphoneos --show-sdk-build-version` |
+| `DTXcode` | 4 桁: major 2 桁 + minor + patch（Xcode 27.2 は `2720`、16.2 は `1620`） | `xcodebuild -version` の `Xcode` 行 |
+| `DTXcodeBuild` | Xcode build（例 `27B52`） | `xcodebuild -version` の `Build version` 行 |
+| `DTCompiler` | `com.apple.compilers.llvm.clang.1_0` | 固定 |
+| `BuildMachineOSBuild` | macOS build（例 `26B5091g`） | `sw_vers -buildVersion` |
+
+probe が失敗するか、出力の形が想定と違うと、build はどの probe かを示す固定のメッセージで止まります。probe の出力は表示しません。`package` と、`upload` が使う IPA の検査は、これらのキーのどれかが欠けた bundle、`DTPlatformName` が `iphoneos` でない bundle、`UIRequiredDeviceCapabilities` に `arm64` がない bundle を、署名と送信の前に拒否します。macOS CI は、実際の `xcrun`・`xcodebuild`・`sw_vers` で書き込んだ bundle を IPA の検査に通します。
 
 ## fork から再利用した部分
 

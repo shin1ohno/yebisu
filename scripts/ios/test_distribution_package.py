@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
-from distribution_fixtures import ICON_INFO, add_icons
+from distribution_fixtures import ICON_INFO, SDK_INFO, add_icons
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("distribution", Path(__file__).with_name("distribution.py"))
@@ -34,7 +34,7 @@ class PackageTests(unittest.TestCase):
         (self.app / "fixture").write_bytes(b"original executable fixture")
         (self.app / "Info.plist").write_bytes(plistlib.dumps(dict(
             CFBundleIdentifier=d.BUNDLE, CFBundleSupportedPlatforms=["iPhoneOS"],
-            CFBundleExecutable="fixture", CFBundleVersion="1", CFBundleShortVersionString="1.0", **ICON_INFO)))
+            CFBundleExecutable="fixture", CFBundleVersion="1", CFBundleShortVersionString="1.0", **ICON_INFO, **SDK_INFO)))
         add_icons(self.app)
         self.secret = self.root / "injected-fixture"
         self.secret.write_bytes(b"fixture bytes; no credentials")

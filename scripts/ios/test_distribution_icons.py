@@ -50,9 +50,14 @@ class IconTests(unittest.TestCase):
             info.update(CFBundleIdentifier=d.BUNDLE, CFBundleSupportedPlatforms=['iPhoneOS'],
                         CFBundleVersion='1', CFBundleShortVersionString='1.0')
             (app / 'Info.plist').write_bytes(plistlib.dumps(info))
+            # The real Xcode probes, in build order: SDK keys, then icons.
+            d.stamp_sdk_metadata(app, d.sdk_metadata())
             icons.compile_icons(app)
             compiled = plistlib.loads((app / 'Info.plist').read_bytes())
             self.assertEqual(compiled['CFBundleIdentifier'], d.BUNDLE)
+            self.assertEqual(compiled['DTPlatformName'], 'iphoneos')
+            self.assertEqual(compiled['DTSDKName'], 'iphoneos' + compiled['DTPlatformVersion'])
+            self.assertRegex(compiled['DTXcode'], r'\A[0-9]{4}\Z')
             self.assertGreater((app / 'Assets.car').stat().st_size, 0)
             self.assertIn('CFBundleIcons~ipad', compiled)
             ipa = root / 'fixture.ipa'
