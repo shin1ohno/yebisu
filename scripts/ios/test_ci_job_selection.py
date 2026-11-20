@@ -44,7 +44,8 @@ class WorkflowSelectionTests(unittest.TestCase):
                 selected = decisions("push", ["docs/ci-simulator.md"], tmp, skipped_jobs=skipped_jobs)
                 expected = {name: name not in skipped_jobs.split() for name in MACOS_JOBS}
                 self.assertEqual(selected, {**expected, "layout-mutations": True})
-        self.assertIn("SKIPPED_JOBS: ${{ steps.reuse.outputs.jobs }}", WORKFLOW)
+        self.assertIn("        continue-on-error: true\n        env:\n          GH_TOKEN:", WORKFLOW)
+        self.assertIn("SKIPPED_JOBS: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.jobs || '' }}", WORKFLOW)
 
     def test_mutations_step_and_upload_use_the_changes_output(self):
         condition = "needs.changes.outputs.layout-mutations == 'true'"
@@ -183,6 +184,8 @@ class EvidenceTests(unittest.TestCase):
             (RUN_LIST, {"total_count": 2, "workflow_runs": [self.run, self.run]}, "no unique CI run"),
             (RUN_LIST, {"total_count": 0, "workflow_runs": []}, "no unique CI run"),
             (RUN_LIST, {"total_count": 1, "workflow_runs": [{**self.run, "status": "in_progress"}]},
+             "does not identify a completed run"),
+            (RUN_LIST, {"total_count": 1, "workflow_runs": [{**self.run, "path": None}]},
              "does not identify a completed run"),
             (JOB_LIST, {"total_count": 5, "jobs": self.jobs}, "incomplete job listing"),
             (JOB_LIST, subprocess.CalledProcessError(1, ["gh", "api"]), "running every macOS job"),

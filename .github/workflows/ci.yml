@@ -37,6 +37,7 @@ jobs:
       - name: Find complete PR jobs for this main tree
         id: reuse
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -88,7 +89,8 @@ jobs:
               pr = prs[0]
               require(
                   pr["base"]["repo"]["full_name"] == repository and pr["base"]["ref"] == "main"
-                  and pr["merged_at"] and pr["merge_commit_sha"] == sha,
+                  and pr["merged_at"] and pr["merge_commit_sha"] == sha
+                  and type(pr["number"]) is int and pr["number"] > 0,
                   "associated PR was not merged into main at this commit",
               )
               head = pr["head"]["sha"]
@@ -99,10 +101,11 @@ jobs:
               run = runs["workflow_runs"][0]
               require(
                   run["event"] == "pull_request" and run["head_sha"] == head
-                  and run["path"].split("@", 1)[0] == ".github/workflows/ci.yml"
+                  and str(run["path"]).split("@", 1)[0] == ".github/workflows/ci.yml"
                   and run["head_branch"] == pr["head"]["ref"]
                   and run["head_repository"]["full_name"] == pr["head"]["repo"]["full_name"]
-                  and run["created_at"] <= pr["merged_at"] and run["status"] == "completed"
+                  and run["created_at"] and run["created_at"] <= pr["merged_at"]
+                  and run["status"] == "completed"
                   and all(ref["number"] == pr["number"] for ref in run["pull_requests"]),
                   "CI run does not identify a completed run for this PR",
               )
@@ -161,7 +164,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SKIPPED_JOBS: ${{ steps.reuse.outputs.jobs }}
+          SKIPPED_JOBS: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.jobs || '' }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed.txt"
