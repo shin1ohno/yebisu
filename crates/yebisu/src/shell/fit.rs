@@ -18,8 +18,8 @@ use super::disconnect::DisconnectClock;
 use crate::{
     app::Smoke,
     layout::{
-        ControlsClearance, Rect, Regions, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH,
-        TerminalFit, TooSmall,
+        ControlsClearance, ControlsReach, Rect, Regions, Size, TERMINAL_MIN_HEIGHT,
+        TERMINAL_MIN_WIDTH, TerminalFit, TooSmall,
     },
 };
 use gpui::{AnyElement, Context, Edges, Pixels, Window, div, prelude::*, px, rgb};
@@ -50,9 +50,9 @@ pub(crate) struct FitState {
     pub(crate) hardware_keyboard: bool,
     /// The window's key presses are watched for `is_hardware_key`.
     pub(crate) watching_keys: bool,
-    /// The window controls' reach (left, right) and L0's clearance last
-    /// written to the observation log; a record is written only on change.
-    pub(crate) recorded_controls: Option<(f32, f32, ControlsClearance)>,
+    /// The window controls' reach and L0's clearance last offered to the
+    /// observation log; a record is offered only on change.
+    pub(crate) recorded_controls: Option<(Option<ControlsReach>, ControlsClearance)>,
     /// Tests move the fit clock ahead without waiting.
     #[cfg(test)]
     pub(crate) clock_ahead: std::time::Duration,
@@ -60,8 +60,8 @@ pub(crate) struct FitState {
     /// cannot change them from outside the crate).
     #[cfg(test)]
     pub(crate) insets: Option<gpui::WindowInsets>,
-    /// Tests give the window this window-controls reach (herdr-uikit is
-    /// iOS-only).
+    /// Tests give the window this herdr-uikit window-controls sample
+    /// (herdr-uikit is iOS-only); all zero is a window not measured yet.
     #[cfg(test)]
     pub(crate) window_controls: Option<Edges<Pixels>>,
 }
@@ -207,6 +207,18 @@ pub(crate) fn place_clear_of_keyboard(item: Rect, keyboard: Rect, bounds: Rect) 
     None
 }
 
+/// herdr-uikit's window-controls sample as a reach, or `None` while it is
+/// all zero: the SDK reports zero for a window it has not sampled yet (before
+/// UIKit's first layout callback, or in no live scene), and a sampled window
+/// on iPadOS 26 always has a corner allowance (5.5 to 9.5 pt). Before
+/// iPadOS 26 it stays zero; there are no window controls there either.
+pub(crate) fn measured_controls(sample: Edges<Pixels>) -> Option<ControlsReach> {
+    (sample != Edges::default()).then(|| ControlsReach {
+        left: f32::from(sample.left),
+        right: f32::from(sample.right),
+    })
+}
+
 impl Smoke {
     /// "Window too small" in place of the terminal; `None` draws as today.
     pub(crate) fn render_too_small(
@@ -253,10 +265,16 @@ impl Smoke {
     }
 
     /// How far iPadOS 26's window controls reach into this window past its
-    /// safe area, per physical edge, in points. herdr-uikit samples UIKit's
-    /// corner-adapted safe area on layout callbacks and redraws the window
-    /// when it changes; zero before iPadOS 26 and on other platforms.
-    pub(crate) fn platform_window_controls(&self, window: &Window) -> Edges<Pixels> {
+    /// safe area, per physical edge, or `None` until herdr-uikit has
+    /// measured the window (`measured_controls`). Read on every frame from
+    /// the SDK's cache, never kept here: the SDK samples on UIKit layout
+    /// callbacks, and a new sample reaches GPUI as an insets change, which
+    /// refreshes the window, so the next frame lays out with it.
+    pub(crate) fn platform_window_controls(&self, window: &Window) -> Option<ControlsReach> {
+        measured_controls(self.sampled_window_controls(window))
+    }
+
+    fn sampled_window_controls(&self, window: &Window) -> Edges<Pixels> {
         #[cfg(test)]
         if let Some(controls) = self.shell.fit.window_controls {
             return controls;
@@ -272,25 +290,29 @@ impl Smoke {
         }
     }
 
-    /// Writes `{"kind":"window_controls"}` with UIKit's reach and L0's
-    /// clearance when either changes (QA evidence of what the platform
-    /// reported).
+    /// Offers `{"kind":"window_controls"}` with the platform's reach and
+    /// L0's clearance to the observation log when either changes (QA
+    /// evidence of what the platform reported). Called while drawing, so a
+    /// full queue drops the record (counted, and reported before the next
+    /// record) instead of waiting for room.
     pub(crate) fn record_window_controls(
         &mut self,
-        reach: Edges<Pixels>,
+        reach: Option<ControlsReach>,
         clearance: ControlsClearance,
     ) {
-        let now = (f32::from(reach.left), f32::from(reach.right), clearance);
+        let now = (reach, clearance);
         if self.shell.fit.recorded_controls == Some(now) {
             return;
         }
         self.shell.fit.recorded_controls = Some(now);
-        self.observation.record(serde_json::json!({
+        self.observation.record_without_waiting(serde_json::json!({
             "kind": "window_controls",
-            "left": now.0,
-            "right": now.1,
+            "measured": reach.is_some(),
+            "left": reach.map(|reach| reach.left),
+            "right": reach.map(|reach| reach.right),
             "header_leading": clearance.header_leading,
             "rail_top": clearance.rail_top,
+            "tab_row_trailing": clearance.tab_row_trailing,
         }));
     }
 

@@ -18,7 +18,7 @@ mod controls;
 mod height;
 mod width;
 
-pub use controls::ControlsClearance;
+pub use controls::{ControlsClearance, ControlsReach};
 
 /// Expanded sidebar width.
 pub const SIDEBAR_WIDTH: f32 = 300.0;
@@ -133,10 +133,10 @@ pub struct Insets {
     pub safe_right: f32,
     pub safe_bottom: f32,
     pub keyboard: f32,
-    /// How far top-bar content must start from the left safe-area edge to
-    /// clear the window controls (herdr-uikit `window_control_insets`, left
-    /// edge); see `controls.rs`.
-    pub window_controls: f32,
+    /// How far top-bar content must start from each side's safe-area edge to
+    /// clear the window controls (herdr-uikit `window_control_insets`), or
+    /// `None` until the platform has measured the window; see `controls.rs`.
+    pub window_controls: Option<ControlsReach>,
 }
 
 impl Insets {

@@ -1,27 +1,48 @@
 //! iPadOS 26's window controls: the close, minimize and resize buttons the
-//! system draws over a window's top-left corner when the window is not full
-//! screen. They sit in the band of the sidebar's header, over the sidebar
-//! column; the tab row starts right of that column, past their reach.
+//! system draws over one top corner of a window that is not full screen. In
+//! a left-to-right system they sit over the sidebar column's header band; in
+//! a right-to-left one, over the tab row's pinned buttons (+, split, ...).
 //!
 //! The platform measures their reach: herdr-uikit's `window_control_insets`
 //! is UIKit's safe area with horizontal corner adaptation less the plain safe
-//! area, so it says how far top-bar content must start from the left edge
-//! (66 pt in an iPadOS 26.5 window, narrow or wide). It gives no height. The
-//! controls fit in the header band: in a window whose safe area starts 10 pt
-//! down, they span about 21 to 42 pt from its top (Simulator). The full
-//! sidebar pads its header by the reach; the rail, too narrow to hold
-//! anything beside the controls, leaves the whole header band empty instead.
+//! area, per physical edge, so it says how far top-bar content must start
+//! from each side (66 pt in an iPadOS 26.5 window, narrow or wide). It gives
+//! no height. The controls fit in the header band: in a window whose safe
+//! area starts 10 pt down, they span about 21 to 42 pt from its top
+//! (Simulator). The full sidebar pads its header by the reach; the rail, too
+//! narrow to hold anything beside the controls, leaves the whole header band
+//! empty instead; the tab row pads its trailing end.
 use super::{Insets, SIDEBAR_HEADER_HEIGHT, SIDEBAR_HEADER_PADDING};
 
-/// Where the sidebar keeps clear of the window controls.
+/// How far one top corner's reach must pass the other's to be the controls
+/// rather than the corner allowance UIKit reports on both top corners of
+/// every window. iPadOS 26.5 Simulator: with the controls the two corners
+/// are 56.5 pt apart (66 and 9.5); without them at most 0.5 pt (9.5 and 9.0
+/// full screen; herdr-uikit measured 5.5 and 5.5). Comparing the two corners
+/// of one window, not a corner with a fixed size, keeps a device with a
+/// larger allowance from gaining a band.
+const CONTROLS_MIN_EXCESS: f32 = 12.0;
+
+/// The window controls' reach past the safe area on each physical side, in
+/// points, as herdr-uikit last measured it for the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ControlsReach {
+    pub left: f32,
+    pub right: f32,
+}
+
+/// Where the window keeps clear of the window controls.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ControlsClearance {
     /// Padding before the full sidebar's header content: the header's own
-    /// padding, or the controls' reach when that is wider.
+    /// padding, or the controls' reach while they show on the left.
     pub header_leading: f32,
-    /// Height the rail keeps empty above its list for the controls: the full
-    /// sidebar's header height while they show, else 0.
+    /// Height the rail keeps empty above its list while the controls show on
+    /// the left: the full sidebar's header height, else 0.
     pub rail_top: f32,
+    /// Padding after the tab row's pinned buttons while the controls show on
+    /// the right: their reach, else 0.
+    pub tab_row_trailing: f32,
 }
 
 impl Default for ControlsClearance {
@@ -29,22 +50,32 @@ impl Default for ControlsClearance {
         Self {
             header_leading: SIDEBAR_HEADER_PADDING,
             rail_top: 0.0,
+            tab_row_trailing: 0.0,
         }
     }
 }
 
-/// The clearance for the controls' reach in `insets`. UIKit also reports a
-/// corner allowance without controls (5.5 to 9.5 pt on iPadOS 26.5, full
-/// screen included); the header's own padding already covers it, so a reach
-/// up to that padding changes nothing and a full-screen window gains no gap.
+/// The clearance for the controls' reach in `insets`: nothing until the
+/// platform has measured the window, nor for a corner allowance alone.
 pub(super) fn clearance(insets: &Insets) -> ControlsClearance {
-    // `max` also maps a NaN reach to 0.
-    let reach = insets.window_controls.max(0.0);
-    if reach <= SIDEBAR_HEADER_PADDING {
+    let Some(reach) = insets.window_controls else {
         return ControlsClearance::default();
-    }
-    ControlsClearance {
-        header_leading: reach,
-        rail_top: SIDEBAR_HEADER_HEIGHT,
+    };
+    // `max` also maps a NaN reach to 0.
+    let left = reach.left.max(0.0);
+    let right = reach.right.max(0.0);
+    if left - right > CONTROLS_MIN_EXCESS {
+        ControlsClearance {
+            header_leading: left,
+            rail_top: SIDEBAR_HEADER_HEIGHT,
+            ..ControlsClearance::default()
+        }
+    } else if right - left > CONTROLS_MIN_EXCESS {
+        ControlsClearance {
+            tab_row_trailing: right,
+            ..ControlsClearance::default()
+        }
+    } else {
+        ControlsClearance::default()
     }
 }

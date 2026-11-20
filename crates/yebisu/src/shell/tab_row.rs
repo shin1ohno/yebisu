@@ -109,7 +109,15 @@ impl Smoke {
             .unwrap_or_default()
     }
 
-    pub(crate) fn render_tab_row(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The tab row. `controls_trailing` is L0's
+    /// `ControlsClearance::tab_row_trailing`: room after the pinned buttons
+    /// for window controls on the right edge; the row's background runs
+    /// under them.
+    pub(crate) fn render_tab_row(
+        &mut self,
+        controls_trailing: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let tabs = self.row_tabs();
         let herdr1 = !self.terminal.core_mode;
         let strip = div()
@@ -127,6 +135,7 @@ impl Smoke {
                     }),
             );
         let pinned = div()
+            .debug_selector(|| "shell-tab-pinned".into())
             .flex()
             .flex_none()
             .h_full()
@@ -158,6 +167,7 @@ impl Smoke {
                 .flex_none()
                 .w_full()
                 .h(px(TAB_ROW_HEIGHT))
+                .pr(px(controls_trailing))
                 .bg(rgb(0x1c1c22))
                 .text_color(rgb(0xd8dee9))
                 .child(strip)

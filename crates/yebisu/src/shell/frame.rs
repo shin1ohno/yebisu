@@ -9,7 +9,7 @@
 use super::{ChromeState, HerdrKind, fit, rail::SidebarMode};
 use crate::{
     app::Smoke,
-    layout::{self, Insets, Layout, RULE, Rect, Size},
+    layout::{self, ControlsReach, Insets, Layout, RULE, Rect, Size},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 
@@ -132,12 +132,12 @@ impl Smoke {
 
     /// `frame_layout` for a window `size` with the platform's `platform`
     /// insets (safe area and keyboard) and the reach of its window
-    /// `controls` past the safe area, per edge.
+    /// `controls` past the safe area, `None` until the platform measured it.
     pub(crate) fn layout_for(
         &self,
         size: Size,
         platform: &gpui::WindowInsets,
-        controls: gpui::Edges<gpui::Pixels>,
+        controls: Option<ControlsReach>,
     ) -> Layout {
         let safe = platform.safe_area;
         let insets = Insets {
@@ -149,9 +149,7 @@ impl Smoke {
             // floating one (or a smaller visual viewport) never resizes the
             // terminal.
             keyboard: fit::docked_keyboard_height(size, fit::ime_keyboard(size, &platform.ime)),
-            // The controls sit in the window's top-left corner (physical
-            // edges, as UIKit reports them).
-            window_controls: f32::from(controls.left),
+            window_controls: controls,
         };
         layout::compute(&layout::Input {
             // Command-B and the rail's button collapse to 72 at any width (L4).
@@ -198,7 +196,9 @@ impl Smoke {
             .min_w_0();
         for slot in COLUMN_ORDER {
             column = match slot {
-                ColumnSlot::TabRow => column.children(self.render_tab_row(cx)).child(rule()),
+                ColumnSlot::TabRow => column
+                    .children(self.render_tab_row(layout.controls.tab_row_trailing, cx))
+                    .child(rule()),
                 ColumnSlot::FindBar => column.children(self.render_find_bar(cx)),
                 // The edit bar is absolute (edit_bar.rs): placed inside the
                 // relative terminal slot it floats over the terminal's top
