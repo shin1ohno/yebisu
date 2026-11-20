@@ -52,7 +52,7 @@ pub(crate) struct FitState {
     pub(crate) watching_keys: bool,
     /// The window controls' reach and L0's clearance last offered to the
     /// observation log; a record is offered only on change.
-    pub(crate) recorded_controls: Option<(Option<ControlsReach>, ControlsClearance)>,
+    pub(crate) recorded_controls: Option<(ControlsReach, ControlsClearance)>,
     /// Tests move the fit clock ahead without waiting.
     #[cfg(test)]
     pub(crate) clock_ahead: std::time::Duration,
@@ -61,7 +61,7 @@ pub(crate) struct FitState {
     #[cfg(test)]
     pub(crate) insets: Option<gpui::WindowInsets>,
     /// Tests give the window this herdr-uikit window-controls sample
-    /// (herdr-uikit is iOS-only); all zero is a window not measured yet.
+    /// (herdr-uikit is iOS-only); all zero is a window without controls.
     #[cfg(test)]
     pub(crate) window_controls: Option<Edges<Pixels>>,
 }
@@ -207,16 +207,18 @@ pub(crate) fn place_clear_of_keyboard(item: Rect, keyboard: Rect, bounds: Rect) 
     None
 }
 
-/// herdr-uikit's window-controls sample as a reach, or `None` while it is
-/// all zero: the SDK reports zero for a window it has not sampled yet (before
-/// UIKit's first layout callback, or in no live scene), and a sampled window
-/// on iPadOS 26 always has a corner allowance (5.5 to 9.5 pt). Before
-/// iPadOS 26 it stays zero; there are no window controls there either.
-pub(crate) fn measured_controls(sample: Edges<Pixels>) -> Option<ControlsReach> {
-    (sample != Edges::default()).then(|| ControlsReach {
+/// herdr-uikit's window-controls sample as a reach. All zero is a window
+/// without controls (owner decision 2026-11-20, `layout/controls.rs`): the
+/// SDK reports zero before iPadOS 26, for a window in no live scene, and for
+/// a window it has not sampled yet (before UIKit's first layout callback),
+/// with no flag to tell them apart. So an iPadOS 26 window launched windowed
+/// may draw its controls over the sidebar header or the tab row's pinned
+/// buttons for ~130 ms until the SDK reports their reach and the frame redraws.
+pub(crate) fn controls_reach(sample: Edges<Pixels>) -> ControlsReach {
+    ControlsReach {
         left: f32::from(sample.left),
         right: f32::from(sample.right),
-    })
+    }
 }
 
 impl Smoke {
@@ -265,13 +267,15 @@ impl Smoke {
     }
 
     /// How far iPadOS 26's window controls reach into this window past its
-    /// safe area, per physical edge, or `None` until herdr-uikit has
-    /// measured the window (`measured_controls`). Read on every frame from
-    /// the SDK's cache, never kept here: the SDK samples on UIKit layout
-    /// callbacks, and a new sample reaches GPUI as an insets change, which
-    /// refreshes the window, so the next frame lays out with it.
-    pub(crate) fn platform_window_controls(&self, window: &Window) -> Option<ControlsReach> {
-        measured_controls(self.sampled_window_controls(window))
+    /// safe area, per physical edge; all zero without controls
+    /// (`controls_reach`). Read on every frame from the SDK's cache, never
+    /// kept here: the SDK samples on UIKit layout callbacks, and a changed
+    /// sample reaches GPUI as an insets change (herdr-uikit
+    /// `src/window/layout.rs:166`), whose handler refreshes the window
+    /// (GPUI 0.3.12 `src/window.rs:2112`), so the next frame lays out with
+    /// it.
+    pub(crate) fn platform_window_controls(&self, window: &Window) -> ControlsReach {
+        controls_reach(self.sampled_window_controls(window))
     }
 
     fn sampled_window_controls(&self, window: &Window) -> Edges<Pixels> {
@@ -293,11 +297,12 @@ impl Smoke {
     /// Offers `{"kind":"window_controls"}` with the platform's reach and
     /// L0's clearance to the observation log when either changes (QA
     /// evidence of what the platform reported). Called while drawing, so a
-    /// full queue drops the record (counted, and reported before the next
-    /// record) instead of waiting for room.
+    /// full queue drops the record at once: the drop is counted, reported
+    /// before the next record that gets in, and printed by the observation's
+    /// reporter thread, never on this thread.
     pub(crate) fn record_window_controls(
         &mut self,
-        reach: Option<ControlsReach>,
+        reach: ControlsReach,
         clearance: ControlsClearance,
     ) {
         let now = (reach, clearance);
@@ -307,9 +312,8 @@ impl Smoke {
         self.shell.fit.recorded_controls = Some(now);
         self.observation.record_without_waiting(serde_json::json!({
             "kind": "window_controls",
-            "measured": reach.is_some(),
-            "left": reach.map(|reach| reach.left),
-            "right": reach.map(|reach| reach.right),
+            "left": reach.left,
+            "right": reach.right,
             "header_leading": clearance.header_leading,
             "rail_top": clearance.rail_top,
             "tab_row_trailing": clearance.tab_row_trailing,

@@ -132,12 +132,12 @@ impl Smoke {
 
     /// `frame_layout` for a window `size` with the platform's `platform`
     /// insets (safe area and keyboard) and the reach of its window
-    /// `controls` past the safe area, `None` until the platform measured it.
+    /// `controls` past the safe area (all zero without controls).
     pub(crate) fn layout_for(
         &self,
         size: Size,
         platform: &gpui::WindowInsets,
-        controls: Option<ControlsReach>,
+        controls: ControlsReach,
     ) -> Layout {
         let safe = platform.safe_area;
         let insets = Insets {

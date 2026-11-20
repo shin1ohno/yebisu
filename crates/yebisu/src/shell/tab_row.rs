@@ -57,19 +57,29 @@ pub(crate) fn pinned_width() -> f32 {
 }
 
 /// Hit test for a tap at `x` given each tab's width and the row width; the
-/// pinned actions (+, split, ...) stay at the right edge.
+/// pinned actions (+, split, ...) stay at the right edge, or end
+/// `controls_trailing` before it (L0's `ControlsClearance::tab_row_trailing`,
+/// window controls on the right), as `render_tab_row` draws them.
 ///
 /// `x` is measured from the row's left edge with the tab strip scrolled to
 /// its start. Tabs that do not fit run under the pinned actions, which win
-/// every tap in their area.
-pub(crate) fn tab_hit(x: f32, tab_widths: &[f32], row_width: f32) -> Option<TabHit> {
-    if !(0.0..row_width).contains(&x) {
+/// every tap in their area. The trailing clearance is the window controls'
+/// place: the system takes those taps, and the row hits nothing there.
+pub(crate) fn tab_hit(
+    x: f32,
+    tab_widths: &[f32],
+    row_width: f32,
+    controls_trailing: f32,
+) -> Option<TabHit> {
+    let content_right = (row_width - controls_trailing.max(0.0)).max(0.0);
+    if !(0.0..content_right).contains(&x) {
         return None;
     }
-    let pinned_left = (row_width - pinned_width()).max(0.0);
+    let pinned_left = (content_right - pinned_width()).max(0.0);
     if x >= pinned_left {
         let slot = ((x - pinned_left) / PINNED_ACTION_WIDTH).floor();
-        // `slot` is in 0..3 because x < row_width; the cast cannot truncate.
+        // `slot` is in 0..3 because x < content_right; the cast cannot
+        // truncate.
         return PINNED_ACTIONS.get(slot as usize).copied();
     }
     let mut left = 0.0;
@@ -163,6 +173,7 @@ impl Smoke {
         Some(
             div()
                 .id("shell-tab-row")
+                .debug_selector(|| "shell-tab-row".into())
                 .flex()
                 .flex_none()
                 .w_full()

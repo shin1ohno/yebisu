@@ -1,6 +1,6 @@
 //! iPadOS 26's window controls (`controls.rs`): the window keeps clear of
 //! them on whichever side they show, nothing else moves, and neither a corner
-//! allowance alone nor a window not measured yet changes anything.
+//! allowance alone nor all zero (no controls) changes anything.
 use super::super::{
     ControlsClearance, ControlsReach, Input, Insets, Layout, SIDEBAR_HEADER_HEIGHT,
     SIDEBAR_HEADER_PADDING,
@@ -20,13 +20,18 @@ const FULL_SCREEN: ControlsReach = ControlsReach {
 };
 /// The same window in a right-to-left system: the controls on the right.
 const CONTROLS_RIGHT: ControlsReach = ControlsReach {
-    left: 9.5,
+    left: 9.0,
     right: 66.0,
+};
+/// All zero: no window controls.
+const NONE: ControlsReach = ControlsReach {
+    left: 0.0,
+    right: 0.0,
 };
 
 /// A window with a 10 pt top safe area (the narrow Simulator window) at
 /// `width`: the rail at 375, the full sidebar at 1032.
-fn at(width: f32, reach: Option<ControlsReach>) -> Input {
+fn at(width: f32, reach: ControlsReach) -> Input {
     let bare = window(width, 834.0);
     Input {
         insets: Insets {
@@ -41,7 +46,7 @@ fn at(width: f32, reach: Option<ControlsReach>) -> Input {
 /// Every rectangle of `out` equals the one without controls: only the
 /// clearance inside the sidebar and the tab row may differ.
 fn only_clearance_differs(out: Layout, width: f32) {
-    let plain = layout(at(width, None));
+    let plain = layout(at(width, NONE));
     assert_eq!(
         Layout {
             controls: plain.controls,
@@ -55,7 +60,7 @@ fn only_clearance_differs(out: Layout, width: f32) {
 #[test]
 fn window_controls_clear_sidebar_header_and_rail() {
     for width in [375.0, 1032.0] {
-        let out = layout(at(width, Some(CONTROLS)));
+        let out = layout(at(width, CONTROLS));
         assert_eq!(
             out.controls,
             ControlsClearance {
@@ -69,14 +74,14 @@ fn window_controls_clear_sidebar_header_and_rail() {
         assert!(out.tab_row.x >= out.sidebar.x + CONTROLS.left, "{width}");
         only_clearance_differs(out, width);
     }
-    assert!(layout(at(375.0, Some(CONTROLS))).sidebar_collapsed);
-    assert!(!layout(at(1032.0, Some(CONTROLS))).sidebar_collapsed);
+    assert!(layout(at(375.0, CONTROLS)).sidebar_collapsed);
+    assert!(!layout(at(1032.0, CONTROLS)).sidebar_collapsed);
 }
 
 #[test]
 fn window_controls_on_the_right_clear_the_tab_row_end() {
     for width in [375.0, 1032.0] {
-        let out = layout(at(width, Some(CONTROLS_RIGHT)));
+        let out = layout(at(width, CONTROLS_RIGHT));
         assert_eq!(
             out.controls,
             ControlsClearance {
@@ -102,9 +107,9 @@ fn corner_allowance_alone_moves_nothing() {
             tab_row_trailing: 0.0,
         }
     );
-    let reach = |left, right| Some(ControlsReach { left, right });
+    let reach = |left, right| ControlsReach { left, right };
     let samples = [
-        Some(FULL_SCREEN),
+        FULL_SCREEN,
         // herdr-uikit's full-width sample.
         reach(5.5, 5.5),
         // A larger allowance than any measured, the same on both corners.
@@ -124,15 +129,51 @@ fn corner_allowance_alone_moves_nothing() {
                 ControlsClearance::default(),
                 "{sample:?} {width}"
             );
-            assert_eq!(out, layout(at(width, None)), "{sample:?} {width}");
+            assert_eq!(out, layout(at(width, NONE)), "{sample:?} {width}");
         }
     }
 }
 
+/// All zero is a window without controls (owner decision 2026-11-20):
+/// iPadOS 17 to 25, no live scene, or not sampled yet. It keeps the design
+/// sizes, like `Insets::default()`.
 #[test]
-fn a_window_not_measured_yet_keeps_the_design_sizes() {
+fn all_zero_is_no_window_controls() {
+    assert_eq!(Insets::default().window_controls, NONE);
     for width in [375.0, 1032.0] {
-        let out = layout(at(width, None));
+        let out = layout(at(width, NONE));
         assert_eq!(out.controls, ControlsClearance::default(), "{width}");
+    }
+}
+
+/// The 12 pt threshold against the measured values (`controls.rs`): the
+/// smallest measured gap with controls (56.5 pt) clears, the largest without
+/// (0.5 pt) does not, the threshold itself is exclusive, and an asymmetric
+/// pair no UIKit configuration has reported (left 52 / right 64, the
+/// review's example) gets no clearance.
+#[test]
+fn the_threshold_splits_measured_gaps() {
+    let reach = |left, right| ControlsReach { left, right };
+    let left_side = |reach: f32| ControlsClearance {
+        header_leading: reach,
+        rail_top: SIDEBAR_HEADER_HEIGHT,
+        tab_row_trailing: 0.0,
+    };
+    let right_side = |reach: f32| ControlsClearance {
+        tab_row_trailing: reach,
+        ..ControlsClearance::default()
+    };
+    let none = ControlsClearance::default();
+    let cases = [
+        (CONTROLS, left_side(66.0)),
+        (CONTROLS_RIGHT, right_side(66.0)),
+        (FULL_SCREEN, none),
+        (reach(21.75, 9.5), left_side(21.75)),
+        (reach(9.5, 21.5), none),
+        (reach(52.0, 64.0), none),
+        (reach(64.0, 52.0), none),
+    ];
+    for (sample, expected) in cases {
+        assert_eq!(layout(at(1032.0, sample)).controls, expected, "{sample:?}");
     }
 }

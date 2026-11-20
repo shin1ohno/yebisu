@@ -12,19 +12,37 @@
 //! (Simulator). The full sidebar pads its header by the reach; the rail, too
 //! narrow to hold anything beside the controls, leaves the whole header band
 //! empty instead; the tab row pads its trailing end.
+//!
+//! All zero means no window controls (owner decision 2026-11-20): iPadOS 17
+//! to 25, a full-screen window whose corners report nothing, and a window
+//! herdr-uikit has not sampled yet all read zero, and the SDK has no flag to
+//! tell them apart. The known cost: an iPadOS 26 window that launches
+//! windowed can draw its first frames without clearance. The controls may
+//! overlap the sidebar header or the tab row's pinned buttons for ~130 ms,
+//! until the SDK reports their reach. The sample arrives as a GPUI insets
+//! change, which redraws the window with the clearance.
 use super::{Insets, SIDEBAR_HEADER_HEIGHT, SIDEBAR_HEADER_PADDING};
 
 /// How far one top corner's reach must pass the other's to be the controls
 /// rather than the corner allowance UIKit reports on both top corners of
-/// every window. iPadOS 26.5 Simulator: with the controls the two corners
-/// are 56.5 pt apart (66 and 9.5); without them at most 0.5 pt (9.5 and 9.0
-/// full screen; herdr-uikit measured 5.5 and 5.5). Comparing the two corners
-/// of one window, not a corner with a fixed size, keeps a device with a
-/// larger allowance from gaining a band.
+/// every window. Measured UIKit values (iPadOS 26.5 Simulator, iPad Pro
+/// 13-inch (M5), the app's `window_controls` records): with the controls the
+/// two corners are 56.5 to 57 pt apart (left 66 / right 9.5 in a narrow and
+/// a wide window, left 9.0 / right 66 right-to-left); without them at most
+/// 0.5 pt (9.5 / 9.0 full screen; herdr-uikit's own record 5.5 / 5.5). The
+/// 12 pt threshold is 11.5 pt above the largest measured gap without
+/// controls and 44.5 pt below the smallest one with controls. A hypothetical
+/// left 52 / right 64 pt sample is outside these measurements. Its 12 pt
+/// gap gets no clearance (see `layout/tests/controls.rs`); QA records the raw
+/// edges so new platform behavior can be recognized.
+/// Comparing the two corners of one window, not a corner with a fixed size,
+/// keeps a device with a larger allowance on both corners from gaining a
+/// band.
 const CONTROLS_MIN_EXCESS: f32 = 12.0;
 
 /// The window controls' reach past the safe area on each physical side, in
-/// points, as herdr-uikit last measured it for the window.
+/// points, as herdr-uikit last sampled it for the window; all zero is a
+/// window without controls (see the module comment).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ControlsReach {
     pub left: f32,
@@ -55,15 +73,12 @@ impl Default for ControlsClearance {
     }
 }
 
-/// The clearance for the controls' reach in `insets`: nothing until the
-/// platform has measured the window, nor for a corner allowance alone.
+/// The clearance for the controls' reach in `insets`: nothing for all zero
+/// (no controls), nor for a corner allowance alone.
 pub(super) fn clearance(insets: &Insets) -> ControlsClearance {
-    let Some(reach) = insets.window_controls else {
-        return ControlsClearance::default();
-    };
     // `max` also maps a NaN reach to 0.
-    let left = reach.left.max(0.0);
-    let right = reach.right.max(0.0);
+    let left = insets.window_controls.left.max(0.0);
+    let right = insets.window_controls.right.max(0.0);
     if left - right > CONTROLS_MIN_EXCESS {
         ControlsClearance {
             header_leading: left,

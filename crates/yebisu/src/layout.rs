@@ -134,9 +134,9 @@ pub struct Insets {
     pub safe_bottom: f32,
     pub keyboard: f32,
     /// How far top-bar content must start from each side's safe-area edge to
-    /// clear the window controls (herdr-uikit `window_control_insets`), or
-    /// `None` until the platform has measured the window; see `controls.rs`.
-    pub window_controls: Option<ControlsReach>,
+    /// clear the window controls (herdr-uikit `window_control_insets`). All
+    /// zero means no window controls; see `controls.rs`.
+    pub window_controls: ControlsReach,
 }
 
 impl Insets {

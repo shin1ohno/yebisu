@@ -20,10 +20,18 @@ fn close_hit_closes_and_does_not_select() {
     let tabs = [120.0, 140.0];
     // The last 32 pt of each tab is its × button.
     for x in [88.0, 100.0, 119.9] {
-        assert_eq!(tab_hit(x, &tabs, ROW), Some(TabHit::Close(0)), "x = {x}");
+        assert_eq!(
+            tab_hit(x, &tabs, ROW, 0.0),
+            Some(TabHit::Close(0)),
+            "x = {x}"
+        );
     }
     for x in [228.0, 259.9] {
-        assert_eq!(tab_hit(x, &tabs, ROW), Some(TabHit::Close(1)), "x = {x}");
+        assert_eq!(
+            tab_hit(x, &tabs, ROW, 0.0),
+            Some(TabHit::Close(1)),
+            "x = {x}"
+        );
     }
 }
 
@@ -31,13 +39,21 @@ fn close_hit_closes_and_does_not_select() {
 fn tab_body_hit_selects_and_does_not_close() {
     let tabs = [120.0, 140.0];
     for x in [0.0, 40.0, 87.9] {
-        assert_eq!(tab_hit(x, &tabs, ROW), Some(TabHit::Select(0)), "x = {x}");
+        assert_eq!(
+            tab_hit(x, &tabs, ROW, 0.0),
+            Some(TabHit::Select(0)),
+            "x = {x}"
+        );
     }
     for x in [120.0, 227.9] {
-        assert_eq!(tab_hit(x, &tabs, ROW), Some(TabHit::Select(1)), "x = {x}");
+        assert_eq!(
+            tab_hit(x, &tabs, ROW, 0.0),
+            Some(TabHit::Select(1)),
+            "x = {x}"
+        );
     }
     // Past the last tab and before the pinned actions: nothing.
-    assert_eq!(tab_hit(300.0, &tabs, ROW), None);
+    assert_eq!(tab_hit(300.0, &tabs, ROW, 0.0), None);
 }
 
 #[test]
@@ -46,18 +62,21 @@ fn tab_actions_stay_pinned_when_tabs_overflow() {
     // pinned actions, which keep the right edge.
     let tabs = [120.0; 12];
     let left = pinned_left();
-    assert_eq!(tab_hit(left + 1.0, &tabs, ROW), Some(TabHit::NewTab));
-    assert_eq!(tab_hit(left + 45.0, &tabs, ROW), Some(TabHit::Split));
-    assert_eq!(tab_hit(ROW - 1.0, &tabs, ROW), Some(TabHit::Overflow));
+    assert_eq!(tab_hit(left + 1.0, &tabs, ROW, 0.0), Some(TabHit::NewTab));
+    assert_eq!(tab_hit(left + 45.0, &tabs, ROW, 0.0), Some(TabHit::Split));
+    assert_eq!(tab_hit(ROW - 1.0, &tabs, ROW, 0.0), Some(TabHit::Overflow));
     assert!(matches!(
-        tab_hit(left - 1.0, &tabs, ROW),
+        tab_hit(left - 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Select(_) | TabHit::Close(_))
     ));
     // The same three in a narrow Split View row.
     let narrow = 280.0;
-    assert_eq!(tab_hit(narrow - 1.0, &tabs, narrow), Some(TabHit::Overflow));
     assert_eq!(
-        tab_hit(narrow - pinned_width(), &tabs, narrow),
+        tab_hit(narrow - 1.0, &tabs, narrow, 0.0),
+        Some(TabHit::Overflow)
+    );
+    assert_eq!(
+        tab_hit(narrow - pinned_width(), &tabs, narrow, 0.0),
         Some(TabHit::NewTab)
     );
 }
@@ -68,15 +87,15 @@ fn pinned_actions_not_pushed_out_by_long_tab_names() {
     // the cap, and never covers the pinned actions.
     let tabs = [2_000.0, 90.0];
     assert_eq!(
-        tab_hit(MAX_TAB_WIDTH - 1.0, &tabs, ROW),
+        tab_hit(MAX_TAB_WIDTH - 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Close(0))
     );
     assert_eq!(
-        tab_hit(MAX_TAB_WIDTH - CLOSE_WIDTH - 1.0, &tabs, ROW),
+        tab_hit(MAX_TAB_WIDTH - CLOSE_WIDTH - 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Select(0))
     );
     assert_eq!(
-        tab_hit(MAX_TAB_WIDTH + 1.0, &tabs, ROW),
+        tab_hit(MAX_TAB_WIDTH + 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Select(1))
     );
     let left = pinned_left();
@@ -85,8 +104,42 @@ fn pinned_actions_not_pushed_out_by_long_tab_names() {
         (left + PINNED_ACTION_WIDTH, TabHit::Split),
         (left + 2.0 * PINNED_ACTION_WIDTH, TabHit::Overflow),
     ] {
-        assert_eq!(tab_hit(x, &tabs, ROW), Some(hit), "x = {x}");
+        assert_eq!(tab_hit(x, &tabs, ROW, 0.0), Some(hit), "x = {x}");
     }
+}
+
+/// Window controls on the right (review of PR 87 at 16ef79e): with a 66 pt
+/// trailing clearance in a 300 pt row, the model puts the pinned actions
+/// where `render_tab_row` draws them, 66 pt from the edge, and the last
+/// 66 pt hit nothing (the system's controls take those taps).
+/// `frame_controls_tests.rs` checks the same against the drawn row.
+#[test]
+fn pinned_actions_end_before_window_controls_on_the_right() {
+    let row = 300.0;
+    let controls = 66.0;
+    let tabs = [120.0; 12];
+    let content_right = row - controls;
+    for x in [content_right, row - 33.0, row - 1.0] {
+        assert_eq!(tab_hit(x, &tabs, row, controls), None, "x = {x}");
+    }
+    assert_eq!(
+        tab_hit(content_right - 1.0, &tabs, row, controls),
+        Some(TabHit::Overflow)
+    );
+    let pinned_left = content_right - pinned_width();
+    for (x, hit) in [
+        (pinned_left, TabHit::NewTab),
+        (pinned_left + PINNED_ACTION_WIDTH, TabHit::Split),
+        (pinned_left + 2.0 * PINNED_ACTION_WIDTH, TabHit::Overflow),
+    ] {
+        assert_eq!(tab_hit(x, &tabs, row, controls), Some(hit), "x = {x}");
+    }
+    assert!(matches!(
+        tab_hit(pinned_left - 1.0, &tabs, row, controls),
+        Some(TabHit::Select(_) | TabHit::Close(_))
+    ));
+    // Positive control: without the clearance the old place is Overflow.
+    assert_eq!(tab_hit(row - 1.0, &tabs, row, 0.0), Some(TabHit::Overflow));
 }
 
 /// Review S2: the × takes `run_action`'s fences. While Settings is open it
