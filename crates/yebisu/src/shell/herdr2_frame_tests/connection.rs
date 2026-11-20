@@ -43,10 +43,9 @@ fn connection_key_is_host_and_kind() {
     };
     let before = state.received(&herdr1);
     assert!(before > 0);
-    let _ = rows::host_entry(
+    let _ = host_entry(
         "pro-dev",
         HostLink::Offline(crate::shell::sidebar::model::OfflineReason::NotConnected),
-        1,
         &[],
         &state,
     );

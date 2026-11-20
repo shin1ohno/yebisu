@@ -1,50 +1,88 @@
-use crate::{app::Smoke, core::Command};
+use crate::{
+    app::Smoke,
+    core::{Command, SessionTarget},
+};
 use gpui::{AnyElement, Context, div, prelude::*, rgb};
 
 impl Smoke {
+    fn core_host(&self) -> String {
+        if self.terminal.open {
+            self.terminal.reconnect.target.clone()
+        } else {
+            self.setup_input.text.trim().to_owned()
+        }
+    }
+
     pub(crate) fn connect_core(&mut self, cx: &mut Context<Self>) {
+        let host = self.core_host();
+        let session = self.shell.herdr2.selected_session(&host).to_owned();
+        self.connect_named_core(host, session, None, cx);
+    }
+
+    pub(crate) fn connect_named_core(
+        &mut self,
+        host: String,
+        name: String,
+        focus: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let target = SessionTarget { host, name, focus };
         #[cfg(test)]
         if let Some(backend) = self.terminal.core_test_backend.take() {
-            self.connect_core_using(cx, move |_| Ok(backend));
+            self.input_transition(|this| {
+                this.connect_core_using_inner(target, cx, move |_, _| Ok(backend))
+            });
             return;
         }
-        self.connect_core_using(cx, |target| {
-            #[cfg(all(target_os = "ios", target_abi = "sim"))]
-            if std::env::var_os("YEBISU_CORE_QA").is_some() {
-                return crate::core_mock::connect();
-            }
-            #[cfg(target_os = "ios")]
-            {
-                crate::core::connect(target)
-            }
-            #[cfg(not(target_os = "ios"))]
-            {
-                Err(crate::Error::Ssh(format!(
-                    "SSH unavailable in host test: {target}"
-                )))
-            }
+        self.input_transition(|this| {
+            this.connect_core_using_inner(target, cx, |host, session| {
+                #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                if std::env::var_os("YEBISU_CORE_QA").is_some() {
+                    return crate::core_mock::connect();
+                }
+                #[cfg(target_os = "ios")]
+                {
+                    crate::core::connect(host, session)
+                }
+                #[cfg(not(target_os = "ios"))]
+                {
+                    Err(crate::Error::Ssh(format!(
+                        "SSH unavailable in host test: {host}/{session}"
+                    )))
+                }
+            })
         });
     }
+
+    #[cfg(test)]
     pub(crate) fn connect_core_using(
         &mut self,
         cx: &mut Context<Self>,
         connect: impl FnOnce(&str) -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
     ) {
-        self.input_transition(|this| this.connect_core_using_inner(cx, connect))
+        let target = SessionTarget {
+            host: self.core_host(),
+            name: "default".into(),
+            focus: None,
+        };
+        self.input_transition(|this| {
+            this.connect_core_using_inner(target, cx, move |host, _| connect(host))
+        });
     }
+
     fn connect_core_using_inner(
         &mut self,
+        target: SessionTarget,
         cx: &mut Context<Self>,
-        connect: impl FnOnce(&str) -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
+        connect: impl FnOnce(&str, &str) -> crate::Result<sheprd_core_client::CoreBackend>
+        + Send
+        + 'static,
     ) {
         if self.setup.busy || self.terminal.reconnect.suspended {
             return;
         }
-        let host = if self.terminal.open {
-            self.terminal.reconnect.target.clone()
-        } else {
-            self.setup_input.text.trim().to_owned()
-        };
+        let host = target.host.clone();
+        let name = target.name.clone();
         self.select_host(&host);
         self.terminal.core.take();
         self.terminal.navigating = None;
@@ -71,19 +109,22 @@ impl Smoke {
         };
         #[cfg(not(target_os = "ios"))]
         let root = None;
-        let target = host.clone();
-        // The worker reads the column from the mailbox this frame publishes to.
+        let connect_host = host.clone();
+        let connect_name = name.clone();
         let column = self.shell.single_pane.mailbox();
-        let result = crate::core::Session::start(
-            host,
+        let result = crate::core::Session::start_named(
+            target,
             generation,
             inbox,
-            move || connect(&target),
+            move || connect(&connect_host, &connect_name),
             root,
             column,
         );
         match result {
-            Ok(session) => self.terminal.core = Some(session),
+            Ok(session) => {
+                self.shell.herdr2.select_session(host, name);
+                self.terminal.core = Some(session);
+            }
             Err(e) => self.terminal.live.status = e.to_string(),
         }
         cx.notify();
@@ -141,17 +182,29 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn core_command(&mut self, command: Command) {
-        self.input_transition(|this| this.core_command_inner(command))
-    }
-    fn core_command_inner(&mut self, command: Command) {
-        self.terminal.input.detach();
-        self.handoff.cancel();
-        if let Some(core) = &self.terminal.core
-            && let Err(e) = core.send(command)
-        {
-            self.terminal.live.status = e.to_string();
+        if let Err(error) = self.try_core_command(command) {
+            self.terminal.live.status = error.to_string();
         }
     }
+
+    pub(crate) fn try_core_command(&mut self, command: Command) -> crate::Result<()> {
+        self.input_transition(|this| {
+            if this.input_modal() || this.new_space_open() || this.terminal.reconnect.suspended {
+                return Err(crate::Error::Ssh("Herdr 2 command unavailable".into()));
+            }
+            let core = this
+                .terminal
+                .core
+                .as_ref()
+                .ok_or_else(|| crate::Error::Ssh("Herdr 2 is not connected".into()))?;
+            core.invalidate_input();
+            this.terminal.input.detach();
+            this.handoff.cancel();
+            this.handoff.selection = None;
+            core.send(command)
+        })
+    }
+
     pub(crate) fn render_core_controls(&mut self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
