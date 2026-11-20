@@ -38,6 +38,7 @@ pub(crate) struct Smoke {
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
     pub(crate) menu_qa: crate::edit_menu_qa_sh1_152::MenuQa,
     pub(crate) front_layers: crate::front_layer::FrontLayers,
+    pub(crate) keep_awake: crate::keep_awake::KeepAwake,
     pub(crate) actions: crate::actions::Actions,
     pub(crate) native_menus: crate::native_menus::NativeMenus,
     #[cfg(all(target_os = "ios", target_abi = "sim"))]
@@ -100,6 +101,8 @@ impl Smoke {
                         this.poll_find(cx);
                         this.poll_terminal(cx);
                         this.collect_notifications(cx);
+                        // After the polls, so it sees each host's latest status.
+                        this.sync_keep_awake(cx);
                     })
                     .is_err()
                 {
@@ -146,6 +149,7 @@ impl Smoke {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             p12_qa: Default::default(),
             front_layers: Default::default(),
+            keep_awake: Default::default(),
             ticks: 0,
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),

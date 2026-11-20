@@ -28,6 +28,9 @@ const CODES: &[&str] = &[
     "version_mismatch",
     "command_rejected",
     "setup_error",
+    "keep_awake_on",
+    "keep_awake_off",
+    "keep_awake_refused",
     "panic",
 ];
 

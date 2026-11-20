@@ -148,6 +148,8 @@ UNRELATED = {
     "handoff_qa": "scene: YEBISU_HANDOFF_QA, set only by testSH154CoreImage",
     "handoff_ticket": "core paste ticket; none of the three pastes",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
+    "keep_awake": "display idle timer synced by app.rs and reconnect.rs; p2 and p3 check keys and terminal rendering, "
+                  "and p10 checks settings persistence across lifecycle transitions without testing display sleep",
     "native_edit_qa": "scene: YEBISU_NATIVE_QA, set only by testP8NativeEditing and the P11 observer",
     "native_menus_qa": "scene: P12 native menu QA (YEBISU_P12_QA), called from app.rs",
     "native_observer_qa": "scene: YEBISU_NATIVE_QA, set only by testP8NativeEditing and the P11 observer",
@@ -247,6 +249,11 @@ class PathFilterTests(unittest.TestCase):
         self.assertFalse(self.layout("crates/yebisu/src/notifications/sound.rs"))
         self.assertFalse(self.layout("crates/yebisu/src/notifications.rs"))
         self.assertFalse(self.layout("crates/yebisu/fixtures-other/x.json"))
+
+    def test_keep_awake_only_changes_skip_it(self):
+        for path in ("crates/yebisu/src/keep_awake.rs", "crates/yebisu/src/keep_awake/tests.rs"):
+            with self.subTest(path=path):
+                self.assertFalse(self.layout(path))
 
     def test_every_listed_app_file_exists(self):
         """A renamed or removed file would silently stop selecting the job."""
