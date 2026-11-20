@@ -16,6 +16,7 @@ use crate::{
 };
 use gpui::{AnyElement, Context};
 
+mod agents;
 mod icons;
 mod menu;
 mod model;

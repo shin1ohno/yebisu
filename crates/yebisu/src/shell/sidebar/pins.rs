@@ -150,6 +150,11 @@ pub(super) enum Store {
 }
 
 impl Smoke {
+    /// Keeps pins loaded and reconciled even while the sidebar header is hidden.
+    pub(crate) fn load_sidebar_agent_pins(&mut self, cx: &mut Context<Self>) {
+        self.flush_sidebar_pins(cx);
+    }
+
     pub(crate) fn toggle_sidebar_agent_pin(
         &mut self,
         id: AgentIdentity,

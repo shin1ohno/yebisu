@@ -17,6 +17,7 @@ use crate::{
             BADGE_MIN_WIDTH, BUTTON_WIDTH, BadgeTexts, DOT_SIZE, RailBadges, badge_spans,
             badge_texts, rail_badges,
         },
+        sidebar::icons::Icon as SidebarIcon,
         sidebar_status::from_agent_status,
         style::{color, metric, radius, weight},
     },
@@ -75,11 +76,7 @@ impl Smoke {
         hosts
             .into_iter()
             .map(|name| {
-                let terminal = if name == current {
-                    Some(&self.terminal)
-                } else {
-                    self.board.hidden.get(name)
-                };
+                let terminal = self.rail_terminal(name);
                 let shell = terminal.and_then(|terminal| snapshot(&terminal.live));
                 RailHost {
                     name: name.to_owned(),
@@ -119,8 +116,10 @@ impl Smoke {
 
     /// Fixed New space header, scrolling hosts and spaces, and fixed footer.
     pub(super) fn rail_column(&mut self, header: f32, cx: &mut Context<Self>) -> AnyElement {
+        self.load_sidebar_agent_pins(cx);
         let metrics = rail_metrics(1.0);
         let items = rail_items(&self.rail_hosts());
+        let agents = self.rail_agent_items();
         let measure = badge_measure(cx, metrics.badge_pt);
         self.record_rail_badges(&items, &measure);
         let list = div()
@@ -143,7 +142,13 @@ impl Smoke {
                     &measure,
                     cx,
                 )))
-            }));
+            }))
+            .when(!agents.is_empty(), |list| {
+                list.child(divider())
+                    .children(agents.iter().enumerate().map(|(index, item)| {
+                        rail_item(items.len() + index + 1, item, &metrics, &measure, cx)
+                    }))
+            });
         let kind = if self.terminal.core_mode {
             HerdrKind::Herdr2
         } else {
@@ -378,6 +383,15 @@ fn rail_item(
                 .border_color(rgb(color::ACCENT))
         })
         .child(dot.size(px(DOT_SIZE)).rounded_full().flex_none())
+        .when(item.pinned, |button| {
+            button.child(
+                div()
+                    .absolute()
+                    .top(px(BADGE_TOP))
+                    .right(px(EDGE_PAD))
+                    .child(SidebarIcon::Pin.draw(color::MUTED)),
+            )
+        })
         .child(
             div()
                 .debug_selector(move || format!("rail-label-{index}"))
