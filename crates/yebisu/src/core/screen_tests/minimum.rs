@@ -30,6 +30,13 @@ fn per_pane_size_never_below_minimum() -> crate::Result<()> {
         }
     }
     assert!(checked > 500, "{checked}");
+
+    // During a resize the last composed frame can still be smaller than the
+    // newly measured column. Both the physical budget and its actual cells
+    // must accommodate two panes.
+    let retained = size(90, 20)?;
+    let wide = Some(column(1000., 1000., (10., 20.)));
+    assert_eq!(pane_size_for(retained, 2, true, wide)?, retained);
     Ok(())
 }
 
