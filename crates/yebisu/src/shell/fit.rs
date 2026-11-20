@@ -17,7 +17,10 @@
 use super::disconnect::DisconnectClock;
 use crate::{
     app::Smoke,
-    layout::{Rect, Regions, Size, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, TerminalFit, TooSmall},
+    layout::{
+        ControlsClearance, ControlsReach, Rect, Regions, Size, TERMINAL_MIN_HEIGHT,
+        TERMINAL_MIN_WIDTH, TerminalFit, TooSmall,
+    },
 };
 use gpui::{AnyElement, Context, Edges, Pixels, Window, div, prelude::*, px, rgb};
 
@@ -47,6 +50,9 @@ pub(crate) struct FitState {
     pub(crate) hardware_keyboard: bool,
     /// The window's key presses are watched for `is_hardware_key`.
     pub(crate) watching_keys: bool,
+    /// The window controls' reach and L0's clearance last offered to the
+    /// observation log; a record is offered only on change.
+    pub(crate) recorded_controls: Option<(ControlsReach, ControlsClearance)>,
     /// Tests move the fit clock ahead without waiting.
     #[cfg(test)]
     pub(crate) clock_ahead: std::time::Duration,
@@ -54,6 +60,10 @@ pub(crate) struct FitState {
     /// cannot change them from outside the crate).
     #[cfg(test)]
     pub(crate) insets: Option<gpui::WindowInsets>,
+    /// Tests give the window this herdr-uikit window-controls sample
+    /// (herdr-uikit is iOS-only); all zero is a window without controls.
+    #[cfg(test)]
+    pub(crate) window_controls: Option<Edges<Pixels>>,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -197,6 +207,20 @@ pub(crate) fn place_clear_of_keyboard(item: Rect, keyboard: Rect, bounds: Rect) 
     None
 }
 
+/// herdr-uikit's window-controls sample as a reach. All zero is a window
+/// without controls (owner decision 2026-11-20, `layout/controls.rs`): the
+/// SDK reports zero before iPadOS 26, for a window in no live scene, and for
+/// a window it has not sampled yet (before UIKit's first layout callback),
+/// with no flag to tell them apart. So an iPadOS 26 window launched windowed
+/// may draw its controls over the sidebar header or the tab row's pinned
+/// buttons for ~130 ms until the SDK reports their reach and the frame redraws.
+pub(crate) fn controls_reach(sample: Edges<Pixels>) -> ControlsReach {
+    ControlsReach {
+        left: f32::from(sample.left),
+        right: f32::from(sample.right),
+    }
+}
+
 impl Smoke {
     /// "Window too small" in place of the terminal; `None` draws as today.
     pub(crate) fn render_too_small(
@@ -240,6 +264,60 @@ impl Smoke {
             return insets.clone();
         }
         window.insets()
+    }
+
+    /// How far iPadOS 26's window controls reach into this window past its
+    /// safe area, per physical edge; all zero without controls
+    /// (`controls_reach`). Read on every frame from the SDK's cache, never
+    /// kept here: the SDK samples on UIKit layout callbacks, and a changed
+    /// sample reaches GPUI as an insets change (herdr-uikit
+    /// `src/window/layout.rs:166`), whose handler refreshes the window
+    /// (GPUI 0.3.12 `src/window.rs:2112`), so the next frame lays out with
+    /// it.
+    pub(crate) fn platform_window_controls(&self, window: &Window) -> ControlsReach {
+        controls_reach(self.sampled_window_controls(window))
+    }
+
+    fn sampled_window_controls(&self, window: &Window) -> Edges<Pixels> {
+        #[cfg(test)]
+        if let Some(controls) = self.shell.fit.window_controls {
+            return controls;
+        }
+        #[cfg(target_os = "ios")]
+        {
+            herdr_uikit::window_control_insets(window.window_handle())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = window;
+            Edges::default()
+        }
+    }
+
+    /// Offers `{"kind":"window_controls"}` with the platform's reach and
+    /// L0's clearance to the observation log when either changes (QA
+    /// evidence of what the platform reported). Called while drawing, so a
+    /// full queue drops the record at once: the drop is counted, reported
+    /// before the next record that gets in, and printed by the observation's
+    /// reporter thread, never on this thread.
+    pub(crate) fn record_window_controls(
+        &mut self,
+        reach: ControlsReach,
+        clearance: ControlsClearance,
+    ) {
+        let now = (reach, clearance);
+        if self.shell.fit.recorded_controls == Some(now) {
+            return;
+        }
+        self.shell.fit.recorded_controls = Some(now);
+        self.observation.record_without_waiting(serde_json::json!({
+            "kind": "window_controls",
+            "left": reach.left,
+            "right": reach.right,
+            "header_leading": clearance.header_leading,
+            "rail_top": clearance.rail_top,
+            "tab_row_trailing": clearance.tab_row_trailing,
+        }));
     }
 
     /// Watches every key press of the window once, so a press only a
