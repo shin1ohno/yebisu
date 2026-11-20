@@ -27,6 +27,7 @@ pub(crate) mod rail;
 pub(crate) mod rail_badges;
 pub(crate) mod shortcuts;
 pub(crate) mod sidebar;
+pub(crate) mod sidebar_list;
 pub(crate) mod sidebar_status;
 pub(crate) mod single_pane;
 pub(crate) mod status_bar;

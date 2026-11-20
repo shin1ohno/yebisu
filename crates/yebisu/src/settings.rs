@@ -2,6 +2,7 @@
 pub(crate) mod font;
 pub(crate) mod input_options;
 pub(crate) mod key_ops;
+pub(crate) mod sidebar_density;
 mod store;
 mod worker;
 
@@ -28,6 +29,8 @@ pub(crate) struct Values {
     pub command_control: bool,
     pub caret_anchor: bool,
     pub reconnect_automatic: bool,
+    // Design fidelity plan Wave 0a: Settings › Sidebar, see sidebar_density.rs.
+    pub sidebar_density: sidebar_density::SidebarDensity,
 }
 
 impl Default for Values {
@@ -45,6 +48,7 @@ impl Default for Values {
             command_control: false,
             caret_anchor: false,
             reconnect_automatic: true,
+            sidebar_density: sidebar_density::SidebarDensity::default(),
         }
     }
 }
@@ -62,7 +66,7 @@ struct Edited {
     drag_select: bool,
     copy_on_select: bool,
     // One flag per input_options::FIELDS entry, in that order.
-    choices: [bool; 4],
+    choices: [bool; input_options::FIELDS.len()],
 }
 
 enum EditIntent {

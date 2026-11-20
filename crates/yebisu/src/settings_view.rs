@@ -102,6 +102,7 @@ impl Smoke {
             command_control,
             caret_anchor,
             reconnect_automatic,
+            sidebar_density: self.shell.sidebar.density,
         }
     }
     /// The Input options and Return read by the key encoder, the toolbar
@@ -158,6 +159,7 @@ impl Smoke {
             self.actions.board_hidden = host.draft.board_hidden;
             self.handoff.drag_select = host.draft.drag_select;
             self.handoff.copy_on_select = host.draft.copy_on_select;
+            self.shell.sidebar.density = host.draft.sidebar_density;
             self.adopt_input_settings(&values);
             cx.notify();
         }
@@ -306,6 +308,7 @@ impl Smoke {
         self.actions.board_hidden = values.board_hidden;
         self.handoff.drag_select = values.drag_select;
         self.handoff.copy_on_select = values.copy_on_select;
+        self.shell.sidebar.density = values.sidebar_density;
         self.adopt_input_settings(&values);
         if let Some(host) = &mut self.settings {
             host.edit(values);

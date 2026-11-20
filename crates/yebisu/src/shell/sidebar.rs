@@ -29,6 +29,9 @@ pub(crate) const SPACE_ROW_HEIGHT: f32 = 56.;
 /// order sits in a `RefCell`; nothing re-enters it.
 #[derive(Debug, Default)]
 pub(crate) struct SidebarState {
+    /// Settings › Sidebar as stored (Wave 0a): the settings sheet writes it
+    /// through `apply_settings`, a load sets it, the sidebar draws by it.
+    pub(crate) density: crate::settings::sidebar_density::SidebarDensity,
     /// Saved Hosts order (L7's Hosts list); hosts not in it follow by name.
     pub(crate) host_order: Vec<String>,
     /// The open long-press menu of a host or space row (L6, Q8).

@@ -1,4 +1,5 @@
-//! L3: the sidebar's own status type (S-8). Owner: stream A.
+//! L3: the sidebar's own status type (S-8) and the AGENTS order with pins
+//! (design fidelity plan, Wave 0a). Owner: stream A.
 use super::style::color;
 use sheprd_client::protocol::AgentStatus;
 
@@ -71,6 +72,41 @@ impl SidebarStatus {
             Self::Done => color::GREEN,
             Self::Idle => color::ACCENT,
             Self::Unknown | Self::NoStatus => color::SLATE,
+        }
+    }
+}
+
+/// Where an AGENTS row sorts (owner decision 2026-11-20, fork R27 agent
+/// pins): Needs you, Error, the pinned agents, then Working, Done, Idle and
+/// Unknown. A pin lifts an agent above the calm states only: a pinned agent
+/// that needs you or failed stays in that group, so nothing hides an agent
+/// that waits. NoStatus is never an agent (Q4) and sorts last for space dots.
+/// The declaration order is the sort order; within one group the sidebar
+/// keeps its receive order and tie-breaks (`sidebar::agent_order_in`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum AgentGroup {
+    NeedsYou,
+    Error,
+    Pinned,
+    Working,
+    Done,
+    Idle,
+    Unknown,
+    NoStatus,
+}
+
+impl AgentGroup {
+    /// The group of an agent with `status`, pinned or not.
+    pub(crate) const fn of(status: SidebarStatus, pinned: bool) -> Self {
+        match (status, pinned) {
+            (SidebarStatus::NeedsYou, _) => Self::NeedsYou,
+            (SidebarStatus::Error, _) => Self::Error,
+            (SidebarStatus::NoStatus, _) => Self::NoStatus,
+            (_, true) => Self::Pinned,
+            (SidebarStatus::Working, false) => Self::Working,
+            (SidebarStatus::Done, false) => Self::Done,
+            (SidebarStatus::Idle, false) => Self::Idle,
+            (SidebarStatus::Unknown, false) => Self::Unknown,
         }
     }
 }
