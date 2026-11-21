@@ -1,7 +1,7 @@
 import XCTest
 
-// UI test redesign S4: every GPUI control is found by its QA identifier (crates/yebisu/src/qa_ax_ids.rs)
-// and pressed with a real touch at its frame, and every wait reads `qa.state` (QAAx.swift). Nothing
+// UI test redesign S4: presses find GPUI controls by QA identifier (crates/yebisu/src/qa_ax_ids.rs)
+// and use a real touch at their frame. App receipts come from `qa.state` (QAAx.swift). Nothing
 // reads the screen with OCR, remembers where a label was seen, or reads the app's receipt files while
 // the app runs: sh1-152-check.py reads sh1-152-*.jsonl, p4-peer.jsonl and p9-core-wire.jsonl after
 // the app was terminated, and its oracles decide each case from them, as before. A wait whose
@@ -18,8 +18,9 @@ final class EditMenuQA: XCTestCase {
 
     func testSH1152Basic() throws {
         for name in ["E1-text", "E1-key", "E2-text", "E2-key", "E1-core", "E2-core"] {
-            let (app, ax) = try launch(name, useWindowFrames: true)
-            try begin(QAIds.sh152Begin, ax)
+            let beginOnReady = name == "E1-text"
+            let (app, ax) = try launch(name, useWindowFrames: true, beginOnReady: beginOnReady)
+            if !beginOnReady { try begin(QAIds.sh152Begin, ax) }
             if name.hasPrefix("E2") { try select(QAIds.sh152Select, ax) }
             try menu(app, ax, name, selected: name.hasPrefix("E2"))
             let action = name.hasPrefix("E2") ? "Copy" : "Paste"
@@ -148,7 +149,8 @@ final class EditMenuQA: XCTestCase {
         }
     }
 
-    private func launch(_ name: String, useWindowFrames: Bool = false) throws -> (XCUIApplication, QAAx) {
+    private func launch(_ name: String, useWindowFrames: Bool = false,
+                        beginOnReady: Bool = false) throws -> (XCUIApplication, QAAx) {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
         caseName = name
@@ -156,6 +158,7 @@ final class EditMenuQA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
         if useWindowFrames { app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1" }
+        if beginOnReady { app.launchEnvironment["YEBISU_SH1_152_BEGIN_ON_READY"] = "1" }
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
         // Keep the E-launch measurement scoped to app.launch() (docs/ci-simulator.md).
         let launchStarted = Date()
@@ -176,6 +179,13 @@ final class EditMenuQA: XCTestCase {
         if useWindowFrames && !full {
             XCTFail("SH1-152 \(name) requires a full-screen window for GPUI window coordinates")
             throw SetupError.fullScreenWindowUnavailable
+        }
+        if beginOnReady {
+            let marker = "sh1-152-start-\(name)-0"
+            try ax.waitState("\(name) launch Begin at peer") {
+                $0.count("sh152_start") == 1 && $0.peerPastes.contains(marker)
+            }
+            try ax.settledKeyboard("\(name) after launch Begin")
         }
         // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
         // on the strip's empty space, so the case's first real press is not lost (QAAx.touchReady).

@@ -70,6 +70,29 @@ pub(crate) fn case() -> String {
 }
 
 impl Smoke {
+    pub(crate) fn sh1_152_begin_on_ready(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::env::var_os("YEBISU_SH1_152_BEGIN_ON_READY").is_none()
+            || case() != "E1-text"
+            || self.menu_qa.begun.is_some()
+            || !self.terminal.input.ready
+            || !window.is_window_active()
+        {
+            return;
+        }
+        // Begin prepares the clipboard and peer interval. Run it after rendering instead of
+        // relying on a startup tap that BackBoard can cancel before GPUI recognizes the click.
+        cx.defer_in(window, |this, window, cx| {
+            if this.menu_qa.begun.is_some() || !window.is_window_active() {
+                return;
+            }
+            this.refresh_terminal_input();
+            this.sync_handoff();
+            if this.terminal.input.ready && this.handoff.stamp.is_some() {
+                this.sh1_152_command("Begin", window, cx);
+            }
+        });
+    }
+
     pub(crate) fn sh1_152_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_SH1_152_CASE")?;
         let commands: &[&'static str] = if self.menu_qa.second {
