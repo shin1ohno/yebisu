@@ -185,3 +185,23 @@ fn copy_as_one_line_is_not_in_the_overflow_menu() {
         assert!(entries.iter().all(|entry| entry.item.label() != label));
     }
 }
+
+#[test]
+fn compact_adds_new_tab_for_herdr1_and_preserves_the_normal_menu() {
+    for online in [false, true] {
+        let herdr1 = state(HerdrKind::Herdr1, online, false, false);
+        let normal = menu_entries_for_frame(&herdr1, false);
+        assert_eq!(normal, overflow_menu_items(&herdr1));
+        assert!(!normal.iter().any(|row| row.item == NewTab));
+        let compact = menu_entries_for_frame(&herdr1, true);
+        assert_eq!(compact[0].item, NewTab);
+        assert_eq!(compact[0].enabled, online);
+        assert_eq!(compact[1..], normal);
+
+        let herdr2 = state(HerdrKind::Herdr2, online, false, false);
+        assert_eq!(
+            menu_entries_for_frame(&herdr2, true),
+            menu_entries_for_frame(&herdr2, false),
+        );
+    }
+}

@@ -162,10 +162,30 @@ pub(crate) fn overflow_menu_items(state: &ChromeState) -> Vec<OverflowEntry> {
     items
 }
 
+fn menu_entries_for_frame(state: &ChromeState, compact: bool) -> Vec<OverflowEntry> {
+    let mut items = overflow_menu_items(state);
+    if compact && state.kind == HerdrKind::Herdr1 {
+        // Compact has no separate new-tab button.
+        items.insert(
+            0,
+            entry(OverflowItem::NewTab, state.connected, NOT_CONNECTED),
+        );
+    }
+    items
+}
+
 impl Smoke {
     /// The open ... menu, anchored under the tab row's right edge; `None`
     /// while closed.
     pub(crate) fn render_overflow_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        self.render_overflow_menu_at(None, cx)
+    }
+
+    pub(in crate::shell) fn render_overflow_menu_at(
+        &mut self,
+        compact_top: Option<f32>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.shell.frame.overflow_open {
             return None;
         }
@@ -178,7 +198,7 @@ impl Smoke {
                 .iter()
                 .any(|tab| tab.active && tab.panes.len() > 1);
         let mut rows = Vec::new();
-        for menu_entry in overflow_menu_items(&state) {
+        for menu_entry in menu_entries_for_frame(&state, compact_top.is_some()) {
             let item = menu_entry.item;
             if herdr2
                 && !split
@@ -234,7 +254,7 @@ impl Smoke {
         Some(
             div()
                 .absolute()
-                .top(px(MENU_TOP))
+                .top(px(compact_top.unwrap_or(MENU_TOP)))
                 .bottom_0()
                 .right(px(MENU_RIGHT))
                 .w(px(metric::MENU_WIDTH))

@@ -93,6 +93,7 @@ fn minimum_cells_follow_the_cell_size() {
         height: 600.0,
         cell_width,
         cell_height,
+        focus_only: false,
     };
     assert_eq!(metrics(10.0, 20.0).minimum_cells(), (28, 11));
     assert_eq!(metrics(8.4, 17.0).minimum_cells(), (34, 13));
