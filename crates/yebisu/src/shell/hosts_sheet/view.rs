@@ -4,6 +4,7 @@ use super::{DEVELOPER_BUTTONS, developer_items};
 use crate::{
     app::Smoke,
     layout::SIDEBAR_WIDTH,
+    settings::key_ops::State,
     setup::Job,
     shell::{
         add_host::{AddHostStep, SHEET_WIDTH, SheetMode, sheet_height, sheet_width},
@@ -38,6 +39,7 @@ const FINGERPRINT_SIDE_PADDING: f32 = 14.;
 const UPCOMING_STEP_OPACITY: f32 = 0.6;
 
 const KEY_COPY_LABEL: &str = "Copy authorized_keys line";
+const HOST_OPEN_LABEL: &str = "Open";
 
 fn button(
     id: impl Into<SharedString>,
@@ -139,7 +141,7 @@ impl Smoke {
         self.observation.record(serde_json::json!({
             "kind": "setup", "busy": self.setup.busy, "status": self.setup.status,
             "target": self.setup_input.text, "fingerprints": self.setup.fingerprints,
-            "key_ready": self.settings.as_ref().is_some_and(|h|h.keys.line().is_some()), "hosts": self.setup.hosts,
+            "key_ready": self.hosts_key_line().is_some(), "hosts": self.setup.hosts,
         }));
     }
 
@@ -324,17 +326,28 @@ impl Smoke {
             .into_any_element()
     }
 
+    fn hosts_key_line(&self) -> Option<&str> {
+        if self.hosts_open_signing_in() {
+            return None;
+        }
+        self.settings.as_ref().and_then(|host| host.keys.line())
+    }
+
     /// The public line is truncated for display and copied in full.
-    fn key_block(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn key_block(&self, line: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
         let keys = self.settings.as_ref().map(|host| &host.keys);
-        let line = keys.and_then(|keys| keys.line());
+        let signing_in = self.hosts_open_signing_in();
         let key_ready = line.is_some();
+        let copy_enabled = !self.setup.busy && key_ready;
         crate::qa_ax::report("key_ready", || key_ready.into());
-        let key_text = line.map_or_else(
-            || keys.map_or("Device key unavailable.", |keys| keys.label()),
-            |line| line,
-        );
-        let key_needs_attention = keys.is_some_and(|keys| keys.failure.is_some());
+        let key_text = if signing_in {
+            "Waiting for sign-in to finish…"
+        } else {
+            line.unwrap_or_else(|| keys.map_or("Device key unavailable.", |keys| keys.label()))
+        };
+        let key_needs_attention = !key_ready
+            && !signing_in
+            && !keys.is_some_and(|keys| matches!(keys.state, State::Reading | State::Submitted));
         let provider_mark = self
             .key_qa_label()
             .and_then(|label| crate::qa_ax::mark(crate::qa_ax::ids::KEYS_PROVIDER, label));
@@ -345,6 +358,9 @@ impl Smoke {
             .child(
                 div()
                     .id("device-key-line")
+                    .when(signing_in, |key| {
+                        key.debug_selector(|| "device-key-sign-in-progress".into())
+                    })
                     .relative()
                     .w_full()
                     .min_w_0()
@@ -368,23 +384,26 @@ impl Smoke {
                     .items_center()
                     .gap(px(KEY_PADDING_X))
                     .child(
-                        button(
-                            "key-copy",
-                            KEY_COPY_LABEL,
-                            !self.setup.busy && key_ready,
-                            false,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if !this.setup.busy && this.copy_device_key(cx) {
-                                this.setup.status = "Copied restricted public key.".into();
-                                this.qa_ax_key_copied();
-                                cx.notify();
-                            }
-                        }))
-                        .children(crate::qa_ax::mark(
-                            crate::qa_ax::ids::KEYS_COPY,
-                            KEY_COPY_LABEL,
-                        )),
+                        button("key-copy", KEY_COPY_LABEL, copy_enabled, false)
+                            .when(!copy_enabled, |button| {
+                                button.a11y_synthetic_children(|builder| {
+                                    builder.parent_node().set_disabled()
+                                })
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if !this.setup.busy
+                                    && this.hosts_key_line().is_some()
+                                    && this.copy_device_key(cx)
+                                {
+                                    this.setup.status = "Copied restricted public key.".into();
+                                    this.qa_ax_key_copied();
+                                    cx.notify();
+                                }
+                            }))
+                            .children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::KEYS_COPY,
+                                KEY_COPY_LABEL,
+                            )),
                     )
                     .child(
                         div()
@@ -395,6 +414,8 @@ impl Smoke {
             .when(key_needs_attention, |block| {
                 block.child(
                     div()
+                        .id("device-key-guidance")
+                        .debug_selector(|| "device-key-guidance".into())
                         .text_color(rgb(color::MUTED))
                         .child("To try again, read the device key in Settings › Hosts and keys."),
                 )
@@ -412,6 +433,13 @@ impl Smoke {
         for (index, host) in hosts.into_iter().enumerate() {
             let open = host.clone();
             let edit = host.clone();
+            // The saved-host QA fixture uses the same host selection identifier
+            // in this sheet as in the sidebar.
+            let open_mark = (host == "qa@qa-alpha.invalid")
+                .then(|| {
+                    crate::qa_ax::mark(crate::qa_ax::ids::SIDEBAR_HOST_QA_ALPHA, HOST_OPEN_LABEL)
+                })
+                .flatten();
             rows = rows.child(
                 div()
                     .id(("hosts-row", index))
@@ -426,11 +454,11 @@ impl Smoke {
                             .child(host.clone()),
                     )
                     .child(
-                        button(format!("host-open-{index}"), "Open", !busy, true).on_click(
-                            cx.listener(move |this, _, _, cx| {
+                        button(format!("host-open-{index}"), HOST_OPEN_LABEL, !busy, true)
+                            .on_click(cx.listener(move |this, _, _, cx| {
                                 this.hosts_open_add(SheetMode::Open, &open, cx);
-                            }),
-                        ),
+                            }))
+                            .children(open_mark),
                     )
                     .child(
                         button(format!("host-edit-{index}"), "Edit", !busy, false).on_click(
@@ -503,10 +531,8 @@ impl Smoke {
             return div().into_any_element();
         };
         let flow = &session.flow;
-        let key_ready = self
-            .settings
-            .as_ref()
-            .is_some_and(|h| h.keys.line().is_some());
+        let key_line = self.hosts_key_line();
+        let key_ready = key_line.is_some();
         let scanning = flow.scanning && flow.step == AddHostStep::Address;
         let trusting = flow.scanning && flow.step == AddHostStep::Trust;
         let host_done = flow.step == AddHostStep::SignIn;
@@ -669,7 +695,7 @@ impl Smoke {
                     .child(session.mode.title()),
             )
             .child(connect);
-        let key = self.key_block(cx);
+        let key = self.key_block(key_line, cx);
         div()
             .id("add-host-sheet")
             .flex()
@@ -726,3 +752,7 @@ impl Smoke {
             .into_any_element()
     }
 }
+
+#[cfg(all(test, not(target_os = "ios")))]
+#[path = "open_key_tests.rs"]
+mod open_key_tests;
