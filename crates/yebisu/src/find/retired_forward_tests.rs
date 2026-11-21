@@ -111,15 +111,26 @@ fn retired_field_forwards_to_the_terminal_only_until_the_first_post_close_draw(
             frame,
             "no post-close draw"
         );
+        view.update(cx, |this, _| {
+            // The quiet peer does not answer the draw's resize request.
+            // Make sure a wrongly forwarded callback could reach the wire.
+            this.terminal.size = None;
+            this.refresh_terminal_input();
+            assert!(
+                this.terminal.input.ready,
+                "terminal input is not ready after draw"
+            );
+        });
         let mut handler = platform(&field);
         assert!(!handler.accepts_text_input(window, cx));
         handler.replace_and_mark_text_in_range(None, "late", None, window, cx);
         handler.replace_text_in_range(None, "late", window, cx);
         assert_eq!(handler.marked_text_range(window, cx), None);
     });
+    let late_events = barrier(&view, cx, &receipts, "after-draw");
     assert!(
-        barrier(&view, cx, &receipts, "after-draw").is_empty(),
-        "a callback after the swap reached the terminal"
+        late_events.is_empty(),
+        "a callback after the swap reached the terminal: {late_events:?}"
     );
 
     // Reopened search, same frame and an open fence: the old field must reach
