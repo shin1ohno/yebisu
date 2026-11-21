@@ -147,13 +147,11 @@ Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
 labels. Origin: 2026-11-16, L17 diagnosis, with P12 (PR 55), L16 (PR 57) and
 SH1-265 (PR 56) reports.
 
-Known classes for the merge rule below: L15, L16, A, B and P12-shot. P12-fixture
-(first seen 2026-11-17) is in the table but not on this list: adding it is an owner
-decision.
+The 2026-11-16 merge rule covered L15, L16, A, B and P12-shot. P12-fixture
+(first seen 2026-11-17) was outside that rule.
 C-snapshot and C-anim left the list when PR 58 merged (716018a), and C-paint
-was never on it. Since PR 58 merged, a failure with any of their signatures is
-a new defect, not a known class, and blocks the merge. L19 and L20 are open work on L15 and A/B, not
-classes.
+was never on it. Since PR 58 merged, treat failures with those signatures
+as new defects. L19 and L20 track work on L15 and A/B.
 
 | Class | Log signature (grep) | Rate | Cause | Fix / open item | Evidence |
 |---|---|---|---|---|---|
@@ -181,9 +179,8 @@ Rows A and B list the new message first and the earlier one after it.
 
 ### Classify a failing smoke job
 
-(The 2026-11-16 known-class rule comes from
-`known-class-merge-rule-decision.json`. The 2026-11-20 owner decision sets the
-rerun rule in step 5.)
+(The 2026-11-21 owner decision sets the merge policy in step 4.
+The 2026-11-20 owner decision sets the rerun rule in step 5.)
 
 1. Download the evidence of the failing run, `gh run download <run-id> -n
    simulator-smoke-evidence` for P0/P9, or the P12 artifact
@@ -306,19 +303,16 @@ rerun rule in step 5.)
 
    A PR that changes a shared input or a path in the failing class's area owns the
    failure. If it is unclear whether a changed path drives the failing step, treat
-   it as touched: doubt blocks the merge.
-4. Known-class rule (owner decision 2026-11-16, for every shin1ohno/yebisu PR).
-   A `simulator-smoke` failure does not block the merge when all of these hold:
-   `simulator-smoke` is the only failing job; the failure is classified to a
-   known class with cited lines (job log lines, or for P12 classes the
-   `xctest.stdout` lines of the `p12-native-menu-evidence` artifact); the PR's
-   changed files do not touch that class's area (step 3); every other job is
-   green; one review round has 0 blocking findings; 0 threads are unresolved.
-   Known classes: L15 and L16 (SH1-154 Paste OCR mis-tap), A and B (P12), and
-   P12-shot (P12 screenshot timeout). C-snapshot and C-anim (L18) left the list
-   when PR 58 merged (716018a); such a failure is a new defect. The rule decides only whether the failure blocks.
-   It does not grant merge permission, which stays per PR or per approved plan.
-   Merge with a merge commit.
+   it as touched when reporting the failure.
+4. Simulator merge policy (owner decision 2026-11-21,
+   `owner-batch-2026-11-21-decision.json`, `ci_simulator_on_prs`). On pull
+   requests, `simulator-smoke`, `edit-menu` and `layout-smoke` report their
+   results without blocking a merge. Cite the primary evidence and whether
+   the PR change caused each failure. The selection rules above still apply.
+   On main and before dispatching TestFlight, require green results for all
+   three jobs. An eligible same-tree skip on a main push uses the original
+   green job linked in `changes`. Merge permission stays per PR or approved
+   plan. Merge with a merge commit.
 5. Never rerun a failed job. Fix flaky tests and verify the fix in CI on the
    new commit. A job that never received a runner may be rerun once, as
    described below. Cite the run and job IDs in the PR.
