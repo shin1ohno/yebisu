@@ -13,7 +13,7 @@
 use super::regression_tests::{barrier, install, key, open};
 use crate::{app::Smoke, find::closing_press::TEST_OLDEST_HOLD};
 use gpui::{Entity, KeyUpEvent, TestAppContext, VisualTestContext};
-use sheprd_client::protocol::{ClientKeyKind, ClientMessage, ClientPaneInputEvent};
+use sheprd_client::protocol::{ClientKeyCode, ClientKeyKind, ClientMessage, ClientPaneInputEvent};
 use std::{sync::mpsc::Receiver, time::Duration};
 
 /// The ledger holds a press that began before the close: the closing one.
@@ -108,7 +108,12 @@ fn kinds(events: &[ClientPaneInputEvent]) -> Vec<ClientKeyKind> {
     events
         .iter()
         .map(|event| match event {
-            ClientPaneInputEvent::Key { kind, .. } => *kind,
+            ClientPaneInputEvent::Key {
+                code: ClientKeyCode::Esc,
+                modifiers: 0,
+                kind,
+                ..
+            } => *kind,
             other => panic!("D1 unexpected terminal input {other:?}"),
         })
         .collect()
