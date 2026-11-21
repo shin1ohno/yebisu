@@ -173,6 +173,7 @@ impl Smoke {
         let model = status_bar_model(&state, &self.terminal.reconnect.target);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
+        let software_keyboard = layout.key_band.is_some();
         let details = status_bar_details(
             layout.status_bar.width,
             &model,
@@ -301,6 +302,13 @@ impl Smoke {
                         Some(Icon::Keyboard),
                     ))
                 })
+                .when(software_keyboard, |view| {
+                    view.child(chip(
+                        "shell-status-software-keyboard",
+                        "Software keyboard",
+                        Some(Icon::Keyboard),
+                    ))
+                })
                 .child(div().flex_1())
                 // L9: Mods sits beside Shortcuts (ModsMax.dc.html) and opens
                 // the withdrawn regions' list in overlay O.
@@ -315,27 +323,29 @@ impl Smoke {
                         ),
                     )
                 })
-                .child(
-                    chip("shell-status-shortcuts", SHORTCUTS, Some(Icon::Keyboard))
-                        .w(px(SHORTCUTS_WIDTH))
-                        .h(px(SHORTCUTS_HEIGHT))
-                        .justify_center()
-                        .px_0()
-                        .rounded(px(radius::CONTROL))
-                        .when(shortcuts_selected, |chip| {
-                            chip.bg(gpui::Rgba::from(tint::SELECTED))
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            // L6 fills the popover; until then Shortcuts opens the
-                            // command palette (plan v2 5.2, L2a column).
-                            if !this.toggle_shortcuts(window, cx)
-                                && let Err(e) = this.run_action(Command::Palette)
-                            {
-                                this.terminal.live.status = e.to_string();
-                            }
-                            cx.notify();
-                        })),
-                )
+                .when(!software_keyboard, |view| {
+                    view.child(
+                        chip("shell-status-shortcuts", SHORTCUTS, Some(Icon::Keyboard))
+                            .w(px(SHORTCUTS_WIDTH))
+                            .h(px(SHORTCUTS_HEIGHT))
+                            .justify_center()
+                            .px_0()
+                            .rounded(px(radius::CONTROL))
+                            .when(shortcuts_selected, |chip| {
+                                chip.bg(gpui::Rgba::from(tint::SELECTED))
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                // L6 fills the popover; until then Shortcuts opens the
+                                // command palette (plan v2 5.2, L2a column).
+                                if !this.toggle_shortcuts(window, cx)
+                                    && let Err(e) = this.run_action(Command::Palette)
+                                {
+                                    this.terminal.live.status = e.to_string();
+                                }
+                                cx.notify();
+                            })),
+                    )
+                })
                 .into_any_element(),
         )
     }

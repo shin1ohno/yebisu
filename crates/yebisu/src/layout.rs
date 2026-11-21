@@ -305,6 +305,8 @@ pub struct Layout {
     /// Top of the terminal column under the tab row; height 0 when closed.
     pub find_bar: Rect,
     pub status_bar: Rect,
+    /// Full-width key band between the status bar and the docked keyboard.
+    pub(crate) key_band: Option<Rect>,
     pub m1: Option<Rect>,
     pub m2: Option<Rect>,
     pub m3: Option<Rect>,
@@ -337,11 +339,20 @@ impl Layout {
 
 /// Lays out the window.
 pub fn compute(input: &Input) -> Layout {
+    compute_with_key_band(input, 0.0)
+}
+
+pub(crate) fn compute_with_key_band(input: &Input, band_height: f32) -> Layout {
     let left = input.insets.safe_left.max(0.0);
     let top = input.insets.safe_top.max(0.0);
+    let keyboard_top = (input.window.height - input.insets.bottom()).max(0.0);
+    let band_height = band_height.min((keyboard_top - top).max(0.0));
+    let band_top = keyboard_top - band_height;
+    let key_band =
+        (band_height > 0.0).then(|| Rect::new(0.0, band_top, input.window.width, band_height));
     let usable = Size::new(
         (input.window.width - left - input.insets.safe_right.max(0.0)).max(0.0),
-        (input.window.height - top - input.insets.bottom()).max(0.0),
+        (band_top - top).max(0.0),
     );
     let mut withdrawn = Vec::new();
     let columns = width::allocate(
@@ -397,6 +408,7 @@ pub fn compute(input: &Input) -> Layout {
         tab_row,
         find_bar: bands.find_bar,
         status_bar,
+        key_band,
         m1,
         m2,
         m3: bands.m3,
