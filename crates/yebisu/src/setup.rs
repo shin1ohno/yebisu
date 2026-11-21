@@ -201,8 +201,14 @@ impl Setup {
                 self.status = "Enter user@host[:port], then scan the host key.".into();
             }
             Ok(Reply::Hosts(hosts, fingerprints)) => {
-                self.set_hosts(hosts);
-                self.fingerprints = fingerprints;
+                let SavedHosts {
+                    selected,
+                    targets,
+                    names,
+                } = hosts;
+                self.apply(Ok(Reply::Loaded(selected, fingerprints)));
+                self.hosts = targets;
+                self.host_names = names;
                 self.status = "Saved hosts loaded. Select a host or enter a new target.".into();
             }
             Ok(Reply::Scanned(target, scan, fingerprints)) => {
