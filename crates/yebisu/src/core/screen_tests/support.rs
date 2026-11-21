@@ -56,5 +56,6 @@ pub(super) fn column(width: f32, height: f32, cell: (f32, f32)) -> ColumnMetrics
         height,
         cell_width: cell.0,
         cell_height: cell.1,
+        focus_only: false,
     }
 }

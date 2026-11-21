@@ -20,6 +20,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "compact/mod.rs"]
+#[allow(dead_code)] // Removed when K1's frame and sizing hooks are wired.
+mod compact;
+
 /// How long a sent Zoom or Release may stay unconfirmed before it is sent
 /// again (a request the daemon dropped must not leave two panes in a narrow
 /// column for good).
@@ -71,6 +75,7 @@ struct Shown {
 /// Tabs yebisu zoomed itself, keyed by (host, tab id).
 #[derive(Debug, Default)]
 pub(crate) struct SinglePaneState {
+    compact: compact::CompactState,
     forced: BTreeMap<(String, u64), Forced>,
     shown: Option<Shown>,
     /// A redraw was asked for because the column had no measured width yet.
@@ -245,6 +250,7 @@ pub(crate) struct ColumnMetrics {
     pub(crate) height: f32,
     pub(crate) cell_width: f32,
     pub(crate) cell_height: f32,
+    pub(crate) focus_only: bool,
 }
 
 impl ColumnMetrics {
@@ -325,6 +331,7 @@ impl Default for Mailbox {
 impl Smoke {
     /// Called once per terminal frame before the screen is built.
     pub(crate) fn enforce_pane_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_compact_panels(window);
         let grid = self.terminal.column_bounds().size;
         let (width, height) = (f32::from(grid.width), f32::from(grid.height));
         if !self.terminal.open || width <= 0.0 {
@@ -343,6 +350,7 @@ impl Smoke {
                 height,
                 cell_width: self.terminal.geometry.cell_width,
                 cell_height: self.terminal.geometry.cell_height,
+                focus_only: self.pager_available_at(window),
             });
             return;
         }
@@ -390,6 +398,7 @@ impl Smoke {
             height: self.terminal.column_bounds().size.height.into(),
             cell_width: geometry.cell_width,
             cell_height: geometry.cell_height,
+            focus_only: false,
         };
         // A tab can list panes before the surface provides their rectangles.
         // Start with the two-pane budget and use actual widths for mixed splits.

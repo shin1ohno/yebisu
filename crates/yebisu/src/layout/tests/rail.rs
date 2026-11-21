@@ -45,3 +45,20 @@ fn user_rail_keeps_m2_when_it_fits() {
     assert_eq!(narrow.withdrawn, [super::super::Region::M2]);
     assert!(narrow.terminal.rect().is_some());
 }
+
+#[test]
+fn the_rail_and_line_keep_a_280_point_terminal_at_352_points() {
+    for make_window in [|width| window(width, 834.0), rail_window] {
+        for width in [352.0, 352.5] {
+            let out = layout(make_window(width));
+            assert!(out.sidebar_collapsed);
+            assert_eq!(out.sidebar.width, RAIL_WIDTH - RULE);
+            let terminal = out.terminal.rect().unwrap_or_else(|| panic!("{width} pt"));
+            assert_eq!(terminal.x, RAIL_WIDTH);
+            assert_eq!(terminal.width, width - RAIL_WIDTH);
+        }
+        let above = layout(make_window(353.0));
+        assert_eq!(above.sidebar.width, RAIL_WIDTH);
+        assert_eq!(above.tab_row.x, RAIL_WIDTH + RULE);
+    }
+}

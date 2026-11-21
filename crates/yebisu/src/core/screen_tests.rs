@@ -4,6 +4,8 @@
 mod chain;
 #[path = "screen_tests/hidden.rs"]
 mod hidden;
+#[path = "screen_tests/keyboard_zoom.rs"]
+mod keyboard_zoom;
 #[path = "screen_tests/minimum.rs"]
 mod minimum;
 #[path = "screen_tests/narrow.rs"]

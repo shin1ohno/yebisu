@@ -1,6 +1,6 @@
 use crate::shell::herdr2_frame::panes::{PaneRect, frame_lines, pane_rects};
 use crate::{
-    layout::{PaneMode, pane_mode},
+    layout::{PaneMode, herdr2_pane_mode},
     live::Live,
     shell::single_pane::ColumnMetrics,
 };
@@ -62,7 +62,7 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
     let Some(column) = column else {
         return false;
     };
-    if pane_mode(column.width, count) == PaneMode::Single {
+    if herdr2_pane_mode(column.width, count, column.focus_only) == PaneMode::Single {
         return true;
     }
     if count > 1 && !column.equal_panes_fit(count, vertical) {

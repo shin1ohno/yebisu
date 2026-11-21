@@ -253,7 +253,7 @@ impl Smoke {
             let bounds = bounds.intersect(&window.content_mask().bounds);
             let current = entity.update(cx,|this,cx| {
                     if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
-                    let (font_size,line_height) = this.terminal.font.metrics(this.terminal.compact);
+                    let (font_size,line_height) = this.terminal_font_metrics(window);
                     let face = font(this.terminal.font.family.clone());
                     let search_highlights = this.find_highlights();
                     let search_highlight_count = search_highlights.len();
@@ -336,7 +336,7 @@ impl Smoke {
         let board_in_band = self.board_in_band();
         let core_band = self.core_controls_in_band();
         let compact = self.terminal.compact;
-        let (font_size, line_height) = self.terminal.font.metrics(compact);
+        let (font_size, line_height) = self.terminal_font_metrics(window);
         let label = format!(
             "{} {font_size}/{line_height}",
             if compact { "Compact" } else { "Standard" }
