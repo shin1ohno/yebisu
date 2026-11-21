@@ -5,13 +5,19 @@ use crate::{
     app::Smoke,
     board::snapshot,
     shell::{
-        ChromeState,
+        ChromeState, HerdrKind,
+        edit_bar::COPY_ONE_LINE_LABEL,
         host_menus::{self, MenuItemId, MenuScope},
+        sidebar::AgentIdentity,
     },
     terminal_view::TerminalView,
 };
 use gpui::{Context, Menu, MenuItem, Window};
 use sheprd_commands::Command;
+
+const COPY_ONE_LINE: &str = "copy-as-one-line";
+const PIN_AGENT: &str = "pin-agent";
+const UNPIN_AGENT: &str = "unpin-agent";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Scope {
@@ -117,10 +123,52 @@ type MenuRow = (String, String, bool);
 /// The Host and Space menus: title and rows.
 type HostMenuRows = Vec<(&'static str, Vec<MenuRow>)>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AgentPin {
+    id: AgentIdentity,
+    boot: String,
+    generation: u64,
+    selection: u64,
+    pinned: bool,
+}
+
+impl AgentPin {
+    fn name(&self) -> &'static str {
+        if self.pinned { UNPIN_AGENT } else { PIN_AGENT }
+    }
+
+    fn row(&self) -> MenuRow {
+        let title = if self.pinned {
+            "Unpin Agent"
+        } else {
+            "Pin Agent"
+        };
+        (self.name().into(), title.into(), true)
+    }
+}
+
+fn copy_as_one_line_row(enabled: bool) -> MenuRow {
+    (
+        COPY_ONE_LINE.into(),
+        format!("{COPY_ONE_LINE_LABEL}　⌥⌘C"),
+        enabled,
+    )
+}
+
+fn menu_item((name, label, enabled): &MenuRow) -> MenuItem {
+    MenuItem::action(label.clone(), NativeCommand { name: name.clone() }).disabled(!enabled)
+}
+
+fn edit_menu(enabled: bool) -> Menu {
+    Menu::new("Edit").items([menu_item(&copy_as_one_line_row(enabled))])
+}
+
 #[derive(Default)]
 pub(crate) struct NativeMenus {
     scope: Option<Scope>,
-    rows: Vec<(String, String, bool)>,
+    rows: Vec<MenuRow>,
+    copy_as_one_line: bool,
+    agent_pin: Option<AgentPin>,
     /// The Host and Space menus (L6, Q8): title and (name, label, enabled).
     pub(crate) host_menus: HostMenuRows,
     /// The target the Host and Space menus were built for (S-10).
@@ -247,23 +295,100 @@ impl Smoke {
         let host_menus = self
             .native_menus
             .refresh_host_menus(scope, &space_name, &state, focused);
-        if !terminal_menu && !host_menus {
+        let copy_as_one_line = self.native_copy_as_one_line_available(focused);
+        let agent_pin = self.native_agent_pin(focused);
+        let extras_changed = self.native_menus.copy_as_one_line != copy_as_one_line
+            || self.native_menus.agent_pin != agent_pin;
+        self.native_menus.copy_as_one_line = copy_as_one_line;
+        self.native_menus.agent_pin = agent_pin;
+        if !terminal_menu && !host_menus && !extras_changed {
             return;
         }
         // QA only: `refresh` returned true, so the OS menu is rebuilt below.
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.p12_note_menu_rebuild();
-        let items = self.native_menus.rows.iter().map(|(name, label, enabled)| {
-            MenuItem::action(label.clone(), NativeCommand { name: name.clone() }).disabled(!enabled)
-        });
-        let mut menus = vec![Menu::new("Terminal").items(items)];
-        menus.extend(self.native_menus.host_menus.iter().map(|(title, rows)| {
-            Menu::new(*title).items(rows.iter().map(|(name, label, enabled)| {
-                MenuItem::action(label.clone(), NativeCommand { name: name.clone() })
-                    .disabled(!enabled)
-            }))
-        }));
+        let pin = self
+            .native_menus
+            .agent_pin
+            .as_ref()
+            .map(|pin| menu_item(&pin.row()));
+        let items = self.native_menus.rows.iter().map(menu_item).chain(pin);
+        // The first GPUI menu joins the application menu. UIKit matches
+        // the following "Edit" title to UIMenuEdit in the pinned SDK.
+        let mut menus = vec![
+            Menu::new("Terminal").items(items),
+            edit_menu(copy_as_one_line),
+        ];
+        menus.extend(
+            self.native_menus
+                .host_menus
+                .iter()
+                .map(|(title, rows)| Menu::new(*title).items(rows.iter().map(menu_item))),
+        );
         cx.set_menus(menus);
+    }
+
+    fn native_copy_as_one_line_available(&self, focused: bool) -> bool {
+        focused
+            && !self.input_modal()
+            && !self.new_space_open()
+            && !(self.actions.terminal_priority && self.terminal.input.options.command_control)
+            && self.handoff.selection.is_some()
+    }
+
+    fn native_agent_pin(&self, focused: bool) -> Option<AgentPin> {
+        if !focused
+            || self.input_modal()
+            || self.new_space_open()
+            || self.terminal.core_mode
+            || !self.terminal.live.connected
+        {
+            return None;
+        }
+        let shown = snapshot(&self.terminal.live)?;
+        let pane = shown.focused_pane_id.as_ref()?;
+        if !shown.agents.iter().any(|agent| agent.pane_id == *pane) {
+            return None;
+        }
+        let id = AgentIdentity {
+            host: self.terminal.reconnect.target.clone(),
+            kind: HerdrKind::Herdr1,
+            pane: pane.clone(),
+        };
+        Some(AgentPin {
+            pinned: self.shell.sidebar.is_agent_pinned(&id, &shown.boot_id),
+            id,
+            boot: shown.boot_id.clone(),
+            generation: self.terminal.link.generation,
+            selection: self.board.selection,
+        })
+    }
+
+    fn run_native_edit(&mut self, focused: bool, cx: &mut Context<Self>) -> crate::Result<()> {
+        if !self.native_copy_as_one_line_available(focused)
+            || !self.native_menus.copy_as_one_line
+            || self.native_menus.scope.as_ref()
+                != Some(&Scope::current(&self.terminal, &self.actions, focused))
+        {
+            return Err(crate::Error::NativeMenu("Copy as One Line unavailable"));
+        }
+        self.copy_selection_as_one_line(cx);
+        Ok(())
+    }
+
+    fn run_native_pin(
+        &mut self,
+        name: &str,
+        focused: bool,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        let target = self
+            .native_agent_pin(focused)
+            .filter(|pin| pin.name() == name && Some(pin) == self.native_menus.agent_pin.as_ref())
+            .ok_or(crate::Error::NativeMenu(
+                "Agent pane changed; reopen the menu",
+            ))?;
+        self.toggle_sidebar_agent_pin(target.id, &target.boot, target.generation, cx)
     }
 
     pub(crate) fn native_command_action(
@@ -275,7 +400,11 @@ impl Smoke {
         let focused = self.terminal_focus.is_focused(window) && window.is_window_active();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let receipt = self.p12_menu_begin(&action.name, "native_action", window);
-        let result = if let Some(item) = MenuItemId::from_name(&action.name) {
+        let result = if action.name == COPY_ONE_LINE {
+            self.run_native_edit(focused, cx)
+        } else if matches!(action.name.as_str(), PIN_AGENT | UNPIN_AGENT) {
+            self.run_native_pin(&action.name, focused, cx)
+        } else if let Some(item) = MenuItemId::from_name(&action.name) {
             // Host / Space (L6): the target shown with the menu must still be
             // the current one (S-10).
             let shown = self.native_menus.menu_scope.clone();

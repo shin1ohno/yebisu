@@ -1,6 +1,6 @@
 //! Rule: while selecting, the frame's controls stay usable. The bar adds its
-//! own four entries and never disables, replaces or hides another one; a
-//! selection pauses typing only, not the command catalog.
+//! Copy, Paste, Paste image and Select actions and never hides another
+//! entry. A selection pauses typing while the command catalog stays usable.
 use super::support::{selection, window};
 use crate::{
     actions::catalog,
@@ -29,7 +29,9 @@ fn chrome_stays_usable_while_selecting() {
             ..ChromeState::default()
         };
         let points = edit_bar_entry_points(&state);
-        assert_eq!(points.len(), edit_bar_items(true).len());
+        for item in edit_bar_items(true) {
+            assert!(points.iter().any(|point| point.action == item.action()));
+        }
         for action in FRAME_ACTIONS {
             assert!(
                 points.iter().all(|p| p.action != action),

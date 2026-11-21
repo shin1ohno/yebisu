@@ -19,7 +19,7 @@ use crate::{
     hosts::HostName,
     layout::{STATUS_BAR_HEIGHT, Size},
 };
-use gpui::{AnyElement, Context, Window, deferred, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Role, Window, deferred, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 pub(crate) const SHOW_SIDEBAR: &str = "Expand sidebar ⌘B";
@@ -31,6 +31,13 @@ pub(crate) const HARDWARE_KEYBOARD: &str = "Hardware keyboard";
 /// The bar's side padding (`px_3`, both sides) and its status dot.
 const BAR_PADDING: f32 = 24.0;
 const DOT_WIDTH: f32 = metric::SMALL_DOT;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct StatusDetailScope {
+    selection: u64,
+    generation: u64,
+    connected: bool,
+}
 // Main.dc.html:185–189 and Shortcuts.dc.html:66.
 const ICON_GAP: f32 = 6.;
 const SHORTCUTS_WIDTH: f32 = 104.;
@@ -176,7 +183,15 @@ impl Smoke {
             self.shell.fit.hardware_keyboard && !details.contains(&StatusItem::HardwareKeyboard);
         let selection = self.selection_status(usize::MAX);
         let detail = status_detail(&model, &self.terminal_status());
-        let show_details = detail.is_some() && self.shell.shortcuts.status_detail_open;
+        let scope = StatusDetailScope {
+            selection: self.board.selection,
+            generation: self.terminal.link.generation,
+            connected: state.connected,
+        };
+        if detail.is_none() || self.shell.shortcuts.status_detail_open != Some(scope) {
+            self.shell.shortcuts.status_detail_open = None;
+        }
+        let show_details = self.shell.shortcuts.status_detail_open.is_some();
         let shortcuts_selected = self.shell.shortcuts.open;
         Some(
             div()
@@ -202,16 +217,40 @@ impl Smoke {
                     div()
                         .id("shell-status-line")
                         .min_w_0()
+                        .flex()
                         .flex_shrink(1.)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
+                        .items_center()
+                        .gap_1()
                         .debug_selector(|| "shell-status-line".into())
-                        .aria_label(model.accessibility_label.clone())
-                        .child(status_line(&model))
+                        .aria_label(if detail.is_some() {
+                            format!(
+                                "{}, connection details available",
+                                model.accessibility_label
+                            )
+                        } else {
+                            model.accessibility_label.clone()
+                        })
+                        .child(div().min_w_0().truncate().child(status_line(&model)))
                         .when(detail.is_some(), |line| {
-                            line.on_click(cx.listener(|this, _, _, cx| {
-                                this.shell.shortcuts.status_detail_open ^= true;
+                            line.role(Role::Button)
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(rgb(color::MUTED))
+                                        .debug_selector(|| "shell-status-detail-mark".into())
+                                        .child(if show_details { "▾" } else { "▸" }),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.shell.shortcuts.status_detail_open =
+                                        (!show_details).then_some(scope);
+                                    cx.notify();
+                                }))
+                        })
+                        .when(show_details, |line| {
+                            // Observe the press without taking it from the terminal,
+                            // including a tap under the informational panel.
+                            line.on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.shell.shortcuts.status_detail_open = None;
                                 cx.notify();
                             }))
                         }),
@@ -229,14 +268,13 @@ impl Smoke {
                 .when_some(detail.filter(|_| show_details), |bar, detail| {
                     bar.child(deferred(
                         div()
-                            .id("shell-status-detail")
+                            .debug_selector(|| "shell-status-detail".into())
                             .absolute()
                             .left_3()
                             .bottom(px(STATUS_BAR_HEIGHT))
                             .max_w(px((layout.status_bar.width - BAR_PADDING).max(0.)))
                             .px_3()
                             .py_2()
-                            .occlude()
                             .bg(rgb(color::RAISED))
                             .rounded(px(radius::CONTROL))
                             .shadow(vec![shadow::POPOVER.box_shadow()])

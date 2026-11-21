@@ -164,7 +164,7 @@ pub(crate) struct ShortcutsState {
     pub(crate) open: bool,
     /// Transient popovers opened by the tab row and the status bar.
     pub(super) space_picker_open: bool,
-    pub(super) status_detail_open: bool,
+    pub(super) status_detail_open: Option<super::status_bar::StatusDetailScope>,
     expanded: Option<ShortcutGroup>,
     /// The host the last Host › Edit pick asked to edit (L7 reads it).
     pub(crate) edit_host: Option<String>,
@@ -179,7 +179,7 @@ pub(crate) struct ShortcutRow {
 
 /// The chrome's part of a row's availability: a sheet blocks every row,
 /// local commands need nothing else, Find needs `find::available`, and an
-/// RPC command needs a connected Herdr 1 (the catalog is Herdr 1's).
+/// RPC command needs a connection and support from that daemon's catalog.
 fn chrome_allows(command: Command, state: &ChromeState) -> bool {
     if state.sheet_open {
         return false;
@@ -190,7 +190,8 @@ fn chrome_allows(command: Command, state: &ChromeState) -> bool {
         Command::ToggleSidebar => !state.sidebar_forced,
         Command::Palette => true,
         Command::Find => state.find_available,
-        _ => state.connected && state.kind == HerdrKind::Herdr1,
+        Command::ClosePane | Command::Zoom if state.kind == HerdrKind::Herdr2 => false,
+        _ => state.connected,
     }
 }
 
@@ -204,10 +205,10 @@ fn chrome_reason(command: Command, state: &ChromeState) -> Option<&'static str> 
         super::rail::toggle_unavailable(state)
     } else if command == Command::Find {
         Some("Find is not available here")
-    } else if state.kind != HerdrKind::Herdr1 {
-        Some("Not available on Herdr 2")
-    } else {
+    } else if !state.connected {
         Some("Host is not connected")
+    } else {
+        Some("Not available on Herdr 2")
     }
 }
 

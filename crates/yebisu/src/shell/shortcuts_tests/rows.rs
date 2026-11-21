@@ -79,12 +79,16 @@ fn unavailable_rows_are_disabled() {
         ..state
     };
     assert!(!row_enabled(&no_find, Command::Find));
-    // Herdr 2 has no catalog RPC commands.
+    // Herdr 2 supports tab and split commands, but not Zoom or Close Pane.
     let herdr2 = ChromeState {
         kind: HerdrKind::Herdr2,
         ..state
     };
-    assert!(!row_enabled(&herdr2, Command::SplitRight));
+    assert!(row_enabled(&herdr2, Command::Tab));
+    assert!(row_enabled(&herdr2, Command::SplitRight));
+    assert!(row_enabled(&herdr2, Command::SplitDown));
+    assert!(!row_enabled(&herdr2, Command::Zoom));
+    assert!(!row_enabled(&herdr2, Command::ClosePane));
     // An open sheet disables every row.
     let sheet = ChromeState {
         sheet_open: true,

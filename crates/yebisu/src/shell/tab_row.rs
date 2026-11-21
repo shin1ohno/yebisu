@@ -204,8 +204,21 @@ fn printable_name(name: &str) -> String {
 impl Smoke {
     pub(super) fn row_tabs(&self) -> Vec<TabEntry> {
         if self.terminal.core_mode {
-            // L8: one Herdr 2 session is one tab (q4).
-            return crate::shell::herdr2_frame::session::session_tabs();
+            return self
+                .core_tabs()
+                .into_iter()
+                .enumerate()
+                .map(|(index, tab)| {
+                    let number = index + 1;
+                    let label = printable_name(&tab.label);
+                    let label = if label.trim().is_empty() || label == number.to_string() {
+                        number.to_string()
+                    } else {
+                        format!("{number} · {label}")
+                    };
+                    (tab.id, label, tab.active)
+                })
+                .collect();
         }
         snapshot(&self.terminal.live)
             .map(|s| {
@@ -235,6 +248,14 @@ impl Smoke {
             self.shell.shortcuts.space_picker_open = false;
             None
         };
+        let show_status_dot = herdr1 && switcher.is_none();
+        let catalog = (!herdr1).then(|| crate::actions::catalog(&self.terminal));
+        let enabled = |command| {
+            catalog.as_ref().is_none_or(|rows| {
+                rows.iter()
+                    .any(|row| row.info.command == command && row.available)
+            })
+        };
         let strip = div()
             .id("shell-tab-strip")
             .flex()
@@ -246,38 +267,27 @@ impl Smoke {
                 tabs.into_iter()
                     .enumerate()
                     .map(|(index, (id, label, focused))| {
-                        let label = if herdr1 {
-                            label
-                        } else {
-                            format!("{} · {label}", index + 1)
-                        };
-                        self.tab_element(index, id, label, focused, cx)
+                        self.tab_element(index, (id, label, focused), show_status_dot, cx)
                     }),
             );
         let new_tab = self.pinned_button(
             "shell-new-tab",
             "New tab",
             Icon::NewTab,
-            herdr1,
+            enabled(Command::Tab),
             cx,
             |this, cx| this.tab_row_command(Command::Tab, cx),
         );
-        let (new_tab, trailing_new_tab) = if herdr1 {
-            (Some(new_tab), None)
-        } else {
-            (None, Some(new_tab))
-        };
         let pinned = div()
             .debug_selector(|| "shell-tab-pinned".into())
             .flex()
             .flex_none()
             .h_full()
-            .children(trailing_new_tab)
             .child(self.pinned_button(
                 "shell-split",
                 "Split right",
                 Icon::Split,
-                herdr1,
+                enabled(Command::SplitRight),
                 cx,
                 |this, cx| this.tab_row_command(Command::SplitRight, cx),
             ))
@@ -307,7 +317,7 @@ impl Smoke {
                 .text_color(rgb(color::TEXT))
                 .children(switcher)
                 .child(strip)
-                .children(new_tab)
+                .child(new_tab)
                 .child(div().flex_1())
                 .child(pinned)
                 .into_any_element(),
@@ -317,9 +327,8 @@ impl Smoke {
     fn tab_element(
         &self,
         index: usize,
-        id: String,
-        label: String,
-        focused: bool,
+        (id, label, focused): TabEntry,
+        show_status_dot: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let host = self.terminal.reconnect.target.clone();
@@ -328,8 +337,7 @@ impl Smoke {
             .map(|s| s.boot_id.clone())
             .unwrap_or_default();
         let (select_host, select_id, select_boot) = (host.clone(), id.clone(), boot.clone());
-        // A Herdr 2 session has no Herdr 1 tab to focus or close.
-        let herdr1 = !self.terminal.core_mode;
+        let core_mode = self.terminal.core_mode;
         let dot = snapshot(&self.terminal.live)
             .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == id))
             .map(|tab| from_agent_status(tab.agent_status).dot_color())
@@ -372,7 +380,12 @@ impl Smoke {
                     .gap(px(metric::INLINE_GAP))
                     .min_w_0()
                     .pl(px(TAB_PADDING))
-                    .when(focused, |body| body.child(status_dot(dot)))
+                    .when(focused && show_status_dot, |body| {
+                        body.child(
+                            status_dot(dot)
+                                .debug_selector(|| "shell-selected-tab-status-dot".into()),
+                        )
+                    })
                     .child(
                         div()
                             .debug_selector(move || format!("shell-tab-body-{index}"))
@@ -381,42 +394,53 @@ impl Smoke {
                             .font_weight(appearance.weight)
                             .child(label.clone()),
                     )
-                    .when(herdr1, |body| {
-                        body.on_click(cx.listener(move |this, _, window, cx| {
-                            if let Err(e) =
-                                this.focus_tab(&select_host, &select_id, &select_boot, generation)
-                            {
-                                this.terminal.live.status = e.to_string();
-                            }
-                            window.dismiss_virtual_keyboard();
-                            cx.notify();
-                        }))
-                    }),
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.terminal.core_mode != core_mode {
+                            return;
+                        }
+                        let result = if core_mode {
+                            this.core_tab_action(&select_host, generation, &select_id, false)
+                        } else {
+                            this.focus_tab(&select_host, &select_id, &select_boot, generation)
+                        };
+                        if let Err(error) = result {
+                            this.terminal.live.status = error.to_string();
+                        }
+                        window.dismiss_virtual_keyboard();
+                        cx.notify();
+                    })),
             )
-            .when(herdr1, |tab| {
-                tab.child(
-                    div()
-                        .id(("shell-tab-close", index))
-                        .role(Role::Button)
-                        .aria_label(format!("Close tab {label}"))
-                        .flex_none()
-                        .w(px(CLOSE_WIDTH))
-                        .h(px(TAB_ROW_HEIGHT))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(rgb(color::MUTED))
-                        .child("×")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if let Err(e) = this.close_tab_by_id(&host, &id, &boot, generation) {
-                                this.terminal.live.status = e.to_string();
-                            }
-                            window.dismiss_virtual_keyboard();
-                            cx.stop_propagation();
-                            cx.notify();
-                        })),
-                )
-            })
+            .child(
+                div()
+                    .id(("shell-tab-close", index))
+                    .debug_selector(move || format!("shell-tab-close-{index}"))
+                    .role(Role::Button)
+                    .aria_label(format!("Close tab {label}"))
+                    .flex_none()
+                    .w(px(CLOSE_WIDTH))
+                    .h(px(TAB_ROW_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(rgb(color::MUTED))
+                    .child("×")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.terminal.core_mode != core_mode {
+                            return;
+                        }
+                        let result = if core_mode {
+                            this.core_tab_action(&host, generation, &id, true)
+                        } else {
+                            this.close_tab_by_id(&host, &id, &boot, generation)
+                        };
+                        if let Err(error) = result {
+                            this.terminal.live.status = error.to_string();
+                        }
+                        window.dismiss_virtual_keyboard();
+                        cx.stop_propagation();
+                        cx.notify();
+                    })),
+            )
             .into_any_element()
     }
 
@@ -429,6 +453,7 @@ impl Smoke {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
+        let more_open = id == "shell-more" && self.shell.frame.overflow_open;
         div()
             .id(id)
             .role(Role::Button)
@@ -440,11 +465,10 @@ impl Smoke {
             .flex()
             .items_center()
             .justify_center()
-            .when(
-                id == "shell-more" && self.shell.frame.overflow_open,
-                |button| button.bg(rgb(color::RAISED)),
-            )
-            .child(icon.element(if enabled {
+            .when(more_open, |button| button.bg(rgb(color::RAISED)))
+            .child(icon.element(if more_open {
+                color::TEXT
+            } else if enabled {
                 color::MUTED
             } else {
                 color::DISABLED
@@ -546,6 +570,7 @@ impl Smoke {
                         let id = workspace.workspace_id.clone();
                         div()
                             .id(("shell-space-picker-row", index))
+                            .debug_selector(move || format!("shell-space-picker-row-{index}"))
                             .role(Role::Button)
                             .h(px(metric::MENU_ITEM))
                             .flex()

@@ -77,50 +77,36 @@ fn overflow_menu_items_for_herdr2() {
     assert_eq!(
         items(&with_find),
         [
+            NewTab,
+            Split,
             Paste,
             PasteImage,
+            Reconnect,
+            Detach,
             SelectText,
             Copy,
             Find,
-            Reconnect,
-            Split,
             Pane1,
             Pane2,
-            SplitDirection,
-            Detach,
-            NewTab
+            SplitDirection
         ]
     );
-    // Find only when PR 26's `available` is true.
-    let without_find = overflow_menu_items(&state(HerdrKind::Herdr2, true, false, false));
     assert_eq!(
-        items(&without_find),
+        HERDR2_TAB_COMMANDS.map(|(_, _, label, keys)| (label, keys)),
         [
-            Paste,
-            PasteImage,
-            SelectText,
-            Copy,
-            Reconnect,
-            Split,
-            Pane1,
-            Pane2,
-            SplitDirection,
-            Detach,
-            NewTab
+            ("New tab", "⌘T"),
+            ("Split right", "⌘D"),
+            ("Split down", "⇧⌘D")
         ]
     );
-    // No command palette and no Close tab on Herdr 2.
-    assert!(find(&with_find, CommandPalette).is_none() && find(&with_find, CloseTab).is_none());
-    // New tab is disabled with its reason (q4).
-    assert_eq!(
-        find(&with_find, NewTab).cloned(),
-        Some(OverflowEntry {
-            item: NewTab,
-            enabled: false,
-            reason: Some(HERDR2_NEW_TAB)
-        })
-    );
-    assert_eq!(find(&with_find, Detach).map(|e| e.enabled), Some(true));
+    let without_find = overflow_menu_items(&state(HerdrKind::Herdr2, true, false, false));
+    assert!(find(&without_find, Find).is_none());
+    for item in [NewTab, Split, Paste, PasteImage, Detach] {
+        assert!(find(&with_find, item).is_some_and(|entry| entry.enabled));
+    }
+    let offline = overflow_menu_items(&state(HerdrKind::Herdr2, false, false, false));
+    assert!(find(&offline, Reconnect).is_some_and(|entry| entry.enabled));
+    assert!(find(&offline, NewTab).is_some_and(|entry| entry.reason == Some(NOT_CONNECTED)));
 }
 
 #[test]
@@ -182,4 +168,20 @@ fn overflow_menu_matches_the_canvas_geometry() {
     assert_eq!(metric::MENU_PADDING, 6.);
     assert_eq!(radius::POPOVER, 14.);
     assert_eq!((shadow::POPOVER.y, shadow::POPOVER.blur), (12., 36.));
+}
+
+#[test]
+fn copy_as_one_line_is_not_in_the_overflow_menu() {
+    use super::super::edit_bar::edit_bar_items;
+    let label = "Copy as One Line";
+    assert!(
+        edit_bar_items(true)
+            .iter()
+            .any(|item| item.label() == label)
+    );
+    for kind in [HerdrKind::Herdr1, HerdrKind::Herdr2] {
+        let entries = overflow_menu_items(&state(kind, true, true, true));
+        assert!(find(&entries, Copy).is_some());
+        assert!(entries.iter().all(|entry| entry.item.label() != label));
+    }
 }
