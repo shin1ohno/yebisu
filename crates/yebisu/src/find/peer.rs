@@ -93,7 +93,7 @@ pub(crate) fn connect_fixture() -> crate::Result<Client> {
     if let Ok(mut slot) = FIXTURE.lock() {
         *slot = Some(idle.clone());
     }
-    connect_mode(None, false, idle, None).map(|(client, _)| client)
+    connect_mode(None, false, idle, Replies::All).map(|(client, _)| client)
 }
 /// Called by every fixture tap; only the first one starts the bound.
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
@@ -216,12 +216,23 @@ fn search(params: &CopySearchParams) -> CopySearchResult {
 /// Host fixtures: the bound starts at connect.
 #[cfg(test)]
 pub(crate) fn connect() -> crate::Result<(Client, Receiver<ClientMessage>)> {
-    connect_mode(None, false, Idle::new(IDLE, true), None)
+    connect_mode(None, false, Idle::new(IDLE, true), Replies::All)
 }
 /// Publishes the initial state, then records client messages without replying.
 #[cfg(test)]
 pub(crate) fn connect_quiet(report_all: bool) -> crate::Result<(Client, Receiver<ClientMessage>)> {
-    connect_mode(None, false, Idle::new(IDLE, true), Some(report_all))
+    connect_mode(
+        None,
+        false,
+        Idle::new(IDLE, true),
+        Replies::Quiet { report_all },
+    )
+}
+/// Replies only to `pane.copy_search`, so an observed final result leaves
+/// no resize or scroll publications racing the retirement that follows.
+#[cfg(test)]
+pub(crate) fn connect_search_only() -> crate::Result<(Client, Receiver<ClientMessage>)> {
+    connect_mode(None, false, Idle::new(IDLE, true), Replies::SearchOnly)
 }
 /// An unarmed link with a short bound, for the bound's own host test.
 #[cfg(test)]
@@ -229,7 +240,8 @@ pub(crate) fn connect_idle(
     limit: Duration,
 ) -> crate::Result<(Client, Receiver<ClientMessage>, Arc<Idle>)> {
     let idle = Idle::new(limit, false);
-    connect_mode(None, false, idle.clone(), None).map(|(client, received)| (client, received, idle))
+    connect_mode(None, false, idle.clone(), Replies::All)
+        .map(|(client, received)| (client, received, idle))
 }
 #[cfg(test)]
 pub(crate) fn connect_delayed(
@@ -240,14 +252,25 @@ pub(crate) fn connect_delayed(
     std::sync::mpsc::SyncSender<()>,
 )> {
     let (release, gate) = sync_channel(1);
-    connect_mode(Some(gate), wrong_boot, Idle::new(IDLE, true), None)
+    connect_mode(Some(gate), wrong_boot, Idle::new(IDLE, true), Replies::All)
         .map(|(client, received)| (client, received, release))
 }
+
+enum Replies {
+    All,
+    #[cfg(test)]
+    Quiet {
+        report_all: bool,
+    },
+    #[cfg(test)]
+    SearchOnly,
+}
+
 fn connect_mode(
     mut gate: Option<Receiver<()>>,
     mut wrong_boot: bool,
     idle: Arc<Idle>,
-    key_receipts_report_all: Option<bool>,
+    replies: Replies,
 ) -> crate::Result<(Client, Receiver<ClientMessage>)> {
     let (local, mut server) = Stream::pair()?;
     let (receipts, receiver) = sync_channel(64);
@@ -277,6 +300,10 @@ fn connect_mode(
                     "pane.copy_search",
                     "pane.scroll"
                 ]);
+                #[cfg(test)]
+                if matches!(replies, Replies::SearchOnly) {
+                    welcome["methods"] = serde_json::json!(["pane.copy_search"]);
+                }
                 welcome["capabilities"] =
                     serde_json::json!(["surface_interest", "presentation_effects_fence"]);
                 for (kind, data) in [
@@ -295,7 +322,11 @@ fn connect_mode(
                         MAX_FRAME_SIZE,
                     )?;
                 }
-                if let Some(enabled) = key_receipts_report_all {
+                #[cfg(test)]
+                if let Replies::Quiet {
+                    report_all: enabled,
+                } = replies
+                {
                     // The first surface makes the fixture ready. Publish the
                     // mode before it so the reader has applied both by then.
                     write_message(
@@ -317,12 +348,13 @@ fn connect_mode(
                     let _ = receipts.try_send(message.clone());
                     #[cfg(all(target_os = "ios", target_abi = "sim"))]
                     record(&message);
-                    // Resize and scroll replies would let the reader hold the
-                    // inbox while a test needs a stable owner for retirement.
-                    if key_receipts_report_all.is_some() {
+                    #[cfg(test)]
+                    if matches!(replies, Replies::Quiet { .. }) {
                         continue;
                     }
-                    if let ClientMessage::ClientShellResize { surface_size, .. } = &message {
+                    if matches!(replies, Replies::All)
+                        && let ClientMessage::ClientShellResize { surface_size, .. } = &message
+                    {
                         serial += 1;
                         cols = surface_size.cols;
                         rows = surface_size.rows;
@@ -340,6 +372,12 @@ fn connect_mode(
                     if let ClientMessage::ClientShellEndpointRequest { boot_id, request } = message
                     {
                         let request: serde_json::Value = serde_json::from_str(&request)?;
+                        #[cfg(test)]
+                        if matches!(replies, Replies::SearchOnly)
+                            && request["method"] != "pane.copy_search"
+                        {
+                            continue;
+                        }
                         if request["method"] == "pane.copy_search"
                             && let Some(wait) = gate.take()
                         {

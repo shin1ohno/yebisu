@@ -100,11 +100,9 @@ pub(super) fn barrier(
             .handle
             .as_ref()
             .unwrap()
-            .request(
-                "boot-v1",
-                sheprd_client::Method::PaneScroll,
-                serde_json::json!({"pane_id":"w1:p1","offset_from_bottom":100,"p13_barrier":label}),
-            )
+            // A one-way message can delimit each batch on the ordered socket
+            // without occupying the quiet fixture's endpoint request slot.
+            .set_focus("boot-v1", false)
             .unwrap();
     });
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -112,7 +110,7 @@ pub(super) fn barrier(
     loop {
         match receipts
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap()
+            .unwrap_or_else(|error| panic!("P13 input barrier {label}: {error}"))
         {
             ClientMessage::ClientShellPaneInput {
                 pane_id,
@@ -121,12 +119,7 @@ pub(super) fn barrier(
                 assert_eq!(pane_id, "w1:p1");
                 events.extend(next);
             }
-            ClientMessage::ClientShellEndpointRequest { request, .. } => {
-                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
-                if request["params"]["p13_barrier"] == label {
-                    return events;
-                }
-            }
+            ClientMessage::ClientShellFocus { focused: false } => return events,
             _ => {}
         }
     }
@@ -137,7 +130,7 @@ fn d5_controlled_close_boundary_recovers_direct_insert_and_mark_without_key_down
     cx: &mut TestAppContext,
 ) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, receipts) = crate::find::peer::connect().unwrap();
+    let (client, receipts) = crate::find::peer::connect_quiet(false).unwrap();
     install(&view, cx, "d5", client);
     let old_field = open(&view, cx);
     cx.update(|window, cx| {
@@ -278,7 +271,7 @@ fn d5_retirement_ack_rejects_changed_owners_and_native_identities(cx: &mut TestA
 #[gpui::test]
 fn f1_busy_inbox_at_close_or_ack_rearms_retirement_until_input_returns(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let (client, receipts) = crate::find::peer::connect().unwrap();
+    let (client, receipts) = crate::find::peer::connect_quiet(false).unwrap();
     install(&view, cx, "f1", client);
     open(&view, cx);
     cx.update(|window, cx| {
@@ -323,11 +316,8 @@ fn f1_busy_inbox_at_close_or_ack_rearms_retirement_until_input_returns(cx: &mut 
 fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestAppContext) {
     for report_all in [false, true] {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        let (client, receipts) = crate::find::peer::connect().unwrap();
+        let (client, receipts) = crate::find::peer::connect_quiet(report_all).unwrap();
         install(&view, cx, "d2", client);
-        view.update(cx, |this, _| {
-            this.terminal.link.inbox.lock().unwrap().keyboard_report_all = report_all;
-        });
         let field = open(&view, cx);
         cx.update(|window, cx| {
             field.update(cx, |field, cx| field.key(&key("escape", false), window, cx))
@@ -354,15 +344,15 @@ fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestApp
                 );
             })
         });
-        std::thread::sleep(Duration::from_millis(60));
         assert!(
-            terminal(&receipts).is_empty(),
+            barrier(&view, cx, &receipts, "d2-before-ack").is_empty(),
             "D2 held/release/native callback leaked terminal bytes"
         );
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
                 // Explicit host boundary after the old-callback negative above.
                 this.controlled_find_retirement(window);
+                this.terminal.size = None;
                 this.terminal_key_down(&key("escape", false), window, cx);
                 this.terminal_key_up(
                     &KeyUpEvent {
@@ -373,21 +363,8 @@ fn d2_close_escape_owns_repeat_and_release_in_both_report_modes(cx: &mut TestApp
                 );
             })
         });
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut events = Vec::new();
-        while events.len() < if report_all { 2 } else { 1 } {
-            let message = receipts
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .unwrap();
-            if let ClientMessage::ClientShellPaneInput {
-                pane_id,
-                events: next,
-            } = message
-            {
-                assert_eq!(pane_id, "w1:p1");
-                events.extend(next);
-            }
-        }
+        let events = barrier(&view, cx, &receipts, "d2-after-ack");
+        assert_eq!(events.len(), if report_all { 2 } else { 1 });
         assert!(
             matches!(
                 &events[0],
