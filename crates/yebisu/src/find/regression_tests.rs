@@ -94,15 +94,18 @@ pub(super) fn barrier(
     receipts: &Receiver<ClientMessage>,
     label: &str,
 ) -> Vec<ClientPaneInputEvent> {
+    // Reserve a one-way payload for this barrier. The app can send Focus(false)
+    // on deactivation or when reclaiming geometry before it sends the input.
+    let marker = [ClientPaneInputEvent::Paste(format!(
+        "p13-test-barrier:{label}"
+    ))];
     view.update(cx, |this, _| {
         this.terminal
             .link
             .handle
             .as_ref()
             .unwrap()
-            // A one-way message can delimit each batch on the ordered socket
-            // without occupying the quiet fixture's endpoint request slot.
-            .set_focus("boot-v1", false)
+            .send_input("boot-v1", "w1:p1", marker.clone())
             .unwrap();
     });
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -117,9 +120,14 @@ pub(super) fn barrier(
                 events: next,
             } => {
                 assert_eq!(pane_id, "w1:p1");
+                if next == marker {
+                    return events;
+                }
                 events.extend(next);
             }
-            ClientMessage::ClientShellFocus { focused: false } => return events,
+            ClientMessage::ClientShellPopupInput { .. } => {
+                panic!("P13 input barrier {label}: input reached a popup");
+            }
             _ => {}
         }
     }
