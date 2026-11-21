@@ -1,9 +1,54 @@
 # Simulator CI
 
-The `simulator-smoke` job runs on GitHub-hosted `macos-26` for pull requests,
-pushes to main and manual dispatch, with read-only contents permission and a
-40-minute timeout. It installs XcodeGen and just, then uses the pinned Rust
-toolchain and the continuously monitored 6 GiB disk guard.
+The `simulator-smoke` job uses GitHub-hosted `macos-26`, read-only contents
+permission and a 40-minute timeout. It installs XcodeGen and just, then uses
+the pinned Rust toolchain and the continuously monitored 6 GiB disk guard.
+
+## When CI runs
+
+- **Pull requests.** The `changes` job selects `check`, `simulator-smoke` and
+  `edit-menu` from the whole PR diff. The Simulator path filters still include
+  their matching test-only files. Within `check`, `Layout geometry source
+  mutations` runs when the diff matches layout, shell, settings, settings
+  pages, core/screen, terminal_input, their test paths, the mutation script,
+  or the build inputs listed in the `mutations` pattern in `ci.yml`. If the
+  diff is unavailable, the PR jobs run and the mutation step waits for main.
+  `layout-smoke` is skipped on every PR.
+- **Pushes to main.** Each macOS job runs unless the GitHub API identifies a
+  merged PR with the exact same Git tree and a completed job whose every step
+  passed in the latest attempt. `edit-menu` also verifies the tree of the
+  synthetic merge commit its runner checked out. Missing or ambiguous evidence
+  leaves the job scheduled. A PR `check` that skipped layout mutations cannot
+  replace main's `check`. Whenever `check` runs on main, it runs the mutations.
+- **Nightly on main.** Every day at 03:00 JST (18:00 UTC), all six jobs run,
+  including `commit-subjects`, `layout-smoke` and the layout mutations in
+  `check`. The nightly run bypasses PR evidence, exercises the current runner
+  environment and gives successful jobs a chance to populate main's Cargo cache.
+- **Manual CI.** A manual dispatch on main runs all four macOS jobs. The
+  `layout-smoke` job is restricted to main.
+
+For a skipped job, open `changes` in the Actions run. On a PR, its
+`Select jobs by changed paths` log lists the changed files and selection.
+On a main push, the run summary lists any reused PR jobs with their matching
+tree SHA and links to the original job logs and evidence. Before the owner
+dispatches TestFlight, check that CI for the exact main tip is green, and
+follow these links for any skipped job. TestFlight's workflow is unchanged.
+
+### Cargo cache capacity follow-up
+
+The PR 91 review (F1) measured 2,767,058,922 bytes across four cache entries
+for a single PR ref. Cargo.lock changes can add a new key on the PR ref and
+again on main. Restoring an older entry can also carry forward obsolete
+compiled dependencies. Repeated saves can evict main's entries and cause cold
+PR runs. The nightly run replenishes main's entries when its jobs succeed.
+Changing the save policy is deferred because this change is scoped to CI
+selection and scheduling. Start by measuring occupancy and eviction per ref
+with `gh api repos/shin1ohno/yebisu/actions/caches --paginate`; use that
+baseline to evaluate restore-only PR jobs and pruning stale build outputs.
+Close this follow-up once main's entries remain available across Cargo.lock
+changes and a new PR demonstrates a warm restore.
+
+## Simulator smoke harness
 
 `scripts/ios/ci-smoke.py` selects the newest installed iOS runtime that already
 has an available iPad Pro 13-inch device and creates a disposable Simulator of
@@ -44,8 +89,8 @@ rendering and lifecycle behavior, not physical IME or hardware keyboard behavior
 
 | Job | Runs | Limit | Selected by |
 |---|---|---|---|
-| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | the `layout=` pattern of the `changes` job: the harness scripts above, `scripts/ios/smoke-qa/`, and the app modules those three drive; pushes to main and manual runs always run it |
-| `check`, step `QA identifiers` | `scripts/ios/qa-ax-ids-check.py`: every QA identifier a Swift UI test presses is a constant of `crates/yebisu/src/qa_ax_ids.rs` that the app marks (UI test redesign S6 replaced the SmokeQA label check, which tied every text SmokeQA tapped or OCR-matched to the app source that painted it) | within the 60-minute `check` job | every pull request that selects `check` |
+| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | main pushes, nightly runs and manual dispatches on main; the main push may reuse complete same-tree PR evidence |
+| `check`, step `QA identifiers` | `scripts/ios/qa-ax-ids-check.py`: every QA identifier a Swift UI test presses is a constant of `crates/yebisu/src/qa_ax_ids.rs` that the app marks (UI test redesign S6 replaced the SmokeQA label check, which tied every text SmokeQA tapped or OCR-matched to the app source that painted it) | within the 60-minute `check` job | every `check` run |
 
 These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
 the finished-phase checks P4 to P8, R3, R5, CJK and SH1-155, three remain that are neither in
@@ -102,13 +147,11 @@ Rates come from the L17 diagnosis of 104 `simulator-smoke` jobs (CI runs
 labels. Origin: 2026-11-16, L17 diagnosis, with P12 (PR 55), L16 (PR 57) and
 SH1-265 (PR 56) reports.
 
-Known classes for the merge rule below: L15, L16, A, B and P12-shot. P12-fixture
-(first seen 2026-11-17) is in the table but not on this list: adding it is an owner
-decision.
+The 2026-11-16 merge rule covered L15, L16, A, B and P12-shot. P12-fixture
+(first seen 2026-11-17) was outside that rule.
 C-snapshot and C-anim left the list when PR 58 merged (716018a), and C-paint
-was never on it. Since PR 58 merged, a failure with any of their signatures is
-a new defect, not a known class, and blocks the merge. L19 and L20 are open work on L15 and A/B, not
-classes.
+was never on it. Since PR 58 merged, treat failures with those signatures
+as new defects. L19 and L20 track work on L15 and A/B.
 
 | Class | Log signature (grep) | Rate | Cause | Fix / open item | Evidence |
 |---|---|---|---|---|---|
@@ -136,8 +179,8 @@ Rows A and B list the new message first and the earlier one after it.
 
 ### Classify a failing smoke job
 
-(2026-11-16: owner decision on known classes, `known-class-merge-rule-decision.json`.
-The rerun limit in step 5 comes from the approved plan, not from that decision.)
+(The 2026-11-21 owner decision sets the merge policy in step 4.
+The 2026-11-20 owner decision sets the rerun rule in step 5.)
 
 1. Download the evidence of the failing run, `gh run download <run-id> -n
    simulator-smoke-evidence` for P0/P9, or the P12 artifact
@@ -260,21 +303,19 @@ The rerun limit in step 5 comes from the approved plan, not from that decision.)
 
    A PR that changes a shared input or a path in the failing class's area owns the
    failure. If it is unclear whether a changed path drives the failing step, treat
-   it as touched: doubt blocks the merge.
-4. Known-class rule (owner decision 2026-11-16, for every shin1ohno/yebisu PR).
-   A `simulator-smoke` failure does not block the merge when all of these hold:
-   `simulator-smoke` is the only failing job; the failure is classified to a
-   known class with cited lines (job log lines, or for P12 classes the
-   `xctest.stdout` lines of the `p12-native-menu-evidence` artifact); the PR's
-   changed files do not touch that class's area (step 3); every other job is
-   green; one review round has 0 blocking findings; 0 threads are unresolved.
-   Known classes: L15 and L16 (SH1-154 Paste OCR mis-tap), A and B (P12), and
-   P12-shot (P12 screenshot timeout). C-snapshot and C-anim (L18) left the list
-   when PR 58 merged (716018a); such a failure is a new defect. The rule decides only whether the failure blocks.
-   It does not grant merge permission, which stays per PR or per approved plan.
-   Merge with a merge commit.
-5. Rerun only the failed job (`gh run rerun --job <job-id>`), at most 2 times per
-   PR. Cite the run and job id of each attempt in the PR.
+   it as touched when reporting the failure.
+4. Simulator merge policy (owner decision 2026-11-21,
+   `owner-batch-2026-11-21-decision.json`, `ci_simulator_on_prs`). On pull
+   requests, `simulator-smoke`, `edit-menu` and `layout-smoke` report their
+   results without blocking a merge. Cite the primary evidence and whether
+   the PR change caused each failure. The selection rules above still apply.
+   On main and before dispatching TestFlight, require green results for all
+   three jobs. An eligible same-tree skip on a main push uses the original
+   green job linked in `changes`. Merge permission stays per PR or approved
+   plan. Merge with a merge commit.
+5. Never rerun a failed job. Fix flaky tests and verify the fix in CI on the
+   new commit. A job that never received a runner may be rerun once, as
+   described below. Cite the run and job IDs in the PR.
 
 ### Cancelled jobs without a runner, H-live-read and E-launch
 
@@ -284,8 +325,8 @@ and 43992978378. Cited ids are run/job.)
 - **Runner cancellation.** A job that ended `cancelled` with `runner_name`
   empty, 0 steps and the annotation `The job was not acquired by Runner` never
   ran on a runner. It has no log and is not a failure class. Classify it as
-  runner cancellation and rerun that job once with `gh run rerun --job
-  <job-id>`; this one rerun is outside the 2-rerun budget of step 5. Seen:
+  runner cancellation. You may rerun only that job once with
+  `gh run rerun --job <job-id>`. Seen:
   43897926491/133419859913 and 43897926491/133419860003. A cancelled job that
   has a runner or steps is not this case: classify it from its log (step 2).
 - **H-live-read (fixed by this PR).** A harness script raised
