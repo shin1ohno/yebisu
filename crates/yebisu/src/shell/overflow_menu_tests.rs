@@ -171,13 +171,16 @@ fn overflow_menu_matches_the_canvas_geometry() {
 
 #[test]
 fn copy_as_one_line_is_not_in_the_overflow_menu() {
+    use super::super::edit_bar::edit_bar_items;
+    let label = "Copy as One Line";
+    assert!(
+        edit_bar_items(true)
+            .iter()
+            .any(|item| item.label() == label)
+    );
     for kind in [HerdrKind::Herdr1, HerdrKind::Herdr2] {
         let entries = overflow_menu_items(&state(kind, true, true, true));
         assert!(find(&entries, Copy).is_some());
-        assert!(
-            entries
-                .iter()
-                .all(|entry| entry.item.label() != super::super::edit_bar::COPY_ONE_LINE_LABEL)
-        );
+        assert!(entries.iter().all(|entry| entry.item.label() != label));
     }
 }

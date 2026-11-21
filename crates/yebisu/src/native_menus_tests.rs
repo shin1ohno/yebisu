@@ -519,33 +519,6 @@ fn two_native_local_selections_each_execute_once_and_unknown_ids_refuse(cx: &mut
     });
 }
 
-#[test]
-fn copy_as_one_line_is_in_the_edit_menu_with_option_command_c() {
-    for enabled in [true, false] {
-        let menu = edit_menu(enabled);
-        assert_eq!(menu.name, "Edit");
-        let [
-            MenuItem::Action {
-                name,
-                action,
-                disabled,
-                os_action,
-                ..
-            },
-        ] = menu.items.as_slice()
-        else {
-            panic!("one keyless Edit command expected");
-        };
-        assert_eq!(*name, "Copy as One Line　⌥⌘C");
-        assert_eq!(*disabled, !enabled);
-        assert!(os_action.is_none());
-        assert_eq!(
-            action.as_any().downcast_ref::<NativeCommand>(),
-            Some(&NativeCommand::named(COPY_ONE_LINE)),
-        );
-    }
-}
-
 #[gpui::test]
 fn native_pin_uses_the_drawn_agent_and_refreshes_to_unpin(cx: &mut TestAppContext) {
     let view = cx.new(Smoke::new);
@@ -575,7 +548,7 @@ fn native_pin_uses_the_drawn_agent_and_refreshes_to_unpin(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn native_edit_copy_dispatches_once_and_rejects_an_old_connection(cx: &mut TestAppContext) {
+fn copy_as_one_line_is_in_the_edit_menu_with_option_command_c(cx: &mut TestAppContext) {
     let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
     cx.update(|window, _| window.activate_window());
     cx.run_until_parked();
@@ -583,27 +556,55 @@ fn native_edit_copy_dispatches_once_and_rejects_an_old_connection(cx: &mut TestA
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal = terminal();
-            let frame = this
-                .terminal
-                .live
-                .surface
-                .as_ref()
-                .map(|surface| Arc::new(surface.frame.clone()))
-                .unwrap_or_else(|| panic!("surface"));
-            this.handoff.selection = Some(crate::handoff::Selection {
-                frame,
-                anchor: (1, 2),
-                end: (6, 2),
-                dragging: false,
-            });
             this.terminal_focus.focus(window, cx);
-            this.install_native_menus(window, cx);
-            let command = NativeCommand::named(COPY_ONE_LINE);
-            this.native_command_action(&command, window, cx);
-            assert_eq!(this.handoff.clipboard_writes, 1);
-            this.terminal.link.generation += 1;
-            this.native_command_action(&command, window, cx);
-            assert_eq!(this.handoff.clipboard_writes, 1);
+            for selecting in [false, true] {
+                let frame = this
+                    .terminal
+                    .live
+                    .surface
+                    .as_ref()
+                    .map(|surface| Arc::new(surface.frame.clone()))
+                    .unwrap_or_else(|| panic!("surface"));
+                this.handoff.selection = selecting.then_some(crate::handoff::Selection {
+                    frame,
+                    anchor: (1, 2),
+                    end: (6, 2),
+                    dragging: false,
+                });
+                this.install_native_menus(window, cx);
+                let menus = cx.get_menus().unwrap_or_default();
+                let edit = menus
+                    .iter()
+                    .skip(1)
+                    .find(|menu| menu.name == "Edit")
+                    .unwrap_or_else(|| panic!("system Edit menu was not installed"));
+                let [
+                    gpui::OwnedMenuItem::Action {
+                        name,
+                        action,
+                        disabled,
+                        os_action,
+                        ..
+                    },
+                ] = edit.items.as_slice()
+                else {
+                    panic!("expected one keyless Edit command");
+                };
+                assert_eq!(name, "Copy as One Line　⌥⌘C");
+                assert_eq!(*disabled, !selecting);
+                assert!(os_action.is_none());
+                let command = action
+                    .as_any()
+                    .downcast_ref::<NativeCommand>()
+                    .unwrap_or_else(|| panic!("expected a native command"));
+                this.native_command_action(command, window, cx);
+                assert_eq!(this.handoff.clipboard_writes, usize::from(selecting));
+                if selecting {
+                    this.terminal.link.generation += 1;
+                    this.native_command_action(command, window, cx);
+                    assert_eq!(this.handoff.clipboard_writes, 1);
+                }
+            }
         });
     });
 }
