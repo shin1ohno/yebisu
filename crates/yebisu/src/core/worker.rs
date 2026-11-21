@@ -81,7 +81,8 @@ pub(super) fn run(
         return Ok(());
     }
     store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
-    let mut sessions = inactive_sessions(root.as_deref(), &host, &name, Observations::new())?;
+    let mut sessions = catalog_sessions(root.as_deref(), &host, Observations::new())?;
+    sessions.retain(|row| row.name != name);
     sessions.push(session_info(name.clone(), &workspace, true, Vec::new()));
     sort_sessions(&mut sessions);
     drop(storage);
@@ -584,10 +585,9 @@ fn reconcile_live(workspace: &mut Workspace, available: &[ListedTerminal]) {
     }
 }
 
-pub(super) fn inactive_sessions(
+pub(super) fn catalog_sessions(
     root: Option<&std::path::Path>,
     host: &str,
-    current: &str,
     mut observed: Observations,
 ) -> crate::Result<Vec<SessionInfo>> {
     let mut names = store::sessions(root, host)?;
@@ -596,7 +596,6 @@ pub(super) fn inactive_sessions(
     names.dedup();
     let mut rows = names
         .into_iter()
-        .filter(|name| name != current)
         .map(|name| {
             let mut saved = store::load_workspace(root, host, &name)
                 .inspect_err(|error| tracing::warn!(%error, %name, "Read Herdr 2 layout"))

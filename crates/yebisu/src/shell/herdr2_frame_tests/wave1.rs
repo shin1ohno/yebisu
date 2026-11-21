@@ -69,6 +69,7 @@ fn open_session(
                 move || Ok(backend),
                 Some(root.to_path_buf()),
                 Mailbox::detached(),
+                Default::default(),
             )
             .unwrap_or_else(|error| panic!("start {name}: {error}")),
         );
@@ -259,7 +260,7 @@ fn herdr2_agent_row_tap_opens_its_terminal(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn herdr2_external_tabs_and_agents_refresh_and_stale_saved_rows_are_unconfirmed(
+fn herdr2_discovery_refreshes_external_tabs_and_agents_and_survives_switch(
     cx: &mut TestAppContext,
 ) {
     let root = fixture_root("observations");
@@ -270,7 +271,8 @@ fn herdr2_external_tabs_and_agents_refresh_and_stale_saved_rows_are_unconfirmed(
     let first = br#"["external",["c0ffee",[{"address":"t1","state":"live","name":"agent 1","status":{"state":"working","title":"First"}},{"address":"t2","state":"live","name":"agent 2","status":{"state":"blocked","title":"Second"}}]]]
 ["saved",null]
 "#;
-    let second = br#"["external",["c0ffee",[{"address":"t2","state":"live","name":"agent 2","status":{"state":"done","title":"Second"}}]]]"#;
+    let second = br#"["external",["c0ffee",[{"address":"t2","state":"live","name":"agent 2","status":{"state":"done","title":"Second"}}]]]
+["other",["another-core",[{"address":"t3","state":"live","name":"agent 3","status":{"state":"working","title":"Third"}}]]]"#;
 
     view.update(cx, |this, cx| {
         let core = this
@@ -371,6 +373,31 @@ fn herdr2_external_tabs_and_agents_refresh_and_stale_saved_rows_are_unconfirmed(
     cx.run_until_parked();
     view.update(cx, |this, _| {
         assert_eq!(this.shell.herdr2.selected_session("pro-dev"), "external");
+        let row = catalog_row(this);
+        assert!(
+            row.spaces
+                .iter()
+                .any(|space| space.id == "other" && space.tabs == 1),
+            "external-only session must survive the switch"
+        );
+        assert!(
+            row.agents
+                .iter()
+                .any(|line| line.row.identity.pane == "other\0t3")
+        );
+        assert!(
+            row.spaces
+                .iter()
+                .any(|space| space.id == "current" && space.detail == "Session unconfirmed")
+        );
+        assert_eq!(
+            row.spaces
+                .iter()
+                .filter(|space| space.id == "external")
+                .count(),
+            1,
+            "the newly active session appears only once"
+        );
         this.terminal.core.take();
     });
     std::fs::remove_dir_all(root).unwrap_or_else(|error| panic!("clean fixtures: {error}"));

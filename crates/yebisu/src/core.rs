@@ -1,5 +1,7 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
+mod discovery_tests;
+#[cfg(test)]
 mod image_tests;
 mod paste;
 mod paste_path;
@@ -80,6 +82,14 @@ pub(crate) struct SessionInfo {
     pub(crate) created: u64,
 }
 
+impl SessionInfo {
+    fn mark_unconfirmed(&mut self) {
+        self.confirmed = false;
+        self.core_id = None;
+        self.statuses.clear();
+    }
+}
+
 pub(crate) struct SessionTarget {
     pub(crate) host: String,
     pub(crate) name: String,
@@ -92,8 +102,13 @@ type SessionList = Arc<Mutex<SessionLists>>;
 #[derive(Default)]
 struct SessionLists {
     current: Option<(u64, Vec<SessionInfo>)>,
-    #[cfg(any(target_os = "ios", test))]
-    external: Option<Vec<SessionInfo>>,
+    discovery: Discovery,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Discovery {
+    rows: Option<Vec<SessionInfo>>,
+    failed: bool,
 }
 
 pub(crate) struct Session {
@@ -102,6 +117,7 @@ pub(crate) struct Session {
     stop: Arc<AtomicBool>,
     /// Herdr 2's terminal statuses for the sidebar (`status::StatusPoll`).
     statuses: status::StatusMailbox,
+    host: String,
     name: String,
     sessions: SessionList,
     #[cfg(test)]
@@ -152,12 +168,12 @@ impl Session {
                 focus: None,
                 expected_core_id: None,
             },
-            generation,
-            inbox,
+            (generation, inbox),
             connect,
             root,
             column,
             poll,
+            Discovery::default(),
         )
     }
 
@@ -168,29 +184,34 @@ impl Session {
         connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
         root: Option<std::path::PathBuf>,
         column: crate::shell::single_pane::Mailbox,
+        discovery: Discovery,
     ) -> crate::Result<Self> {
         Self::start_worker(
             target,
-            generation,
-            inbox,
+            (generation, inbox),
             connect,
             root,
             column,
             status::PollPlan::default(),
+            discovery,
         )
     }
 
     fn start_worker(
         target: SessionTarget,
-        generation: u64,
-        inbox: Arc<Mutex<Live>>,
+        (generation, inbox): (u64, Arc<Mutex<Live>>),
         connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
         root: Option<std::path::PathBuf>,
         column: crate::shell::single_pane::Mailbox,
         poll: status::PollPlan,
+        discovery: Discovery,
     ) -> crate::Result<Self> {
+        let host = target.host.clone();
         let name = target.name.clone();
-        let sessions = SessionList::default();
+        let sessions = Arc::new(Mutex::new(SessionLists {
+            current: None,
+            discovery,
+        }));
         let worker_sessions = sessions.clone();
         let (queue, receive) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
@@ -236,7 +257,6 @@ impl Session {
                     } else {
                         start_discovery(
                             target.host.clone(),
-                            target.name.clone(),
                             root.clone(),
                             worker_sessions.clone(),
                             shared.clone(),
@@ -271,6 +291,7 @@ impl Session {
             input_epoch,
             stop,
             statuses,
+            host,
             name,
             sessions,
             #[cfg(test)]
@@ -298,6 +319,30 @@ impl Session {
         &self.name
     }
 
+    /// Keep a snapshot for the next named session without sharing its mailbox.
+    pub(crate) fn retire_for_switch(self, target: &SessionTarget) -> Discovery {
+        self.stop.store(true, Ordering::Release);
+        if self.host != target.host || self.name == target.name {
+            return Discovery::default();
+        }
+        let lists = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut discovery = lists.discovery.clone();
+        // The old current session may have been saved after the last poll.
+        if let Some(rows) = &mut discovery.rows
+            && !rows.iter().any(|row| row.name == self.name)
+            && let Some((_, current)) = &lists.current
+            && let Some(row) = current.iter().find(|row| row.name == self.name)
+        {
+            let mut row = row.clone();
+            row.mark_unconfirmed();
+            rows.push(row);
+        }
+        discovery
+    }
+
     /// Match the catalog to the input epoch of the Live view the caller drew.
     pub(crate) fn sessions(&self, viewed_epoch: u64) -> Vec<SessionInfo> {
         let lists = self
@@ -311,12 +356,11 @@ impl Session {
         else {
             return Vec::new();
         };
-        #[cfg(any(target_os = "ios", test))]
-        if let Some(external) = &lists.external {
+        if let Some(external) = &lists.discovery.rows {
             let mut merged = rows
                 .iter()
                 .filter(|row| row.name == self.name)
-                .chain(external)
+                .chain(external.iter().filter(|row| row.name != self.name))
                 .cloned()
                 .collect::<Vec<_>>();
             sort_sessions(&mut merged);
@@ -332,10 +376,7 @@ impl Session {
         host: &str,
         output: &[u8],
     ) -> crate::Result<()> {
-        publish_discovery(
-            &self.sessions,
-            worker::inactive_sessions(root, host, self.name(), parse_discovery(output))?,
-        );
+        record_discovery(&self.sessions, root, host, Some(output))?;
         Ok(())
     }
 
@@ -450,15 +491,40 @@ fn sort_sessions(rows: &mut [SessionInfo]) {
 }
 
 #[cfg(any(target_os = "ios", test))]
-fn publish_discovery(lists: &SessionList, rows: Vec<SessionInfo>) -> bool {
+fn record_discovery(
+    lists: &SessionList,
+    root: Option<&std::path::Path>,
+    host: &str,
+    output: Option<&[u8]>,
+) -> crate::Result<bool> {
+    let rows = output.map(|output| worker::catalog_sessions(root, host, parse_discovery(output)));
     let mut lists = lists
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if lists.external.as_ref() == Some(&rows) {
-        return false;
+    let discovery = &mut lists.discovery;
+    if let Some(rows) = rows {
+        discovery.failed = false;
+        let rows = rows?;
+        if discovery.rows.as_ref() == Some(&rows) {
+            return Ok(false);
+        }
+        discovery.rows = Some(rows);
+        return Ok(true);
     }
-    lists.external = Some(rows);
-    true
+
+    // A single transport failure leaves the last snapshot usable.
+    if !std::mem::replace(&mut discovery.failed, true) {
+        return Ok(false);
+    }
+    let Some(rows) = &mut discovery.rows else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    for row in rows.iter_mut().filter(|row| row.confirmed) {
+        row.mark_unconfirmed();
+        changed = true;
+    }
+    Ok(changed)
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -493,25 +559,14 @@ fn parse_discovery(output: &[u8]) -> Observations {
         .collect()
 }
 
-#[cfg(all(target_os = "ios", not(test)))]
-fn start_discovery(
-    host: String,
-    current: String,
-    root: Option<std::path::PathBuf>,
-    mailbox: SessionList,
-    inbox: Arc<Mutex<Live>>,
-    stop: Arc<AtomicBool>,
-) -> std::io::Result<()> {
-    use std::{thread, time::Duration};
-
-    // Query the existing daemon socket. hc connect and hc ls may start a core,
-    // which is only appropriate for an explicit user connection.
-    const DISCOVER: &str = concat!(
-        r#"if command -v python3 >/dev/null 2>&1; then
-    exec python3 - <<'YEBISU_CORE_DISCOVERY'
+// Query existing daemon sockets. hc connect and hc ls may start a core,
+// which is only appropriate for an explicit user connection.
+const DISCOVER: &str = concat!(
+    r#"if command -v python3 >/dev/null 2>&1; then
+    exec python3 -I - <<'YEBISU_CORE_DISCOVERY'
 "#,
-        include_str!("shell/herdr2_frame/discover.py"),
-        r#"
+    include_str!("shell/herdr2_frame/discover.py"),
+    r#"
 YEBISU_CORE_DISCOVERY
 fi
 printf '\000'
@@ -520,32 +575,35 @@ for session in "${XDG_STATE_HOME:-$HOME/.local/state}/herdr-core/"*; do
 done
 exit 0
 "#,
-    );
+);
+
+#[cfg(all(target_os = "ios", not(test)))]
+fn start_discovery(
+    host: String,
+    root: Option<std::path::PathBuf>,
+    mailbox: SessionList,
+    inbox: Arc<Mutex<Live>>,
+    stop: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    use std::{thread, time::Duration};
 
     thread::Builder::new()
         .name("yebisu-core-discovery".into())
         .spawn(move || {
             let stopped = || stop.load(Ordering::Acquire);
             while !stopped() {
-                let observed = sheprd_client::run_ssh_command(
+                let output = sheprd_client::run_ssh_command(
                     &host,
                     DISCOVER,
                     Duration::from_secs(3),
                     48_000,
                     stopped,
                 )
-                .map(|(exit, output)| {
-                    if exit.success() {
-                        parse_discovery(&output)
-                    } else {
-                        Observations::new()
-                    }
-                })
-                .unwrap_or_default();
+                .ok()
+                .and_then(|(exit, output)| exit.success().then_some(output));
                 if !stopped()
-                    && let Ok(rows) =
-                        worker::inactive_sessions(root.as_deref(), &host, &current, observed)
-                    && publish_discovery(&mailbox, rows)
+                    && let Ok(true) =
+                        record_discovery(&mailbox, root.as_deref(), &host, output.as_deref())
                     && let Ok(mut live) = inbox.lock()
                 {
                     live.dirty = true;
