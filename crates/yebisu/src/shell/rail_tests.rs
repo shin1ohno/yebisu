@@ -4,6 +4,8 @@ use crate::shell::{HerdrKind, sidebar_status::SidebarStatus};
 
 #[path = "rail_tests/a11y.rs"]
 mod a11y;
+#[path = "rail_tests/canvas.rs"]
+mod canvas;
 #[path = "rail_tests/collapse.rs"]
 mod collapse;
 #[path = "rail_tests/entries.rs"]
@@ -17,17 +19,11 @@ mod text;
 #[path = "rail_tests/toggle.rs"]
 mod toggle;
 
-pub(super) fn space(
-    id: &str,
-    label: &str,
-    status: SidebarStatus,
-    agents: &[SidebarStatus],
-) -> RailSpace {
+pub(super) fn space(id: &str, label: &str, agents: &[SidebarStatus]) -> RailSpace {
     RailSpace {
         workspace_id: id.to_owned(),
         number: 1,
         label: label.to_owned(),
-        status,
         agents: agents.to_vec(),
         focused: false,
     }

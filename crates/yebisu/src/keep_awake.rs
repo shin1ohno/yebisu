@@ -114,8 +114,9 @@ impl Smoke {
     /// Runs on every UI poll and lifecycle phase; it asks the platform only
     /// when the wanted hold changes.
     pub(crate) fn sync_keep_awake(&mut self, cx: &mut Context<Self>) {
-        let connected = std::iter::once(&self.terminal)
-            .chain(self.board.hidden.values())
+        let connected = self
+            .board
+            .terminals(&self.terminal)
             .map(|terminal| terminal.live.connected);
         match self.keep_awake.step(connected) {
             Step::Keep => {}

@@ -1,6 +1,6 @@
 //! L3: the sidebar's own status type (S-8) and the AGENTS order with pins
 //! (design fidelity plan, Wave 0a). Owner: stream A.
-use super::style::color;
+use super::style::{color, weight};
 use sheprd_client::protocol::AgentStatus;
 
 /// Seven states an AGENTS row or a space dot can show. Herdr 1 supplies five
@@ -76,20 +76,19 @@ impl SidebarStatus {
         }
     }
 
-    /// The status word's colour on an AGENTS row (Herdr 1 and Herdr 2).
-    /// Wave 0a recolours the dots only, so the words keep the colours they
-    /// had before it; stream A restyles them to the canvas (Main.dc.html:94,
-    /// :101, :108: a bold `#ebcb8b` Needs you, every other word `#acb2bb`).
-    /// The dot palette must not leak here: its slate Unknown would draw the
-    /// word at 2.44:1 on the sidebar, below the 4.5:1 text minimum.
+    /// Main.dc.html:97, :104, :112 and ModsMax.dc.html:114.
     pub(crate) const fn label_color(self) -> u32 {
         match self {
-            Self::NeedsYou | Self::Error => 0xbf616a,
-            Self::Working => 0x88c0d0,
-            Self::Done => 0xa3be8c,
-            Self::Idle => 0x9ca3af,
-            Self::Unknown => 0xb48ead,
-            Self::NoStatus => 0x6b7280,
+            Self::NeedsYou => color::YELLOW,
+            Self::Error => color::RED,
+            _ => color::MUTED,
+        }
+    }
+
+    pub(crate) const fn label_weight(self) -> gpui::FontWeight {
+        match self {
+            Self::NeedsYou | Self::Error => weight::BOLD,
+            _ => weight::REGULAR,
         }
     }
 }

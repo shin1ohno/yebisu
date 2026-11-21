@@ -288,7 +288,7 @@ impl Default for Mailbox {
 impl Smoke {
     /// Called once per terminal frame before the screen is built.
     pub(crate) fn enforce_pane_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let grid = self.terminal.geometry.grid.size;
+        let grid = self.terminal.column_bounds().size;
         let (width, height) = (f32::from(grid.width), f32::from(grid.height));
         if !self.terminal.open || width <= 0.0 {
             // No terminal column has been measured yet; the paint that

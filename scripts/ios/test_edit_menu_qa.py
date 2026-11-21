@@ -63,6 +63,22 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn('app.launchEnvironment["YEBISU_QA_AX"] = "1"', launch)
         self.assertIn('$0.string("input_pane") != nil', launch)
 
+    def test_portrait_is_observed_after_launch_before_the_first_touch(self):
+        launch = body(self.code, "private func launch(")
+        self.assertNotIn("XCUIDevice.shared.orientation", launch)
+        observed = launch.index("try requirePortraitScreen(name)")
+        self.assertLess(launch.index("app.launch()"), observed)
+        self.assertLess(launch.index("try ax.waitState("), observed)
+        self.assertLess(observed, launch.index("ax.touchReady("))
+
+        portrait = body(self.code, "private func requirePortraitScreen(")
+        self.assertRegex(portrait, r"if initial\.width > 0 && initial\.height > initial\.width \{[^}]*\breturn\b")
+        self.assertRegex(portrait, r"if initial\.height > 0 && initial\.width > initial\.height \{\s*XCUIDevice\.shared\.orientation = \.portrait\s*\}")
+        self.assertEqual(self.code.count("XCUIDevice.shared.orientation = .portrait"), 1)
+        self.assertIn("screen.width > 0 && screen.height > screen.width", portrait)
+        self.assertIn("guard XCTWaiter().wait(for: [portrait]", portrait)
+        self.assertIn("throw SetupError.portraitScreenUnavailable", portrait)
+
     def test_controls_are_pressed_by_identifier_through_qa_press(self):
         press = body(self.code, "private func press(")
         self.assertIn("ax.settleIfMoved(", press)

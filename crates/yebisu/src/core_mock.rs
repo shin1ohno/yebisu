@@ -249,6 +249,20 @@ impl Host {
                             ids.push(id.clone());
                             terminal(&id)
                         }
+                        Some("terminal.kill") => {
+                            let id = request["params"]["terminal"]
+                                .as_str()
+                                .ok_or(crate::Error::CoreState)?;
+                            namespace
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .retain(|address| address != id);
+                            #[cfg(test)]
+                            let _ = send.send((0, frame.payload.clone()));
+                            let mut result = terminal(id);
+                            result["state"] = json!("finished");
+                            result
+                        }
                         Some("terminal.attach") => {
                             let id = request["params"]["terminal"].as_str().unwrap_or("t1");
                             if !namespace

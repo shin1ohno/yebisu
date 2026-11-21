@@ -19,6 +19,8 @@ mod session;
 mod sidebar;
 #[path = "herdr2_frame_tests/status.rs"]
 mod status;
+#[path = "herdr2_frame_tests/wave1.rs"]
+mod wave1;
 
 /// A raw status as herdr-core sends it; `None` is a terminal whose program
 /// reported nothing.
@@ -51,5 +53,22 @@ fn connected_host(
     statuses: &[CoreStatus],
     state: &SidebarState,
 ) -> crate::shell::sidebar::model::HostEntry {
-    rows::host_entry(host, HostLink::Connected, 1, statuses, state)
+    host_entry(host, HostLink::Connected, statuses, state)
+}
+
+fn host_entry(
+    host: &str,
+    link: HostLink,
+    statuses: &[CoreStatus],
+    state: &SidebarState,
+) -> crate::shell::sidebar::model::HostEntry {
+    let mut entry = crate::shell::sidebar::model::HostEntry::new(host, HerdrKind::Herdr2, link);
+    entry.generation = 1;
+    rows::host_entry(
+        entry,
+        HERDR2_SESSION,
+        &rows::bootstrap_catalog(HERDR2_SESSION),
+        statuses,
+        state,
+    )
 }

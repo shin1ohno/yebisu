@@ -128,15 +128,18 @@ impl Smoke {
             return;
         };
         let values = host.draft.clone();
-        for terminal in self.board.hidden.values_mut() {
+        let target = &self.terminal.reconnect.target;
+        let selected_synced = host.synced_target.as_ref() == Some(target);
+        if !selected_synced {
+            host.synced_target = Some(target.clone());
+        }
+        for terminal in self
+            .board
+            .terminals_mut(&mut self.terminal)
+            .skip(usize::from(selected_synced))
+        {
             adopt_view_settings(terminal, &values);
         }
-        let target = &self.terminal.reconnect.target;
-        if host.synced_target.as_ref() == Some(target) {
-            return;
-        }
-        host.synced_target = Some(target.clone());
-        self.adopt_input_settings(&values);
     }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
         self.sync_input_settings();

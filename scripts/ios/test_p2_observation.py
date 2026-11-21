@@ -213,13 +213,18 @@ class StructureTests(unittest.TestCase):
         self.assertLess(self.MAIN.index("terminate(device)"), self.MAIN.index("read_after_terminate("))
         self.assertLess(self.MAIN.index("terminate(device)"), self.MAIN.index("shutil.copyfile(receipts"))
 
-    def test_the_swift_test_finds_by_identifier_and_confirms_by_qa_state(self):
-        for ocr in ("tapText", "textVisible", "waitForRenderedText", "recognize(", "sleep("):
-            self.assertNotIn(ocr, self.SWIFT)
-        for name in ("qa.keys.provider", "qa.keys.read", "qa.keys.copy", '"YEBISU_QA_AX": "1"',
-                     "P2_PASTEBOARD_SHA256", 'int("copied") == 1', 'bool("key_ready") == true'):
-            self.assertIn(name, self.SWIFT)
-        self.assertEqual(len(re.findall(r"\bapp\.launch\(\)", self.SWIFT)), 2, "XCTest launches the app both times")
+    def test_the_swift_test_waits_for_automatic_load_and_confirms_copy(self):
+        for unwanted in ("tapText", "textVisible", "waitForRenderedText", "recognize(", "sleep(",
+                         "qa.keys.read"):
+            self.assertNotIn(unwanted, self.SWIFT)
+        for expected in ('qa.keys.provider', 'qa.keys.copy', '"YEBISU_QA_AX": "1"',
+                         'string("sheet") == "add-host"', 'bool("key_ready") == true',
+                         'P2_PASTEBOARD_SHA256', 'int("copied") == 1'):
+            self.assertIn(expected, self.SWIFT)
+        self.assertEqual(re.findall(r"qa\.press\(([^,]+),", self.SWIFT), ["QAAxIDs.keysCopy"])
+        self.assertEqual(len(re.findall(r"try p2Launch\(qa,", self.SWIFT)), 2)
+        self.assertEqual(len(re.findall(r"\bapp\.launch\(\)", self.SWIFT)), 2,
+                         "XCTest launches the app both times")
 
 
 if __name__ == "__main__":unittest.main()

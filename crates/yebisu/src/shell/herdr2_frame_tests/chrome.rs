@@ -4,7 +4,7 @@ use crate::shell::{
     entry_move::LegacyBands,
     entry_points::{chrome_entry_points, required_entry_actions},
     frame::COLUMN_ORDER,
-    overflow_menu::{HERDR2_NEW_TAB, OverflowItem, overflow_menu_items},
+    overflow_menu::{OverflowItem, overflow_menu_items},
     status_bar::{status_bar_model, status_line},
 };
 
@@ -45,18 +45,6 @@ fn herdr2_uses_shared_chrome() {
     assert_eq!(host.kind, HerdrKind::Herdr2);
     assert_eq!(host.spaces.len(), 1);
     assert_eq!(host.agents.len(), 1);
-}
-
-#[test]
-fn herdr2_new_tab_disabled_with_reason() {
-    for connected in [true, false] {
-        let entry = item(&herdr2(connected), OverflowItem::NewTab);
-        assert!(!entry.enabled);
-        assert_eq!(entry.reason, Some(HERDR2_NEW_TAB));
-    }
-    // The entry point stays listed (disabled, with its reason), not removed.
-    let points = chrome_entry_points(&herdr2(true), LegacyBands::current());
-    assert!(points.iter().any(|p| p.action == EntryAction::NewTab));
 }
 
 #[test]

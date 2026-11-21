@@ -1,10 +1,9 @@
+mod pane_names;
+mod surface;
+
 use crate::{
-    app::Smoke,
-    link::Link,
-    live::Live,
-    settings_pages::toolbar_sync::ToolbarSetting,
-    terminal_painter::{Ground, TerminalPainter},
-    theme::Theme,
+    app::Smoke, link::Link, live::Live, settings_pages::toolbar_sync::ToolbarSetting,
+    terminal_painter::TerminalPainter, theme::Theme,
 };
 use gpui::{AnyElement, ClipboardItem, Context, div, font, prelude::*, rgb};
 use sheprd_client::{ConnectOptions, ConnectTarget};
@@ -28,8 +27,11 @@ pub(crate) struct TerminalView {
     pub font: crate::settings::font::TerminalFont,
     pub compact: bool,
     pub size: Option<ConnectOptions>,
+    /// Last focus report, scoped to the connection generation and server boot.
+    pub(crate) surface_focus: Option<(u64, String, bool)>,
     pub input: crate::terminal_input::TerminalInput,
     pub geometry: crate::input_geometry::InputGeometry,
+    pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     pub show_options: bool,
     pub needs_focus: bool,
     pub reconnect_pending: bool,
@@ -79,30 +81,33 @@ impl Smoke {
         } else {
             self.setup_input.text.trim().to_owned()
         };
-        self.select_host(&target);
         if from_setup {
-            self.terminal.core.take();
-            self.terminal.core_mode = false;
+            self.select_host_kind(&target, crate::shell::HerdrKind::Herdr1);
+        } else {
+            self.select_host(&target);
         }
         self.start_host_connection(target, cx);
         for host in self.setup.hosts.clone() {
-            if host != self.terminal.reconnect.target && !self.board.hidden.contains_key(&host) {
-                self.start_host_connection(host, cx);
+            if host != self.terminal.reconnect.target
+                && !self.board.hidden.contains_key(&host)
+                && !self.board.hidden_core.contains_key(&host)
+            {
+                self.start_herdr1_connection(host, cx);
             }
         }
     }
     pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
-        self.input_transition(|this| this.start_host_connection_inner(target, cx))
-    }
-    fn start_host_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
         if self.terminal.core_mode && self.terminal.reconnect.target == target {
             self.connect_core(cx);
-            return;
+        } else {
+            self.start_herdr1_connection(target, cx);
         }
-        if self.board.hidden.get(&target).is_some_and(|t| t.core_mode) {
-            return;
-        }
-        let selected = target == self.terminal.reconnect.target;
+    }
+    pub(crate) fn start_herdr1_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_herdr1_connection_inner(target, cx))
+    }
+    fn start_herdr1_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
+        let selected = self.terminal.reconnect.target == target && !self.terminal.core_mode;
         let terminal = if selected {
             &mut self.terminal
         } else {
@@ -162,11 +167,7 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |this, cx| {
-                let terminal = if this.terminal.reconnect.target == host {
-                    Some(&mut this.terminal)
-                } else {
-                    this.board.hidden.get_mut(&host)
-                };
+                let terminal = this.herdr1_terminal_mut(&host);
                 if let Some(terminal) =
                     terminal.filter(|t| t.reconnect.current(&host, host_generation))
                 {
@@ -190,18 +191,25 @@ impl Smoke {
             .filter(|(_, t)| t.reconnect_pending && !t.reconnect.suspended)
             .map(|(host, _)| host.clone())
             .collect::<Vec<_>>();
-        if self.terminal.reconnect_pending && !self.terminal.reconnect.suspended {
+        if self.terminal.reconnect_pending
+            && !self.terminal.reconnect.suspended
+            && !self.terminal.core_mode
+        {
             pending.push(self.terminal.reconnect.target.clone());
         }
         for host in pending {
-            self.start_host_connection(host, cx);
+            self.start_herdr1_connection(host, cx);
         }
         self.poll_hidden(cx);
+        for hidden in self.board.hidden.values_mut() {
+            hidden.report_surface_focus(false);
+        }
         self.sync_handoff();
         if self.terminal.reconnect.suspended {
             return;
         }
         if !self.terminal.open {
+            self.terminal.report_surface_focus(false);
             // The Hosts list does not disconnect the current host. Keep draining its
             // reader exactly as a hidden host is, so a notification that arrives
             // while the terminal is closed is delivered now instead of aging out.
@@ -239,6 +247,9 @@ impl Smoke {
         let compact = self.terminal.compact;
         let selection = self.board.selection;
         move |bounds, _, window, cx| {
+            // The canvas can extend past an ancestor's clip. Use the same
+            // visible rectangle for the wire size, painting and input.
+            let bounds = bounds.intersect(&window.content_mask().bounds);
             let current = entity.update(cx,|this,cx| {
                     if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
                     let (font_size,line_height) = this.terminal.font.metrics(this.terminal.compact);
@@ -249,27 +260,33 @@ impl Smoke {
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::from_palette(this.local_theme));
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
-                    terminal.geometry = crate::input_geometry::InputGeometry { grid: bounds, cell_width, cell_height: line_height };
+                    terminal.geometry = crate::input_geometry::InputGeometry::from_canvas(bounds, cell_width, line_height);
+                    terminal.canvas_bounds = Some(bounds);
+                    let shown = terminal.coherent_frame();
+                    let panes = shown.as_ref().map_or_else(Vec::new, |(_, surface)| {
+                        terminal.geometry.framed_panes(surface)
+                    });
+                    let viewport = terminal.viewport_size(&panes);
                     let options = ConnectOptions {
-                        surface_size: crate::terminal::viewport(f32::from(bounds.size.width),f32::from(bounds.size.height),cell_width,line_height),
+                        surface_size: crate::terminal::viewport(f32::from(viewport.width),f32::from(viewport.height),cell_width,line_height),
                         cell_width_px: (cell_width*window.scale_factor()).round() as u32,
                         cell_height_px: (line_height*window.scale_factor()).round() as u32,
                     };
-                    terminal.resize_if_ready(options);
+                    if viewport.width >= gpui::px(cell_width)
+                        && viewport.height >= gpui::px(line_height)
+                    {
+                        terminal.resize_if_ready(options);
+                        if shown.is_some() && terminal.size == Some(options) {
+                            terminal.report_surface_focus(window.is_window_active());
+                        }
+                    }
                     terminal.input.sync(&terminal.live, generation, terminal.size);
-                    if let (Some(snapshot),Some(surface)) = (&terminal.live.snapshot,&terminal.live.surface)
-                        && crate::live::coherent(snapshot,surface) {
-                        let mut highlights = this.handoff.selection.as_ref().map(|s|s.highlights()).unwrap_or_default();
+                    if let Some((snapshot, surface)) = shown.as_ref() {
+                        let mut highlights = this.handoff.selection.as_ref()
+                            .map(|selection| selection.surface_highlights(surface))
+                            .unwrap_or_default();
                         highlights.extend(search_highlights);
-                        window.with_content_mask(Some(gpui::ContentMask { bounds }),|window| {
-                            terminal.painter.paint_frame(&surface.frame,bounds.origin,Some(bounds.size),Ground::Opaque,cell_width,&face,if surface.popup.is_none() { &highlights } else { &[] },&surface.panes,None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Main }),window,cx);
-                            if let Some(popup) = &surface.popup {
-                                let origin = bounds.origin+crate::terminal::popup_origin(&surface.frame,&popup.frame,cell_width,line_height);
-                                terminal.painter.paint_frame(&popup.frame,origin,None,Ground::Opaque,cell_width,&face,&highlights,&[],None,Some(crate::terminal_painter::PlacedImages { placements:&surface.graphics.placements, images:&terminal.live.surface_images, target:crate::terminal_painter::ImageTarget::Popup(&popup.terminal_id) }),window,cx);
-                            }
-                            terminal.painter.paint_composition(&terminal.input.composition.text,
-                                terminal.geometry.cursor(Some(surface)).origin, terminal.geometry.area(Some(surface)), &face, window);
-                        });
+                        terminal.paint_surface((snapshot, surface), &panes, &highlights, &face, window, cx);
                         this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"select_mode":this.handoff.select_mode,"selection_blocks_input":this.handoff.blocks_input(),"text_input_paused":terminal.input.requires_gesture(),"input_ready":terminal.input.ready,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                     }
                     true
@@ -302,7 +319,11 @@ impl Smoke {
             self.request_find_retirement(window, cx);
         }
         self.enforce_pane_mode(window, cx);
-        if let Some(too_small) = self.render_too_small(window, cx) {
+        let too_small = self.render_too_small(window, cx);
+        if !window.is_window_active() || too_small.is_some() {
+            self.terminal.report_surface_focus(false);
+        }
+        if let Some(too_small) = too_small {
             return too_small;
         }
         let legacy = self.legacy_bands();
@@ -319,8 +340,8 @@ impl Smoke {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(0x101419))
-            .text_color(rgb(0xd8dee9))
+            .bg(rgb(crate::shell::style::color::BACKGROUND))
+            .text_color(rgb(crate::shell::style::color::TEXT))
             .track_focus(&self.terminal_focus)
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
@@ -429,7 +450,6 @@ impl Smoke {
                 view.children(self.input_qa_controls(cx))
             })
             .when(legacy.handoff, |view| view.child(self.handoff_controls(cx)))
-            .child(self.render_find(cx))
             .when(legacy.qa_controls, |view| {
                 view.children(self.p13_qa_controls(cx))
                     .children(self.handoff_qa_controls(cx))
@@ -441,9 +461,11 @@ impl Smoke {
             .child(
                 div()
                     .id("terminal-input")
+                    .debug_selector(|| "terminal-input".into())
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .overflow_hidden()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
@@ -500,3 +522,7 @@ impl Smoke {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_view_tests/design.rs"]
+mod design_tests;

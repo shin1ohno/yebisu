@@ -177,6 +177,7 @@ impl Render for Smoke {
                     }
                 }));
         }
+        self.prepare_new_space(window, cx);
         let rendered = self.render_screen(window, cx);
         self.publish_native_edits(window);
         let screen = div()
@@ -187,6 +188,7 @@ impl Render for Smoke {
             .children(self.render_shortcuts_popover(window, cx))
             .children(self.render_hosts_sheet(window, cx))
             .children(self.render_mods_overlay(window, cx))
+            .children(self.render_new_space(cx))
             .into_any_element();
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         let screen = div()

@@ -4,6 +4,7 @@ use gpui::{AppContext, TestAppContext};
 fn target() -> TargetContext {
     TargetContext {
         host: "fixture@private-peer".into(),
+        herdr: crate::shell::HerdrKind::Herdr1,
         generation: 1,
         boot: "fixture-boot".into(),
         pane: Some("fixture-pane".into()),
@@ -152,7 +153,11 @@ fn current_target(this: &mut Smoke) -> TargetContext {
     let live = ready_live();
     let target = Event::capture(&live, semantic(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture: {e:?}"))
-        .context(HOST.into(), this.terminal.link.generation);
+        .context(
+            HOST.into(),
+            crate::shell::HerdrKind::Herdr1,
+            this.terminal.link.generation,
+        );
     *this
         .terminal
         .link
@@ -362,12 +367,16 @@ fn an_undecided_event_does_not_hold_back_another_hosts_event(cx: &mut TestAppCon
             live.pending_snapshot = live.snapshot.clone();
         }
         let hidden_host = "hidden@private-peer";
-        let mut hidden = crate::terminal_view::TerminalView::default();
+        let mut hidden = TerminalView::default();
         hidden.reconnect.target = hidden_host.into();
         let live = ready_live();
         let second = Event::capture(&live, semantic(&live), Instant::now())
             .unwrap_or_else(|e| panic!("capture: {e:?}"))
-            .context(hidden_host.into(), hidden.link.generation);
+            .context(
+                hidden_host.into(),
+                crate::shell::HerdrKind::Herdr1,
+                hidden.link.generation,
+            );
         *hidden.link.inbox.lock().unwrap_or_else(|e| e.into_inner()) = live;
         this.board.hidden.insert(hidden_host.into(), hidden);
         let aged = Instant::now()
@@ -387,12 +396,67 @@ fn an_undecided_event_does_not_hold_back_another_hosts_event(cx: &mut TestAppCon
     });
 }
 
+#[gpui::test]
+fn pending_notification_uses_the_hidden_core_link_on_a_mixed_host(cx: &mut TestAppContext) {
+    use crate::shell::HerdrKind;
+
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.select_host_kind(HOST, HerdrKind::Herdr2);
+        this.select_host_kind(HOST, HerdrKind::Herdr1);
+        assert!(!this.terminal.live.connected);
+        let hidden = this
+            .board
+            .hidden_core
+            .get_mut(HOST)
+            .unwrap_or_else(|| panic!("paired core"));
+        let live = ready_live();
+        let event = Event::capture(&live, semantic(&live), Instant::now())
+            .unwrap_or_else(|error| panic!("capture: {error:?}"));
+        *hidden
+            .link
+            .inbox
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = live;
+        hidden.live.notifications.pending.push_back(event.clone());
+
+        this.collect_notifications(cx);
+        let (waiting, target) = this
+            .notifications
+            .waiting
+            .front_mut()
+            .unwrap_or_else(|| panic!("notification from the hidden core"));
+        assert_eq!(target.herdr, HerdrKind::Herdr2);
+        waiting.received -= Duration::from_secs(2);
+        this.collect_notifications(cx);
+        assert!(this.notifications.waiting.is_empty());
+        assert_eq!(this.notifications.status, "Notifications: Disabled");
+
+        this.board
+            .hidden_core
+            .get_mut(HOST)
+            .unwrap_or_else(|| panic!("paired core"))
+            .live
+            .notifications
+            .pending
+            .push_back(event);
+        this.notification_lifecycle(gpui::AppLifecyclePhase::Background);
+        assert!(
+            this.board.hidden_core[HOST]
+                .live
+                .notifications
+                .pending
+                .is_empty()
+        );
+    });
+}
+
 #[test]
 fn shared_display_predicate_survives_contention_and_stays_revoked_after_a_mismatch() {
     let live = ready_live();
     let target = Event::capture(&live, semantic(&live), Instant::now())
         .unwrap_or_else(|e| panic!("capture: {e:?}"))
-        .context(HOST.into(), 1);
+        .context(HOST.into(), crate::shell::HerdrKind::Herdr1, 1);
     let inbox = std::sync::Arc::new(std::sync::Mutex::new(live));
     let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let current = display_predicate(
@@ -430,6 +494,7 @@ fn shared_display_predicate_survives_contention_and_stays_revoked_after_a_mismat
         Instant::now(),
         TargetContext {
             host: HOST.into(),
+            herdr: crate::shell::HerdrKind::Herdr1,
             generation: 1,
             boot: "x".into(),
             pane: None,

@@ -1,10 +1,15 @@
 use super::{
-    Command, Queued,
+    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
     screen::{self, Screen},
-    store,
+    sort_sessions,
+    store::{self, Saved, Tab, Workspace},
 };
 use crate::{live::Live, shell::single_pane::Mailbox};
 use sheprd_backend::{Backend as _, Role, Size, Spawn, SurfaceUpdate, Terminal as _};
+use sheprd_core_client::{
+    CoreBackend, CoreTerminal,
+    wire::{Run, Terminal as ListedTerminal, TerminalState},
+};
 use std::{
     path::PathBuf,
     sync::{
@@ -16,58 +21,77 @@ use std::{
 };
 
 pub(super) fn run(
-    backend: sheprd_core_client::CoreBackend,
-    host: String,
+    backend: CoreBackend,
+    target: SessionTarget,
     generation: u64,
-    inbox: &Arc<Mutex<Live>>,
+    outputs: (&Arc<Mutex<Live>>, &SessionList),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
     commands: Receiver<Queued>,
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
-    // `column` is the mailbox the UI publishes the measured column to.
+    let SessionTarget {
+        host,
+        name,
+        focus,
+        expected_core_id,
+    } = target;
+    let (inbox, session_list) = outputs;
     let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
+    if expected_core_id
+        .as_ref()
+        .is_some_and(|id| id != &backend.core().hello().core.id)
+    {
+        return Err(crate::Error::Ssh(
+            "Herdr 2 session changed; tap its refreshed row".into(),
+        ));
+    }
     let storage = store::LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
-    let mut saved = store::load(root.as_deref(), &host)?;
-    let available = backend.terminals()?;
-    saved
-        .ids
-        .retain(|id| available.iter().any(|info| &info.id == id));
-    if saved.ids.is_empty() {
-        if stop.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        saved.ids.push(backend.spawn(&Spawn::default())?.id);
+    let mut workspace = store::load_workspace(root.as_deref(), &host, &name)?;
+    if workspace.created == 0 {
+        workspace.created = store::milliseconds(std::time::SystemTime::now());
     }
-    saved.active = saved.active.min(saved.ids.len() - 1);
+    let available = backend.core().list(false)?.terminals;
+    if expected_core_id.is_some() {
+        reconcile_live(&mut workspace, &available);
+    } else {
+        reconcile(&mut workspace, &available);
+    }
+    if let Some(address) = focus
+        && !focus_address(&mut workspace, &address, &available)
+    {
+        return Err(crate::Error::Ssh(
+            "Herdr 2 terminal no longer exists".into(),
+        ));
+    }
+    if workspace.tabs.is_empty() {
+        workspace.tabs.push(spawn_tab(&backend)?);
+    }
     let mut size = Size::new(80, 24)?;
-    let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column.latest())?;
-    let mut terminals = Vec::new();
-    for id in &saved.ids {
-        if stop.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        terminals.push(backend.attach(id, initial, Role::Active)?);
-    }
-    let mut screens: Vec<Screen> = terminals.iter().map(|_| Screen::default()).collect();
+    let mut active = Active::attach(&backend, &workspace, size, column.latest())?;
     let mut epoch = 0;
     let mut revision = 0;
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
-    store::save(root.as_deref(), &host, &saved)?;
+    store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
+    let mut sessions = inactive_sessions(root.as_deref(), &host, &name, Observations::new())?;
+    sessions.push(session_info(name.clone(), &workspace, true, Vec::new()));
+    sort_sessions(&mut sessions);
     drop(storage);
+    let mut published_epoch = None;
     #[cfg(test)]
     let mut publication_probe: Option<Box<super::publication_probe::AfterCompare>> = None;
     while !stop.load(Ordering::Acquire) {
         let mut changed = false;
         let mut persist = false;
+        let mut command_error = None;
         for command in commands.try_iter().take(256) {
             if stop.load(Ordering::Acquire) {
                 return Ok(());
@@ -75,9 +99,12 @@ pub(super) fn run(
             let queued_epoch = command.input_epoch;
             match command.command {
                 Command::Input(destination, event) => {
+                    let Some(saved) = active_layout(&workspace) else {
+                        continue;
+                    };
                     let current = screen::publish(
-                        &screens,
-                        &saved,
+                        &active.screens,
+                        saved,
                         size,
                         generation,
                         revision,
@@ -85,7 +112,7 @@ pub(super) fn run(
                         column.latest(),
                     );
                     if queued_epoch == input_epoch.load(Ordering::Acquire)
-                        && !screens[saved.active].ended
+                        && !active.screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
                             == Some(&destination)
                     {
@@ -95,7 +122,7 @@ pub(super) fn run(
                             // observes the existing race; it adds no cancellation check.
                             probe.hold(&destination, &event, queued_epoch)?;
                         }
-                        terminals[saved.active].input(&event)?;
+                        active.terminals[saved.active].input(&event)?;
                     }
                 }
                 #[cfg(test)]
@@ -124,9 +151,13 @@ pub(super) fn run(
                     bytes,
                     reply,
                 } => {
+                    let Some(saved) = active_layout(&workspace) else {
+                        super::paste::reject(ticket, reply, "Paste cancelled: tab closed");
+                        continue;
+                    };
                     let current = screen::publish(
-                        &screens,
-                        &saved,
+                        &active.screens,
+                        saved,
                         size,
                         generation,
                         revision,
@@ -134,7 +165,7 @@ pub(super) fn run(
                         column.latest(),
                     );
                     if queued_epoch == input_epoch.load(Ordering::Acquire)
-                        && !screens[saved.active].ended
+                        && !active.screens[saved.active].ended
                         && crate::terminal_input::destination(&current, generation).as_ref()
                             == Some(&destination)
                     {
@@ -154,116 +185,477 @@ pub(super) fn run(
                     size = next;
                     changed = true;
                 }
-                Command::Split if saved.ids.len() < 2 => {
+                Command::NewTab => {
+                    workspace.tabs.push(spawn_tab(&backend)?);
+                    workspace.active = workspace.tabs.len() - 1;
+                    active = Active::attach(&backend, &workspace, size, column.latest())?;
+                    persist = true;
+                    changed = true;
+                    epoch += 1;
+                }
+                Command::SelectTab(id) => {
+                    if let Some(index) = workspace.tabs.iter().position(|tab| tab.id == id)
+                        && index != workspace.active
+                    {
+                        workspace.active = index;
+                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                        persist = true;
+                        changed = true;
+                        epoch += 1;
+                    }
+                }
+                Command::CloseTab(id) => {
+                    let Some(index) = workspace.tabs.iter().position(|tab| tab.id == id) else {
+                        continue;
+                    };
+                    let was_active = index == workspace.active;
+                    let saved = &mut workspace.tabs[index].layout;
+                    let count = saved.ids.len();
+                    let focused = saved.ids.get(saved.active).cloned();
+                    saved.ids.retain(|pane| match backend.kill(pane) {
+                        Ok(()) => false,
+                        Err(error) => {
+                            command_error = Some(format!("Could not close Herdr 2 tab: {error}"));
+                            true
+                        }
+                    });
+                    if saved.ids.len() == count {
+                        continue;
+                    }
+                    if saved.ids.is_empty() {
+                        workspace.tabs.remove(index);
+                        if index < workspace.active {
+                            workspace.active -= 1;
+                        } else if index == workspace.active {
+                            workspace.active = index.min(workspace.tabs.len().saturating_sub(1));
+                        }
+                    } else {
+                        saved.active = saved
+                            .ids
+                            .iter()
+                            .position(|pane| Some(pane) == focused.as_ref())
+                            .unwrap_or(0);
+                    }
+                    if was_active {
+                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                    }
+                    epoch += 1;
+                    persist = true;
+                }
+                Command::FocusAddress(address) => {
+                    if let Some((tab, pane)) = locate(&workspace, &address) {
+                        if tab != workspace.active {
+                            workspace.active = tab;
+                            workspace.tabs[tab].layout.active = pane;
+                            active = Active::attach(&backend, &workspace, size, column.latest())?;
+                        } else {
+                            let saved = &mut workspace.tabs[tab].layout;
+                            active.focus(saved, pane)?;
+                        }
+                    } else {
+                        let available = backend.core().list(false)?.terminals;
+                        if !focus_address(&mut workspace, &address, &available) {
+                            continue;
+                        }
+                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                    }
+                    persist = true;
+                    changed = true;
+                    epoch += 1;
+                }
+                Command::Split | Command::SplitInDirection(_) => {
+                    let Some(saved) = active_layout_mut(&mut workspace) else {
+                        continue;
+                    };
+                    if saved.ids.len() >= 2 {
+                        continue;
+                    }
+                    let vertical = match command.command {
+                        Command::SplitInDirection(vertical) => vertical,
+                        _ => saved.vertical,
+                    };
                     let info = backend.spawn(&Spawn::default())?;
                     let terminal = backend.attach(
                         &info.id,
-                        screen::pane_size(size, 2, saved.vertical, column.latest())?,
+                        screen::pane_size(size, 2, vertical, column.latest())?,
                         Role::Active,
                     )?;
                     saved.ids.push(info.id);
-                    terminals.push(terminal);
-                    screens.push(Screen::default());
+                    saved.vertical = vertical;
+                    active.terminals.push(terminal);
+                    active.screens.push(Screen::default());
                     saved.active = 1;
                     persist = true;
                     epoch += 1;
                     changed = true;
                 }
-                Command::Focus(index) if index < terminals.len() => {
-                    if !screens[saved.active].ended {
-                        terminals[saved.active].focus(false)?;
-                    }
-                    saved.active = index;
+                Command::Focus(index) if index < active.terminals.len() => {
+                    let saved = active_layout_mut(&mut workspace).ok_or(crate::Error::CoreState)?;
+                    active.focus(saved, index)?;
                     persist = true;
-                    if !screens[index].ended {
-                        terminals[index].focus(true)?;
-                    }
                     epoch += 1;
                     changed = true;
                 }
                 Command::Orientation => {
+                    let Some(saved) = active_layout_mut(&mut workspace) else {
+                        continue;
+                    };
                     saved.vertical ^= true;
+                    epoch += 1;
                     persist = true;
                     changed = true;
                 }
                 _ => {}
             }
         }
-        if changed {
-            // A pane the one-pane rule hides keeps the size it last had.
-            let sizes = screen::pane_sizes(
-                size,
-                terminals.len(),
-                saved.vertical,
-                saved.active,
-                column.latest(),
-            )?;
-            for ((terminal, screen), sent) in terminals.iter_mut().zip(&screens).zip(sizes) {
-                if let (false, Some(sent)) = (screen.ended, sent) {
-                    terminal.resize(sent)?;
+        if persist {
+            let _storage = store::LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if stop.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
+            if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
+                *entry = session_info(name.clone(), &workspace, true, Vec::new());
+            }
+            changed = true;
+        }
+        if let Some(saved) = active_layout(&workspace) {
+            if changed {
+                let sizes = screen::pane_sizes(
+                    size,
+                    active.terminals.len(),
+                    saved.vertical,
+                    saved.active,
+                    column.latest(),
+                )?;
+                for ((terminal, screen), sent) in
+                    active.terminals.iter_mut().zip(&active.screens).zip(sizes)
+                {
+                    if let (false, Some(sent)) = (screen.ended, sent) {
+                        terminal.resize(sent)?;
+                    }
                 }
             }
-            if persist {
-                let _storage = store::LOCK
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if stop.load(Ordering::Acquire) {
-                    return Ok(());
+            for (terminal, screen) in active.terminals.iter_mut().zip(&mut active.screens) {
+                if screen.ended {
+                    continue;
                 }
-                store::save(root.as_deref(), &host, &saved)?;
-            }
-        }
-        for (terminal, screen) in terminals.iter_mut().zip(&mut screens) {
-            if screen.ended {
-                continue;
-            }
-            for update in terminal.next(Duration::from_millis(8))? {
-                if matches!(update, SurfaceUpdate::Ended(_)) {
-                    // CLOSE belongs to this pane, not to the workspace.
-                    epoch += 1;
+                for update in terminal.next(Duration::from_millis(8))? {
+                    if matches!(update, SurfaceUpdate::Ended(_)) {
+                        epoch += 1;
+                    }
+                    screen.apply(update);
+                    changed = true;
                 }
-                screen.apply(update);
-                changed = true;
             }
-        }
-        let current = screen::publish(
-            &screens,
-            &saved,
-            size,
-            generation,
-            revision,
-            epoch,
-            column.latest(),
-        );
-        let destination = if screens[saved.active].ended {
-            None
-        } else {
-            crate::terminal_input::destination(&current, generation)
-        };
-        uploads.drain(
-            destination.as_ref(),
-            saved.ids[saved.active].as_str(),
-            &mut terminals[saved.active],
-            stop.load(Ordering::Acquire),
-        );
-        if screens.iter().all(|screen| screen.ended) {
-            std::thread::sleep(Duration::from_millis(16));
-        }
-        if changed {
-            revision += 1;
-            let live = screen::publish(
-                &screens,
-                &saved,
+            let current = screen::publish(
+                &active.screens,
+                saved,
                 size,
                 generation,
                 revision,
                 epoch,
                 column.latest(),
             );
+            let destination = (!active.screens[saved.active].ended)
+                .then(|| crate::terminal_input::destination(&current, generation))
+                .flatten();
+            uploads.drain(
+                destination.as_ref(),
+                saved.ids[saved.active].as_str(),
+                &mut active.terminals[saved.active],
+                stop.load(Ordering::Acquire),
+            );
+        }
+        if active.screens.iter().all(|screen| screen.ended) {
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        if changed {
+            revision += 1;
+            let mut live = active_layout(&workspace).map_or_else(
+                || {
+                    let mut live = Live::default();
+                    live.connected = true;
+                    live.dirty = true;
+                    live.status = "Herdr 2 · No tabs".into();
+                    live.input_epoch = epoch;
+                    live
+                },
+                |saved| {
+                    screen::publish(
+                        &active.screens,
+                        saved,
+                        size,
+                        generation,
+                        revision,
+                        epoch,
+                        column.latest(),
+                    )
+                },
+            );
+            if let Some(error) = command_error {
+                live.status = error;
+            }
             if let Ok(mut inbox) = inbox.lock() {
+                if published_epoch != Some(epoch) {
+                    publish_sessions(session_list, epoch, &sessions);
+                    published_epoch = Some(epoch);
+                }
                 *inbox = live;
             }
+        } else if let Some(error) = command_error
+            && let Ok(mut inbox) = inbox.lock()
+        {
+            inbox.status = error;
+            inbox.dirty = true;
         }
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct Active {
+    terminals: Vec<CoreTerminal>,
+    screens: Vec<Screen>,
+}
+
+impl Active {
+    fn attach(
+        backend: &CoreBackend,
+        workspace: &Workspace,
+        size: Size,
+        column: Option<crate::shell::single_pane::ColumnMetrics>,
+    ) -> crate::Result<Self> {
+        let Some(saved) = active_layout(workspace) else {
+            return Ok(Self::default());
+        };
+        let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column)?;
+        let terminals = saved
+            .ids
+            .iter()
+            .map(|id| backend.attach(id, initial, Role::Active))
+            .collect::<Result<Vec<_>, _>>()?;
+        let screens = terminals.iter().map(|_| Screen::default()).collect();
+        Ok(Self { terminals, screens })
+    }
+
+    fn focus(&mut self, saved: &mut Saved, next: usize) -> crate::Result<()> {
+        if !self.screens[saved.active].ended {
+            self.terminals[saved.active].focus(false)?;
+        }
+        saved.active = next;
+        if !self.screens[next].ended {
+            self.terminals[next].focus(true)?;
+        }
+        Ok(())
+    }
+}
+
+fn active_layout(workspace: &Workspace) -> Option<&Saved> {
+    workspace.tabs.get(workspace.active).map(|tab| &tab.layout)
+}
+
+fn active_layout_mut(workspace: &mut Workspace) -> Option<&mut Saved> {
+    workspace
+        .tabs
+        .get_mut(workspace.active)
+        .map(|tab| &mut tab.layout)
+}
+
+fn locate(workspace: &Workspace, address: &str) -> Option<(usize, usize)> {
+    workspace.tabs.iter().enumerate().find_map(|(tab, value)| {
+        value
+            .layout
+            .ids
+            .iter()
+            .position(|id| id.as_str() == address)
+            .map(|pane| (tab, pane))
+    })
+}
+
+fn focus_address(workspace: &mut Workspace, address: &str, available: &[ListedTerminal]) -> bool {
+    if let Some((tab, pane)) = locate(workspace, address) {
+        workspace.active = tab;
+        workspace.tabs[tab].layout.active = pane;
+        return true;
+    }
+    let Some(info) = available
+        .iter()
+        .find(|info| info.address == address && info.state == TerminalState::Live)
+    else {
+        if available.iter().any(|info| info.address == address) {
+            tracing::warn!(%address, "Herdr 2 terminal is no longer running");
+        }
+        return false;
+    };
+    let Ok(tab) = new_tab(info) else { return false };
+    // If the status poll saw a terminal disappear between list and attach,
+    // the worker reports the backend error and keeps the old saved layout.
+    workspace.tabs.push(tab);
+    workspace.active = workspace.tabs.len() - 1;
+    true
+}
+
+fn spawn_tab(backend: &CoreBackend) -> crate::Result<Tab> {
+    let terminal = backend.core().run(&Run {
+        keep: true,
+        ..Run::default()
+    })?;
+    new_tab(&terminal)
+}
+
+fn new_tab(info: &ListedTerminal) -> crate::Result<Tab> {
+    let id = sheprd_backend::TerminalId::new(info.address.clone())?;
+    Ok(Tab {
+        id: info.address.clone(),
+        label: label(info),
+        layout: Saved {
+            ids: vec![id],
+            ..Saved::default()
+        },
+    })
+}
+
+fn label(info: &ListedTerminal) -> String {
+    let program = info.argv.first().and_then(|arg| arg.rsplit('/').next());
+    [info.name.as_deref(), info.title.as_deref(), program]
+        .into_iter()
+        .flatten()
+        .map(crate::shell::herdr2_frame::session::one_line)
+        .find(|text| !text.is_empty())
+        .unwrap_or_else(|| "Shell".to_owned())
+}
+
+fn reconcile(workspace: &mut Workspace, available: &[ListedTerminal]) {
+    let active = workspace
+        .tabs
+        .get(workspace.active)
+        .map(|tab| tab.id.clone());
+    for tab in &mut workspace.tabs {
+        let focus = tab.layout.ids.get(tab.layout.active).cloned();
+        tab.layout
+            .ids
+            .retain(|id| available.iter().any(|info| info.address == id.as_str()));
+        tab.layout.active = tab
+            .layout
+            .ids
+            .iter()
+            .position(|id| Some(id) == focus.as_ref())
+            .unwrap_or(0);
+        if let Some(info) = available.iter().find(|info| {
+            tab.layout
+                .ids
+                .first()
+                .is_some_and(|id| id.as_str() == info.address)
+        }) {
+            tab.label = label(info);
+        }
+    }
+    workspace.tabs.retain(|tab| !tab.layout.ids.is_empty());
+    workspace.active = workspace
+        .tabs
+        .iter()
+        .position(|tab| Some(&tab.id) == active.as_ref())
+        .unwrap_or(0);
+}
+
+fn reconcile_live(workspace: &mut Workspace, available: &[ListedTerminal]) {
+    reconcile(workspace, available);
+    let mut seen = workspace
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.layout.ids.iter().map(|id| id.as_str().to_owned()))
+        .collect::<std::collections::HashSet<_>>();
+    for info in available {
+        if info.state == TerminalState::Live
+            && !seen.contains(&info.address)
+            && let Ok(mut tab) = new_tab(info)
+        {
+            // The first pane of a surviving split may have exited. Never reuse
+            // the split's stored tab id for an independently discovered pane.
+            while workspace.tabs.iter().any(|existing| existing.id == tab.id) {
+                tab.id.push('+');
+            }
+            seen.insert(info.address.clone());
+            workspace.tabs.push(tab);
+        }
+    }
+}
+
+pub(super) fn inactive_sessions(
+    root: Option<&std::path::Path>,
+    host: &str,
+    current: &str,
+    mut observed: Observations,
+) -> crate::Result<Vec<SessionInfo>> {
+    let mut names = store::sessions(root, host)?;
+    names.extend(observed.keys().cloned());
+    names.sort();
+    names.dedup();
+    let mut rows = names
+        .into_iter()
+        .filter(|name| name != current)
+        .map(|name| {
+            let mut saved = store::load_workspace(root, host, &name)
+                .inspect_err(|error| tracing::warn!(%error, %name, "Read Herdr 2 layout"))
+                .unwrap_or_default();
+            if let Some(Some(row)) = observed.remove(&name) {
+                reconcile_live(&mut saved, &row.terminals);
+                let statuses = row
+                    .terminals
+                    .iter()
+                    .filter(|terminal| terminal.state == TerminalState::Live)
+                    .map(crate::shell::herdr2_frame::CoreStatus::from)
+                    .collect();
+                let mut session = session_info(name, &saved, true, statuses);
+                session.core_id = Some(row.core_id);
+                session
+            } else {
+                session_info(name, &saved, false, Vec::new())
+            }
+        })
+        .collect::<Vec<_>>();
+    sort_sessions(&mut rows);
+    Ok(rows)
+}
+
+fn session_info(
+    name: String,
+    workspace: &Workspace,
+    confirmed: bool,
+    statuses: Vec<crate::shell::herdr2_frame::CoreStatus>,
+) -> SessionInfo {
+    SessionInfo {
+        name,
+        confirmed,
+        core_id: None,
+        statuses,
+        created: workspace.created,
+        tabs: workspace
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| TabInfo {
+                id: tab.id.clone(),
+                label: tab.label.clone(),
+                panes: tab
+                    .layout
+                    .ids
+                    .iter()
+                    .map(|id| id.as_str().to_owned())
+                    .collect(),
+                active: index == workspace.active,
+                focused_pane: tab.layout.active,
+                vertical: tab.layout.vertical,
+            })
+            .collect(),
+    }
+}
+
+fn publish_sessions(list: &SessionList, epoch: u64, sessions: &[SessionInfo]) {
+    list.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .current = Some((epoch, sessions.to_vec()));
 }

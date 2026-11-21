@@ -20,6 +20,7 @@ use gpui::{Context, Window};
 pub(crate) enum KeyOwner {
     Terminal,
     HostsSheet,
+    NewSpaceSheet,
     SettingsSheet,
 }
 
@@ -29,22 +30,22 @@ impl Smoke {
             KeyOwner::SettingsSheet
         } else if self.hosts_sheet_modal() {
             KeyOwner::HostsSheet
+        } else if self.new_space_open() {
+            KeyOwner::NewSpaceSheet
         } else {
             KeyOwner::Terminal
         }
     }
 
-    /// A sheet owns the input: the settings sheet or a Hosts sheet over a
-    /// terminal (A6 item 1).
+    /// Whether a sheet owns input over the terminal.
     pub(crate) fn input_modal(&self) -> bool {
         self.key_owner() != KeyOwner::Terminal
     }
 
     /// Whether typed text (IME, `insertText:`) belongs to the terminal: a
-    /// terminal is open and no Hosts sheet covers it. `input.rs` reads this
-    /// in place of `terminal.open` (integrator patch 02).
+    /// terminal is open and neither Hosts nor New space covers it.
     pub(crate) fn terminal_owns_text_input(&self) -> bool {
-        self.terminal.open && !self.hosts_sheet_modal()
+        self.terminal.open && !self.hosts_sheet_modal() && !self.new_space_open()
     }
 
     /// Footer Hosts opened the sheet: give it the window focus and take the

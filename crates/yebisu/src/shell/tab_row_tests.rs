@@ -52,8 +52,8 @@ fn tab_body_hit_selects_and_does_not_close() {
             "x = {x}"
         );
     }
-    // Past the last tab and before the pinned actions: nothing.
-    assert_eq!(tab_hit(300.0, &tabs, ROW, 0.0), None);
+    // Past the last tab and its New tab button: nothing.
+    assert_eq!(tab_hit(340.0, &tabs, ROW, 0.0), None);
 }
 
 #[test]
@@ -98,11 +98,11 @@ fn pinned_actions_not_pushed_out_by_long_tab_names() {
         tab_hit(MAX_TAB_WIDTH + 1.0, &tabs, ROW, 0.0),
         Some(TabHit::Select(1))
     );
-    let left = pinned_left();
+    let right_actions_left = ROW - 2. * PINNED_ACTION_WIDTH;
     for (x, hit) in [
-        (left, TabHit::NewTab),
-        (left + PINNED_ACTION_WIDTH, TabHit::Split),
-        (left + 2.0 * PINNED_ACTION_WIDTH, TabHit::Overflow),
+        (MAX_TAB_WIDTH + 90., TabHit::NewTab),
+        (right_actions_left, TabHit::Split),
+        (right_actions_left + PINNED_ACTION_WIDTH, TabHit::Overflow),
     ] {
         assert_eq!(tab_hit(x, &tabs, ROW, 0.0), Some(hit), "x = {x}");
     }
@@ -181,4 +181,40 @@ fn close_tab_follows_run_action_fences(cx: &mut gpui::TestAppContext) {
         assert!(this.handoff.selection.is_none());
         assert!(this.terminal.navigating.is_none());
     });
+}
+
+#[test]
+fn selected_tab_has_tint_underline_dot_and_semibold() {
+    let appearance = tab_appearance(true);
+    assert_eq!(appearance.fill, Some(tint::SELECTED));
+    assert_eq!(appearance.weight, weight::SEMIBOLD);
+    assert_eq!(tab_appearance(false).text, color::MUTED);
+    assert_eq!(metric::CURRENT_LINE, 2.);
+    assert_eq!(metric::SMALL_DOT, 8.);
+}
+
+#[test]
+fn tab_name_is_number_and_agent_or_process() {
+    let mut snapshot: ClientShellSnapshot = serde_json::from_str(crate::mock_peer::SNAPSHOT)
+        .unwrap_or_else(|error| panic!("snapshot: {error}"));
+    snapshot.tabs[0].label = "1".into();
+    assert_eq!(tab_name(&snapshot, &snapshot.tabs[0]), "1 · claude");
+    snapshot.agents.clear();
+    snapshot.panes[0].label = Some("zsh".into());
+    assert_eq!(tab_name(&snapshot, &snapshot.tabs[0]), "1 · zsh");
+    snapshot.tabs[0].custom_label = true;
+    snapshot.tabs[0].label = "logs".into();
+    assert_eq!(tab_name(&snapshot, &snapshot.tabs[0]), "1 · logs");
+    snapshot.tabs[0].custom_label = false;
+    snapshot.tabs[0].label = "1".into();
+    snapshot.panes.clear();
+    assert_eq!(tab_name(&snapshot, &snapshot.tabs[0]), "1");
+}
+
+#[test]
+fn new_tab_button_follows_the_last_tab() {
+    assert_eq!(tab_hit(89., &[90.], 600., 0.), Some(TabHit::Close(0)));
+    assert_eq!(tab_hit(90., &[90.], 600., 0.), Some(TabHit::NewTab));
+    assert_eq!(tab_hit(134., &[90.], 600., 0.), None);
+    assert_eq!(tab_hit(512., &[90.], 600., 0.), Some(TabHit::Split));
 }

@@ -5,13 +5,21 @@ use super::{
 };
 use crate::{
     board::snapshot,
+    hosts::HostName,
     live::Live,
     shell::{
         HerdrKind,
         sidebar_status::{SidebarStatus, from_agent_status},
     },
 };
-use sheprd_client::protocol::{ClientShellAgent, ClientShellSnapshot};
+use sheprd_client::{
+    herdr::AgentKind,
+    protocol::{ClientShellAgent, ClientShellSnapshot},
+    text::{caption, safe_text},
+};
+
+// R26: the fork's docs/agent-labels.md limits pane and task captions to 160 characters.
+const CAPTION_LIMIT: usize = 160;
 
 /// Why a host is not connected (SidebarSpec 4). Fixed labels only: the
 /// daemon's or SSH's own text is untrusted and is never drawn here.
@@ -77,6 +85,7 @@ pub(crate) fn record_live(state: &SidebarState, host: &str, kind: HerdrKind, liv
     match (host_link(live), kind, snapshot(live)) {
         (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) => {
             state.observe(host, kind, &snap.boot_id, &observed(snap));
+            state.pins.borrow_mut().reconcile(host, snap);
         }
         (HostLink::Connected, _, _) => {}
         _ => state.forget(host, kind),
@@ -123,6 +132,11 @@ pub(crate) struct SpaceEntry {
 }
 
 impl SpaceEntry {
+    pub(super) fn tab_count(&self) -> String {
+        let unit = if self.tabs == 1 { "tab" } else { "tabs" };
+        format!("{} {unit}", self.tabs)
+    }
+
     /// Tags after the name: at most one Needs you and one Error (q3).
     pub(crate) fn tags(&self) -> Vec<&'static str> {
         let mut tags = Vec::new();
@@ -139,6 +153,15 @@ impl SpaceEntry {
 /// Builds a space row from its terminals. Only status-sending terminals are
 /// agents (Q4); the branch shows only for Herdr 1 and never for `~` (D3).
 pub(crate) fn space_entry(kind: HerdrKind, input: SpaceInput, rows: &[AgentRow]) -> SpaceEntry {
+    space_entry_with_reason(kind, input, rows, |_| None)
+}
+
+fn space_entry_with_reason(
+    kind: HerdrKind,
+    input: SpaceInput,
+    rows: &[AgentRow],
+    wait_reason: impl FnOnce(&AgentRow) -> Option<String>,
+) -> SpaceEntry {
     let mut agents = rows
         .iter()
         .filter(|row| row.status.is_agent())
@@ -154,7 +177,11 @@ pub(crate) fn space_entry(kind: HerdrKind, input: SpaceInput, rows: &[AgentRow])
     let (dot, detail) = match agents.first() {
         None => (SidebarStatus::NoStatus, "No agent".to_owned()),
         Some(lead) => {
-            let mut detail = format!("{} · {}", display_name(lead, &agents), lead.status.label());
+            let status = (lead.status == SidebarStatus::NeedsYou)
+                .then(|| wait_reason(lead))
+                .flatten();
+            let status = status.as_deref().unwrap_or_else(|| lead.status.label());
+            let mut detail = format!("{} · {status}", display_name(lead, &agents));
             if let Some(branch) = &branch {
                 detail.push_str(" · ");
                 detail.push_str(branch);
@@ -221,7 +248,8 @@ impl HostEntry {
         self
     }
 
-    /// Second line: SSH and the answering Herdr, or why it is not connected.
+    #[cfg(test)]
+    /// The model's abbreviated status label.
     pub(crate) fn detail(&self) -> &'static str {
         match (self.link, self.kind) {
             (HostLink::Connected, HerdrKind::Herdr1) => "SSH · Herdr 1",
@@ -251,32 +279,91 @@ pub(crate) fn order_hosts(hosts: &mut [HostEntry], saved: &[String]) {
 
 /// AGENTS across every host: status-sending terminals only, in Q5 order.
 /// `hosts` is in Hosts order (`order_hosts`); a first batch follows it.
+#[cfg(test)]
 pub(crate) fn agents_list(hosts: &[HostEntry]) -> Vec<AgentLine> {
+    agents_list_with_pins(hosts, &|_, _| None)
+}
+
+impl SidebarState {
+    /// The same AGENTS order for surfaces outside the sidebar.
+    pub(crate) fn ordered_agents(&self, hosts: &[HostEntry]) -> Vec<AgentLine> {
+        agents_list_with_pins(hosts, &|id, boot| self.pins.borrow().index(id, boot))
+    }
+}
+
+pub(super) fn agents_list_with_pins(
+    hosts: &[HostEntry],
+    pinned: &dyn Fn(&AgentIdentity, &str) -> Option<usize>,
+) -> Vec<AgentLine> {
+    let mut lines = hosts
+        .iter()
+        .flat_map(|host| {
+            host.agents
+                .iter()
+                .filter(|line| line.row.status.is_agent())
+                .map(move |line| (pinned(&line.row.identity, &host.boot), line))
+        })
+        .collect::<Vec<_>>();
     let host_rank = |id: &AgentIdentity| {
         hosts
             .iter()
-            .position(|h| h.host == id.host && h.kind == id.kind)
+            .position(|host| host.host == id.host && host.kind == id.kind)
             .unwrap_or(usize::MAX)
     };
-    let mut lines = hosts
-        .iter()
-        .flat_map(|h| h.agents.iter())
-        .filter(|line| line.row.status.is_agent())
-        .cloned()
-        .collect::<Vec<_>>();
-    lines.sort_by(|a, b| agent_order_in(&a.row, &b.row, &host_rank));
-    lines
+    lines.sort_by(|(a_pin, a), (b_pin, b)| {
+        agent_order_in(&a.row, &b.row, &host_rank, *a_pin, *b_pin)
+    });
+    lines.into_iter().map(|(_, line)| line.clone()).collect()
 }
 
-fn agent_name(agent: &ClientShellAgent) -> String {
-    agent
-        .name
-        .as_deref()
-        .or(agent.title.as_deref())
-        .or(agent.display_agent.as_deref())
-        .or(agent.agent.as_deref())
-        .unwrap_or(&agent.pane_id)
-        .to_owned()
+fn safe_caption(value: &str) -> Option<String> {
+    let label = safe_text(caption(value)?, CAPTION_LIMIT);
+    let label = label.trim();
+    (!label.is_empty()).then(|| label.to_owned())
+}
+
+fn kind_only(label: &str, agent: &ClientShellAgent) -> bool {
+    let identity = label.to_ascii_lowercase();
+    // AgentIcon in the fork also covers kinds with no session-resume adapter.
+    AgentKind::parse(&identity).is_some()
+        || matches!(
+            identity.as_str(),
+            "agent" | "claude code" | "omo" | "gemini" | "cline" | "kiro" | "amp" | "maki" | "muse"
+        )
+        || agent
+            .agent
+            .as_deref()
+            .is_some_and(|kind| label.eq_ignore_ascii_case(kind.trim()))
+}
+
+fn agent_name(agent: &ClientShellAgent, snapshot: &ClientShellSnapshot) -> String {
+    let pane = snapshot.panes.iter().find(|pane| {
+        pane.pane_id == agent.pane_id
+            && pane.tab_id == agent.tab_id
+            && pane.workspace_id == agent.workspace_id
+    });
+    if let Some(rename) = pane
+        .and_then(|pane| pane.label.as_deref())
+        .and_then(safe_caption)
+    {
+        return rename;
+    }
+    let name = [&agent.title, &agent.name, &agent.display_agent]
+        .into_iter()
+        .filter_map(|value| value.as_deref().and_then(safe_caption))
+        .find(|label| !kind_only(label, agent));
+    name.unwrap_or_else(|| {
+        let tab = snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_id == agent.tab_id && tab.workspace_id == agent.workspace_id)
+            .and_then(|tab| safe_caption(&tab.label));
+        let id = safe_text(&agent.pane_id, CAPTION_LIMIT);
+        tab.map_or_else(
+            || id.clone(),
+            |tab| safe_text(&format!("{id} · {tab}"), CAPTION_LIMIT),
+        )
+    })
 }
 
 /// The daemon's agents as this iPad saw them, for `SidebarState::observe`.
@@ -293,7 +380,7 @@ pub(crate) fn observed(snapshot: &ClientShellSnapshot) -> Vec<Observed> {
 }
 
 fn space_name(number: usize, label: &str) -> String {
-    format!("Space {number} · {label}")
+    safe_caption(label).unwrap_or_else(|| format!("Space {number}"))
 }
 
 /// Spaces in Herdr 1's order and the host's agents, from one snapshot.
@@ -319,11 +406,12 @@ pub(crate) fn snapshot_content(
         AgentRow {
             received: state.received(&identity),
             identity,
-            name: agent_name(agent),
+            name: agent_name(agent, snapshot),
             tab: tab_number(&agent.tab_id),
             status: from_agent_status(agent.agent_status),
         }
     };
+    let display_host = HostName::new(host);
     let mut spaces = Vec::new();
     let mut lines = Vec::new();
     for space in &snapshot.workspaces {
@@ -337,7 +425,7 @@ pub(crate) fn snapshot_content(
         for row in &rows {
             lines.push(AgentLine {
                 shown: display_name(row, &rows),
-                place: format!("{name} · {host}"),
+                place: format!("{name} · {display_host}"),
                 row: row.clone(),
             });
         }
@@ -352,7 +440,18 @@ pub(crate) fn snapshot_content(
             branch: space.branch.clone(),
             current: snapshot.focused_workspace_id.as_ref() == Some(&space.workspace_id),
         };
-        spaces.push(space_entry(kind, input, &rows));
+        spaces.push(space_entry_with_reason(kind, input, &rows, |lead| {
+            snapshot
+                .agents
+                .iter()
+                .find(|agent| {
+                    agent.pane_id == lead.identity.pane && agent.workspace_id == space.workspace_id
+                })?
+                .state_labels
+                .iter()
+                .filter(|(state, _)| state == "blocked")
+                .find_map(|(_, reason)| safe_caption(reason))
+        }));
     }
     // An agent whose workspace the snapshot omits still reaches AGENTS.
     for agent in snapshot.agents.iter().filter(|a| {
@@ -364,7 +463,7 @@ pub(crate) fn snapshot_content(
         let row = row_of(agent);
         lines.push(AgentLine {
             shown: row.name.clone(),
-            place: host.to_owned(),
+            place: display_host.to_string(),
             row,
         });
     }

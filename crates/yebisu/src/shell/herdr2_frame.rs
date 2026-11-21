@@ -1,12 +1,6 @@
-//! L8: Herdr 2 in the shared frame (plan v2 7.14). Owner: L8.
-//!
-//! Herdr 2 draws in the same frame as Herdr 1; on screen the only difference
-//! is "Herdr 2" in the status bar. The one session (`default`,
-//! `core/store.rs`) is one space row with one tab. AGENTS lists only the
-//! terminals that reported a status (Q4), mapped from F1's raw `CoreStatus`
-//! to the sidebar's seven states, so Error sorts right after Needs you (Q5).
-//! Connections are keyed by (host, kind), so one host can hold Herdr 1 and
-//! Herdr 2 side by side, Herdr 1 first. `session` builds the rows.
+//! Herdr 2 session and command routing in the shared frame.
+use std::collections::BTreeMap;
+
 use super::{
     HerdrKind,
     sidebar::{AgentIdentity, target::notification_identity},
@@ -15,18 +9,40 @@ use super::{
 use crate::{app::Smoke, notifications::Context, terminal_view::TerminalView};
 use sheprd_core_client::wire::StatusState;
 
+mod new_space;
 pub(crate) mod panes;
 pub(crate) mod session;
 pub(crate) mod sidebar;
 
-/// The one Herdr 2 session yebisu attaches to (`core::connect`,
-/// `core/store.rs`).
+/// The session used by installs that have not picked a named space.
 pub(crate) const HERDR2_SESSION: &str = "default";
-/// q4: New space creates Herdr 1 spaces only until the Herdr 2 sessions task.
-pub(crate) const HERDR2_NEW_SPACE: &str = "Herdr 2 has one session per host for now";
-
 #[derive(Debug, Default)]
-pub(crate) struct Herdr2State {}
+pub(crate) struct Herdr2State {
+    selected: BTreeMap<String, String>,
+    new_space: Option<new_space::Chooser>,
+    #[cfg(all(target_os = "ios", not(test)))]
+    host_probe: Option<gpui::Task<()>>,
+    #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
+    wave1_qa_step: u8,
+}
+
+impl Herdr2State {
+    pub(crate) fn selected_session(&self, host: &str) -> &str {
+        self.selected
+            .get(host)
+            .map_or(HERDR2_SESSION, String::as_str)
+    }
+
+    pub(crate) fn confirm_session(&mut self, host: &str, session: &str) {
+        if self
+            .selected
+            .get(host)
+            .is_none_or(|selected| selected != session)
+        {
+            self.selected.insert(host.to_owned(), session.to_owned());
+        }
+    }
+}
 
 /// One connection per (host, kind).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -74,46 +90,22 @@ pub(crate) fn core_status_to_sidebar(status: Option<&CoreStatus>) -> SidebarStat
     }
 }
 
-/// What New space offers for one Herdr kind on a host.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NewSpaceChoice {
-    pub(crate) kind: HerdrKind,
-    pub(crate) enabled: bool,
-    pub(crate) reason: Option<&'static str>,
-}
-
-/// New space for the kinds a host runs, Herdr 1 first. Only Herdr 1 creates
-/// a space; Herdr 2 is shown disabled with its reason until the Herdr 2
-/// sessions task (q4; the 2026-11-11 default is Herdr 1).
-pub(crate) fn new_space_choices(kinds: &[HerdrKind]) -> Vec<NewSpaceChoice> {
+/// Both installed kinds are offered; Herdr 2 is initially selected.
+pub(crate) fn new_space_choices(kinds: &[HerdrKind]) -> Vec<HerdrKind> {
     let mut kinds = kinds.to_vec();
     kinds.sort();
     kinds.dedup();
     kinds
-        .into_iter()
-        .map(|kind| match kind {
-            HerdrKind::Herdr1 => NewSpaceChoice {
-                kind,
-                enabled: true,
-                reason: None,
-            },
-            HerdrKind::Herdr2 => NewSpaceChoice {
-                kind,
-                enabled: false,
-                reason: Some(HERDR2_NEW_SPACE),
-            },
-        })
-        .collect()
 }
 
 /// The agent a notification is about, on the connection that delivered it:
 /// the identity keeps that connection's Herdr kind, so a Herdr 2 terminal
 /// never resolves to a Herdr 1 pane of the same host (or the reverse).
 pub(crate) fn notification_agent(target: &Context, key: &ConnectionKey) -> Option<AgentIdentity> {
-    if target.host != key.host {
+    if target.host != key.host || target.herdr != key.kind {
         return None;
     }
-    notification_identity(target, key.kind)
+    notification_identity(target)
 }
 
 impl Smoke {

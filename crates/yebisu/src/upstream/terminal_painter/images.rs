@@ -46,6 +46,7 @@ pub(crate) fn below_text(z: i32) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ImageTarget<'a> {
     Main,
+    Pane(&'a str),
     Popup(&'a str),
 }
 
@@ -60,6 +61,14 @@ impl ImageTarget<'_> {
                 }
                 | SurfaceGraphicsSource::PaneLayer { .. },
             ) => true,
+            (
+                Self::Pane(id),
+                SurfaceGraphicsSource::Terminal {
+                    target: SurfaceGraphicsTarget::Pane { pane_id },
+                    ..
+                }
+                | SurfaceGraphicsSource::PaneLayer { pane_id, .. },
+            ) => id == pane_id,
             (
                 Self::Popup(id),
                 SurfaceGraphicsSource::Terminal {

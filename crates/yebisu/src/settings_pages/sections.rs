@@ -1,11 +1,12 @@
-//! L1: the eight settings sections (q7). Owner: L1.
+//! Settings navigation and section order.
 use super::Page;
 
-/// Canvas order; there is no Sidebar section (q7).
+/// Canvas order, with the Notifications section from plan v2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Section {
     Display,
     Theme,
+    Sidebar,
     Input,
     Shortcuts,
     Connection,
@@ -17,7 +18,10 @@ pub(crate) enum Section {
 /// The canvas groups (`Settings.dc.html`) and their sections, in order.
 /// Notifications follows Connection (owner answer 1 of plan v2 section 10).
 pub(crate) const GROUPS: [(&str, &[Section]); 3] = [
-    ("APPEARANCE", &[Section::Display, Section::Theme]),
+    (
+        "APPEARANCE",
+        &[Section::Display, Section::Theme, Section::Sidebar],
+    ),
     (
         "BEHAVIOUR",
         &[
@@ -44,6 +48,7 @@ pub(crate) fn section_for_page(page: Page) -> Option<Section> {
     Some(match page {
         Page::Fonts => Section::Display,
         Page::Appearance => Section::Theme,
+        Page::Sidebar => Section::Sidebar,
         // The shortcut list; its priority toggle is the Input page's
         // Shortcut priority row (plan v2 7.4).
         Page::Keyboard => Section::Shortcuts,
@@ -61,6 +66,7 @@ impl Section {
         match self {
             Self::Display => "Display",
             Self::Theme => "Theme",
+            Self::Sidebar => "Sidebar",
             Self::Input => "Input",
             Self::Shortcuts => "Shortcuts",
             Self::Connection => "Connection",
@@ -75,6 +81,7 @@ impl Section {
         match self {
             Self::Display => Page::Fonts,
             Self::Theme => Page::Appearance,
+            Self::Sidebar => Page::Sidebar,
             Self::Input => Page::Input,
             Self::Shortcuts => Page::Keyboard,
             Self::Connection => Page::Connection,

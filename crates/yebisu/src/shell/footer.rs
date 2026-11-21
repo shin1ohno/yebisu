@@ -1,16 +1,11 @@
-//! L2b: the sidebar footer (New space / Hosts / Settings). Owner: L2b.
-//!
-//! Plan v2 7.6: under the sidebar list, New space on a 44 pt row, then Hosts
-//! and Settings on a second 44 pt row (Main.dc.html; L0
-//! `SIDEBAR_FOOTER_HEIGHT` = rule 1 + padding 4 + 4 + 44 + 44). New space
-//! sends `Command::Workspace` on Herdr 1 and is disabled with its reason on
-//! Herdr 2 (q4). Hosts opens the L7 Hosts sheet and hands the hardware keys
-//! to it (`footer/keys.rs`, review cf8bbcccc2164abe F1); when `open_hosts`
-//! declines, it returns to the Keys and hosts screen as the toolbar button
-//! did. Settings opens the L1 settings sheet.
-use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place};
+//! Sidebar footer and the New space control in its header (Main.dc.html).
+use super::{
+    ChromeState, EntryAction, EntryPoint, HerdrKind, Place,
+    sidebar::icons::Icon,
+    style::{color, metric, radius},
+};
 use crate::app::Smoke;
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Role, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 pub(crate) mod keys;
@@ -18,11 +13,9 @@ pub(crate) mod keys;
 pub(crate) const NEW_SPACE: &str = "New space";
 pub(crate) const HOSTS: &str = "Hosts";
 pub(crate) const SETTINGS: &str = "Settings";
-/// q4: Herdr 2 sessions are a separate task; New space says so.
-pub(crate) const HERDR2_NEW_SPACE: &str = "Herdr 2 sessions come in a later update";
 /// One footer row (Main.dc.html: buttons 44 high).
-pub(crate) const FOOTER_ROW_HEIGHT: f32 = 44.0;
-/// Padding above and below the two rows (Main.dc.html `padding: 4px 8px`).
+pub(crate) const FOOTER_ROW_HEIGHT: f32 = metric::TOUCH;
+/// Padding above and below the footer row (Main.dc.html `padding: 4px 8px`).
 pub(crate) const FOOTER_PADDING: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,14 +59,8 @@ impl FooterItem {
 }
 
 /// The footer, top to bottom and left to right.
-pub(crate) fn footer_items(kind: HerdrKind) -> Vec<FooterEntry> {
-    let herdr1 = kind == HerdrKind::Herdr1;
+pub(crate) fn footer_items(_kind: HerdrKind) -> Vec<FooterEntry> {
     vec![
-        FooterEntry {
-            item: FooterItem::NewSpace,
-            enabled: herdr1,
-            reason: (!herdr1).then_some(HERDR2_NEW_SPACE),
-        },
         FooterEntry {
             item: FooterItem::Hosts,
             enabled: true,
@@ -87,8 +74,7 @@ pub(crate) fn footer_items(kind: HerdrKind) -> Vec<FooterEntry> {
     ]
 }
 
-/// The footer's places; none while the user hid the sidebar (the frame then
-/// draws no sidebar column; "Show sidebar ⌘B" in the status bar brings it back).
+/// The controls in the expanded sidebar chrome.
 pub(crate) fn footer_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     if state.sidebar_hidden {
         return Vec::new();
@@ -101,10 +87,16 @@ pub(crate) fn footer_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
             enabled: entry.enabled,
             reason: entry.reason,
         })
+        .chain(std::iter::once(EntryPoint {
+            action: EntryAction::NewSpace,
+            place: Place::SidebarHeader,
+            enabled: true,
+            reason: None,
+        }))
         .collect()
 }
 
-/// The command New space sends: a new Herdr 1 workspace; none on Herdr 2.
+/// The legacy rail action requests a Herdr 1 workspace.
 pub(crate) fn new_space_command(kind: HerdrKind) -> Option<Command> {
     (kind == HerdrKind::Herdr1).then_some(Command::Workspace)
 }
@@ -126,7 +118,7 @@ pub(crate) const fn hosts_target(sheet_opened: bool) -> HostsTarget {
 }
 
 impl Smoke {
-    /// One footer tap. A disabled entry does nothing.
+    /// Footer controls and the legacy rail action.
     pub(crate) fn footer_tap(
         &mut self,
         item: FooterItem,
@@ -134,12 +126,6 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         let kind = self.chrome_state().kind;
-        let enabled = footer_items(kind)
-            .iter()
-            .any(|entry| entry.item == item && entry.enabled);
-        if !enabled {
-            return;
-        }
         match item {
             FooterItem::NewSpace => {
                 if let Some(command) = new_space_command(kind)
@@ -169,77 +155,66 @@ impl Smoke {
     }
 
     pub(crate) fn render_sidebar_footer(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let mut new_space = None;
-        let mut row = div().flex().flex_none().w_full().h(px(FOOTER_ROW_HEIGHT));
-        for entry in footer_items(self.chrome_state().kind) {
-            let button = footer_button(&entry, cx);
-            if entry.item == FooterItem::NewSpace {
-                new_space = Some(button);
-            } else {
-                row = row.child(button);
-            }
-        }
         Some(
             div()
                 .id("shell-sidebar-footer")
+                .debug_selector(|| "shell-sidebar-footer".into())
                 .flex_none()
                 .flex()
-                .flex_col()
+                .items_center()
                 .w_full()
                 .border_t_1()
-                .border_color(rgb(0x2b2933))
-                .px_2()
+                .border_color(rgb(color::RAISED))
+                .px(px(metric::INLINE_GAP))
                 .py(px(FOOTER_PADDING))
-                .children(new_space)
-                .child(row)
+                .children(
+                    footer_items(self.chrome_state().kind)
+                        .into_iter()
+                        .map(|entry| footer_button(entry.item, cx)),
+                )
                 .into_any_element(),
         )
     }
+
+    pub(crate) fn render_new_space_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let item = FooterItem::NewSpace;
+        Icon::Add
+            .button(item.element_id(), item.label(), true)
+            .on_click(cx.listener(|this, _, _, cx| this.open_new_space(cx)))
+            .into_any_element()
+    }
 }
 
-fn footer_button(entry: &FooterEntry, cx: &mut Context<Smoke>) -> AnyElement {
-    let item = entry.item;
+fn footer_button(item: FooterItem, cx: &mut Context<Smoke>) -> AnyElement {
     let id = item.element_id();
-    let button = div()
-        .id(id)
-        .debug_selector(move || id.to_owned())
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .px_2()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .rounded(px(8.))
-        .h(px(FOOTER_ROW_HEIGHT))
-        .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x6b7280 }))
-        .child(item.label())
-        .children(
-            (item == FooterItem::Settings)
-                .then(|| crate::qa_ax::mark(crate::qa_ax::ids::FOOTER_SETTINGS, SETTINGS))
-                .flatten(),
-        )
-        .children(entry.reason.map(|reason| {
-            div()
-                .min_w_0()
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_xs()
-                .text_color(rgb(0x8a8f98))
-                .child(reason)
-        }));
-    let button = if item == FooterItem::NewSpace {
-        button.w_full()
-    } else {
-        button.flex_1()
+    let button = match item {
+        FooterItem::Hosts => div()
+            .id(id)
+            .debug_selector(move || id.to_owned())
+            .role(Role::Button)
+            .aria_label(HOSTS)
+            .flex()
+            .flex_1()
+            .items_center()
+            .gap(px(metric::ROW_GAP))
+            .px(px(metric::INLINE_GAP))
+            .rounded(px(radius::CONTROL))
+            .h(px(FOOTER_ROW_HEIGHT))
+            .child(Icon::Hosts.draw(color::MUTED))
+            .child(HOSTS),
+        FooterItem::Settings => {
+            Icon::Settings
+                .button(id, SETTINGS, true)
+                .children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::FOOTER_SETTINGS,
+                    SETTINGS,
+                ))
+        }
+        FooterItem::NewSpace => Icon::Add.button(id, NEW_SPACE, true),
     };
-    if entry.enabled {
-        button
-            .on_click(cx.listener(move |this, _, window, cx| this.footer_tap(item, window, cx)))
-            .into_any_element()
-    } else {
-        button.into_any_element()
-    }
+    button
+        .on_click(cx.listener(move |this, _, window, cx| this.footer_tap(item, window, cx)))
+        .into_any_element()
 }
 
 #[cfg(test)]

@@ -1,40 +1,40 @@
 //! The rail column on screen. The numbers (sizes, badge places) come from
 //! `rail.rs` and `rail_badges.rs`; this file only draws them.
 use super::{
-    EDGE_PAD, FOOTER_BUTTON_HEIGHT, ITEM_GAP, RAIL_FOOTER_HEIGHT, RailHost, RailItem, RailItemKind,
-    RailMetrics, RailSpace, RailTarget, new_space_unavailable, rail_items, rail_metrics,
+    DIVIDER_WIDTH, EDGE_PAD, FOOTER_BUTTON_HEIGHT, HOST_DIVIDER_MARGIN, ITEM_GAP,
+    RAIL_FOOTER_HEIGHT, RailHost, RailItem, RailItemKind, RailMetrics, RailSpace,
+    icons::{RailIcon, icon},
+    menu::long_press_layer,
+    new_space_unavailable, rail_items, rail_metrics,
 };
 use crate::{
     app::Smoke,
-    board::{Target, snapshot},
+    board::snapshot,
     layout::RAIL_WIDTH,
-    live::Live,
     shell::{
         HerdrKind,
         rail_badges::{
             BADGE_MIN_WIDTH, BUTTON_WIDTH, BadgeTexts, DOT_SIZE, RailBadges, badge_spans,
             badge_texts, rail_badges,
         },
+        sidebar::icons::Icon as SidebarIcon,
         sidebar_status::from_agent_status,
+        style::{color, metric, radius, weight},
     },
 };
-use gpui::{AnyElement, Context, Div, FontWeight, Role, Stateful, div, font, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Div, Role, Stateful, div, font, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
-const ACCENT: u32 = 0x88c0d0;
-const NEEDS_BADGE: u32 = 0xebcb8b;
-const ERROR_BADGE: u32 = 0xbf616a;
-const BADGE_TEXT: u32 = 0x101419;
-const RAIL_BG: u32 = 0x1c1c22;
-const RULE: u32 = 0x2b2933;
-const MUTED: u32 = 0xacb2bb;
+// Rail.dc.html:30, :41.
+const ROW_CONTENT_GAP: f32 = 4.0;
+const BADGE_TOP: f32 = 4.0;
 
 /// Width of a badge label from the text system, bold at `pt`. The sum of the
 /// glyph advances is exact for digits and `+`.
 fn badge_measure(cx: &Context<Smoke>, pt: f32) -> impl Fn(&str) -> f32 + use<> {
     let text_system = cx.text_system().clone();
     let mut face = font(".SystemUIFont");
-    face.weight = FontWeight::BOLD;
+    face.weight = weight::BOLD;
     let face_id = text_system.resolve_font(&face);
     move |label: &str| {
         label
@@ -52,35 +52,43 @@ fn badge_measure(cx: &Context<Smoke>, pt: f32) -> impl Fn(&str) -> f32 + use<> {
 impl Smoke {
     /// Every host with its spaces, in the order the board uses.
     pub(super) fn rail_hosts(&self) -> Vec<RailHost> {
-        let mut hosts: Vec<(&str, &Live, u64, bool)> = self
+        let current = self.terminal.reconnect.target.as_str();
+        let saved = &self.setup.hosts;
+        let mut hosts = self
             .board
             .hidden
-            .iter()
-            .map(|(host, t)| (host.as_str(), &t.live, t.link.generation, t.core_mode))
-            .collect();
-        hosts.push((
-            self.terminal.reconnect.target.as_str(),
-            &self.terminal.live,
-            self.terminal.link.generation,
-            self.terminal.core_mode,
-        ));
-        hosts.sort_by(|a, b| a.0.cmp(b.0));
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        hosts.push(current);
+        hosts.extend(saved.iter().map(String::as_str));
+        hosts.retain(|name| !name.is_empty());
+        hosts.sort_by_key(|&name| {
+            (
+                saved
+                    .iter()
+                    .position(|saved| saved == name)
+                    .unwrap_or(usize::MAX),
+                name,
+            )
+        });
+        hosts.dedup();
         hosts
             .into_iter()
-            .filter(|(name, ..)| !name.is_empty())
-            .map(|(name, live, generation, core)| {
-                let shell = snapshot(live);
+            .map(|name| {
+                let terminal = self.rail_terminal(name);
+                let shell = terminal.and_then(|terminal| snapshot(&terminal.live));
                 RailHost {
                     name: name.to_owned(),
-                    kind: if core {
+                    kind: if terminal.is_some_and(|terminal| terminal.core_mode) {
                         HerdrKind::Herdr2
                     } else {
                         HerdrKind::Herdr1
                     },
-                    connected: live.connected,
-                    current: name == self.terminal.reconnect.target,
+                    connected: terminal.is_some_and(|terminal| terminal.live.connected),
+                    current: name == current,
                     boot: shell.map(|s| s.boot_id.clone()).unwrap_or_default(),
-                    generation,
+                    generation: terminal.map_or(0, |terminal| terminal.link.generation),
                     spaces: shell
                         .map(|s| {
                             s.workspaces
@@ -89,7 +97,6 @@ impl Smoke {
                                     workspace_id: space.workspace_id.clone(),
                                     number: space.number,
                                     label: space.label.clone(),
-                                    status: from_agent_status(space.agent_status),
                                     agents: s
                                         .agents
                                         .iter()
@@ -107,12 +114,12 @@ impl Smoke {
             .collect()
     }
 
-    /// The rail: a fixed `header` (`rail_header`), a scrolling list of hosts
-    /// and spaces, then New space, Hosts, Settings and the expand button,
-    /// fixed.
+    /// Fixed New space header, scrolling hosts and spaces, and fixed footer.
     pub(super) fn rail_column(&mut self, header: f32, cx: &mut Context<Self>) -> AnyElement {
+        self.load_sidebar_agent_pins(cx);
         let metrics = rail_metrics(1.0);
         let items = rail_items(&self.rail_hosts());
+        let agents = self.rail_agent_items();
         let measure = badge_measure(cx, metrics.badge_pt);
         self.record_rail_badges(&items, &measure);
         let list = div()
@@ -125,12 +132,23 @@ impl Smoke {
             .min_h_0()
             .w_full()
             .overflow_y_scroll()
-            .children(
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| rail_item(index, item, &metrics, &measure, cx)),
-            );
+            .children(items.iter().enumerate().flat_map(|(index, item)| {
+                let divider =
+                    (index > 0 && item.kind == RailItemKind::Host).then(|| host_divider(index));
+                divider.into_iter().chain(std::iter::once(rail_item(
+                    index + 1,
+                    item,
+                    &metrics,
+                    &measure,
+                    cx,
+                )))
+            }))
+            .when(!agents.is_empty(), |list| {
+                list.child(divider())
+                    .children(agents.iter().enumerate().map(|(index, item)| {
+                        rail_item(items.len() + index + 1, item, &metrics, &measure, cx)
+                    }))
+            });
         let kind = if self.terminal.core_mode {
             HerdrKind::Herdr2
         } else {
@@ -139,6 +157,18 @@ impl Smoke {
         let expand_reason =
             super::expand_unavailable(self.sidebar_user_mode(), self.shell.frame.sidebar_collapsed);
         let new_space = new_space_unavailable(kind, self.terminal.live.connected).is_none();
+        let header_control =
+            rail_button("rail-new-space", "New space", RailIcon::NewSpace, new_space)
+                // The window-controls regression observes the first interactive rail item.
+                .debug_selector(|| "rail-item-0".to_owned())
+                .when(new_space, |button| {
+                    button.on_click(cx.listener(|this, _, _, cx| {
+                        if let Err(e) = this.run_action(Command::Workspace) {
+                            this.terminal.live.status = e.to_string();
+                        }
+                        cx.notify();
+                    }))
+                });
         div()
             .id("rail")
             .role(Role::Group)
@@ -150,8 +180,19 @@ impl Smoke {
             .flex_col()
             .items_center()
             // The frame draws the 1 pt rule between the sidebar and the column.
-            .bg(rgb(RAIL_BG))
-            .child(div().h(px(header)).flex_none())
+            .bg(rgb(color::SURFACE))
+            .child(
+                div()
+                    .pt(px(header))
+                    .pb(px(ITEM_GAP))
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(ITEM_GAP))
+                    .child(header_control)
+                    .child(divider().debug_selector(|| "rail-header-rule".to_owned())),
+            )
             .child(list)
             .child(
                 div()
@@ -164,21 +205,8 @@ impl Smoke {
                     .items_center()
                     .gap(px(ITEM_GAP))
                     .child(
-                        footer_button("rail-new-space", "New space", new_space).when(
-                            new_space,
-                            |button| {
-                                button.on_click(cx.listener(|this, _, _, cx| {
-                                    if let Err(e) = this.run_action(Command::Workspace) {
-                                        this.terminal.live.status = e.to_string();
-                                    }
-                                    cx.notify();
-                                }))
-                            },
-                        ),
-                    )
-                    .child(
-                        footer_button("rail-hosts", "Hosts", true).on_click(cx.listener(
-                            |this, _, window, cx| {
+                        rail_button("rail-hosts", "Hosts", RailIcon::Hosts, true).on_click(
+                            cx.listener(|this, _, window, cx| {
                                 // The footer's path (L2b): open L7's sheet and
                                 // hand the keys to it, so a sheet over a live
                                 // terminal takes the typing (review 9714 F1).
@@ -187,33 +215,46 @@ impl Smoke {
                                     window,
                                     cx,
                                 );
-                            },
+                            }),
+                        ),
+                    )
+                    .child(
+                        rail_button(
+                            "rail-settings",
+                            crate::shell::footer::SETTINGS,
+                            RailIcon::Settings,
+                            true,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.begin_settings_modal(window, cx)
+                            }),
+                        )
+                        .children(crate::qa_ax::mark(
+                            crate::qa_ax::ids::RAIL_SETTINGS,
+                            crate::shell::footer::SETTINGS,
                         )),
                     )
                     .child(
-                        footer_button("rail-settings", crate::shell::footer::SETTINGS, true)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.begin_settings_modal(window, cx)
+                        rail_button(
+                            "rail-expand",
+                            "Expand sidebar",
+                            RailIcon::Expand,
+                            expand_reason.is_none(),
+                        )
+                        .aria_label(match expand_reason {
+                            Some(reason) => format!("Expand sidebar, {reason}"),
+                            None => "Expand sidebar".to_owned(),
+                        })
+                        .when(expand_reason.is_none(), |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| {
+                                this.expand_sidebar();
+                                cx.notify();
                             }))
-                            .children(crate::qa_ax::mark(
-                                crate::qa_ax::ids::RAIL_SETTINGS,
-                                crate::shell::footer::SETTINGS,
-                            )),
-                    )
-                    .child(
-                        footer_button("rail-expand", "»", expand_reason.is_none())
-                            .aria_label(match expand_reason {
-                                Some(reason) => format!("Expand sidebar, {reason}"),
-                                None => "Expand sidebar".to_owned(),
-                            })
-                            .when(expand_reason.is_none(), |button| {
-                                button.on_click(cx.listener(|this, _, _, cx| {
-                                    this.expand_sidebar();
-                                    cx.notify();
-                                }))
-                            }),
+                        }),
                     ),
             )
+            .children(self.render_rail_menu(cx))
             .into_any_element()
     }
 
@@ -247,7 +288,12 @@ impl Smoke {
     }
 }
 
-fn footer_button(id: &'static str, label: &'static str, enabled: bool) -> Stateful<Div> {
+fn rail_button(
+    id: &'static str,
+    label: &'static str,
+    mark: RailIcon,
+    enabled: bool,
+) -> Stateful<Div> {
     div()
         .id(id)
         .debug_selector(move || id.to_owned())
@@ -262,23 +308,36 @@ fn footer_button(id: &'static str, label: &'static str, enabled: bool) -> Statef
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(super::LABEL_PT))
-        .text_color(rgb(if enabled { MUTED } else { 0x5b6270 }))
-        .child(label)
+        .child(icon(mark, enabled))
+}
+
+fn divider() -> Div {
+    div()
+        .flex_none()
+        .w(px(DIVIDER_WIDTH))
+        .h(px(metric::LINE))
+        .bg(rgb(color::RAISED))
+}
+
+fn host_divider(index: usize) -> AnyElement {
+    divider()
+        .debug_selector(move || format!("rail-host-rule-{index}"))
+        .my(px(HOST_DIVIDER_MARGIN))
+        .into_any_element()
 }
 
 fn badge(text: &str, span: (f32, f32), color: u32, metrics: &RailMetrics) -> AnyElement {
     div()
         .absolute()
-        .top(px(4.))
+        .top(px(BADGE_TOP))
         .left(px(span.0))
         .w(px(span.1 - span.0))
         .h(px(metrics.badge_height))
         .rounded(px(metrics.badge_height / 2.))
         .bg(rgb(color))
-        .text_color(rgb(BADGE_TEXT))
+        .text_color(rgb(color::BACKGROUND))
         .text_size(px(metrics.badge_pt))
-        .font_weight(FontWeight::BOLD)
+        .font_weight(weight::BOLD)
         .flex()
         .items_center()
         .justify_center()
@@ -298,8 +357,8 @@ fn rail_item(
     let spans = badge_spans(&texts, measure);
     let dot = match item.status {
         Some(status) => div().bg(rgb(status.dot_color())),
-        None if item.connected => div().bg(rgb(0xa3be8c)),
-        None => div().border_2().border_color(rgb(MUTED)),
+        None if item.connected => div().bg(rgb(color::GREEN)),
+        None => div().border_2().border_color(rgb(color::MUTED)),
     };
     let target = item.target.clone();
     div()
@@ -315,22 +374,35 @@ fn rail_item(
         .flex_col()
         .items_center()
         .justify_center()
-        .gap(px(4.))
-        .rounded(px(6.))
+        .gap(px(ROW_CONTENT_GAP))
+        .rounded(px(radius::RAIL_ITEM))
         .when(item.current, |button| {
-            button.bg(rgb(RULE)).border_1().border_color(rgb(ACCENT))
+            button
+                .bg(rgb(color::RAISED))
+                .border_1()
+                .border_color(rgb(color::ACCENT))
         })
         .child(dot.size(px(DOT_SIZE)).rounded_full().flex_none())
+        .when(item.pinned, |button| {
+            button.child(
+                div()
+                    .absolute()
+                    .top(px(BADGE_TOP))
+                    .right(px(EDGE_PAD))
+                    .child(SidebarIcon::Pin.draw(color::MUTED)),
+            )
+        })
         .child(
             div()
-                .w(px(BUTTON_WIDTH - 2. * 4.))
+                .debug_selector(move || format!("rail-label-{index}"))
+                .w(px(BUTTON_WIDTH - 2. * ROW_CONTENT_GAP))
                 .text_size(px(metrics.label_pt))
                 .text_center()
-                .line_clamp(2)
+                .truncate()
                 .text_color(rgb(if item.kind == RailItemKind::Host && !item.connected {
-                    MUTED
+                    color::MUTED
                 } else {
-                    0xd8dee9
+                    color::TEXT
                 }))
                 .child(item.name.clone()),
         )
@@ -339,35 +411,18 @@ fn rail_item(
                 .left
                 .as_deref()
                 .zip(spans.left)
-                .map(|(text, span)| badge(text, span, ERROR_BADGE, metrics)),
+                .map(|(text, span)| badge(text, span, color::RED, metrics)),
         )
         .children(
             texts
                 .right
                 .as_deref()
                 .zip(spans.right)
-                .map(|(text, span)| badge(text, span, NEEDS_BADGE, metrics)),
+                .map(|(text, span)| badge(text, span, color::YELLOW, metrics)),
         )
+        .child(long_press_layer(item.clone(), cx))
         .on_click(cx.listener(move |this, _, window, cx| {
-            window.dismiss_virtual_keyboard();
-            match &target {
-                RailTarget::Host(host) => this.select_host(host),
-                RailTarget::Space {
-                    host,
-                    workspace_id,
-                    boot,
-                    generation,
-                } => {
-                    if let Err(e) = this.navigate_board(
-                        host,
-                        Target::Space(workspace_id.clone()),
-                        boot,
-                        *generation,
-                    ) {
-                        this.terminal.live.status = e.to_string();
-                    }
-                }
-            }
+            this.open_rail_target(&target, window);
             cx.notify();
         }))
         .into_any_element()

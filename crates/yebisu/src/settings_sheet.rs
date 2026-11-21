@@ -118,3 +118,7 @@ mod publication_tests;
 
 #[cfg(test)]
 mod publication_reproducers;
+
+#[cfg(test)]
+#[path = "settings_sheet/tests/wave_one.rs"]
+mod wave_one_tests;

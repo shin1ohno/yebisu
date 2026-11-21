@@ -1,15 +1,10 @@
-//! L8 + L2a: Herdr 2 sessions in the sidebar column. The list comes from
-//! the session's status poll; with no host or no list the column keeps only
-//! the footer.
+//! Herdr 2 sessions share the sidebar column and row layout with Herdr 1.
 use super::*;
 use crate::{
     app::Smoke,
     core::Session,
     live::Live,
-    shell::{
-        herdr2_frame::sidebar::{HERDR2_LIST_ID, herdr2_hosts},
-        single_pane::Mailbox,
-    },
+    shell::{herdr2_frame::sidebar::herdr2_hosts, single_pane::Mailbox},
 };
 use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
 use std::{
@@ -113,26 +108,91 @@ fn show(view: &Entity<Smoke>, cx: &mut VisualTestContext, statuses: Option<Vec<C
 }
 
 #[gpui::test]
-fn herdr2_column_draws_the_list_only_with_a_session_list(cx: &mut TestAppContext) {
+fn herdr2_draws_the_shared_sidebar_before_and_after_listing(cx: &mut TestAppContext) {
     let (view, cx) = frame(cx);
     show(&view, cx, None);
+    assert!(cx.debug_bounds("sidebar-host-pro-dev").is_some());
     assert!(
-        cx.debug_bounds("shell-sidebar-list").is_some(),
-        "fixture: the column (with its footer) is drawn on Herdr 2"
-    );
-    assert!(
-        cx.debug_bounds(HERDR2_LIST_ID).is_none(),
-        "no Herdr 2 list before the session has listed"
+        cx.debug_bounds("sidebar-core-space-pro-dev-default")
+            .is_none()
     );
     show(&view, cx, Some(listed()));
     let list = cx
-        .debug_bounds(HERDR2_LIST_ID)
-        .unwrap_or_else(|| panic!("the Herdr 2 list is drawn once the session listed"));
+        .debug_bounds("sidebar-list")
+        .unwrap_or_else(|| panic!("shared sidebar list"));
     let column = cx
         .debug_bounds("shell-sidebar-list")
         .unwrap_or_else(|| panic!("sidebar column"));
+    assert!(column.contains(&list.origin));
     assert!(
-        column.contains(&list.origin),
-        "the list sits in the sidebar column: {list:?} in {column:?}"
+        cx.debug_bounds("sidebar-core-space-pro-dev-default")
+            .is_some()
     );
+    assert!(cx.debug_bounds("sidebar-core-agent-pro-dev-t2").is_some());
+}
+
+#[gpui::test]
+fn sidebar_draws_one_list_for_herdr1_and_herdr2(cx: &mut TestAppContext) {
+    let (view, cx) = frame(cx);
+    let client =
+        crate::mock_peer::connect_board().unwrap_or_else(|error| panic!("Herdr 1: {error}"));
+    view.update(cx, |this, _| {
+        this.select_host("pro-dev");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+    });
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let link = loop {
+        cx.run_until_parked();
+        if let Some(ready) = view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            let snapshot = crate::board::snapshot(&this.terminal.live)?;
+            let workspace = snapshot.workspaces.first()?;
+            assert_eq!(workspace.workspace_id, "w1");
+            Some(this.terminal.link.inbox.clone())
+        }) {
+            break ready;
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "Herdr 1 fixture did not publish"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+
+    view.update(cx, |this, cx| {
+        this.select_host_kind("pro-dev", HerdrKind::Herdr2);
+        this.terminal = core_terminal("pro-dev", Some(listed()));
+        this.terminal.open = true;
+        assert!(Arc::ptr_eq(&link, &this.board.hidden["pro-dev"].link.inbox));
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    let h1 = "sidebar-space-pro-dev-w1";
+    let h2 = "sidebar-core-space-pro-dev-default";
+    let host = cx
+        .debug_bounds("sidebar-host-pro-dev")
+        .unwrap_or_else(|| panic!("one host row"));
+    let h1 = cx
+        .debug_bounds(h1)
+        .unwrap_or_else(|| panic!("listed Herdr 1 space"));
+    let h2 = cx
+        .debug_bounds(h2)
+        .unwrap_or_else(|| panic!("listed Herdr 2 session"));
+    assert!(host.origin.y < h1.origin.y && h1.origin.y < h2.origin.y);
+    assert!(cx.debug_bounds("sidebar-core-agent-pro-dev-t2").is_some());
+
+    cx.simulate_click(h1.center(), gpui::Modifiers::none());
+    view.read_with(cx, |this, _| {
+        assert!(!this.terminal.core_mode);
+        assert!(Arc::ptr_eq(&link, &this.terminal.link.inbox));
+        assert!(this.board.hidden_core["pro-dev"].core.is_some());
+    });
+    cx.run_until_parked();
+    cx.simulate_click(h2.center(), gpui::Modifiers::none());
+    view.read_with(cx, |this, _| {
+        assert!(this.terminal.core_mode);
+        assert!(Arc::ptr_eq(&link, &this.board.hidden["pro-dev"].link.inbox));
+    });
 }

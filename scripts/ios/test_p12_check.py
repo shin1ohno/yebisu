@@ -116,6 +116,50 @@ class P12QASourceTests(unittest.TestCase):
         # Outside a hold every fixture still goes through QAAx.press.
         self.assertIn("qa.press(id, timeout: Self.receiptTimeout", body(swift, "private func fixture("))
 
+    def test_held_receipt_budget_excludes_synchronous_tap_and_checks_first_read(self):
+        # Run 44704476837 spent more than two receipt windows in the first tap,
+        # which skipped both confirmation loops even though the controls ran.
+        held = body(code(SWIFT), "private func heldPress(")
+        tap = held.index(".tap()")
+        window = held.index("let receiptStarted = ProcessInfo.processInfo.systemUptime")
+        read = held.index("qa.read()")
+        deadline = held.index("ProcessInfo.processInfo.systemUptime - receiptStarted >= Self.receiptTimeout")
+        self.assertLess(tap, window)
+        self.assertLess(window, read)
+        self.assertLess(read, deadline)
+        self.assertLess(deadline, held.index("usleep(Self.heldReadInterval)"))
+
+    def test_menu_waits_for_an_actionable_springboard_button_before_picking(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        opened = choose.index("applicationMenu.tap()")
+        self.assertIn("waitForEnabledMenuItem(item)", choose)
+        ready = choose.index("waitForEnabledMenuItem(item)")
+        hittable = choose.index("available && item.isHittable")
+        self.assertNotIn("sleep(", choose[opened:choose.index("if observeOnly {")])
+        self.assertLess(opened, ready)
+        self.assertLess(ready, hittable)
+        self.assertLess(hittable, choose.index("XCTAssertTrue(hittable,"))
+        self.assertLess(choose.index("XCTAssertTrue(hittable,"), choose.index("item.click()"))
+        availability = body(swift, "private func waitForEnabledMenuItem(")
+        self.assertLess(availability.index("if item.exists && item.isEnabled"), availability.index("XCTWaiter().wait("))
+        self.assertIn("exists == true AND enabled == true", availability)
+        self.assertNotIn("hittable ==", availability)
+        hierarchy = body(swift, "private func springboardHierarchy(")
+        self.assertIn("springboard.debugDescription", hierarchy)
+        self.assertNotIn("app.debugDescription", hierarchy)
+
+    def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        self.assertEqual(choose.count(".tap()"), 1)
+        self.assertIn("applicationMenu.tap()", choose)
+        self.assertIn("point.click()", choose)
+        self.assertIn("item.click()", choose)
+        self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).click()", choose)
+        self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
+        self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
+
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
         table = re.search(r"const FIXTURES: \[\(&str, &str\); 13\] = \[(.*?)\];", rust, re.S).group(1)

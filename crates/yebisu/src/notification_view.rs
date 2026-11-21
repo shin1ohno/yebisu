@@ -4,6 +4,7 @@ use crate::{
     notifications::{
         self, Context as TargetContext, Event, Failure, Policy, Route, Validity, Verdict,
     },
+    terminal_view::TerminalView,
 };
 use chrono::Timelike;
 use gpui::{
@@ -374,6 +375,12 @@ impl Drop for State {
 }
 
 impl Smoke {
+    fn notification_terminal(&self, target: &TargetContext) -> Option<&TerminalView> {
+        self.board.terminals(&self.terminal).find(|terminal| {
+            terminal.reconnect.target == target.host && terminal.herdr_kind() == target.herdr
+        })
+    }
+
     pub(crate) fn collect_notifications(&mut self, cx: &mut Context<Self>) {
         let local = chrono::Local::now();
         if let Some(error) = self
@@ -394,11 +401,7 @@ impl Smoke {
             .iter()
             .chain(self.notifications.posted.iter().map(|p| &p.target))
             .any(|target| {
-                let terminal = if target.host == self.terminal.reconnect.target {
-                    Some(&self.terminal)
-                } else {
-                    self.board.hidden.get(&target.host)
-                };
+                let terminal = self.notification_terminal(target);
                 // Lock contention or a transient projection is undecided, never
                 // grounds to cancel a valid notification; it is re-checked next tick.
                 terminal.is_none_or(|terminal| {
@@ -419,14 +422,15 @@ impl Smoke {
             cx.notify();
         }
         let mut events = Vec::new();
-        for terminal in std::iter::once(&mut self.terminal).chain(self.board.hidden.values_mut()) {
+        for terminal in self.board.terminals_mut(&mut self.terminal) {
             if let Some(error) = terminal.live.notifications.failure.take() {
                 self.notifications.fail(error);
             }
             let host = terminal.reconnect.target.clone();
+            let herdr = terminal.herdr_kind();
             let generation = terminal.link.generation;
             for event in terminal.live.notifications.pending.drain(..) {
-                let target = event.context(host.clone(), generation);
+                let target = event.context(host.clone(), herdr, generation);
                 events.push((event, target));
             }
         }
@@ -447,11 +451,7 @@ impl Smoke {
                 kept.push_back((event, target));
                 continue;
             }
-            let terminal = if target.host == self.terminal.reconnect.target {
-                Some(&self.terminal)
-            } else {
-                self.board.hidden.get(&target.host)
-            };
+            let terminal = self.notification_terminal(&target);
             let valid = match terminal {
                 None => Err(Failure::Disconnected),
                 Some(t) if t.reconnect.suspended => Err(Failure::Disconnected),
@@ -523,12 +523,9 @@ impl Smoke {
                 return Err(Failure::Stale);
             }
             let target = recorded.target.clone();
-            let terminal = if target.host == self.terminal.reconnect.target {
-                Some(&self.terminal)
-            } else {
-                self.board.hidden.get(&target.host)
-            }
-            .ok_or(Failure::Disconnected)?;
+            let terminal = self
+                .notification_terminal(&target)
+                .ok_or(Failure::Disconnected)?;
             if terminal.reconnect.suspended
                 || !terminal
                     .link
@@ -561,7 +558,7 @@ impl Smoke {
             };
             live.begin_navigation(Some(navigation.clone()));
             drop(live);
-            self.select_host(&target.host);
+            self.select_host_kind(&target.host, target.herdr);
             self.terminal.input.detach();
             self.terminal.navigating = Some(navigation);
             Ok(())
