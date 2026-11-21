@@ -50,7 +50,7 @@ fn qa_state_json_is_flat_and_keeps_its_own_fields() {
     state.presses.insert(ID, 3);
     state.fields.insert("screen", json!("p0"));
     state.fields.insert("menu", Value::Null);
-    let value: Value = match serde_json::from_str(&state_json(&state)) {
+    let value: Value = match serde_json::from_str(&state_json(&state, None)) {
         Ok(value) => value,
         Err(error) => panic!("state is not JSON: {error}"),
     };
@@ -59,7 +59,18 @@ fn qa_state_json_is_flat_and_keeps_its_own_fields() {
         json!({"seq": 7, "launch": 42, "presses": {ID: 3}, "duplicates": [ID],
                "screen": "p0", "menu": null})
     );
-    assert!(!state_json(&state).contains('\n'), "one line");
+    assert!(!state_json(&state, None).contains('\n'), "one line");
+}
+
+#[test]
+fn qa_state_can_report_the_painted_window_frame() {
+    let control = control(301.0);
+    let serialized = state_json(&State::default(), Some(std::slice::from_ref(&control)));
+    let value: Value = match serde_json::from_str(&serialized) {
+        Ok(value) => value,
+        Err(error) => panic!("state is not JSON: {error}"),
+    };
+    assert_eq!(value["frames"][control.id], json!(control.frame));
 }
 
 #[test]

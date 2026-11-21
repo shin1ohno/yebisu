@@ -13,6 +13,8 @@ pub(crate) struct MenuQa {
     /// The stage whose Begin ran. The control then reads "Begun", so the
     /// driver can see a lost tap and retry without a second start marker.
     pub begun: Option<usize>,
+    /// Whether the automatic E1-text fixture has closed its peer interval.
+    e1_text_ended: bool,
 }
 
 /// The text a control paints, which is also its accessibility label. The
@@ -69,7 +71,51 @@ pub(crate) fn case() -> String {
     std::env::var("YEBISU_SH1_152_CASE").unwrap_or_default()
 }
 
+fn clipboard_text(case: &str, stage: usize) -> String {
+    format!("sh1-152-clip-{case}-{stage}")
+}
+
 impl Smoke {
+    pub(crate) fn sh1_152_advance_e1_text(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::env::var_os("YEBISU_SH1_152_AUTO_MARKERS").is_none()
+            || case() != "E1-text"
+            || !self.terminal.input.ready
+            || !window.is_window_active()
+            || self.sh1_152_e1_text_command().is_none()
+        {
+            return;
+        }
+        // BackBoard can cancel either marker tap before GPUI sees the click. Begin prepares the
+        // clipboard once the terminal is ready, and End follows the actual native Paste receipt.
+        cx.defer_in(window, |this, window, cx| {
+            let Some(command) = this.sh1_152_e1_text_command() else {
+                return;
+            };
+            if !window.is_window_active() {
+                return;
+            }
+            this.refresh_terminal_input();
+            this.sync_handoff();
+            if this.terminal.input.ready && this.handoff.stamp.is_some() {
+                this.sh1_152_command(command, window, cx);
+                this.menu_qa.e1_text_ended = command == "End";
+            }
+        });
+    }
+
+    fn sh1_152_e1_text_command(&self) -> Option<&'static str> {
+        if self.menu_qa.begun.is_none() {
+            Some("Begin")
+        } else if !self.menu_qa.e1_text_ended
+            && self.menu_qa.capture.is_some()
+            && crate::qa_ax::peer::has_paste(&clipboard_text("E1-text", self.menu_qa.stage))
+        {
+            Some("End")
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn sh1_152_controls(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         std::env::var_os("YEBISU_SH1_152_CASE")?;
         let commands: &[&'static str] = if self.menu_qa.second {
@@ -212,10 +258,9 @@ impl Smoke {
                 } else {
                     window.request_virtual_keyboard();
                 }
-                cx.write_to_clipboard(ClipboardItem::new_string(format!(
-                    "sh1-152-clip-{}-{}",
-                    case(),
-                    self.menu_qa.stage
+                cx.write_to_clipboard(ClipboardItem::new_string(clipboard_text(
+                    &case(),
+                    self.menu_qa.stage,
                 )));
                 self.sh1_152_marker("start");
                 self.menu_qa.begun = Some(self.menu_qa.stage);
