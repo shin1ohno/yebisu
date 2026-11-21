@@ -1,6 +1,6 @@
 use super::*;
 
-// Main.dc.html:161-162,173 and Herdr2.dc.html:94-95,103.
+// Main.dc.html:161-162,173 and Herdr2.dc.html:95-96,104.
 const OUTER_SIDE: f32 = 8.;
 const OUTER_TOP: f32 = 10.;
 const INNER_SIDE: f32 = 12.;
@@ -86,7 +86,21 @@ impl InputGeometry {
             .unwrap_or_default()
     }
 
-    /// Herdr 2 stacks equal panes. This budget depends on points and font
+    /// Column width required by the tightest pane, based on the split shares
+    /// rather than the frame's current size. Keep this threshold when zoomed.
+    pub(crate) fn minimum_split_width(&self, surface: &PaneSurfaceFrame, text_width: f32) -> f32 {
+        let span = f32::from(self.pane_area().size.width);
+        self.framed_panes(surface)
+            .iter()
+            .map(|pane| {
+                let chrome = f32::from(pane.slot.size.width - pane.body.size.width);
+                let share = f32::from(pane.slot.size.width) / span;
+                (text_width + chrome) / share + 2. * OUTER_SIDE
+            })
+            .fold(0., f32::max)
+    }
+
+    /// Budget for equal panes. This budget depends on points and font
     /// metrics only, so switching between an unframed and a framed surface
     /// cannot change whether two panes fit.
     pub(crate) fn equal_pane_viewport(&self, count: usize, vertical: bool) -> Size<Pixels> {

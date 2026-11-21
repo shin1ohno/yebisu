@@ -1,4 +1,4 @@
-//! L2c: one pane below a 568 pt terminal column (plan v2 6). Owner: L2c.
+//! L2c: one pane when the split would fall below the terminal minimum.
 //!
 //! Herdr 1: the daemon splits one size between the panes, so yebisu zooms the
 //! focused pane of a tab while the column is narrower than two panes need,
@@ -7,9 +7,11 @@
 //! it the column's measurements through a latest-value mailbox.
 use crate::{
     app::Smoke,
+    input_geometry::InputGeometry,
     layout::{PaneMode, TERMINAL_MIN_HEIGHT, TERMINAL_MIN_WIDTH, pane_mode},
+    shell::herdr2_frame::panes::pane_rects,
 };
-use gpui::{Context, Window};
+use gpui::{Bounds, Context, Point, Window, px, size};
 use sheprd_client::protocol::ClientShellSnapshot;
 use sheprd_commands::Command;
 use std::{
@@ -33,20 +35,27 @@ enum Phase {
     /// Release sent, the snapshot still shows the zoom.
     Releasing,
     /// Zoom sent, never shown within `REQUEST_TTL`: not sent again until the
-    /// column crosses 568 pt or the tab's pane count changes (a repeat would
-    /// discard input each time). Switching tabs does not lift it.
+    /// column crosses the split threshold or the tab's pane count changes
+    /// (a repeat would discard input each time). Switching tabs does not lift it.
     GaveZoom,
     /// Release sent, the zoom stayed: not sent again until the column changes.
     GaveRelease,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct SplitLayout {
+    vertical: bool,
+    minimum_width: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Forced {
     phase: Phase,
     /// Pane count of the tab when the request went out: a split in between
     /// makes it a new situation.
     panes: usize,
     at: Instant,
+    split: SplitLayout,
 }
 
 /// What the last frame showed, to record only changes.
@@ -112,7 +121,7 @@ impl SinglePaneState {
         }
     }
 
-    /// The column crossed the 568 pt line for this tab: a request given up on
+    /// The column crossed the split threshold for this tab: a request given up on
     /// the other side may be sent again.
     pub(crate) fn column_changed(&mut self, host: &str, tab: u64, narrow: bool) {
         let key = (host.to_owned(), tab);
@@ -132,13 +141,14 @@ impl SinglePaneState {
     }
 
     /// Notes that a Zoom or Release went out for a tab with `panes` panes.
-    pub(crate) fn record_sent(
+    fn record_sent(
         &mut self,
         host: &str,
         tab: u64,
         request: ZoomRequest,
         panes: usize,
         now: Instant,
+        split: SplitLayout,
     ) {
         let phase = match request {
             ZoomRequest::Zoom => Phase::Zooming,
@@ -150,13 +160,13 @@ impl SinglePaneState {
                 phase,
                 panes,
                 at: now,
+                split,
             },
         );
     }
 }
 
-/// Herdr 1: what to send for one tab, given the column width, its pane
-/// count and whether it is zoomed (L2c calls `layout::pane_mode`).
+/// Herdr 1: what to send for one tab, given its pane budget and zoom state.
 ///
 /// - Narrow column, two or more panes, not zoomed: `Zoom`, once (a request
 ///   already out, or given up on, for this pane count is not repeated).
@@ -166,12 +176,12 @@ pub(crate) fn herdr1_zoom_request(
     state: &SinglePaneState,
     host: &str,
     tab: u64,
-    column_width: f32,
+    mode: PaneMode,
     pane_count: usize,
     zoomed: bool,
 ) -> Option<ZoomRequest> {
     let entry = state.entry(host, tab);
-    match pane_mode(column_width, pane_count) {
+    match mode {
         PaneMode::Single if pane_count >= 2 => {
             let asked = entry.is_some_and(|e| {
                 matches!(e.phase, Phase::Zooming | Phase::GaveZoom) && e.panes == pane_count
@@ -236,6 +246,31 @@ pub(crate) struct ColumnMetrics {
 }
 
 impl ColumnMetrics {
+    pub(crate) fn equal_panes_fit(&self, count: usize, vertical: bool) -> bool {
+        let geometry = InputGeometry::from_canvas(
+            Bounds::new(Point::default(), size(px(self.width), px(self.height))),
+            self.cell_width,
+            self.cell_height,
+        );
+        let budget = geometry.equal_pane_viewport(count, vertical);
+        let budget = crate::terminal::viewport(
+            budget.width.into(),
+            budget.height.into(),
+            self.cell_width,
+            self.cell_height,
+        );
+        let panes = pane_rects(budget.cols, budget.rows, count, vertical);
+        let (least_cols, least_rows) = self.minimum_cells();
+        panes.len() >= count
+            && panes.first().is_some_and(|pane| {
+                if vertical {
+                    pane.rows >= least_rows
+                } else {
+                    pane.cols >= least_cols
+                }
+            })
+    }
+
     /// The least columns and rows one pane may be given.
     pub(crate) fn minimum_cells(&self) -> (u16, u16) {
         let cells = |points: f32, cell: f32| {
@@ -342,12 +377,30 @@ impl Smoke {
         let state = &mut self.shell.single_pane;
         state.retain_tabs(&host, &tabs);
         state.observe(&host, view.key, view.zoomed, now);
-        state.column_changed(
-            &host,
-            view.key,
-            pane_mode(column_width, 2) == PaneMode::Single,
-        );
-        self.record_layout(&host, view, column_width);
+        let held_split = state
+            .entry(&host, view.key)
+            .filter(|entry| entry.panes == view.panes)
+            .map_or(SplitLayout::default(), |entry| entry.split);
+        let split = self.herdr1_split_layout(held_split);
+        let geometry = self.terminal.geometry;
+        let metrics = ColumnMetrics {
+            width: column_width,
+            height: self.terminal.column_bounds().size.height.into(),
+            cell_width: geometry.cell_width,
+            cell_height: geometry.cell_height,
+        };
+        let mode = if pane_mode(column_width, view.panes) == PaneMode::Split
+            && column_width >= split.minimum_width
+            && metrics.equal_panes_fit(view.panes, split.vertical)
+        {
+            PaneMode::Split
+        } else {
+            PaneMode::Single
+        };
+        self.shell
+            .single_pane
+            .column_changed(&host, view.key, mode == PaneMode::Single);
+        self.record_layout(&host, view, column_width, mode);
         if self.auto_zoom_would_discard_input() {
             return;
         }
@@ -355,7 +408,7 @@ impl Smoke {
             &self.shell.single_pane,
             &host,
             view.key,
-            column_width,
+            mode,
             view.panes,
             view.zoomed,
         ) else {
@@ -367,7 +420,23 @@ impl Smoke {
         if available && self.run_action(Command::Zoom).is_ok() {
             self.shell
                 .single_pane
-                .record_sent(&host, view.key, request, view.panes, now);
+                .record_sent(&host, view.key, request, view.panes, now, split);
+        }
+    }
+
+    fn herdr1_split_layout(&self, held: SplitLayout) -> SplitLayout {
+        let Some((_, surface)) = self.terminal.coherent_frame() else {
+            return held;
+        };
+        let [first, _, ..] = surface.panes.as_slice() else {
+            return held;
+        };
+        SplitLayout {
+            vertical: surface.panes.iter().all(|pane| pane.rect.x == first.rect.x),
+            minimum_width: self
+                .terminal
+                .geometry
+                .minimum_split_width(&surface, TERMINAL_MIN_WIDTH),
         }
     }
 
@@ -390,8 +459,8 @@ impl Smoke {
     }
 
     /// Records how many panes the screen shows, when that changes.
-    fn record_layout(&mut self, host: &str, view: TabView, column_width: f32) {
-        let shown = match pane_mode(column_width, view.panes) {
+    fn record_layout(&mut self, host: &str, view: TabView, column_width: f32, mode: PaneMode) {
+        let shown = match mode {
             PaneMode::Single => 1,
             PaneMode::Split => view.panes,
         };

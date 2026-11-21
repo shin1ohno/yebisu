@@ -6,7 +6,7 @@ use gpui::{
 use sheprd_client::Client;
 use sheprd_client::protocol::{ClientMessage, ClientSurfaceSize};
 use std::{
-    sync::mpsc::Receiver,
+    sync::{Arc, mpsc::Receiver},
     time::{Duration, Instant},
 };
 
@@ -201,4 +201,201 @@ fn assert_fits(
         edge.x <= visible.right() + px(0.01),
         "{sent:?} ends at {edge:?}, right of the visible terminal {visible:?}"
     );
+}
+
+#[gpui::test]
+fn terminal_mismatch_resends_resize_before_reclaiming_focus(cx: &mut TestAppContext) {
+    let (case, cx) = reclaim_fixture(cx);
+    case.draw_frame(cx, 1, 0);
+    case.assert_reclaim();
+}
+
+#[gpui::test]
+fn clipped_pty_rows_trigger_reclaim_even_with_matching_frame_dimensions(cx: &mut TestAppContext) {
+    use sheprd_client::protocol::{PaneSurfacePane, PaneSurfaceScrollMetrics, SurfaceRect};
+
+    let (case, cx) = reclaim_fixture(cx);
+    case.view.update(cx, |this, _| {
+        let surface = this
+            .terminal
+            .live
+            .surface
+            .as_mut()
+            .unwrap_or_else(|| panic!("no frame"));
+        let surface = Arc::make_mut(surface);
+        let rect = SurfaceRect {
+            x: 0,
+            y: 0,
+            width: case.sent.cols,
+            height: case.sent.rows,
+        };
+        surface.surface_revision += 1;
+        surface.panes.push(PaneSurfacePane {
+            pane_id: "w1:p1".into(),
+            content_revision: 2,
+            rect,
+            inner_rect: rect,
+            scrollbar_rect: None,
+            scroll: Some(PaneSurfaceScrollMetrics {
+                offset_from_bottom: 0,
+                max_offset_from_bottom: 0,
+                viewport_rows: u64::from(rect.height) + 9,
+            }),
+            focused: true,
+            mouse_reporting: false,
+            sgr_pixel_mouse: false,
+            alternate_screen_active: false,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
+    });
+    draw_terminal(&case.view, cx);
+    case.assert_reclaim();
+}
+
+#[gpui::test]
+fn another_mismatched_frame_does_not_reclaim_twice(cx: &mut TestAppContext) {
+    let (case, cx) = reclaim_fixture(cx);
+    case.draw_frame(cx, 0, 1);
+    case.assert_reclaim();
+    case.draw_frame(cx, 0, 1);
+    assert!(case.geometry_messages().is_empty());
+}
+
+#[gpui::test]
+fn matching_frame_rearms_geometry_reclaim(cx: &mut TestAppContext) {
+    let (case, cx) = reclaim_fixture(cx);
+    case.draw_frame(cx, 1, 0);
+    case.assert_reclaim();
+    case.draw_frame(cx, 0, 0);
+    assert!(case.geometry_messages().is_empty());
+    case.draw_frame(cx, 1, 0);
+    case.assert_reclaim();
+}
+
+#[gpui::test]
+fn background_terminal_does_not_reclaim_geometry(cx: &mut TestAppContext) {
+    let (case, cx) = reclaim_fixture(cx);
+    cx.update(|_, app| {
+        app.open_window(gpui::WindowOptions::default(), |window, app| {
+            window.activate_window();
+            app.new(|_| gpui::Empty)
+        })
+        .unwrap_or_else(|e| panic!("second window: {e}"));
+    });
+    cx.run_until_parked();
+    assert!(!cx.update(|window, _| window.is_window_active()));
+    case.draw_frame(cx, 0, 1);
+    assert_eq!(case.geometry_messages(), [GeometryMessage::Focus(false)]);
+
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    case.draw_frame(cx, 0, 0);
+    assert_eq!(case.geometry_messages(), [GeometryMessage::Focus(true)]);
+    case.draw_frame(cx, 0, 1);
+    case.assert_reclaim();
+}
+
+#[derive(Debug, PartialEq)]
+enum GeometryMessage {
+    Resize(ClientSurfaceSize),
+    Focus(bool),
+}
+
+struct ReclaimFixture {
+    view: Entity<Smoke>,
+    receipts: Receiver<ClientMessage>,
+    sent: ClientSurfaceSize,
+}
+
+fn reclaim_fixture(cx: &mut TestAppContext) -> (ReclaimFixture, &mut VisualTestContext) {
+    let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    assert!(cx.update(|window, _| window.is_window_active()));
+    let view = cx.new(Smoke::new);
+    let (client, receipts) =
+        mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("private peer: {e}"));
+    install(&view, cx, client);
+    draw_terminal(&view, cx);
+    let sent = view.read_with(cx, |this, _| {
+        this.terminal
+            .size
+            .unwrap_or_else(|| panic!("no measured size"))
+            .surface_size
+    });
+    let case = ReclaimFixture {
+        view,
+        receipts,
+        sent,
+    };
+    assert_eq!(
+        case.geometry_messages(),
+        [GeometryMessage::Resize(sent), GeometryMessage::Focus(true)]
+    );
+    case.draw_frame(cx, 0, 0);
+    assert!(case.geometry_messages().is_empty());
+    (case, cx)
+}
+
+fn draw_terminal(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    let paint = view.update(cx, |this, cx| this.terminal_paint_callback(cx));
+    cx.draw(point(px(0.), px(0.)), size(px(800.), px(600.)), |_, _| {
+        canvas(|_, _, _| (), paint).size_full()
+    });
+}
+
+impl ReclaimFixture {
+    fn draw_frame(&self, cx: &mut VisualTestContext, fewer_cols: u16, fewer_rows: u16) {
+        self.view.update(cx, |this, _| {
+            let surface = this
+                .terminal
+                .live
+                .surface
+                .as_mut()
+                .unwrap_or_else(|| panic!("no frame"));
+            let surface = Arc::make_mut(surface);
+            surface.surface_revision += 1;
+            surface.frame.width = self.sent.cols - fewer_cols;
+            surface.frame.height = self.sent.rows - fewer_rows;
+            let blank = surface
+                .frame
+                .cells
+                .last()
+                .cloned()
+                .unwrap_or_else(|| panic!("no fixture cells"));
+            surface.frame.cells.resize(
+                usize::from(surface.frame.width) * usize::from(surface.frame.height),
+                blank,
+            );
+        });
+        draw_terminal(&self.view, cx);
+    }
+
+    fn geometry_messages(&self) -> Vec<GeometryMessage> {
+        let mut messages = Vec::new();
+        while let Ok(message) = self.receipts.recv_timeout(Duration::from_millis(150)) {
+            match message {
+                ClientMessage::ClientShellResize { surface_size, .. } => {
+                    messages.push(GeometryMessage::Resize(surface_size));
+                }
+                ClientMessage::ClientShellFocus { focused } => {
+                    messages.push(GeometryMessage::Focus(focused));
+                }
+                _ => {}
+            }
+        }
+        messages
+    }
+
+    fn assert_reclaim(&self) {
+        assert_eq!(
+            self.geometry_messages(),
+            [
+                GeometryMessage::Resize(self.sent),
+                GeometryMessage::Focus(false),
+                GeometryMessage::Focus(true)
+            ],
+        );
+    }
 }

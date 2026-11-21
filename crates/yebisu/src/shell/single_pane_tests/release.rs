@@ -1,5 +1,6 @@
 //! Rules: widening releases the zoom yebisu set, never the user's.
 use super::support::{HOST, connected, measure, ready, show_zoomed, zoom_requests};
+use crate::layout::PaneMode::Split;
 use crate::shell::single_pane::{SinglePaneState, ZoomRequest, herdr1_zoom_request};
 use gpui::TestAppContext;
 use std::time::Instant;
@@ -9,19 +10,19 @@ fn release_needs_a_zoom_yebisu_set() {
     let now = Instant::now();
     let mut state = SinglePaneState::default();
     // Wide and zoomed with no record: the user's zoom.
-    assert_eq!(herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true), None);
-    state.record_sent(HOST, 1, ZoomRequest::Zoom, 2, now);
+    assert_eq!(herdr1_zoom_request(&state, HOST, 1, Split, 2, true), None);
+    state.record_sent(HOST, 1, ZoomRequest::Zoom, 2, now, Default::default());
     // Sent but not yet shown: nothing to release yet.
-    assert_eq!(herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true), None);
+    assert_eq!(herdr1_zoom_request(&state, HOST, 1, Split, 2, true), None);
     state.observe(HOST, 1, true, now);
     assert_eq!(
-        herdr1_zoom_request(&state, HOST, 1, 700.0, 2, true),
+        herdr1_zoom_request(&state, HOST, 1, Split, 2, true),
         Some(ZoomRequest::Release)
     );
     // Another tab of the same host, and the same tab of another host.
-    assert_eq!(herdr1_zoom_request(&state, HOST, 2, 700.0, 2, true), None);
+    assert_eq!(herdr1_zoom_request(&state, HOST, 2, Split, 2, true), None);
     assert_eq!(
-        herdr1_zoom_request(&state, "other", 1, 700.0, 2, true),
+        herdr1_zoom_request(&state, "other", 1, Split, 2, true),
         None
     );
 }

@@ -13,9 +13,16 @@ fn frame(
 ) -> Option<ZoomRequest> {
     let view = focused_tab(&snapshot(panes, zoomed)).unwrap_or_else(|| panic!("no focused tab"));
     state.observe(HOST, view.key, view.zoomed, now);
-    let request = herdr1_zoom_request(state, HOST, view.key, width, view.panes, view.zoomed);
+    let request = herdr1_zoom_request(
+        state,
+        HOST,
+        view.key,
+        crate::layout::pane_mode(width, view.panes),
+        view.panes,
+        view.zoomed,
+    );
     if let Some(request) = request {
-        state.record_sent(HOST, view.key, request, view.panes, now);
+        state.record_sent(HOST, view.key, request, view.panes, now, Default::default());
     }
     request
 }

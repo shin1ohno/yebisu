@@ -5,10 +5,115 @@ use crate::{
     terminal_painter::{Ground, Highlight, ImageTarget, PlacedImages},
 };
 use gpui::{App, Bounds, ContentMask, Font, Pixels, Size, Window};
-use sheprd_client::protocol::{ClientShellSnapshot, PaneSurfaceFrame};
+use sheprd_client::{
+    ConnectOptions,
+    protocol::{ClientShellSnapshot, PaneSurfaceFrame},
+};
 use std::sync::Arc;
 
+/// Reclaim progress for one view and requested size. A matching frame rearms it.
+pub(crate) struct Reclaim {
+    generation: u64,
+    boot: String,
+    tab: String,
+    options: ConnectOptions,
+    progress: ReclaimProgress,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReclaimProgress {
+    AwaitingFrame(u64),
+    ResizeQueued,
+    FocusEdgeStarted,
+}
+
 impl TerminalView {
+    pub(super) fn update_surface_focus(
+        &mut self,
+        active: bool,
+        resized: bool,
+        options: ConnectOptions,
+        snapshot: &ClientShellSnapshot,
+        surface: &PaneSurfaceFrame,
+    ) {
+        if self.core_mode {
+            return;
+        }
+        let boot = &snapshot.boot_id;
+        let generation = self.link.generation;
+        let Some(tab) = snapshot.focused_tab_id.as_deref() else {
+            self.report_surface_focus(active);
+            return;
+        };
+        // The outer frame can keep the client's requested size while Herdr
+        // crops the shared PTY into it. Scroll metrics expose the runtime rows.
+        let mismatch = surface.frame.width != options.surface_size.cols
+            || surface.frame.height != options.surface_size.rows
+            || surface.panes.iter().any(|pane| {
+                pane.scroll
+                    .is_some_and(|scroll| scroll.viewport_rows != u64::from(pane.inner_rect.height))
+            });
+        let claim = |progress| Reclaim {
+            generation,
+            boot: boot.clone(),
+            tab: tab.to_owned(),
+            options,
+            progress,
+        };
+        if !mismatch {
+            self.surface_reclaim = None;
+        } else if resized {
+            // The frame drawn while writing a new local size predates that resize.
+            self.surface_reclaim = Some(claim(ReclaimProgress::AwaitingFrame(
+                surface.surface_revision,
+            )));
+        }
+        let focused = self
+            .surface_focus
+            .as_ref()
+            .is_some_and(|(link, id, focused)| *link == generation && id == boot && *focused);
+        if !active || !focused {
+            self.report_surface_focus(active);
+            return;
+        }
+        if !mismatch || self.reconnect.suspended || self.navigating.is_some() {
+            return;
+        }
+        let progress = self
+            .surface_reclaim
+            .as_ref()
+            .filter(|claim| {
+                claim.generation == generation
+                    && &claim.boot == boot
+                    && claim.tab == tab
+                    && claim.options == options
+            })
+            .map(|claim| claim.progress);
+        if progress == Some(ReclaimProgress::FocusEdgeStarted)
+            || progress == Some(ReclaimProgress::AwaitingFrame(surface.surface_revision))
+        {
+            return;
+        }
+        let Some(handle) = &self.link.handle else {
+            return;
+        };
+        // Herdr 0.9.x ignores a repeated Focus(true). Queue the measured size
+        // first, then make the focus edge that claims the shared PTY.
+        if progress != Some(ReclaimProgress::ResizeQueued) {
+            if handle.resize(boot, options).is_err() {
+                return;
+            }
+            self.surface_reclaim = Some(claim(ReclaimProgress::ResizeQueued));
+        }
+        if handle.set_focus(boot, false).is_ok() {
+            self.surface_focus = Some((generation, boot.clone(), false));
+            self.surface_reclaim = Some(claim(ReclaimProgress::FocusEdgeStarted));
+            // If the queue fills before this edge, retry only Focus(true) on
+            // the next paint, using the size that was already queued.
+            self.report_surface_focus(true);
+        }
+    }
+
     pub(super) fn report_surface_focus(&mut self, active: bool) {
         if self.core_mode || (active && (self.reconnect.suspended || self.navigating.is_some())) {
             return;
@@ -44,7 +149,7 @@ impl TerminalView {
             .unwrap_or(geometry.grid)
     }
 
-    pub(super) fn coherent_frame(
+    pub(crate) fn coherent_frame(
         &self,
     ) -> Option<(Arc<ClientShellSnapshot>, Arc<PaneSurfaceFrame>)> {
         let snapshot = self.live.snapshot.as_ref()?;

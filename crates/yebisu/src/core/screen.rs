@@ -1,6 +1,5 @@
 use crate::shell::herdr2_frame::panes::{PaneRect, frame_lines, pane_rects};
 use crate::{
-    input_geometry::InputGeometry,
     layout::{PaneMode, pane_mode},
     live::Live,
     shell::single_pane::ColumnMetrics,
@@ -66,33 +65,8 @@ fn is_single(size: Size, count: usize, vertical: bool, column: Option<ColumnMetr
     if pane_mode(column.width, count) == PaneMode::Single {
         return true;
     }
-    if count > 1 {
-        use gpui::{Bounds, Point, px, size};
-        let geometry = InputGeometry::from_canvas(
-            Bounds::new(Point::default(), size(px(column.width), px(column.height))),
-            column.cell_width,
-            column.cell_height,
-        );
-        let budget = geometry.equal_pane_viewport(count, vertical);
-        let budget = crate::terminal::viewport(
-            budget.width.into(),
-            budget.height.into(),
-            column.cell_width,
-            column.cell_height,
-        );
-        let budget = pane_rects(budget.cols, budget.rows, count, vertical);
-        let (least_cols, least_rows) = column.minimum_cells();
-        if budget.len() < count
-            || budget.first().is_none_or(|pane| {
-                if vertical {
-                    pane.rows < least_rows
-                } else {
-                    pane.cols < least_cols
-                }
-            })
-        {
-            return true;
-        }
+    if count > 1 && !column.equal_panes_fit(count, vertical) {
+        return true;
     }
     let (least_cols, least_rows) = column.minimum_cells();
     let Some(each) = rects.first() else {

@@ -1,18 +1,9 @@
 //! Rule: a narrow column with a two-pane tab sends Zoom, once.
-use super::support::{HOST, connected, measure, ready, show_zoomed, zoom_requests};
-use crate::shell::single_pane::{SinglePaneState, ZoomRequest, herdr1_zoom_request};
+use super::support::{connected, measure, ready, show_zoomed, zoom_requests};
 use gpui::TestAppContext;
 
 #[gpui::test]
 fn herdr1_narrow_column_requests_zoom_once(cx: &mut TestAppContext) {
-    // The rule: 567 pt is narrow, 568 pt keeps two panes.
-    let idle = SinglePaneState::default();
-    assert_eq!(
-        herdr1_zoom_request(&idle, HOST, 1, 567.0, 2, false),
-        Some(ZoomRequest::Zoom)
-    );
-    assert_eq!(herdr1_zoom_request(&idle, HOST, 1, 568.0, 2, false), None);
-
     // On the real screen path: the first narrow frame sends one pane.zoom
     // for the focused pane; later frames, also after the host answered and
     // before its snapshot shows the zoom, send nothing more.
@@ -75,4 +66,38 @@ fn herdr1_zoom_waits_while_input_would_be_discarded(cx: &mut TestAppContext) {
         this.enforce_herdr1(400.0);
     });
     assert_eq!(zoom_requests(&peer).len(), 1);
+}
+
+#[gpui::test]
+fn herdr1_frames_and_gutters_force_single_pane_at_611_points(cx: &mut TestAppContext) {
+    let peer = connected(cx);
+    peer.view.update(cx, |this, _| {
+        measure(this, 611.0);
+        this.terminal.geometry.cell_width = 8.0;
+        this.terminal.geometry.cell_height = 17.0;
+        this.enforce_herdr1(611.0);
+    });
+    let sent = zoom_requests(&peer);
+    assert_eq!(sent.len(), 1, "611 pt must zoom a two-pane tab");
+    assert_eq!(sent[0]["params"]["pane_id"], "w1:p1");
+    ready(&peer.view, cx);
+
+    peer.view.update(cx, |this, _| {
+        show_zoomed(this, true);
+        this.enforce_herdr1(611.0);
+    });
+    assert!(
+        zoom_requests(&peer).is_empty(),
+        "keep the zoom while narrow"
+    );
+
+    peer.view.update(cx, |this, _| {
+        measure(this, 700.0);
+        this.enforce_herdr1(700.0);
+    });
+    assert_eq!(
+        zoom_requests(&peer).len(),
+        1,
+        "release the automatic zoom when both fit"
+    );
 }
