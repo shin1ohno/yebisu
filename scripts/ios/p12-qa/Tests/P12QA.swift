@@ -28,6 +28,7 @@ final class P12QA: XCTestCase {
     private static let revealTimeout: TimeInterval = 10
     private static let menuItemTimeout: TimeInterval = 3
     private static let menuPollInterval: useconds_t = 50_000
+    private typealias MenuBarPressPosition = (point: CGPoint, reported: CGRect, useButton: Bool)
     /// What the reveal of the case in progress needed, quoted by its failure.
     private var revealNote = ""
     /// The fixture controls in panel order: the setup step each prepares and its QA identifier.
@@ -154,15 +155,22 @@ final class P12QA: XCTestCase {
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
         let owner = springboard
-        let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
-        guard let pressPosition = revealMenuBar(applicationMenu, caseName: caseName) else {
+        let menuBar = owner.statusBars.containing(.button, identifier: "yebisu").firstMatch
+        let applicationMenu = menuBar.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
+        guard let pressPosition = revealMenuBar(applicationMenu, in: menuBar, caseName: caseName) else {
             springboardHierarchy("p12-revealed-" + caseName)
             screenshotOnFailure("p12-revealed-" + caseName, false)
             XCTFail("OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary())
             return
         }
-        let offset = CGVector(dx: pressPosition.x - appOrigin.x, dy: pressPosition.y - appOrigin.y)
-        app.coordinate(withNormalizedOffset: .zero).withOffset(offset).tap()
+        let target: XCUICoordinate
+        if pressPosition.useButton {
+            target = applicationMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        } else {
+            let offset = CGVector(dx: pressPosition.point.x - appOrigin.x, dy: pressPosition.point.y - appOrigin.y)
+            target = app.coordinate(withNormalizedOffset: .zero).withOffset(offset)
+        }
+        target.tap()
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
@@ -241,16 +249,34 @@ final class P12QA: XCTestCase {
         return (false, false, false)
     }
 
-    private func waitForMenuBarPressPosition(_ button: XCUIElement) -> CGPoint? {
+    private static func screenScale(_ reported: CGFloat, expected: CGFloat) -> CGFloat? {
+        [CGFloat(1), 2].first { abs($0 * reported - expected) < 1 }
+    }
+
+    private static func menuBarButtonFrame(_ button: CGRect, in bar: CGRect, on screen: CGRect) -> CGRect? {
+        // As in QAAx, check the element's AX rectangle against the window geometry
+        // before using the application's origin for the touch. SpringBoard owns the
+        // menu, so its full-width status bar supplies the geometry the app cannot paint.
+        guard !button.isEmpty, !bar.isEmpty, !screen.isEmpty,
+              let barScale = screenScale(bar.width, expected: screen.width) else { return nil }
+        let barFrame = bar.applying(CGAffineTransform(scaleX: barScale, y: barScale))
+        guard abs(barFrame.minX - screen.minX) < 1, abs(barFrame.minY - screen.minY) < 1,
+              barFrame.maxY <= 64,
+              let buttonScale = screenScale(button.height, expected: barFrame.height) else { return nil }
+        let buttonFrame = button.applying(CGAffineTransform(scaleX: buttonScale, y: buttonScale))
+        return barFrame.contains(buttonFrame) ? buttonFrame : nil
+    }
+
+    private func waitForMenuBarPressPosition(_ button: XCUIElement, in bar: XCUIElement, on screen: CGRect)
+        -> MenuBarPressPosition? {
         // A nested AX frame request can be interrupted by a predicate waiter.
         // Poll the geometry directly and use its centre for the touch.
         let deadline = ProcessInfo.processInfo.systemUptime + Self.revealTimeout
         repeat {
             if button.exists {
-                let frame = button.frame
-                if !frame.isEmpty && frame.midX.isFinite && frame.minX >= 0
-                    && frame.minY >= 0 && frame.maxY <= 64 {
-                    return CGPoint(x: frame.midX, y: frame.midY)
+                let reported = button.frame
+                if let frame = Self.menuBarButtonFrame(reported, in: bar.frame, on: screen) {
+                    return (CGPoint(x: frame.midX, y: frame.midY), reported, frame == reported)
                 }
             }
             if ProcessInfo.processInfo.systemUptime >= deadline { return nil }
@@ -264,9 +290,11 @@ final class P12QA: XCTestCase {
     /// of 2026-11-17 the swipe call itself took 5.6 s and 5.7 s against 0.6-1.1 s
     /// for 14 of the 15 reveals that worked (the 15th took 4.2 s), so the gesture was
     /// spread over a stalled Simulator [unproven]. The assertion after this call is unchanged.
-    private func revealMenuBar(_ applicationMenu: XCUIElement, caseName: String) -> CGPoint? {
+    private func revealMenuBar(_ applicationMenu: XCUIElement, in bar: XCUIElement, caseName: String)
+        -> MenuBarPressPosition? {
         var attempt = 1
         revealNote = ""
+        let screen = springboard.frame
         while true {
             let swipeStart = Date()
             let injected = attempt == 1 && faults.remove("skip-swipe:" + caseName) != nil
@@ -276,11 +304,15 @@ final class P12QA: XCTestCase {
             }
             let swipeSeconds = Date().timeIntervalSince(swipeStart)
             let revealStart = Date()
-            let position = waitForMenuBarPressPosition(applicationMenu)
+            let position = waitForMenuBarPressPosition(applicationMenu, in: bar, on: screen)
             let waited = Date().timeIntervalSince(revealStart)
             if position != nil || attempt == 2 {
                 events.append(["kind": "reveal-result", "case": caseName, "revealed": position != nil,
-                               "pressPosition": position.map { [$0.x, $0.y] } ?? [],
+                               "pressPosition": position.map { [$0.point.x, $0.point.y] } ?? [],
+                               "axButtonFrame": position.map {
+                                   [$0.reported.minX, $0.reported.minY, $0.reported.width, $0.reported.height]
+                               } ?? [],
+                               "pressAnchor": position.map { $0.useButton ? "button" : "window" } ?? "",
                                "waited": waited, "attempts": attempt, "swipeSeconds": swipeSeconds,
                                "time": Date().timeIntervalSince1970])
                 return position
