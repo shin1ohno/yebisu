@@ -2,6 +2,7 @@
 //! `AddHostFlow`; these functions only check them and start the jobs.
 use crate::{app::Smoke, setup::Job, shell::add_host::SheetMode};
 use gpui::Context;
+use std::{cell::Cell, rc::Rc};
 
 impl Smoke {
     /// The sheet takes text input away from a terminal that is still open.
@@ -19,6 +20,7 @@ impl Smoke {
         if self.setup.busy {
             return;
         }
+        self.setup.epoch = self.setup.epoch.wrapping_add(1);
         self.setup.pending = None;
         self.setup.fingerprints.clear();
         self.setup_input.set_text(host.to_owned());
@@ -44,6 +46,9 @@ impl Smoke {
             .is_some_and(|session| session.flow.scanning || session.signing_in);
         if in_flight && self.setup.busy {
             self.setup.busy = false;
+        }
+        // Dismissal also invalidates a deferred device-key read after sign-in.
+        if !self.setup.busy && self.shell.hosts_sheet.add.is_some() {
             self.setup.epoch = self.setup.epoch.wrapping_add(1);
         }
         self.shell.hosts_sheet.close();
@@ -146,7 +151,40 @@ impl Smoke {
         else {
             return;
         };
+        let open = self.hosts_open_signing_in();
+        if open {
+            // Retry supersedes a key read still waiting for the previous attempt.
+            self.setup.epoch = self.setup.epoch.wrapping_add(1);
+            self.hosts_read_key_after_sign_in(cx);
+        }
         self.setup_input.set_text(target.clone());
         self.start_job(Job::Authenticate(target), cx);
+    }
+
+    pub(super) fn hosts_open_signing_in(&self) -> bool {
+        self.shell
+            .hosts_sheet
+            .add
+            .as_ref()
+            .is_some_and(|session| session.mode == SheetMode::Open && session.signing_in)
+    }
+
+    fn hosts_read_key_after_sign_in(&self, cx: &mut Context<Self>) {
+        let epoch = self.setup.epoch;
+        let subscription = Rc::new(Cell::new(None));
+        let cancel = Rc::clone(&subscription);
+        // The setup reply and the key owner's worker completion both notify this entity.
+        subscription.set(Some(cx.observe_self(move |this, cx| {
+            if this.setup.epoch != epoch {
+                drop(cancel.take());
+            } else if !this.setup.busy
+                && !this.settings.as_ref().is_some_and(|host| host.keys.busy())
+            {
+                // Unknown can still have a replacement worker running. Only reconcile
+                // once the owner is idle, and consume this observer before reading.
+                drop(cancel.take());
+                this.read_device_key(cx);
+            }
+        })));
     }
 }
