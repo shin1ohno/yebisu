@@ -18,15 +18,22 @@ final class EditMenuQA: XCTestCase {
 
     func testSH1152Basic() throws {
         for name in ["E1-text", "E1-key", "E2-text", "E2-key", "E1-core", "E2-core"] {
-            let beginOnReady = name == "E1-text"
-            let (app, ax) = try launch(name, useWindowFrames: true, beginOnReady: beginOnReady)
-            if !beginOnReady { try begin(QAIds.sh152Begin, ax) }
+            let automaticMarkers = name == "E1-text"
+            let (app, ax) = try launch(name, useWindowFrames: true, automaticMarkers: automaticMarkers)
+            if !automaticMarkers { try begin(QAIds.sh152Begin, ax) }
             if name.hasPrefix("E2") { try select(QAIds.sh152Select, ax) }
             try menu(app, ax, name, selected: name.hasPrefix("E2"))
             let action = name.hasPrefix("E2") ? "Copy" : "Paste"
             XCTAssertTrue(app.menuItems[action].isEnabled)
             choose(action, app, ax)
-            try end(QAIds.sh152End, app, ax)
+            if automaticMarkers {
+                let marker = "sh1-152-end-\(name)-0"
+                try ax.waitState("\(name) End at peer") {
+                    $0.count("sh152_end") == 1 && $0.peerPastes.contains(marker)
+                }
+            } else {
+                try end(QAIds.sh152End, app, ax)
+            }
             save(name)
             app.terminate()
         }
@@ -150,7 +157,7 @@ final class EditMenuQA: XCTestCase {
     }
 
     private func launch(_ name: String, useWindowFrames: Bool = false,
-                        beginOnReady: Bool = false) throws -> (XCUIApplication, QAAx) {
+                        automaticMarkers: Bool = false) throws -> (XCUIApplication, QAAx) {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
         caseName = name
@@ -158,7 +165,7 @@ final class EditMenuQA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
         if useWindowFrames { app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1" }
-        if beginOnReady { app.launchEnvironment["YEBISU_SH1_152_BEGIN_ON_READY"] = "1" }
+        if automaticMarkers { app.launchEnvironment["YEBISU_SH1_152_AUTO_MARKERS"] = "1" }
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
         // Keep the E-launch measurement scoped to app.launch() (docs/ci-simulator.md).
         let launchStarted = Date()
@@ -180,7 +187,7 @@ final class EditMenuQA: XCTestCase {
             XCTFail("SH1-152 \(name) requires a full-screen window for GPUI window coordinates")
             throw SetupError.fullScreenWindowUnavailable
         }
-        if beginOnReady {
+        if automaticMarkers {
             let marker = "sh1-152-start-\(name)-0"
             try ax.waitState("\(name) launch Begin at peer") {
                 $0.count("sh152_start") == 1 && $0.peerPastes.contains(marker)

@@ -81,7 +81,7 @@ class EditMenuQAIdentifiers(unittest.TestCase):
 
     def test_basic_uses_app_window_points_after_observing_the_full_screen(self):
         basic = body(self.code, "func testSH1152Basic(")
-        self.assertIn("try launch(name, useWindowFrames: true, beginOnReady: beginOnReady)", basic)
+        self.assertIn("try launch(name, useWindowFrames: true, automaticMarkers: automaticMarkers)", basic)
         launch = body(self.code, "private func launch(")
         self.assertIn('app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1"', launch)
         self.assertLess(launch.index("if useWindowFrames && !full"), launch.index("ax.touchReady("))
@@ -95,12 +95,14 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset", coordinate)
         self.assertIn("try coordinate(empty, id: id", body(qaax, "func touchReady("))
 
-    def test_basic_e1_text_waits_for_the_launch_begin_at_the_peer(self):
+    def test_basic_e1_text_waits_for_both_automatic_markers_at_the_peer(self):
         basic = body(self.code, "func testSH1152Basic(")
-        self.assertIn('let beginOnReady = name == "E1-text"', basic)
-        self.assertIn("if !beginOnReady { try begin(QAIds.sh152Begin, ax) }", basic)
+        self.assertIn('let automaticMarkers = name == "E1-text"', basic)
+        self.assertIn("if !automaticMarkers { try begin(QAIds.sh152Begin, ax) }", basic)
+        end_receipt = basic.index('$0.count("sh152_end") == 1 && $0.peerPastes.contains(marker)')
+        self.assertLess(basic.index("choose(action, app, ax)"), end_receipt)
         launch = body(self.code, "private func launch(")
-        self.assertIn('if beginOnReady { app.launchEnvironment["YEBISU_SH1_152_BEGIN_ON_READY"] = "1" }', launch)
+        self.assertIn('if automaticMarkers { app.launchEnvironment["YEBISU_SH1_152_AUTO_MARKERS"] = "1" }', launch)
         receipt = launch.index('$0.count("sh152_start") == 1 && $0.peerPastes.contains(marker)')
         self.assertLess(receipt, launch.index("ax.touchReady("))
 

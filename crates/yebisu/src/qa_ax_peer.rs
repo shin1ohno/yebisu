@@ -125,6 +125,14 @@ pub(crate) fn field() -> Value {
         .field()
 }
 
+/// Whether the mock peer has received the exact pasted text for this test stage.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+pub(crate) fn has_paste(text: &str) -> bool {
+    RECEIVED
+        .try_lock()
+        .is_ok_and(|received| received.pastes.iter().any(|paste| paste == text))
+}
+
 #[cfg(test)]
 #[path = "qa_ax_peer_tests.rs"]
 mod tests;
