@@ -26,6 +26,7 @@ jobs:
               def redirect_request(self, *args):
                   return None
 
+          print(subprocess.check_output(["gh", "--version"], text=True).splitlines()[0])
           token = os.environ["GH_TOKEN"]
           opener = urllib.request.build_opener(NoRedirect)
           repo = f"repos/{os.environ['GITHUB_REPOSITORY']}"
@@ -43,6 +44,20 @@ jobs:
                       status, body = response.status, response.read()
               except urllib.error.HTTPError as exc:
                   status, body = exc.code, exc.read()
+                  if status == 302:
+                      print(f"API redirect body: {len(body)} bytes")
+                      if body and len(body) <= 500:
+                          print(f"API redirect body text: {body.decode().replace(token, chr(42) * 3)!r}")
+                      location = exc.headers["Location"]
+                      with urllib.request.urlopen(location, timeout=20) as download:
+                          log = download.read()
+                          escapes = log.count(bytes([27]))
+                          print(f"Redirect destination: HTTP {download.status}, log bytes={len(log)}, ESC bytes={escapes}")
+                      opted_in = subprocess.run(
+                          ["gh", "api", endpoint, "--allow-escape-sequences"],
+                          capture_output=True, timeout=30,
+                      )
+                      print(f"gh with allow-escape-sequences: exit={opted_in.returncode}, bytes={len(opted_in.stdout)}")
               print(f"{path}: HTTP {status}")
               if status >= 400:
                   print(body.decode().replace(token, "[redacted]"))
