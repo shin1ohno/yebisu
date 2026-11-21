@@ -1,5 +1,5 @@
 //! Rule: a narrow column with a two-pane tab sends Zoom, once.
-use super::support::{connected, measure, ready, show_zoomed, zoom_requests};
+use super::support::{connected, measure, ready, show_zoomed, snapshot, zoom_requests};
 use gpui::TestAppContext;
 
 #[gpui::test]
@@ -99,5 +99,28 @@ fn herdr1_frames_and_gutters_force_single_pane_at_611_points(cx: &mut TestAppCon
         zoom_requests(&peer).len(),
         1,
         "release the automatic zoom when both fit"
+    );
+}
+
+#[gpui::test]
+fn herdr1_uses_two_pane_budget_while_split_geometry_is_missing(cx: &mut TestAppContext) {
+    let peer = connected(cx);
+    peer.view.update(cx, |this, _| {
+        // After a split, the peer can report three panes in tab metadata
+        // before providing rectangles that describe how they are arranged.
+        this.terminal.live.snapshot = Some(std::sync::Arc::new(snapshot(3, false)));
+        assert!(
+            this.terminal
+                .coherent_frame()
+                .is_some_and(|(_, surface)| surface.panes.is_empty())
+        );
+        measure(this, 959.0);
+        this.terminal.geometry.cell_width = 8.4;
+        this.terminal.geometry.cell_height = 20.0;
+        this.enforce_herdr1(959.0);
+    });
+    assert!(
+        zoom_requests(&peer).is_empty(),
+        "no zoom without evidence of a narrow split"
     );
 }

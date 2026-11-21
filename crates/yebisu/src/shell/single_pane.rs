@@ -45,6 +45,8 @@ enum Phase {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct SplitLayout {
     vertical: bool,
+    /// Number of panes in a measured row or column.
+    equal_panes: Option<usize>,
     minimum_width: f32,
 }
 
@@ -389,9 +391,12 @@ impl Smoke {
             cell_width: geometry.cell_width,
             cell_height: geometry.cell_height,
         };
+        // A tab can list panes before the surface provides their rectangles.
+        // Start with the two-pane budget and use actual widths for mixed splits.
+        let equal_panes = split.equal_panes.unwrap_or(2);
         let mode = if pane_mode(column_width, view.panes) == PaneMode::Split
             && column_width >= split.minimum_width
-            && metrics.equal_panes_fit(view.panes, split.vertical)
+            && metrics.equal_panes_fit(equal_panes, split.vertical)
         {
             PaneMode::Split
         } else {
@@ -431,8 +436,17 @@ impl Smoke {
         let [first, _, ..] = surface.panes.as_slice() else {
             return held;
         };
+        let vertical = surface
+            .panes
+            .iter()
+            .all(|pane| pane.rect.x == first.rect.x && pane.rect.width == first.rect.width);
+        let horizontal = surface
+            .panes
+            .iter()
+            .all(|pane| pane.rect.y == first.rect.y && pane.rect.height == first.rect.height);
         SplitLayout {
-            vertical: surface.panes.iter().all(|pane| pane.rect.x == first.rect.x),
+            vertical,
+            equal_panes: (vertical || horizontal).then_some(surface.panes.len()),
             minimum_width: self
                 .terminal
                 .geometry
