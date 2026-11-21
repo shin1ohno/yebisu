@@ -26,6 +26,7 @@ fn rail_tab_target_finds_a_disconnected_kept_core_host(cx: &mut gpui::TestAppCon
             this.rail_tab_target(host),
             Some(RailTarget::Space {
                 host: "beta".into(),
+                kind: HerdrKind::Herdr2,
                 workspace_id: "w1".into(),
                 boot: "boot-v1".into(),
                 generation: 7,

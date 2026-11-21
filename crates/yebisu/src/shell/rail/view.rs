@@ -3,6 +3,7 @@
 use super::{
     DIVIDER_WIDTH, EDGE_PAD, FOOTER_BUTTON_HEIGHT, HOST_DIVIDER_MARGIN, ITEM_GAP,
     RAIL_FOOTER_HEIGHT, RailHost, RailItem, RailItemKind, RailMetrics, RailSpace,
+    agents::core_agent_session,
     icons::{RailIcon, icon},
     menu::long_press_layer,
     rail_items, rail_metrics,
@@ -21,6 +22,7 @@ use crate::{
         sidebar_status::from_agent_status,
         style::{color, metric, radius, weight},
     },
+    terminal_view::TerminalView,
 };
 use gpui::{AnyElement, Context, Div, Role, Stateful, div, font, prelude::*, px, rgb};
 
@@ -49,9 +51,8 @@ fn badge_measure(cx: &Context<Smoke>, pt: f32) -> impl Fn(&str) -> f32 + use<> {
 }
 
 impl Smoke {
-    /// Every host with its spaces, in the order the board uses.
+    /// Gather each host's connections, with the preferred one first.
     pub(super) fn rail_hosts(&self) -> Vec<RailHost> {
-        let current = self.terminal.reconnect.target.as_str();
         let saved = &self.setup.hosts;
         let mut hosts = self
             .board
@@ -70,41 +71,80 @@ impl Smoke {
             )
         });
         hosts.dedup();
-        hosts
-            .into_iter()
-            .map(|name| {
-                let terminal = self.rail_terminal(name);
-                let shell = terminal.and_then(|terminal| snapshot(&terminal.live));
-                RailHost {
-                    name: name.to_owned(),
-                    kind: terminal.map_or(HerdrKind::Herdr1, |terminal| terminal.herdr_kind()),
-                    connected: terminal.is_some_and(|terminal| terminal.live.connected),
-                    current: name == current,
-                    boot: shell.map(|s| s.boot_id.clone()).unwrap_or_default(),
-                    generation: terminal.map_or(0, |terminal| terminal.link.generation),
-                    spaces: shell
-                        .map(|s| {
-                            s.workspaces
-                                .iter()
-                                .map(|space| RailSpace {
-                                    workspace_id: space.workspace_id.clone(),
-                                    number: space.number,
-                                    label: space.label.clone(),
-                                    agents: s
-                                        .agents
-                                        .iter()
-                                        .filter(|a| a.workspace_id == space.workspace_id)
-                                        .map(|a| from_agent_status(a.agent_status))
-                                        .collect(),
-                                    focused: s.focused_workspace_id.as_ref()
-                                        == Some(&space.workspace_id),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                }
-            })
-            .collect()
+        let core_hosts = self.rail_core_hosts();
+        let row = |name: &str, terminal: Option<&TerminalView>| {
+            let kind = terminal.map_or(HerdrKind::Herdr1, TerminalView::herdr_kind);
+            let shown = terminal.and_then(|terminal| snapshot(&terminal.live));
+            let spaces = match kind {
+                HerdrKind::Herdr1 => shown
+                    .map(|shown| {
+                        shown
+                            .workspaces
+                            .iter()
+                            .map(|space| RailSpace {
+                                workspace_id: space.workspace_id.clone(),
+                                number: space.number,
+                                label: space.label.clone(),
+                                agents: shown
+                                    .agents
+                                    .iter()
+                                    .filter(|agent| agent.workspace_id == space.workspace_id)
+                                    .map(|agent| from_agent_status(agent.agent_status))
+                                    .collect(),
+                                focused: shown.focused_workspace_id.as_ref()
+                                    == Some(&space.workspace_id),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                HerdrKind::Herdr2 => core_hosts
+                    .iter()
+                    .find(|host| host.host == name)
+                    .map(|host| {
+                        host.spaces
+                            .iter()
+                            .enumerate()
+                            .map(|(index, space)| RailSpace {
+                                workspace_id: space.id.clone(),
+                                number: index + 1,
+                                label: space.name.clone(),
+                                agents: host
+                                    .agents
+                                    .iter()
+                                    .filter(|line| {
+                                        core_agent_session(&line.row.identity.pane) == space.id
+                                    })
+                                    .map(|line| line.row.status)
+                                    .collect(),
+                                focused: space.current,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            };
+            RailHost {
+                name: name.to_owned(),
+                kind,
+                connected: terminal.is_some_and(|terminal| terminal.live.connected),
+                current: terminal.is_some_and(|terminal| std::ptr::eq(terminal, &self.terminal)),
+                boot: shown.map(|shown| shown.boot_id.clone()).unwrap_or_default(),
+                generation: terminal.map_or(0, |terminal| terminal.link.generation),
+                spaces,
+            }
+        };
+        let mut rows = Vec::new();
+        for name in hosts {
+            let preferred = row(name, self.rail_terminal(name));
+            let other = match preferred.kind {
+                HerdrKind::Herdr1 => HerdrKind::Herdr2,
+                HerdrKind::Herdr2 => HerdrKind::Herdr1,
+            };
+            rows.push(preferred);
+            if let Some(terminal) = self.terminal_for(name, other).filter(|t| t.live.connected) {
+                rows.push(row(name, Some(terminal)));
+            }
+        }
+        rows
     }
 
     /// Fixed New space header, scrolling hosts and spaces, and fixed footer.
@@ -401,7 +441,7 @@ fn rail_item(
         )
         .child(long_press_layer(item.clone(), cx))
         .on_click(cx.listener(move |this, _, window, cx| {
-            this.open_rail_target(&target, window);
+            this.open_rail_target(&target, window, cx);
             cx.notify();
         }))
         .into_any_element()

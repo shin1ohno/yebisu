@@ -15,7 +15,7 @@ pub(crate) struct RailSpace {
     pub(crate) focused: bool,
 }
 
-/// One host and its spaces.
+/// One connection and its spaces. The first connection supplies the host header.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RailHost {
     pub(crate) name: String,
@@ -42,6 +42,7 @@ pub(crate) enum RailTarget {
     Host(String),
     Space {
         host: String,
+        kind: HerdrKind,
         workspace_id: String,
         boot: String,
         generation: u64,
@@ -84,8 +85,11 @@ fn herdr_text(kind: HerdrKind) -> &'static str {
 impl RailItem {
     /// The spoken name includes the full title and any exact badge counts (S-8).
     pub(crate) fn accessibility_label(&self) -> String {
-        if let (true, Some(space), Some(status)) = (self.pinned, &self.space, self.status) {
-            return format!("Pinned: {}, {space}, {}", self.name, status.label());
+        if let (RailItemKind::Agent, Some(space), Some(status)) =
+            (self.kind, &self.space, self.status)
+        {
+            let prefix = if self.pinned { "Pinned: " } else { "" };
+            return format!("{prefix}{}, {space}, {}", self.name, status.label());
         }
         let mut parts = vec![self.name.clone()];
         match (self.kind, self.status) {
@@ -124,11 +128,12 @@ fn space_name(space: &RailSpace) -> String {
     }
 }
 
-/// Hosts in the order given, each followed by its spaces; a host that is not
-/// connected lists no spaces (a previous connection's spaces are not kept).
+/// One header per destination, using its preferred connection. Each connected
+/// reader contributes spaces with its own connection identity.
 pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
     let mut items = Vec::new();
-    for host in hosts {
+    for connections in hosts.chunk_by(|left, right| left.name == right.name) {
+        let host = &connections[0];
         let display = HostName::new(&host.name).to_string();
         items.push(RailItem {
             kind: RailItemKind::Host,
@@ -146,38 +151,38 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
             generation: host.generation,
             target: RailTarget::Host(host.name.clone()),
         });
-        if !host.connected {
-            continue;
-        }
-        for space in &host.spaces {
-            items.push(RailItem {
-                kind: RailItemKind::Space,
-                name: space_name(space),
-                host: display.clone(),
-                space: None,
-                herdr: host.kind,
-                status: Some(
-                    space
-                        .agents
-                        .iter()
-                        .copied()
-                        .min_by_key(|status| status.rank())
-                        .unwrap_or(SidebarStatus::NoStatus),
-                ),
-                connected: true,
-                current: host.current && space.focused,
-                pinned: false,
-                needs: count(&space.agents, SidebarStatus::NeedsYou),
-                error: count(&space.agents, SidebarStatus::Error),
-                boot: host.boot.clone(),
-                generation: host.generation,
-                target: RailTarget::Space {
-                    host: host.name.clone(),
-                    workspace_id: space.workspace_id.clone(),
+        for host in connections.iter().filter(|host| host.connected) {
+            for space in &host.spaces {
+                items.push(RailItem {
+                    kind: RailItemKind::Space,
+                    name: space_name(space),
+                    host: display.clone(),
+                    space: None,
+                    herdr: host.kind,
+                    status: Some(
+                        space
+                            .agents
+                            .iter()
+                            .copied()
+                            .min_by_key(|status| status.rank())
+                            .unwrap_or(SidebarStatus::NoStatus),
+                    ),
+                    connected: true,
+                    current: host.current && space.focused,
+                    pinned: false,
+                    needs: count(&space.agents, SidebarStatus::NeedsYou),
+                    error: count(&space.agents, SidebarStatus::Error),
                     boot: host.boot.clone(),
                     generation: host.generation,
-                },
-            });
+                    target: RailTarget::Space {
+                        host: host.name.clone(),
+                        kind: host.kind,
+                        workspace_id: space.workspace_id.clone(),
+                        boot: host.boot.clone(),
+                        generation: host.generation,
+                    },
+                });
+            }
         }
     }
     items

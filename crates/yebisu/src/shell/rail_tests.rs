@@ -10,6 +10,8 @@ mod canvas;
 mod collapse;
 #[path = "rail_tests/entries.rs"]
 mod entries;
+#[path = "rail_tests/navigation.rs"]
+mod navigation;
 #[path = "rail_tests/new_space.rs"]
 mod new_space;
 #[path = "rail_tests/render.rs"]

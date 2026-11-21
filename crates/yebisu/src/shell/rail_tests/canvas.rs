@@ -21,7 +21,7 @@ fn snapshot() -> ClientShellSnapshot {
         .unwrap_or_else(|error| panic!("endpoint fixture: {error}"))
 }
 
-fn show<'a>(
+pub(super) fn show<'a>(
     cx: &'a mut TestAppContext,
     destination: &str,
 ) -> (Entity<Smoke>, &'a mut VisualTestContext) {
