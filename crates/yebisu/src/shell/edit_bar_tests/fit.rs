@@ -10,7 +10,12 @@ fn paste_image_moves_to_the_menu_when_the_row_is_narrow() {
     let narrow = edit_bar_fit(true, 280.0);
     assert_eq!(
         narrow.shown,
-        [EditBarItem::Copy, EditBarItem::Paste, EditBarItem::Cancel]
+        [
+            EditBarItem::Copy,
+            EditBarItem::CopyOneLine,
+            EditBarItem::Paste,
+            EditBarItem::Cancel
+        ]
     );
     assert_eq!(narrow.overflow, [EditBarItem::PasteImage]);
     let none = edit_bar_fit(false, 700.0);

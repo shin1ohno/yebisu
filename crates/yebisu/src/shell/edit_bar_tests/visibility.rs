@@ -12,6 +12,7 @@ fn edit_bar_only_while_selecting() {
         edit_bar_items(true),
         [
             EditBarItem::Copy,
+            EditBarItem::CopyOneLine,
             EditBarItem::Paste,
             EditBarItem::PasteImage,
             EditBarItem::Cancel

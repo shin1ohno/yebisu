@@ -12,9 +12,16 @@ use std::{
 
 /// A Herdr 1 terminal on the private peer, drawn in the frame at 1200x1000.
 pub(super) fn terminal(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext) {
+    let (client, _receipts) = mock_peer::connect_quiet().unwrap_or_else(|e| panic!("peer: {e}"));
+    terminal_with_peer(cx, client)
+}
+
+fn terminal_with_peer(
+    cx: &mut TestAppContext,
+    client: sheprd_client::Client,
+) -> (Entity<Smoke>, &mut VisualTestContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1200.), px(1000.)));
-    let (client, _receipts) = mock_peer::connect_quiet().unwrap_or_else(|e| panic!("peer: {e}"));
     view.update(cx, |this, _| {
         this.select_host("frame-overlay");
         let generation = this.terminal.link.reset();
@@ -198,9 +205,13 @@ fn herdr2_without_a_sidebar_list_keeps_the_footer_column(cx: &mut TestAppContext
 fn rail_mode_tab_row_shows_the_space_switcher(cx: &mut TestAppContext) {
     let (view, cx) = terminal(cx);
     assert!(cx.debug_bounds("shell-space-switcher").is_none());
+    assert!(cx.debug_bounds("shell-selected-tab-status-dot").is_some());
+    assert_eq!(bounds(cx, "shell-tab-underline").size.height, px(2.));
     view.update(cx, |this, _| this.actions.board_hidden = true);
     redraw(&view, cx);
     let switcher = bounds(cx, "shell-space-switcher");
+    assert!(cx.debug_bounds("shell-selected-tab-status-dot").is_none());
+    assert!(cx.debug_bounds("shell-tab-underline").is_some());
     let tab = bounds(cx, "shell-tab-body-0");
     assert!(switcher.right() <= tab.left());
     assert!(switcher.size.width <= px(180.));
@@ -249,3 +260,6 @@ fn drawn_overflow_menu_uses_its_column_insets(cx: &mut TestAppContext) {
     assert_eq!(menu.top(), row.top() + px(40.));
     assert_eq!(menu.size.width, px(260.));
 }
+
+#[path = "frame_overlay_tests/wave1_follow_up.rs"]
+mod wave1_follow_up;

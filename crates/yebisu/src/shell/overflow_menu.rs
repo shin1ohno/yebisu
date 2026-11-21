@@ -1,21 +1,30 @@
-//! L2a: the tab row's ... menu. Owner: L2a.
-//!
-//! Herdr 1: Paste, Paste image, Select text, Copy (while selecting), Find,
-//! Command palette, Reconnect, Close tab. Herdr 2: Paste, Paste image (q2),
-//! Select text, Copy, Find (when PR 26's `available` is true), Reconnect,
-//! Detach, New tab (disabled with its reason, q4). Plan v2 7.5.
+//! The tab row's … menu. Herdr 2 puts tab and split commands first, then
+//! clipboard and connection actions (Herdr2.dc.html:123–132).
 use super::{
     ChromeState, HerdrKind,
     herdr2_frame::panes,
     style::{color, metric, radius, shadow, text},
 };
-use crate::app::Smoke;
+use crate::{actions, app::Smoke};
 use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 // Herdr2.dc.html:123. The menu is inset from the column and clears the tab row.
 const MENU_RIGHT: f32 = 8.;
 const MENU_TOP: f32 = 40.;
+const DIVIDER_COLOR: u32 = 0x3b3945;
+const DETACH_LABEL: &str = "Detach (keeps terminals running)";
+const COMMAND_UNAVAILABLE: &str = "Action unavailable";
+const HERDR2_TAB_COMMANDS: [(OverflowItem, Command, &str, &str); 3] = [
+    (OverflowItem::NewTab, Command::Tab, "New tab", "⌘T"),
+    (
+        OverflowItem::Split,
+        Command::SplitRight,
+        "Split right",
+        "⌘D",
+    ),
+    (OverflowItem::Split, Command::SplitDown, "Split down", "⇧⌘D"),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OverflowItem {
@@ -60,9 +69,8 @@ impl OverflowItem {
 impl OverflowItem {
     /// The item's QA accessibility mark (`qa_ax::mark`), labelled with the
     /// text it paints; `None` unless the QA layer is on.
-    fn qa_mark(self) -> Option<AnyElement> {
+    fn qa_mark(self, label: &'static str) -> Option<AnyElement> {
         use crate::qa_ax::ids;
-        let label = self.label();
         match self {
             Self::Paste => crate::qa_ax::mark(ids::MENU_PASTE, label),
             Self::PasteImage => crate::qa_ax::mark(ids::MENU_PASTE_IMAGE, label),
@@ -92,8 +100,6 @@ pub(crate) struct OverflowEntry {
 pub(crate) const NOT_CONNECTED: &str = "Not connected";
 pub(crate) const ALREADY_CONNECTED: &str = "Already connected";
 pub(crate) const FIND_UNAVAILABLE: &str = "Find is not available for this terminal";
-/// q4: one Herdr 2 session is one tab until multi-session work lands.
-pub(crate) const HERDR2_NEW_TAB: &str = "Herdr 2 shows one tab per session for now";
 
 fn entry(item: OverflowItem, enabled: bool, reason: &'static str) -> OverflowEntry {
     OverflowEntry {
@@ -106,43 +112,54 @@ fn entry(item: OverflowItem, enabled: bool, reason: &'static str) -> OverflowEnt
 /// The ... menu for Herdr 1 or Herdr 2 (plan v2 7.5).
 pub(crate) fn overflow_menu_items(state: &ChromeState) -> Vec<OverflowEntry> {
     let online = state.connected;
-    let mut items = vec![
+    let paste = [
         entry(OverflowItem::Paste, online, NOT_CONNECTED),
-        // q2: Herdr 2 supports image paste since PR 37.
         entry(OverflowItem::PasteImage, online, NOT_CONNECTED),
-        entry(OverflowItem::SelectText, online, NOT_CONNECTED),
     ];
+    let reconnect = entry(OverflowItem::Reconnect, !online, ALREADY_CONNECTED);
+    let select = entry(OverflowItem::SelectText, online, NOT_CONNECTED);
+    let find = entry(OverflowItem::Find, state.find_available, FIND_UNAVAILABLE);
+    let mut items = Vec::new();
     match state.kind {
         HerdrKind::Herdr1 => {
+            items.extend(paste);
+            items.push(select);
             if state.selecting {
                 items.push(entry(OverflowItem::Copy, true, NOT_CONNECTED));
             }
-            items.push(entry(
-                OverflowItem::Find,
-                state.find_available,
-                FIND_UNAVAILABLE,
-            ));
-            items.push(entry(OverflowItem::CommandPalette, true, NOT_CONNECTED));
-            items.push(entry(OverflowItem::Reconnect, !online, ALREADY_CONNECTED));
-            items.push(entry(OverflowItem::CloseTab, online, NOT_CONNECTED));
+            items.extend([
+                find,
+                entry(OverflowItem::CommandPalette, true, NOT_CONNECTED),
+                reconnect,
+                entry(OverflowItem::CloseTab, online, NOT_CONNECTED),
+            ]);
         }
         HerdrKind::Herdr2 => {
-            items.push(entry(OverflowItem::Copy, online, NOT_CONNECTED));
-            if state.find_available {
-                items.push(entry(OverflowItem::Find, true, FIND_UNAVAILABLE));
+            items.extend([
+                entry(OverflowItem::NewTab, online, NOT_CONNECTED),
+                entry(OverflowItem::Split, online, NOT_CONNECTED),
+            ]);
+            items.extend(paste);
+            items.extend([
+                reconnect,
+                entry(OverflowItem::Detach, online, NOT_CONNECTED),
+            ]);
+            // Preserve selection and the existing pane controls. The view
+            // draws pane controls only when the active tab has two panes.
+            items.push(select);
+            if state.selecting {
+                items.push(entry(OverflowItem::Copy, online, NOT_CONNECTED));
             }
-            items.push(entry(OverflowItem::Reconnect, !online, ALREADY_CONNECTED));
-            // The control band's controls (L8, plan v2 5.2): same labels.
+            if state.find_available {
+                items.push(find);
+            }
             for item in [
-                OverflowItem::Split,
                 OverflowItem::Pane1,
                 OverflowItem::Pane2,
                 OverflowItem::SplitDirection,
             ] {
                 items.push(entry(item, online, NOT_CONNECTED));
             }
-            items.push(entry(OverflowItem::Detach, online, NOT_CONNECTED));
-            items.push(entry(OverflowItem::NewTab, false, HERDR2_NEW_TAB));
         }
     }
     items
@@ -155,61 +172,98 @@ impl Smoke {
         if !self.shell.frame.overflow_open {
             return None;
         }
-        let entries = overflow_menu_items(&self.chrome_state());
+        let state = self.chrome_state();
+        let herdr2 = state.kind == HerdrKind::Herdr2;
+        let catalog = herdr2.then(|| actions::catalog(&self.terminal));
+        let split = herdr2
+            && self
+                .core_tabs()
+                .iter()
+                .any(|tab| tab.active && tab.panes.len() > 1);
+        let mut rows = Vec::new();
+        for menu_entry in overflow_menu_items(&state) {
+            let item = menu_entry.item;
+            if herdr2
+                && !split
+                && matches!(
+                    item,
+                    OverflowItem::Pane1 | OverflowItem::Pane2 | OverflowItem::SplitDirection
+                )
+            {
+                continue;
+            }
+            if let Some(catalog) = &catalog {
+                if matches!(
+                    item,
+                    OverflowItem::Paste | OverflowItem::Reconnect | OverflowItem::SelectText
+                ) {
+                    rows.push(menu_divider().into_any_element());
+                }
+                if matches!(item, OverflowItem::NewTab | OverflowItem::Split) {
+                    for (_, command, label, keys) in HERDR2_TAB_COMMANDS
+                        .into_iter()
+                        .filter(|(row, ..)| *row == item)
+                    {
+                        let enabled = catalog
+                            .iter()
+                            .any(|row| row.info.command == command && row.available);
+                        let command_entry = entry(
+                            item,
+                            enabled,
+                            if state.connected {
+                                COMMAND_UNAVAILABLE
+                            } else {
+                                NOT_CONNECTED
+                            },
+                        );
+                        rows.push(overflow_row(
+                            rows.len(),
+                            command_entry,
+                            label,
+                            Some((command, keys)),
+                            cx,
+                        ));
+                    }
+                    continue;
+                }
+            }
+            let label = if item == OverflowItem::Detach {
+                DETACH_LABEL
+            } else {
+                item.label()
+            };
+            rows.push(overflow_row(rows.len(), menu_entry, label, None, cx));
+        }
         Some(
             div()
-                .id("shell-overflow-menu")
-                .debug_selector(|| "shell-overflow-menu".into())
-                // A press on an item must not also reach the terminal under
-                // it (selection_down), as the edit bar and the Hosts sheet
-                // already occlude (review SF-2).
-                .occlude()
-                // A press outside the terminal column (the sidebar) closes it.
-                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                    this.shell.frame.overflow_open = false;
-                    cx.notify();
-                }))
                 .absolute()
                 .top(px(MENU_TOP))
+                .bottom_0()
                 .right(px(MENU_RIGHT))
                 .w(px(metric::MENU_WIDTH))
-                .py(px(metric::MENU_PADDING))
                 .flex()
                 .flex_col()
-                .rounded(px(radius::POPOVER))
-                .shadow(vec![shadow::POPOVER.box_shadow()])
-                .bg(rgb(color::RAISED))
-                .text_color(rgb(color::TEXT))
-                .children(entries.into_iter().enumerate().map(|(index, entry)| {
-                    let item = entry.item;
+                .child(
                     div()
-                        .id(("shell-overflow-item", index))
-                        .h(px(metric::MENU_ITEM))
-                        .px_4()
+                        .id("shell-overflow-menu")
+                        .debug_selector(|| "shell-overflow-menu".into())
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .occlude()
+                        // A press outside the terminal column (the sidebar) closes it.
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.shell.frame.overflow_open = false;
+                            cx.notify();
+                        }))
+                        .py(px(metric::MENU_PADDING))
                         .flex()
                         .flex_col()
-                        .justify_center()
-                        .text_color(rgb(if entry.enabled {
-                            color::TEXT
-                        } else {
-                            color::DISABLED
-                        }))
-                        .child(item.label())
-                        .children(entry.reason.map(|reason| {
-                            div()
-                                .text_size(px(text::SECONDARY))
-                                .text_color(rgb(color::MUTED))
-                                .child(reason)
-                        }))
-                        .children(item.qa_mark())
-                        .when(entry.enabled, |view| {
-                            view.on_click(cx.listener(move |this, _, window, cx| {
-                                this.shell.frame.overflow_open = false;
-                                this.run_overflow_item(item, window, cx);
-                                cx.notify();
-                            }))
-                        })
-                }))
+                        .rounded(px(radius::POPOVER))
+                        .shadow(vec![shadow::POPOVER.box_shadow()])
+                        .bg(rgb(color::RAISED))
+                        .text_color(rgb(color::TEXT))
+                        .children(rows),
+                )
                 .into_any_element(),
         )
     }
@@ -248,6 +302,7 @@ impl Smoke {
     fn run_overflow_item(
         &mut self,
         item: OverflowItem,
+        split_direction: Option<Command>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -283,10 +338,7 @@ impl Smoke {
                 Ok(())
             }
             OverflowItem::NewTab => self.run_action(Command::Tab),
-            OverflowItem::Split => {
-                self.core_command(crate::core::Command::Split);
-                Ok(())
-            }
+            OverflowItem::Split => self.run_action(split_direction.unwrap_or(Command::SplitRight)),
             OverflowItem::Pane1 => {
                 self.core_command(crate::core::Command::Focus(0));
                 Ok(())
@@ -308,9 +360,76 @@ impl Smoke {
     /// The toolbar's Reconnect guard, shared by the status bar and the menu.
     pub(crate) fn reconnect_from_chrome(&mut self, cx: &mut Context<Self>) {
         if !self.terminal.live.connected && self.terminal.live.version_mismatch.get().is_none() {
+            self.shell.shortcuts.status_detail_open = None;
             self.connect_terminal(cx);
         }
     }
+}
+
+fn menu_divider() -> gpui::Div {
+    div()
+        .flex_none()
+        .h(px(metric::LINE))
+        .my_1()
+        .bg(rgb(DIVIDER_COLOR))
+}
+
+fn overflow_row(
+    index: usize,
+    entry: OverflowEntry,
+    label: &'static str,
+    command: Option<(Command, &'static str)>,
+    cx: &mut Context<Smoke>,
+) -> AnyElement {
+    let item = entry.item;
+    let has_legacy_qa_mark = !matches!(command, Some((Command::SplitDown, _)));
+    div()
+        .id(("shell-overflow-item", index))
+        .debug_selector(move || format!("shell-overflow-item-{label}"))
+        .h(px(metric::MENU_ITEM))
+        .px_4()
+        .flex()
+        .flex_none()
+        .flex_col()
+        .justify_center()
+        .text_color(rgb(if entry.enabled {
+            color::TEXT
+        } else {
+            color::DISABLED
+        }))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(label)
+                .when_some(command, |line, (_, keys)| {
+                    line.child(
+                        div()
+                            .text_color(rgb(if entry.enabled {
+                                color::MUTED
+                            } else {
+                                color::DISABLED
+                            }))
+                            .child(keys),
+                    )
+                }),
+        )
+        .children(entry.reason.map(|reason| {
+            div()
+                .text_size(px(text::SECONDARY))
+                .text_color(rgb(color::DISABLED))
+                .child(reason)
+        }))
+        .when(has_legacy_qa_mark, |row| row.children(item.qa_mark(label)))
+        .when(entry.enabled, |row| {
+            row.on_click(cx.listener(move |this, _, window, cx| {
+                this.shell.frame.overflow_open = false;
+                this.run_overflow_item(item, command.map(|(command, _)| command), window, cx);
+                cx.notify();
+            }))
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

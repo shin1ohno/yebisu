@@ -518,3 +518,92 @@ fn two_native_local_selections_each_execute_once_and_unknown_ids_refuse(cx: &mut
         })
     });
 }
+
+#[test]
+fn copy_as_one_line_is_in_the_edit_menu_with_option_command_c() {
+    for enabled in [true, false] {
+        let menu = edit_menu(enabled);
+        assert_eq!(menu.name, "Edit");
+        let [
+            MenuItem::Action {
+                name,
+                action,
+                disabled,
+                os_action,
+                ..
+            },
+        ] = menu.items.as_slice()
+        else {
+            panic!("one keyless Edit command expected");
+        };
+        assert_eq!(*name, "Copy as One Line　⌥⌘C");
+        assert_eq!(*disabled, !enabled);
+        assert!(os_action.is_none());
+        assert_eq!(
+            action.as_any().downcast_ref::<NativeCommand>(),
+            Some(&NativeCommand::named(COPY_ONE_LINE)),
+        );
+    }
+}
+
+#[gpui::test]
+fn native_pin_uses_the_drawn_agent_and_refreshes_to_unpin(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, cx| {
+        this.terminal = terminal();
+        let shown = this
+            .native_agent_pin(true)
+            .unwrap_or_else(|| panic!("focused agent"));
+        assert_eq!(shown.row().1, "Pin Agent");
+        assert!(this.native_agent_pin(false).is_none());
+        this.native_menus.agent_pin = Some(shown.clone());
+        this.terminal.link.generation += 1;
+        assert!(this.run_native_pin(PIN_AGENT, true, cx).is_err());
+        assert!(!this.shell.sidebar.is_agent_pinned(&shown.id, &shown.boot));
+
+        this.native_menus.agent_pin = this.native_agent_pin(true);
+        assert!(this.run_native_pin(PIN_AGENT, true, cx).is_ok());
+        let pinned = this
+            .native_agent_pin(true)
+            .unwrap_or_else(|| panic!("pinned agent"));
+        assert_eq!(pinned.row().1, "Unpin Agent");
+        assert!(this.run_native_pin(PIN_AGENT, true, cx).is_err());
+        this.native_menus.agent_pin = Some(pinned);
+        assert!(this.run_native_pin(UNPIN_AGENT, true, cx).is_ok());
+        assert!(!this.shell.sidebar.is_agent_pinned(&shown.id, &shown.boot));
+    });
+}
+
+#[gpui::test]
+fn native_edit_copy_dispatches_once_and_rejects_an_old_connection(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let view = cx.new(Smoke::new);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal = terminal();
+            let frame = this
+                .terminal
+                .live
+                .surface
+                .as_ref()
+                .map(|surface| Arc::new(surface.frame.clone()))
+                .unwrap_or_else(|| panic!("surface"));
+            this.handoff.selection = Some(crate::handoff::Selection {
+                frame,
+                anchor: (1, 2),
+                end: (6, 2),
+                dragging: false,
+            });
+            this.terminal_focus.focus(window, cx);
+            this.install_native_menus(window, cx);
+            let command = NativeCommand::named(COPY_ONE_LINE);
+            this.native_command_action(&command, window, cx);
+            assert_eq!(this.handoff.clipboard_writes, 1);
+            this.terminal.link.generation += 1;
+            this.native_command_action(&command, window, cx);
+            assert_eq!(this.handoff.clipboard_writes, 1);
+        });
+    });
+}

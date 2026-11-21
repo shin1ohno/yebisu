@@ -71,17 +71,10 @@ impl Smoke {
                 .flex_col()
                 .child(group_header(group.title()));
             let expanded = self.shell.shortcuts.expanded == Some(group);
-            let rows = if state.kind == crate::shell::HerdrKind::Herdr1 {
-                canvas_rows(group, rows, expanded)
-            } else {
-                rows.into_iter()
-                    .map(|(command, row)| (PopoverAction::Catalog(command), row))
-                    .collect()
-            };
-            for (action, row) in rows {
+            for (action, row) in canvas_rows(group, rows, expanded) {
                 column = column.child(self.shortcut_row(action, row, cx));
             }
-            if group == ShortcutGroup::App && state.kind == crate::shell::HerdrKind::Herdr1 {
+            if group == ShortcutGroup::App {
                 column = column.child(group_header("EDIT"));
                 let edit = [
                     (

@@ -1,7 +1,7 @@
 //! L5: the edit bar shown only while selecting. Owner: L5.
 //!
 //! While a selection pauses typing (`Handoff::blocks_input`), the bar offers
-//! Copy, Paste, Paste image and Cancel, and the status bar explains why typing
+//! Copy, Copy as One Line, Paste, Paste image and Cancel, and the status bar explains why typing
 //! is paused. Cancel ends the selection and resumes typing the same way the
 //! `Select` toggle does (`toggle_selection_inner`). The frame (L2a) places the
 //! bar and the status text; this module owns what they contain.
@@ -25,6 +25,8 @@ const ELLIPSIS: char = '…';
 // Estimated button widths at the design's 16 px padding, used only to decide
 // whether Paste image still fits one row (plan v2 7.10, narrow widths).
 const COPY_WIDTH: f32 = 64.0;
+const COPY_ONE_LINE_WIDTH: f32 = 140.0;
+pub(crate) const COPY_ONE_LINE_LABEL: &str = "Copy as One Line";
 const PASTE_WIDTH: f32 = 68.0;
 const PASTE_IMAGE_WIDTH: f32 = 112.0;
 // Selection.dc.html:84.
@@ -40,6 +42,7 @@ pub(crate) struct EditBarState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EditBarItem {
     Copy,
+    CopyOneLine,
     Paste,
     PasteImage,
     Cancel,
@@ -49,6 +52,7 @@ impl EditBarItem {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Copy => "Copy",
+            Self::CopyOneLine => COPY_ONE_LINE_LABEL,
             Self::Paste => "Paste",
             Self::PasteImage => "Paste image",
             Self::Cancel => CANCEL_LABEL,
@@ -58,7 +62,7 @@ impl EditBarItem {
     /// The product entry point the item serves; Cancel leaves Select.
     pub(crate) fn action(self) -> EntryAction {
         match self {
-            Self::Copy => EntryAction::Copy,
+            Self::Copy | Self::CopyOneLine => EntryAction::Copy,
             Self::Paste => EntryAction::Paste,
             Self::PasteImage => EntryAction::PasteImage,
             Self::Cancel => EntryAction::Select,
@@ -68,6 +72,7 @@ impl EditBarItem {
     fn width(self) -> f32 {
         match self {
             Self::Copy => COPY_WIDTH,
+            Self::CopyOneLine => COPY_ONE_LINE_WIDTH,
             Self::Paste => PASTE_WIDTH,
             Self::PasteImage => PASTE_IMAGE_WIDTH,
             Self::Cancel => EDIT_BAR_HEIGHT,
@@ -80,6 +85,7 @@ pub(crate) fn edit_bar_items(selecting: bool) -> Vec<EditBarItem> {
     if selecting {
         vec![
             EditBarItem::Copy,
+            EditBarItem::CopyOneLine,
             EditBarItem::Paste,
             EditBarItem::PasteImage,
             EditBarItem::Cancel,
@@ -129,8 +135,7 @@ pub(crate) struct EditBarFit {
     pub(crate) overflow: Vec<EditBarItem>,
 }
 
-/// One row at `width`: when the four buttons do not fit, Paste image moves to
-/// the `…` menu; Copy, Paste and Cancel always stay on the bar.
+/// One row at `width`: Paste image remains in the `…` menu if the bar is narrow.
 pub(crate) fn edit_bar_fit(selecting: bool, width: f32) -> EditBarFit {
     let items = edit_bar_items(selecting);
     let needed = BAR_MARGIN * 2.0
@@ -239,13 +244,14 @@ fn edit_bar_surface() -> gpui::Stateful<gpui::Div> {
         .rounded(px(radius::EDIT_BAR))
         .shadow(vec![shadow::EDIT_BAR.box_shadow()])
         .font_weight(weight::MEDIUM)
-        .overflow_hidden()
+        .overflow_x_scroll()
         .occlude()
 }
 
 fn edit_bar_button(item: EditBarItem, divider: bool, cx: &mut Context<Smoke>) -> AnyElement {
     let id = match item {
         EditBarItem::Copy => "edit-bar-copy",
+        EditBarItem::CopyOneLine => "edit-bar-copy-one-line",
         EditBarItem::Paste => "edit-bar-paste",
         EditBarItem::PasteImage => "edit-bar-paste-image",
         EditBarItem::Cancel => "edit-bar-cancel",
@@ -277,6 +283,7 @@ fn edit_bar_button(item: EditBarItem, divider: bool, cx: &mut Context<Smoke>) ->
         .on_click(cx.listener(move |this, _, window, cx| {
             match item {
                 EditBarItem::Copy => this.copy_selection(cx),
+                EditBarItem::CopyOneLine => this.copy_selection_as_one_line(cx),
                 EditBarItem::Paste => this.start_paste(false, cx),
                 EditBarItem::PasteImage => this.start_paste(true, cx),
                 EditBarItem::Cancel => this.cancel_selection(window, cx),
