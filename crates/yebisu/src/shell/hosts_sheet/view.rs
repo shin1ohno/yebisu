@@ -258,6 +258,14 @@ impl Smoke {
             self.record_setup_observation();
         }
         let available = window.fully_visible_bounds();
+        // The screenshot fixture captures the whole sheet with the keyboard down.
+        #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+        if std::env::var_os("YEBISU_QA_NEARBY_SCREENSHOT").is_some()
+            && self.shell.hosts_sheet.add.is_some()
+            && available.size.height + px(metric::TOUCH) < window.viewport_size().height
+        {
+            window.on_next_frame(|window, _| window.dismiss_virtual_keyboard());
+        }
         let width = sheet_width(f32::from(available.size.width));
         let available_height = f32::from(available.size.height);
         let margin = crate::layout::OVERLAY_MARGIN / 2.;
