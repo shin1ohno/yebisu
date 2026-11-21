@@ -9,7 +9,7 @@
 //! source of truth for `Command::ToggleSidebar`, the settings file and the
 //! menu bar, and the legacy board band keeps its behaviour until the frame
 //! hosts the sidebar.
-use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place, rail_badges::RailBadges};
+use super::{ChromeState, EntryAction, EntryPoint, Place, rail_badges::RailBadges};
 use crate::{
     app::Smoke,
     layout::{RULE, SIDEBAR_WIDTH, TERMINAL_MIN_WIDTH},
@@ -71,15 +71,6 @@ pub(crate) fn user_mode(sidebar_hidden: bool) -> SidebarMode {
     }
 }
 
-/// Why New space is disabled, or `None` when it works (q4).
-pub(crate) fn new_space_unavailable(kind: HerdrKind, connected: bool) -> Option<&'static str> {
-    match (kind, connected) {
-        (HerdrKind::Herdr2, _) => Some("Not available on Herdr 2"),
-        (HerdrKind::Herdr1, false) => Some("Not connected"),
-        (HerdrKind::Herdr1, true) => None,
-    }
-}
-
 /// The entry points the rail itself offers. They exist while the rail is what
 /// is on screen, that is while `state.sidebar_hidden` is set (the frame sets
 /// it from the effective mode); Hosts, Settings and New space then have no
@@ -88,7 +79,6 @@ pub(crate) fn rail_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     if !state.sidebar_hidden {
         return Vec::new();
     }
-    let new_space = new_space_unavailable(state.kind, state.connected);
     let entry = |action, enabled, reason| EntryPoint {
         action,
         place: Place::Rail,
@@ -98,7 +88,7 @@ pub(crate) fn rail_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     vec![
         entry(EntryAction::Hosts, true, None),
         entry(EntryAction::Settings, true, None),
-        entry(EntryAction::NewSpace, new_space.is_none(), new_space),
+        entry(EntryAction::NewSpace, true, None),
         entry(
             EntryAction::ToggleSidebar,
             toggle_unavailable(state).is_none(),
