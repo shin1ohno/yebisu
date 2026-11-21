@@ -18,6 +18,10 @@ use gpui::{
 use sheprd_commands::Command;
 use std::time::Duration;
 
+#[cfg(test)]
+#[path = "../rail_tests/menu.rs"]
+mod tests;
+
 const MENU_WIDTH: f32 = 240.0; // canvas.json:274, note "railmenu".
 const COUNT_SIZE: f32 = 10.0; // canvas.json:274, note "railmenu".
 

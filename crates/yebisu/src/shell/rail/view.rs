@@ -5,7 +5,7 @@ use super::{
     RAIL_FOOTER_HEIGHT, RailHost, RailItem, RailItemKind, RailMetrics, RailSpace,
     icons::{RailIcon, icon},
     menu::long_press_layer,
-    new_space_unavailable, rail_items, rail_metrics,
+    rail_items, rail_metrics,
 };
 use crate::{
     app::Smoke,
@@ -23,7 +23,6 @@ use crate::{
     },
 };
 use gpui::{AnyElement, Context, Div, Role, Stateful, div, font, prelude::*, px, rgb};
-use sheprd_commands::Command;
 
 // Rail.dc.html:30, :41.
 const ROW_CONTENT_GAP: f32 = 4.0;
@@ -56,11 +55,9 @@ impl Smoke {
         let saved = &self.setup.hosts;
         let mut hosts = self
             .board
-            .hidden
-            .keys()
-            .map(String::as_str)
+            .terminals(&self.terminal)
+            .map(|terminal| terminal.reconnect.target.as_str())
             .collect::<Vec<_>>();
-        hosts.push(current);
         hosts.extend(saved.iter().map(String::as_str));
         hosts.retain(|name| !name.is_empty());
         hosts.sort_by_key(|&name| {
@@ -80,11 +77,7 @@ impl Smoke {
                 let shell = terminal.and_then(|terminal| snapshot(&terminal.live));
                 RailHost {
                     name: name.to_owned(),
-                    kind: if terminal.is_some_and(|terminal| terminal.core_mode) {
-                        HerdrKind::Herdr2
-                    } else {
-                        HerdrKind::Herdr1
-                    },
+                    kind: terminal.map_or(HerdrKind::Herdr1, |terminal| terminal.herdr_kind()),
                     connected: terminal.is_some_and(|terminal| terminal.live.connected),
                     current: name == current,
                     boot: shell.map(|s| s.boot_id.clone()).unwrap_or_default(),
@@ -149,26 +142,12 @@ impl Smoke {
                         rail_item(items.len() + index + 1, item, &metrics, &measure, cx)
                     }))
             });
-        let kind = if self.terminal.core_mode {
-            HerdrKind::Herdr2
-        } else {
-            HerdrKind::Herdr1
-        };
         let expand_reason =
             super::expand_unavailable(self.sidebar_user_mode(), self.shell.frame.sidebar_collapsed);
-        let new_space = new_space_unavailable(kind, self.terminal.live.connected).is_none();
-        let header_control =
-            rail_button("rail-new-space", "New space", RailIcon::NewSpace, new_space)
-                // The window-controls regression observes the first interactive rail item.
-                .debug_selector(|| "rail-item-0".to_owned())
-                .when(new_space, |button| {
-                    button.on_click(cx.listener(|this, _, _, cx| {
-                        if let Err(e) = this.run_action(Command::Workspace) {
-                            this.terminal.live.status = e.to_string();
-                        }
-                        cx.notify();
-                    }))
-                });
+        let header_control = rail_button("rail-new-space", "New space", RailIcon::NewSpace, true)
+            // The window-controls regression observes the first interactive rail item.
+            .debug_selector(|| "rail-item-0".to_owned())
+            .on_click(cx.listener(|this, _, _, cx| this.open_new_space(cx)));
         div()
             .id("rail")
             .role(Role::Group)

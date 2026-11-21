@@ -60,6 +60,7 @@ pub(crate) struct RailItem {
     /// The full name; the button shows it cut off, speech reads all of it.
     pub(crate) name: String,
     pub(crate) host: String,
+    pub(crate) space: Option<String>,
     pub(crate) herdr: HerdrKind,
     /// A space's status; `None` for a host row.
     pub(crate) status: Option<SidebarStatus>,
@@ -81,9 +82,11 @@ fn herdr_text(kind: HerdrKind) -> &'static str {
 }
 
 impl RailItem {
-    /// The spoken name. It always carries the full name, the host and the
-    /// status, and the exact counts even when one badge is drawn (S-8).
+    /// The spoken name includes the full title and any exact badge counts (S-8).
     pub(crate) fn accessibility_label(&self) -> String {
+        if let (true, Some(space), Some(status)) = (self.pinned, &self.space, self.status) {
+            return format!("Pinned: {}, {space}, {}", self.name, status.label());
+        }
         let mut parts = vec![self.name.clone()];
         match (self.kind, self.status) {
             (RailItemKind::Host, _) => {
@@ -104,9 +107,6 @@ impl RailItem {
         }
         if self.current {
             parts.push("current".to_owned());
-        }
-        if self.pinned {
-            parts.push("pinned".to_owned());
         }
         parts.join(", ")
     }
@@ -134,6 +134,7 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
             kind: RailItemKind::Host,
             name: display.clone(),
             host: display.clone(),
+            space: None,
             herdr: host.kind,
             status: None,
             connected: host.connected,
@@ -153,6 +154,7 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
                 kind: RailItemKind::Space,
                 name: space_name(space),
                 host: display.clone(),
+                space: None,
                 herdr: host.kind,
                 status: Some(
                     space
