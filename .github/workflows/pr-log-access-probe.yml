@@ -1,0 +1,53 @@
+name: PR log access probe
+on:
+  push:
+    branches: [ci/reuse-pr-evidence]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Compare API responses with the workflow token
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          import urllib.error
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args):
+                  return None
+
+          token = os.environ["GH_TOKEN"]
+          opener = urllib.request.build_opener(NoRedirect)
+          repo = f"repos/{os.environ['GITHUB_REPOSITORY']}"
+          for path in ("actions/jobs/136690621709/logs",
+                       "actions/runs/44853640465/attempts/1/jobs?per_page=100"):
+              endpoint = f"{repo}/{path}"
+              gh = subprocess.run(["gh", "api", endpoint], capture_output=True, text=True, timeout=30)
+              print(f"{path}: gh exit={gh.returncode}, stderr={gh.stderr.strip().replace(token, '[redacted]')!r}")
+              request = urllib.request.Request(
+                  f"https://api.github.com/{endpoint}",
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+              )
+              try:
+                  with opener.open(request, timeout=15) as response:
+                      status, body = response.status, response.read()
+              except urllib.error.HTTPError as exc:
+                  status, body = exc.code, exc.read()
+              print(f"{path}: HTTP {status}")
+              if status >= 400:
+                  print(body.decode().replace(token, "[redacted]"))
+              if status == 200 and "/attempts/" in path:
+                  jobs = json.loads(body)["jobs"]
+                  job = next(job for job in jobs if job["id"] == 136690621709)
+                  print(f"job metadata: name={job['name']}, checkout={job['steps'][1]['name']}, steps={len(job['steps'])}")
+          PYTHON
