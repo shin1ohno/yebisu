@@ -1,6 +1,6 @@
 //! The rail's rows as plain data: hosts and their spaces, with the counts of
 //! agents that need the user. No GPUI type, so the rules are tested directly.
-use crate::shell::{HerdrKind, sidebar_status::SidebarStatus};
+use crate::shell::{HerdrKind, sidebar::AgentIdentity, sidebar_status::SidebarStatus};
 use crate::{hosts::HostName, shell::rail_badges::badge_accessibility};
 
 /// One space of a host, as the rail needs it.
@@ -33,6 +33,7 @@ pub(crate) struct RailHost {
 pub(crate) enum RailItemKind {
     Host,
     Space,
+    Agent,
 }
 
 /// What a tap on the row does.
@@ -41,6 +42,12 @@ pub(crate) enum RailTarget {
     Host(String),
     Space {
         host: String,
+        workspace_id: String,
+        boot: String,
+        generation: u64,
+    },
+    Agent {
+        id: AgentIdentity,
         workspace_id: String,
         boot: String,
         generation: u64,
@@ -58,6 +65,7 @@ pub(crate) struct RailItem {
     pub(crate) status: Option<SidebarStatus>,
     pub(crate) connected: bool,
     pub(crate) current: bool,
+    pub(crate) pinned: bool,
     pub(crate) needs: usize,
     pub(crate) error: usize,
     pub(crate) boot: String,
@@ -86,7 +94,7 @@ impl RailItem {
                 });
                 parts.push(herdr_text(self.herdr).to_owned());
             }
-            (RailItemKind::Space, status) => {
+            (RailItemKind::Space | RailItemKind::Agent, status) => {
                 parts.push(self.host.clone());
                 if let Some(status) = status {
                     parts.push(status.label().to_owned());
@@ -96,6 +104,9 @@ impl RailItem {
         }
         if self.current {
             parts.push("current".to_owned());
+        }
+        if self.pinned {
+            parts.push("pinned".to_owned());
         }
         parts.join(", ")
     }
@@ -127,6 +138,7 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
             status: None,
             connected: host.connected,
             current: false,
+            pinned: false,
             needs: 0,
             error: 0,
             boot: host.boot.clone(),
@@ -152,6 +164,7 @@ pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
                 ),
                 connected: true,
                 current: host.current && space.focused,
+                pinned: false,
                 needs: count(&space.agents, SidebarStatus::NeedsYou),
                 error: count(&space.agents, SidebarStatus::Error),
                 boot: host.boot.clone(),

@@ -284,6 +284,13 @@ pub(crate) fn agents_list(hosts: &[HostEntry]) -> Vec<AgentLine> {
     agents_list_with_pins(hosts, &|_, _| None)
 }
 
+impl SidebarState {
+    /// The same AGENTS order for surfaces outside the sidebar.
+    pub(crate) fn ordered_agents(&self, hosts: &[HostEntry]) -> Vec<AgentLine> {
+        agents_list_with_pins(hosts, &|id, boot| self.pins.borrow().index(id, boot))
+    }
+}
+
 pub(super) fn agents_list_with_pins(
     hosts: &[HostEntry],
     pinned: &dyn Fn(&AgentIdentity, &str) -> Option<usize>,

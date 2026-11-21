@@ -6,18 +6,20 @@ use crate::{
     shell::{
         HerdrKind,
         host_menus::{HostMenuItem, MenuItemId, MenuScope},
+        sidebar_status::SidebarStatus,
         style::{color, metric, radius, shadow, weight},
     },
 };
 use gpui::{
-    AnyElement, Context, DispatchPhase, HitboxBehavior, LongPressEvent, Pixels, Point, Role,
-    TouchPhase, Window, anchored, canvas, deferred, div, point, prelude::*, px, rgb,
+    AnyElement, Bounds, Context, DispatchPhase, HitboxBehavior, LongPressEvent, MouseDownEvent,
+    Pixels, Point, Role, TouchPhase, Window, anchored, canvas, deferred, div, point, prelude::*,
+    px, rgb,
 };
 use sheprd_commands::Command;
 use std::time::Duration;
 
-const MENU_WIDTH: f32 = 240.0; // canvas.json, note "railmenu".
-const COUNT_SIZE: f32 = 10.0; // canvas.json, note "railmenu".
+const MENU_WIDTH: f32 = 240.0; // canvas.json:274, note "railmenu".
+const COUNT_SIZE: f32 = 10.0; // canvas.json:274, note "railmenu".
 
 #[derive(Clone, Debug)]
 pub(super) struct RailMenu {
@@ -32,6 +34,7 @@ enum Action {
     Open,
     NewTab,
     Detach,
+    Pin { was_pinned: bool },
 }
 
 impl Action {
@@ -40,6 +43,7 @@ impl Action {
             Self::Open => "rail-menu-open",
             Self::NewTab => "rail-menu-new-tab",
             Self::Detach => "rail-menu-detach",
+            Self::Pin { .. } => "rail-menu-pin",
         }
     }
 
@@ -48,6 +52,8 @@ impl Action {
             Self::Open => "Open".into(),
             Self::NewTab => "New tab".into(),
             Self::Detach => format!("Detach {}", item.name),
+            Self::Pin { was_pinned: true } => "Unpin Agent".into(),
+            Self::Pin { was_pinned: false } => "Pin Agent".into(),
         }
     }
 }
@@ -73,6 +79,18 @@ impl Smoke {
                     self.terminal.live.status = error.to_string();
                 }
             }
+            RailTarget::Agent {
+                id,
+                boot,
+                generation,
+                ..
+            } => {
+                if let Err(error) =
+                    self.navigate_board(&id.host, Target::Agent(id.pane.clone()), boot, *generation)
+                {
+                    self.terminal.live.status = error.to_string();
+                }
+            }
         }
     }
 
@@ -88,9 +106,14 @@ impl Smoke {
             return None;
         }
 
-        let actions = [Action::Open, Action::NewTab]
-            .into_iter()
-            .chain((menu.item.kind == RailItemKind::Host).then_some(Action::Detach));
+        let extra = match &menu.item.target {
+            RailTarget::Host(_) => Some(Action::Detach),
+            RailTarget::Space { .. } => None,
+            RailTarget::Agent { id, boot, .. } => Some(Action::Pin {
+                was_pinned: self.shell.sidebar.is_agent_pinned(id, boot),
+            }),
+        };
+        let actions = [Action::Open, Action::NewTab].into_iter().chain(extra);
         let panel = div()
             .id("rail-row-menu")
             .debug_selector(|| "rail-row-menu".to_owned())
@@ -101,10 +124,6 @@ impl Smoke {
             .bg(rgb(color::RAISED))
             .shadow(vec![shadow::POPOVER.box_shadow()])
             .occlude()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.dismiss_rail_menu();
-                cx.notify();
-            }))
             .child(
                 div()
                     .flex()
@@ -132,10 +151,12 @@ impl Smoke {
             )
             .children(actions.map(|action| {
                 let reason = self.rail_action_unavailable(action, &menu);
+                let label = action.label(&menu.item);
                 div()
                     .id(action.name())
                     .debug_selector(move || action.name().to_owned())
                     .role(Role::MenuItem)
+                    .aria_label(label.clone())
                     .h(px(metric::TOUCH))
                     .px_3()
                     .flex()
@@ -146,7 +167,7 @@ impl Smoke {
                     } else {
                         color::TEXT
                     }))
-                    .child(div().truncate().child(action.label(&menu.item)))
+                    .child(div().truncate().child(label))
                     .when_some(reason, |row, reason| {
                         row.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
                             .child(
@@ -165,8 +186,13 @@ impl Smoke {
                     })
             }));
         Some(
-            deferred(anchored().position(menu.at).snap_to_window().child(panel))
-                .with_priority(1)
+            div()
+                .absolute()
+                .child(rail_menu_backdrop(cx))
+                .child(
+                    deferred(anchored().position(menu.at).snap_to_window().child(panel))
+                        .with_priority(1),
+                )
                 .into_any_element(),
         )
     }
@@ -181,6 +207,7 @@ impl Smoke {
             Action::NewTab if !item.connected => Some("Not connected"),
             Action::NewTab if menu.tab_target.is_none() => Some("No space selected"),
             Action::NewTab => None,
+            Action::Pin { .. } => None,
             Action::Detach => {
                 let RailTarget::Host(host) = &item.target else {
                     return Some("Select a host");
@@ -208,12 +235,11 @@ impl Smoke {
                     row.spaces
                         .into_iter()
                         .flat_map(|space| space.agents)
-                        .filter(|status| {
-                            *status == crate::shell::sidebar_status::SidebarStatus::NeedsYou
-                        })
+                        .filter(|status| *status == SidebarStatus::NeedsYou)
                         .count()
                 }),
             RailTarget::Space { .. } => item.needs,
+            RailTarget::Agent { .. } => usize::from(item.status == Some(SidebarStatus::NeedsYou)),
         };
         RailMenu {
             item: item.clone(),
@@ -224,15 +250,24 @@ impl Smoke {
     }
 
     fn rail_tab_target(&self, item: &RailItem) -> Option<RailTarget> {
-        let RailTarget::Host(host) = &item.target else {
-            return Some(item.target.clone());
+        let host = match &item.target {
+            RailTarget::Host(host) => host,
+            RailTarget::Space { .. } => return Some(item.target.clone()),
+            RailTarget::Agent {
+                id,
+                workspace_id,
+                boot,
+                generation,
+            } => {
+                return Some(RailTarget::Space {
+                    host: id.host.clone(),
+                    workspace_id: workspace_id.clone(),
+                    boot: boot.clone(),
+                    generation: *generation,
+                });
+            }
         };
-        let current = host == &self.terminal.reconnect.target;
-        let terminal = if current {
-            &self.terminal
-        } else {
-            self.board.hidden.get(host)?
-        };
+        let terminal = self.rail_terminal(host)?;
         let workspace_id = snapshot(&terminal.live)?.focused_workspace_id.clone()?;
         Some(RailTarget::Space {
             host: host.clone(),
@@ -255,8 +290,13 @@ impl Smoke {
             .take()
             .ok_or(crate::Error::NativeMenu("no rail row menu"))?;
         let item = &menu.item;
+        let current_rows = if item.kind == RailItemKind::Agent {
+            self.rail_agent_items()
+        } else {
+            rail_items(&self.rail_hosts())
+        };
         if self.input_modal()
-            || !rail_items(&self.rail_hosts()).iter().any(|row| {
+            || !current_rows.iter().any(|row| {
                 row.target == item.target
                     && row.boot == item.boot
                     && row.generation == item.generation
@@ -295,6 +335,23 @@ impl Smoke {
                     window,
                     cx,
                 )?;
+            }
+            Action::Pin { was_pinned } => {
+                let RailTarget::Agent {
+                    id,
+                    boot,
+                    generation,
+                    ..
+                } = &item.target
+                else {
+                    return Err(crate::Error::NativeMenu("no agent was shown"));
+                };
+                if self.shell.sidebar.is_agent_pinned(id, boot) != was_pinned {
+                    return Err(crate::Error::NativeMenu(
+                        "Agent pin changed; reopen the menu",
+                    ));
+                }
+                self.toggle_sidebar_agent_pin(id.clone(), boot, *generation, cx)?;
             }
         }
         Ok(())
@@ -363,6 +420,36 @@ impl Smoke {
         .detach();
         Ok(())
     }
+}
+
+fn rail_menu_backdrop(cx: &mut Context<Smoke>) -> impl IntoElement {
+    let entity = cx.entity().downgrade();
+    // Deferred draws escape the rail bounds. Insert the hitbox behind the
+    // panel and in front of the terminal and other ordinary frame children.
+    deferred(canvas(
+        |_, window, _| {
+            window.insert_hitbox(
+                Bounds {
+                    origin: Point::default(),
+                    size: window.viewport_size(),
+                },
+                HitboxBehavior::BlockMouse,
+            )
+        },
+        move |_, hitbox, window, _| {
+            let entity = entity.clone();
+            window.on_mouse_event(move |_: &MouseDownEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
+                    let _ = entity.update(cx, |this, cx| {
+                        this.dismiss_rail_menu();
+                        cx.notify();
+                    });
+                    window.prevent_default();
+                    cx.stop_propagation();
+                }
+            });
+        },
+    ))
 }
 
 pub(super) fn long_press_layer(item: RailItem, cx: &mut Context<Smoke>) -> impl IntoElement {
