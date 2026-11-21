@@ -19,6 +19,7 @@ pub(crate) mod frame;
 pub(crate) mod herdr2_frame;
 pub(crate) mod host_menus;
 pub(crate) mod hosts_sheet;
+pub(crate) mod key_band;
 pub(crate) mod mods;
 pub(crate) mod overflow_menu;
 pub(crate) mod overlay;

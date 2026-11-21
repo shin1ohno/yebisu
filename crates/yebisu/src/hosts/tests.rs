@@ -146,3 +146,38 @@ fn corrupt_or_future_format_is_not_silently_overwritten() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn origin_main_host_file_loads_and_saved_name_survives_reopen() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let target = "alex@studio.home.local";
+    let other = "alex@mini.home.local:2222";
+    fs::write(
+        fixture.0.join("yebisu-hosts.json"),
+        include_bytes!("fixtures/hosts-v1-origin-main.json"),
+    )?;
+    let old = fixture.store().load_hosts()?;
+    assert_eq!(old.selected, target);
+    assert_eq!(old.targets, [target, other]);
+    assert_eq!(
+        HostName::with_saved(target, old.names.get(target).map(String::as_str)).display(),
+        "studio"
+    );
+
+    fixture.store().save_with_name(target, Some("Studio Mac"))?;
+    fixture.store().save(other)?;
+    let reopened = fixture.store().load_hosts()?;
+    assert_eq!(
+        reopened.names.get(target).map(String::as_str),
+        Some("Studio Mac")
+    );
+    assert_eq!(reopened.selected, other);
+    assert_eq!(
+        HostName::with_saved(other, reopened.names.get(other).map(String::as_str)).display(),
+        "mini"
+    );
+
+    fixture.store().save_with_name(target, Some(""))?;
+    assert!(fixture.store().load_hosts()?.names.is_empty());
+    Ok(())
+}

@@ -446,7 +446,10 @@ class BundleTests(unittest.TestCase):
         info = plistlib.loads((self.executable.parent / "yebisu.app/Info.plist").read_bytes())
         self.assertEqual(info["CFBundleIdentifier"], "com.shin1ohno.yebisu")
         self.assertEqual(info["CFBundleName"], "yebisu")
-        self.assertEqual(info["NSLocalNetworkUsageDescription"], "Connect to your Herdr hosts.")
+        self.assertEqual(
+            info["NSLocalNetworkUsageDescription"],
+            "Find nearby SSH hosts with Bonjour and connect to your Herdr hosts.",
+        )
         self.assertNotIn("CFBundleURLTypes", info)
         self.assertEqual(
             self.calls("cargo")[0]["entitlements"]["application-identifier"],
