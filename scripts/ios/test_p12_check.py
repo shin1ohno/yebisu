@@ -132,10 +132,10 @@ class P12QASourceTests(unittest.TestCase):
     def test_menu_waits_for_an_actionable_springboard_button_before_picking(self):
         swift = code(SWIFT)
         choose = body(swift, "private func choose(")
-        opened = choose.index("applicationMenu.tap()")
+        opened = choose.index("app.coordinate(withNormalizedOffset: .zero).withOffset(offset).tap()")
         self.assertIn("waitForEnabledMenuItem(item)", choose)
         ready = choose.index("waitForEnabledMenuItem(item)")
-        hittable = choose.index("available && item.isHittable")
+        hittable = choose.index("available && !item.frame.isEmpty && item.isHittable")
         self.assertNotIn("sleep(", choose[opened:choose.index("if observeOnly {")])
         self.assertLess(opened, ready)
         self.assertLess(ready, hittable)
@@ -149,35 +149,60 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("springboard.debugDescription", hierarchy)
         self.assertNotIn("app.debugDescription", hierarchy)
 
+    def test_menu_bar_waits_for_a_valid_press_position_outside_a_predicate_waiter(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        reveal = body(swift, "private func revealMenuBar(")
+        position = body(swift, "private func waitForMenuBarPressPosition(")
+        self.assertIn("guard let pressPosition = revealMenuBar(applicationMenu, caseName: caseName)", choose)
+        self.assertIn("let offset = CGVector(dx: pressPosition.x - appOrigin.x, dy: pressPosition.y - appOrigin.y)", choose)
+        self.assertIn("let position = waitForMenuBarPressPosition(applicationMenu)", reveal)
+        self.assertLess(position.index("if button.exists"), position.index("let frame = button.frame"))
+        self.assertLess(position.index("!frame.isEmpty"), position.index("return CGPoint(x: frame.midX, y: frame.midY)"))
+        self.assertNotIn("isHittable", position)
+        self.assertNotIn("XCTWaiter", position + reveal)
+        self.assertNotIn("applicationMenu.tap()", choose)
+
     def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
         swift = code(SWIFT)
         choose = body(swift, "private func choose(")
         self.assertEqual(choose.count(".tap()"), 1)
-        self.assertIn("applicationMenu.tap()", choose)
+        self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset(offset).tap()", choose)
         self.assertIn("point.click()", choose)
         self.assertIn("item.click()", choose)
         self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).click()", choose)
         self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
         self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
 
-    def test_palette_moves_the_pointer_before_validating_and_clicking_the_row(self):
-        choose = body(code(SWIFT), "private func choose(")
-        hover = choose.index('if caseName == "palette" { item.hover() }')
+    def test_each_pick_moves_the_pointer_then_waits_for_an_actionable_row(self):
+        swift = code(SWIFT)
+        choose = body(swift, "private func choose(")
+        hover = choose.index("if item.exists && item.isEnabled { item.hover() }")
+        wait = choose.index("waitForMenuItemAfterHover(item)")
         self.assertLess(choose.index("XCTAssertTrue(hittable,"), hover)
-        self.assertLess(hover, choose.index("let tapped = enabled && item.isHittable"))
-        self.assertLess(hover, choose.index("let pickStart ="))
+        self.assertLess(choose.index("if observeOnly {"), hover)
+        self.assertLess(hover, wait)
+        self.assertLess(wait, choose.index("let pickStart ="))
+        self.assertLess(choose.index("let pickStart ="), choose.index("if tapped { item.click() }"))
+        self.assertEqual(choose.count("item.hover()"), 1)
         self.assertEqual(choose.count("item.click()"), 1)
+        after_hover = body(swift, "private func waitForMenuItemAfterHover(")
+        self.assertIn("while item.exists", after_hover)
+        self.assertIn("guard item.isEnabled", after_hover)
+        self.assertIn("!item.frame.isEmpty && item.isHittable", after_hover)
 
-    def test_focus_waits_for_mutation_before_opening_the_stale_menu(self):
+    def test_stale_cases_wait_for_mutation_before_opening_the_menu(self):
         swift = code(SWIFT)
         test = body(swift, "func testInstalledTerminalMenu(")
-        setup = test.index("try fixture(step)")
-        wait = test.index("try qa.waitState(\"P12 focus changed", setup)
+        stale_cases = test.index('for step in ["host", "pane", "boot", "focus", "capability"]')
+        setup = test.index("try fixture(step)", stale_cases)
+        wait = test.index('try qa.waitState("P12 \\(step) changed', setup)
         mutation = test.index('self.p12(state)?["mutated"] as? Bool == true', wait)
         pick = test.index('try choose("Split Right", caseName: step, negative: true)', mutation)
+        self.assertNotIn('if step == "focus"', test[setup:pick])
         self.assertLess(pick, test.index('try fixture("current")', pick))
         choose = body(swift, "private func choose(")
-        self.assertIn('if negative && caseName != "focus" { sleep(7) }', choose)
+        self.assertNotIn("sleep(7)", choose)
 
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
@@ -227,10 +252,12 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("receiptTimeout: TimeInterval = 5", SWIFT)
 
     def test_a_reveal_is_repeated_once_and_the_assertion_after_it_is_kept(self):
-        self.assertIn("if reveal == .completed || attempt == 2", SWIFT)
-        self.assertIn("XCTAssertEqual(reveal, .completed", SWIFT)
-        self.assertEqual(SWIFT.count('"kind": "reveal-retry"'), 1)
-        self.assertEqual(SWIFT.count('"kind": "reveal-result"'), 1)
+        reveal = body(code(SWIFT), "private func revealMenuBar(")
+        choose = body(code(SWIFT), "private func choose(")
+        self.assertIn("if position != nil || attempt == 2", reveal)
+        self.assertIn('XCTFail("OS menu bar not revealed (class B)', choose)
+        self.assertEqual(reveal.count('"kind": "reveal-retry"'), 1)
+        self.assertEqual(reveal.count('"kind": "reveal-result"'), 1)
 
     def test_a_fixture_tap_is_repeated_once_and_must_then_be_received(self):
         self.assertEqual(SWIFT.count('"kind": "fixture-retry"'), 1)
