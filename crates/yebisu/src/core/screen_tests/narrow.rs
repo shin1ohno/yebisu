@@ -83,9 +83,8 @@ fn one_pane_tab_is_drawn_the_same_in_any_column() -> crate::Result<()> {
 
 #[test]
 fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
-    // 8 pt cells: 71 columns hold two 35-column panes (280 pt) and the line
-    // between them (L8), so only the 568 pt line (not the cell minimum)
-    // makes this one pane.
+    // 71 columns can hold two 280 pt text grids and one divider cell.
+    // The mapped window also needs room for the native pane frames.
     let size = size(71, 10)?;
     let screens = [screen("A", 35, 10), screen("B", 71, 10)];
     for width in [560.0, 563.0, 567.0] {
@@ -94,7 +93,11 @@ fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
         let live = publish_for(&screens, &saved(1, false)?, size, (1, 1, 0), narrow);
         assert!(symbols(&live).iter().all(|s| s == "B"), "{width}");
     }
-    let wide = Some(column(568.0, 600.0, (8.0, 20.0)));
+    for width in [568., 651.] {
+        let tight = Some(column(width, 600.0, (8.0, 20.0)));
+        assert_eq!(pane_size_for(size, 2, false, tight)?, size, "{width}");
+    }
+    let wide = Some(column(652., 600.0, (8.0, 20.0)));
     assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 35);
     Ok(())
 }

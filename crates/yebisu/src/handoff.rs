@@ -5,9 +5,9 @@ use crate::{
 };
 use sheprd_client::{
     clipboard::ClipboardImageCancellation,
-    protocol::{ClientPaneInputEvent, FrameData},
+    protocol::{ClientPaneInputEvent, FrameData, PaneSurfaceFrame},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 #[path = "handoff_cells.rs"]
 mod cells;
@@ -122,7 +122,11 @@ impl Selection {
             .unwrap_or(&[])
     }
 
-    pub fn spans(&self) -> Vec<(u16, std::ops::Range<u16>)> {
+    pub fn spans(&self) -> Vec<(u16, Range<u16>)> {
+        self.spans_in(0..self.frame.width)
+    }
+
+    fn spans_in(&self, columns: Range<u16>) -> Vec<(u16, Range<u16>)> {
         let (mut a, mut b) = if (self.anchor.1, self.anchor.0) <= (self.end.1, self.end.0) {
             (self.anchor, self.end)
         } else {
@@ -130,30 +134,62 @@ impl Selection {
         };
         let start = cells::continuations(self.row(a.1));
         let end = cells::continuations(self.row(b.1));
-        while a.0 > 0 && start.get(usize::from(a.0)).copied().unwrap_or(false) {
+        while a.0 > columns.start && start.get(usize::from(a.0)).copied().unwrap_or(false) {
             a.0 -= 1;
         }
-        while b.0.saturating_add(1) < self.frame.width
+        while b.0.saturating_add(1) < columns.end
             && end.get(usize::from(b.0 + 1)).copied().unwrap_or(false)
         {
             b.0 += 1;
         }
         (a.1..=b.1)
             .map(|row| {
-                (
-                    row,
-                    (if row == a.1 { a.0 } else { 0 })..(if row == b.1 {
-                        b.0.saturating_add(1)
-                    } else {
-                        self.frame.width
-                    }),
-                )
+                let left = if row == a.1 { a.0 } else { columns.start };
+                let right = if row == b.1 {
+                    b.0.saturating_add(1)
+                } else {
+                    columns.end
+                };
+                (row, left..right)
             })
             .collect()
     }
+
+    fn surface_columns(&self, surface: &PaneSurfaceFrame) -> Range<u16> {
+        if surface.popup.is_none()
+            && let Some(rect) = surface
+                .panes
+                .iter()
+                .map(|pane| pane.inner_rect)
+                .find(|rect| {
+                    [self.anchor, self.end]
+                        .into_iter()
+                        .all(|(x, y)| crate::terminal::in_rect(*rect, x, y))
+                })
+        {
+            return rect.x..rect.x.saturating_add(rect.width);
+        }
+        0..self.frame.width
+    }
+
+    pub fn surface_text(&self, surface: &PaneSurfaceFrame, join_wrapped: bool) -> Option<String> {
+        let columns = self.surface_columns(surface);
+        if join_wrapped {
+            self.text_as_one_line(columns)
+        } else if columns == (0..self.frame.width) {
+            self.text()
+        } else {
+            self.text_in(self.spans_in(columns))
+        }
+    }
+
     pub fn text(&self) -> Option<String> {
+        self.text_in(self.spans())
+    }
+
+    fn text_in(&self, spans: Vec<(u16, Range<u16>)>) -> Option<String> {
         let mut text = String::new();
-        for (row, cols) in self.spans() {
+        for (row, cols) in spans {
             if !text.is_empty() {
                 text.push('\n');
             }
@@ -169,8 +205,50 @@ impl Selection {
         }
         Some(text)
     }
+    /// Match the fork's right-edge test. The cell wire format does not carry
+    /// the emulator's wrap flag, so a glyph filling the edge implies wrapping.
+    fn text_as_one_line(&self, columns: Range<u16>) -> Option<String> {
+        let mut text = String::new();
+        let mut previous_filled = false;
+        let left = usize::from(columns.start);
+        let edge = usize::from(columns.end);
+        for (index, (row, selected)) in self.spans_in(columns).into_iter().enumerate() {
+            if index > 0 && !previous_filled {
+                text.push('\n');
+            }
+            let start = usize::from(selected.start).max(left);
+            let end = usize::from(selected.end).min(edge);
+            let cells = self.row(row).get(left..end)?;
+            let line_start = text.len();
+            previous_filled = false;
+            for (col, width, cell) in cells::graphemes(cells) {
+                if col + left < start {
+                    continue;
+                }
+                if text.len().saturating_add(cell.symbol.len()) > TEXT_LIMIT {
+                    return None;
+                }
+                previous_filled =
+                    end == edge && col + left + width == edge && !cell.symbol.trim().is_empty();
+                text.push_str(&cell.symbol);
+            }
+            if end == edge {
+                text.truncate(line_start + text[line_start..].trim_end().len());
+            }
+        }
+        (text.len() <= TEXT_LIMIT).then_some(text)
+    }
+    #[cfg(test)]
     pub fn highlights(&self) -> Vec<Highlight> {
-        self.spans()
+        self.highlights_in(0..self.frame.width)
+    }
+
+    pub fn surface_highlights(&self, surface: &PaneSurfaceFrame) -> Vec<Highlight> {
+        self.highlights_in(self.surface_columns(surface))
+    }
+
+    fn highlights_in(&self, columns: Range<u16>) -> Vec<Highlight> {
+        self.spans_in(columns)
             .into_iter()
             .map(|(row, columns)| Highlight {
                 row,
