@@ -90,7 +90,8 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn("$0.active && $0.windowFrame(id) != nil", frame)
         coordinate = body(qaax, "func coordinate(")
         self.assertIn("abs(reported.width - expected.width) < 1", coordinate)
-        self.assertLess(coordinate.index("if abs(reported.minX"), coordinate.index("QAAX frame mismatch"))
+        self.assertLess(coordinate.index("QAAX input frame"), coordinate.index("if framesAgree"))
+        self.assertIn(r"XCTest=\(reported) GPUI in screen=\(expected)", coordinate)
         self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset", coordinate)
         self.assertIn("try coordinate(empty, id: id", body(qaax, "func touchReady("))
 

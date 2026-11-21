@@ -244,13 +244,15 @@ struct QAAx {
         let origin = app.frame.origin
         let expected = frame.offsetBy(dx: origin.x, dy: origin.y)
         let reported = element.frame
-        if abs(reported.minX - expected.minX) < 1 && abs(reported.minY - expected.minY) < 1 &&
-            abs(reported.width - expected.width) < 1 && abs(reported.height - expected.height) < 1 {
+        let framesAgree = abs(reported.minX - expected.minX) < 1 && abs(reported.minY - expected.minY) < 1 &&
+            abs(reported.width - expected.width) < 1 && abs(reported.height - expected.height) < 1
+        let anchor = framesAgree ? "element" : "window"
+        print("QAAX input frame \(id): XCTest=\(reported) GPUI in screen=\(expected) \(anchor)")
+        if framesAgree {
             return element.coordinate(withNormalizedOffset: offset)
         }
         // In CI run 44787126992 the application frame was correct while the QA element's origin
         // and size were halved. Use the painted bounds for the touch if the AX frames disagree.
-        print("QAAX frame mismatch \(id): XCTest=\(reported) GPUI in screen=\(expected)")
         return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
             dx: frame.minX + frame.width * offset.dx,
             dy: frame.minY + frame.height * offset.dy
