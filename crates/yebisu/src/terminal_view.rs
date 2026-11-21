@@ -29,6 +29,7 @@ pub(crate) struct TerminalView {
     pub size: Option<ConnectOptions>,
     /// Last focus report, scoped to the connection generation and server boot.
     pub(crate) surface_focus: Option<(u64, String, bool)>,
+    pub(crate) surface_reclaim: Option<surface::Reclaim>,
     pub input: crate::terminal_input::TerminalInput,
     pub geometry: crate::input_geometry::InputGeometry,
     pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
@@ -275,9 +276,12 @@ impl Smoke {
                     if viewport.width >= gpui::px(cell_width)
                         && viewport.height >= gpui::px(line_height)
                     {
+                        let resized = terminal.size != Some(options);
                         terminal.resize_if_ready(options);
-                        if shown.is_some() && terminal.size == Some(options) {
-                            terminal.report_surface_focus(window.is_window_active());
+                        if let Some((snapshot, surface)) = shown.as_ref()
+                            && terminal.size == Some(options)
+                        {
+                            terminal.update_surface_focus(window.is_window_active(), resized, options, snapshot, surface);
                         }
                     }
                     terminal.input.sync(&terminal.live, generation, terminal.size);

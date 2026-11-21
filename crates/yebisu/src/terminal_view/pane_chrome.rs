@@ -2,7 +2,7 @@ use super::*;
 use crate::{input_geometry::PanePlacement, shell::style};
 use sheprd_client::protocol::PaneSurfaceFrame;
 
-// Main.dc.html:162,173 and Herdr2.dc.html:95,103.
+// Main.dc.html:162,173 and Herdr2.dc.html:96,104.
 const NAME_HANG: f32 = 10.;
 const NAME_PADDING: f32 = 6.;
 const NAME_HEIGHT: f32 = 20.;
