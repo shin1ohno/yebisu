@@ -1,6 +1,9 @@
 //! Horizontal allocation: a width shortage takes M2 first and collapses the
 //! sidebar to the rail last (Q2).
-use super::{M2_RANGE, ModSlot, RAIL_WIDTH, RULE, Region, SIDEBAR_WIDTH, TERMINAL_MIN_WIDTH};
+use super::{
+    M2_RANGE, ModSlot, RAIL_TERMINAL_MIN_WIDTH, RAIL_WIDTH, RULE, Region, SIDEBAR_WIDTH,
+    TERMINAL_MIN_WIDTH,
+};
 
 pub(super) struct Columns {
     pub sidebar: f32,
@@ -36,6 +39,17 @@ fn dock_beside(beside: f32, m2: ModSlot, withdrawn: &mut Vec<Region>) -> f32 {
     dock
 }
 
+fn rail_width(usable_width: f32) -> f32 {
+    let boundary = RAIL_TERMINAL_MIN_WIDTH..RAIL_TERMINAL_MIN_WIDTH + RULE;
+    if boundary.contains(&usable_width) {
+        // The rail and divider share 72 pt where a separate divider would
+        // otherwise take the terminal below its minimum (canvas.json:234).
+        RAIL_WIDTH - RULE
+    } else {
+        RAIL_WIDTH.min(usable_width)
+    }
+}
+
 pub(super) fn allocate(
     usable_width: f32,
     m2: ModSlot,
@@ -44,11 +58,12 @@ pub(super) fn allocate(
 ) -> Columns {
     if user_rail {
         // The user chose 72: the rail at any width, M2 beside it when it fits.
-        let beside = (usable_width - RAIL_WIDTH - RULE).max(0.0);
+        let sidebar = rail_width(usable_width);
+        let beside = (usable_width - sidebar - RULE).max(0.0);
         let dock = dock_beside(beside, m2, withdrawn);
         let column = beside - dock;
         return Columns {
-            sidebar: RAIL_WIDTH.min(usable_width),
+            sidebar,
             collapsed: true,
             column,
             dock,
@@ -67,9 +82,10 @@ pub(super) fn allocate(
         };
     }
     // Reached only with no dock: M2 was absent or has just been withdrawn.
-    let column = (usable_width - RAIL_WIDTH - RULE).max(0.0);
+    let sidebar = rail_width(usable_width);
+    let column = (usable_width - sidebar - RULE).max(0.0);
     Columns {
-        sidebar: RAIL_WIDTH.min(usable_width),
+        sidebar,
         collapsed: true,
         column,
         dock: 0.0,

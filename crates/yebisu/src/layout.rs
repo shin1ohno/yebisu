@@ -254,6 +254,23 @@ pub fn pane_mode(column_width: f32, pane_count: usize) -> PaneMode {
     }
 }
 
+const RAIL_TERMINAL_MIN_WIDTH: f32 = RAIL_WIDTH + TERMINAL_MIN_WIDTH;
+
+/// The rail has first claim on 72 pt beside the 280 pt terminal minimum.
+pub(crate) fn compact_window(width: f32) -> bool {
+    width < RAIL_TERMINAL_MIN_WIDTH
+}
+
+/// The server owns Herdr 1 splits. Herdr 2 can give the focused pane the
+/// whole client viewport while the keyboard is shown or in compact mode.
+pub(crate) fn herdr2_pane_mode(column_width: f32, pane_count: usize, focus_only: bool) -> PaneMode {
+    if focus_only {
+        PaneMode::Single
+    } else {
+        pane_mode(column_width, pane_count)
+    }
+}
+
 /// The window cannot hold one pane at its minimum: the app says so instead of
 /// shrinking the terminal (D2).
 #[derive(Clone, Copy, Debug, PartialEq)]

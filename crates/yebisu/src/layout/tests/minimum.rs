@@ -83,11 +83,11 @@ fn no_nonpositive_size_reaches_terminal() {
 
 #[test]
 fn too_small_window_reports_instead_of_shrinking() {
-    // Rail 72 + rule 1 + 279 is one point narrower than one pane.
-    let narrow = layout(window(72.0 + 1.0 + 279.0, 834.0));
+    // The old two-column layout cannot fit below the rail cutoff.
+    let narrow = layout(window(351.0, 834.0));
     match narrow.terminal {
         TerminalFit::TooSmall(report) => {
-            assert_eq!(report.available.width, 279.0);
+            assert_eq!(report.available.width, 278.0);
             assert_eq!(report.minimum.width, 280.0);
             assert_eq!(report.minimum.height, 206.0);
         }

@@ -179,6 +179,9 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if layout::compact_window(window.viewport_size().width.into()) {
+            return self.render_compact_frame(body, window, cx);
+        }
         let layout = self.frame_layout(window);
         self.shell.frame.withdrawn = layout.withdrawn.len();
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
@@ -260,7 +263,8 @@ impl Smoke {
             .text_color(rgb(0xd8dee9))
             .child(columns)
             .when_some(layout.key_band, |frame, band| {
-                frame.child(key_band::render_band(self, band.height, None, cx))
+                let pager = self.render_pane_pager(cx);
+                frame.child(key_band::render_band(self, band.height, pager, cx))
             })
             .into_any_element()
     }

@@ -25,6 +25,11 @@ pub(crate) const KEYS_COPY: &str = "qa.keys.copy";
 /// The tab row's "…" button that opens and closes the overflow menu
 /// (shell/tab_row.rs, `shell-more`).
 pub(crate) const TABS_MORE: &str = "qa.tabs.more";
+/// Controls for the compact sidebar and the first two pane pages.
+pub(crate) const COMPACT_MENU: &str = "qa.compact.menu";
+pub(crate) const COMPACT_DRAWER_CLOSE: &str = "qa.compact.drawer.close";
+pub(crate) const PAGER_PANE_1: &str = "qa.pager.pane.1";
+pub(crate) const PAGER_PANE_2: &str = "qa.pager.pane.2";
 /// The overflow menu's items (shell/overflow_menu.rs, `OverflowItem`), one
 /// per item in `OverflowItem` order.
 pub(crate) const MENU_PASTE: &str = "qa.menu.paste";
