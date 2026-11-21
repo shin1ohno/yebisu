@@ -14,6 +14,10 @@ use gpui::{AnyElement, Context, Window};
 use sheprd_client::ssh::HostKeyScan;
 
 mod actions;
+mod name_field;
+#[path = "../nearby/mod.rs"]
+mod nearby;
+mod nearby_view;
 mod view;
 
 /// Developer controls live in the Hosts sheet and only in a Simulator build.
@@ -42,6 +46,8 @@ pub(crate) struct HostsSheetState {
     pub(crate) list_open: bool,
     /// The Add host sheet, when open. It sits over the list.
     pub(crate) add: Option<AddHostSession>,
+    name: Option<gpui::Entity<name_field::NameField>>,
+    nearby: nearby_view::NearbySheet,
     /// The first-run auto-open already happened (it happens once).
     pub(crate) auto_opened: bool,
     /// The sheet was opened over a connected terminal (footer Hosts); any other
@@ -59,12 +65,16 @@ impl HostsSheetState {
     }
 
     pub(crate) fn open_add(&mut self, mode: SheetMode, host: &str) {
+        self.name = None;
+        self.nearby = nearby_view::NearbySheet::default();
         self.add = Some(AddHostSession::new(mode, host));
     }
 
     pub(crate) fn close(&mut self) {
         self.list_open = false;
         self.add = None;
+        self.name = None;
+        self.nearby = nearby_view::NearbySheet::default();
         self.over_terminal = false;
     }
 

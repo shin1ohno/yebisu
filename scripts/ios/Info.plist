@@ -35,7 +35,7 @@
 		<string>_ssh._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to your Herdr hosts.</string>
+	<string>Find nearby SSH hosts with Bonjour and connect to your Herdr hosts.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

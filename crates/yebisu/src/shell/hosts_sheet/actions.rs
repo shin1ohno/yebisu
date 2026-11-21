@@ -73,7 +73,7 @@ impl Smoke {
 
     pub(crate) fn hosts_scan(&mut self, cx: &mut Context<Self>) {
         self.hosts_sync_field();
-        if self.setup.busy {
+        if self.setup.busy || self.nearby_needs_username() {
             return;
         }
         let Some(target) = self
@@ -124,7 +124,8 @@ impl Smoke {
             .as_mut()
             .is_some_and(|session| session.flow.begin_trust());
         if started {
-            self.start_job(Job::Trust(target, key), cx);
+            let name = self.host_name_to_save(&target, cx);
+            self.start_job(Job::Trust(target, key, name), cx);
         }
     }
 
@@ -158,7 +159,17 @@ impl Smoke {
             self.hosts_read_key_after_sign_in(cx);
         }
         self.setup_input.set_text(target.clone());
-        self.start_job(Job::Authenticate(target), cx);
+        let name = self.host_name_to_save(&target, cx);
+        self.start_job(Job::Authenticate(target, name), cx);
+    }
+
+    fn host_name_to_save(&self, target: &str, cx: &Context<Self>) -> Option<String> {
+        self.shell
+            .hosts_sheet
+            .name
+            .as_ref()?
+            .read(cx)
+            .name_to_save(target)
     }
 
     pub(super) fn hosts_open_signing_in(&self) -> bool {
