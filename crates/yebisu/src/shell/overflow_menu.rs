@@ -146,10 +146,7 @@ pub(crate) fn overflow_menu_items(state: &ChromeState) -> Vec<OverflowEntry> {
             ]);
             // Preserve selection and the existing pane controls. The view
             // draws pane controls only when the active tab has two panes.
-            items.push(select);
-            if state.selecting {
-                items.push(entry(OverflowItem::Copy, online, NOT_CONNECTED));
-            }
+            items.extend([select, entry(OverflowItem::Copy, online, NOT_CONNECTED)]);
             if state.find_available {
                 items.push(find);
             }

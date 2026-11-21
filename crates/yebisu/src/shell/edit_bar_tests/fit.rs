@@ -1,4 +1,4 @@
-//! Rule: four buttons share one row; when they do not fit, Paste image moves
+//! Rule: five buttons share one row; when they do not fit, Paste image moves
 //! to the `…` menu and nothing else does.
 use crate::shell::edit_bar::{EditBarItem, edit_bar_fit, edit_bar_items};
 
@@ -23,8 +23,8 @@ fn paste_image_moves_to_the_menu_when_the_row_is_narrow() {
 }
 
 #[test]
-fn the_row_breaks_at_the_width_of_four_buttons() {
-    // 64 + 68 + 112 + 44 plus 3 dividers and a 10 px margin each side.
-    assert!(edit_bar_fit(true, 311.0).overflow.is_empty());
-    assert_eq!(edit_bar_fit(true, 310.9).overflow.len(), 1);
+fn the_row_breaks_at_the_width_of_five_buttons() {
+    // 64 + 140 + 68 + 112 + 44 plus 4 dividers and a 10 px margin each side.
+    assert!(edit_bar_fit(true, 452.0).overflow.is_empty());
+    assert_eq!(edit_bar_fit(true, 451.9).overflow.len(), 1);
 }

@@ -157,6 +157,8 @@ pub(crate) fn edit_bar_fit(selecting: bool, width: f32) -> EditBarFit {
 pub(crate) fn edit_bar_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     edit_bar_items(state.selecting)
         .into_iter()
+        // Both copy buttons share the same action in the entry-point model.
+        .filter(|item| *item != EditBarItem::CopyOneLine)
         .map(|item| EntryPoint {
             action: item.action(),
             place: Place::EditBar,

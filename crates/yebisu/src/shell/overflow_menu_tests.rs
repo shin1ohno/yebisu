@@ -84,6 +84,7 @@ fn overflow_menu_items_for_herdr2() {
             Reconnect,
             Detach,
             SelectText,
+            Copy,
             Find,
             Pane1,
             Pane2,
