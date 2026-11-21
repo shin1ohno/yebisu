@@ -14,6 +14,8 @@ use crate::{
 };
 use gpui::{prelude::*, *};
 
+mod shortcut_style;
+
 /// Hidden by design until a supported installed-font picker is proven.
 const FAMILY_PICKER: bool = false;
 const DONE_LABEL: &str = "Done";
@@ -120,15 +122,21 @@ impl Smoke {
             Page::Appearance => self.render_p15_settings(cx),
             Page::Sidebar => self.settings_sidebar(&values, can_edit, cx),
             Page::Keyboard => self.settings_keyboard(cx),
-            Page::Input => self.settings_choices(
-                &[
-                    (Some("HARDWARE KEYBOARD"), choices::HARDWARE_KEYBOARD),
-                    (Some("SELECTION"), choices::SELECTION),
-                ],
-                &values,
-                can_edit,
-                cx,
-            ),
+            Page::Input => div()
+                .flex()
+                .flex_col()
+                .gap(px(CONTENT_GAP))
+                .child(self.settings_shortcut_style(&values, can_edit, cx))
+                .child(self.settings_choices(
+                    &[
+                        (Some("HARDWARE KEYBOARD"), choices::HARDWARE_KEYBOARD),
+                        (Some("SELECTION"), choices::SELECTION),
+                    ],
+                    &values,
+                    can_edit,
+                    cx,
+                ))
+                .into_any_element(),
             Page::Connection => {
                 self.settings_choices(&[(None, &choices::CONNECTION)], &values, can_edit, cx)
             }
@@ -455,11 +463,15 @@ impl Smoke {
     /// toggle is the Input page's Shortcut priority row (plan v2 7.4).
     fn settings_keyboard(&self, _cx: &mut Context<Self>) -> AnyElement {
         let mut view = div().flex().flex_col().gap_2();
-        for row in crate::settings_pages::keyboard::shortcut_rows(&self.terminal) {
+        for row in crate::settings_pages::keyboard::shortcut_rows(&self.terminal, &self.actions) {
             view = view.child(format!(
                 "{} · {}{}",
                 row.label,
-                row.shortcuts.join(", "),
+                if row.shortcuts.is_empty() {
+                    "—".into()
+                } else {
+                    row.shortcuts.join(", ")
+                },
                 if row.available { "" } else { " (unavailable)" }
             ));
         }

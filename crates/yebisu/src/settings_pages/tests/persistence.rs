@@ -114,3 +114,29 @@ fn unknown_input_value_falls_back_to_default() {
     assert!(host.draft.option_alt && host.draft.command_control && host.draft.caret_anchor);
     assert!(!host.draft.reconnect_automatic);
 }
+
+#[test]
+fn shortcut_style_and_server_switch_survive_restart() {
+    let root = directory("shortcut-style");
+    let mut host = open(&root);
+    assert!(!host.draft.herdr_prefix);
+    assert!(host.draft.use_server_keybindings);
+
+    let mut values = host.draft.clone();
+    values.herdr_prefix = true;
+    values.use_server_keybindings = false;
+    host.edit(values);
+    wait(&mut host, SettingsHost::ready);
+    drop(host);
+
+    let restarted = open(&root);
+    assert_eq!(restarted.error, None);
+    assert!(
+        restarted.draft.herdr_prefix,
+        "Herdr prefix survives a restart"
+    );
+    assert!(
+        !restarted.draft.use_server_keybindings,
+        "the server switch stays off"
+    );
+}

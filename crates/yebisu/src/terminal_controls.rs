@@ -1,5 +1,6 @@
 use crate::{
-    app::Smoke, settings_pages::toolbar_sync::ToolbarSetting, terminal_input::GeneratedInput,
+    actions::herdr_keys::Route, app::Smoke, settings_pages::toolbar_sync::ToolbarSetting,
+    terminal_input::GeneratedInput,
 };
 use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
 
@@ -202,6 +203,7 @@ impl Smoke {
         // The modal (Settings or Hosts, A6) consumes every key before any
         // native edit routing below.
         if self.input_modal() {
+            self.actions.host_keys.clear_press();
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             if std::env::var_os("YEBISU_P11_QA").is_some()
                 && let Some(action) = herdr_uikit::native_edit_action()
@@ -217,6 +219,7 @@ impl Smoke {
         // Search owns input while open, and the retirement fence holds every
         // terminal key, native Edit commands included, until it is released.
         if self.find.is_some() {
+            self.actions.host_keys.clear_press();
             return;
         }
         // Every KeyDown of the press that closed search, held or not, stays
@@ -251,6 +254,7 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         if !self.terminal_focus.is_focused(window) {
+            self.actions.host_keys.clear_press();
             return;
         }
         // Escape closes the Shortcuts popover, never reaching the host (S1).
@@ -295,7 +299,55 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return;
         }
-        if event.keystroke.modifiers.platform
+        // Only repeats belong to the previous UI-owned press. A new press
+        // recovers if its release was lost while another screen had focus.
+        if !event.is_held {
+            self.actions.consumed.remove(&event.keystroke.key);
+        }
+        if event.is_held && self.actions.consumed.contains(&event.keystroke.key) {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        if self.actions.palette && event.keystroke.key == "escape" {
+            self.actions.palette = false;
+            self.actions.consumed.insert(event.keystroke.key.clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            cx.notify();
+            return;
+        }
+        let prefix_context = self.actions.herdr_prefix
+            && self.terminal.live.connected
+            && !self.terminal.reconnect.suspended
+            && !self.actions.palette
+            && self.terminal.navigating.is_none()
+            && crate::actions::catalog_context_available(&self.terminal);
+        if prefix_context {
+            self.poll_host_keys(cx);
+        }
+        let route = self.actions.host_keys.route(
+            &self.terminal,
+            self.board.selection,
+            prefix_context,
+            self.actions.use_server_keybindings,
+            event,
+        );
+        let command = match route {
+            Route::Consume(None) => {
+                self.actions.consumed.insert(event.keystroke.key.clone());
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
+            Route::Consume(command) => command,
+            Route::Native if !self.actions.herdr_prefix => {
+                crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
+            }
+            Route::Native | Route::Terminal | Route::Replay => None,
+        };
+        if !matches!(route, Route::Consume(_) | Route::Replay)
+            && event.keystroke.modifiers.platform
             && !event.keystroke.modifiers.control
             && !event.keystroke.modifiers.function
             && ((event.keystroke.key == "v" && !event.keystroke.modifiers.alt)
@@ -318,27 +370,16 @@ impl Smoke {
             window.prevent_default();
             return;
         }
-        // Only repeats belong to the previous UI-owned press. A new press
-        // recovers if its release was lost while another screen had focus.
-        if !event.is_held {
-            self.actions.consumed.remove(&event.keystroke.key);
-        }
-        if event.is_held && self.actions.consumed.contains(&event.keystroke.key) {
-            cx.stop_propagation();
-            window.prevent_default();
-            return;
-        }
-        if self.actions.palette && event.keystroke.key == "escape" {
-            self.actions.palette = false;
-            self.actions.consumed.insert(event.keystroke.key.clone());
-            cx.stop_propagation();
-            window.prevent_default();
-            cx.notify();
-            return;
-        }
-        if let Some(command) =
-            crate::actions::shortcut_candidate(&self.terminal, &self.actions, &event.keystroke)
-        {
+        if let Some(command) = command {
+            if command == sheprd_commands::Command::Keybinds {
+                if !event.is_held {
+                    self.toggle_shortcuts(window, cx);
+                }
+                self.actions.consumed.insert(event.keystroke.key.clone());
+                cx.stop_propagation();
+                window.prevent_default();
+                return;
+            }
             if command == sheprd_commands::Command::Find {
                 if !event.is_held {
                     self.open_find(window, cx);

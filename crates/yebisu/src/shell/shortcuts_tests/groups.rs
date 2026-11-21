@@ -55,8 +55,8 @@ fn shortcuts_show_the_canvas_focus_and_app_groups() {
     };
     let rows = rows_from(actions::catalog(&TerminalView::default()), &state, false);
     for (group, rows) in grouped(rows) {
-        let collapsed = canvas_rows(group, rows.clone(), false);
-        let expanded = canvas_rows(group, rows, true);
+        let collapsed = canvas_rows(group, rows.clone(), false, false);
+        let expanded = canvas_rows(group, rows, true, false);
         let labels: Vec<_> = collapsed
             .iter()
             .map(|(_, row)| row.label.as_str())
