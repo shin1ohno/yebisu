@@ -321,7 +321,11 @@ impl TerminalView {
         + Send
         + 'static,
     ) -> crate::Result<()> {
-        self.core.take();
+        let discovery = self
+            .core
+            .take()
+            .map(|core| core.retire_for_switch(&target))
+            .unwrap_or_default();
         self.navigating = None;
         let generation = self.link.reset_for_core();
         self.core_mode = true;
@@ -346,6 +350,7 @@ impl TerminalView {
             move || connect(&host, &name),
             root,
             column,
+            discovery,
         )?);
         Ok(())
     }
