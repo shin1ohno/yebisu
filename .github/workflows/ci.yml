@@ -49,16 +49,17 @@ jobs:
 
           MACOS_JOBS = ("check", "simulator-smoke", "edit-menu", "layout-smoke")
           SHA = re.compile(r"[0-9a-f]{40}")
-          CHECKOUT_SHA = re.compile(
-              r"^\S+ \[command\][^\n]+/git log -1 --format=%H\n\S+ ([0-9a-f]{40})$",
-              re.MULTILINE,
-          )
+          VERIFIED_CHECKOUT = re.compile(r"Verify tested commit ([0-9a-f]{40})")
 
-          def api(path, *, raw=False):
-              response = subprocess.run(
-                  ["gh", "api", path], check=True, capture_output=True, text=True, timeout=15
-              ).stdout
-              return response if raw else json.loads(response)
+          def api(path):
+              try:
+                  response = subprocess.run(
+                      ["gh", "api", path], check=True, capture_output=True, text=True, timeout=15
+                  )
+              except subprocess.CalledProcessError as error:
+                  detail = (error.stderr or "").strip() or f"gh exited {error.returncode}"
+                  raise ValueError(f"{path}: {detail}") from None
+              return json.loads(response.stdout)
 
           def require(condition, reason):
               if not condition:
@@ -128,10 +129,12 @@ jobs:
                   job_id = job["id"]
                   require(type(job_id) is int and job_id > 0, "invalid job ID")
                   if name == "edit-menu":
-                      # The jobs API reports the PR head even though this job
-                      # checks out the synthetic merge commit. Check its tree too.
-                      logs = api(f"{repo}/actions/jobs/{job_id}/logs", raw=True)
-                      commits = CHECKOUT_SHA.findall(logs)
+                      # The job's head_sha is the PR head. Its checkout verification
+                      # step records the synthetic merge commit in the job metadata.
+                      commits = [
+                          match[1] for step in job["steps"]
+                          if (match := VERIFIED_CHECKOUT.fullmatch(step["name"]))
+                      ]
                       if len(commits) != 1 or tree(repo, commits[0]) != main_tree:
                           continue
                   reused[name] = f"https://github.com/{repository}/actions/runs/{run_id}/job/{job_id}"
@@ -141,7 +144,15 @@ jobs:
               try:
                   pr, tree_sha, reused = reusable_jobs(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"])
               except (KeyError, TypeError, ValueError, subprocess.SubprocessError, OSError) as error:
-                  print(f"PR evidence unavailable ({error}); running every macOS job.")
+                  reason = str(error)
+                  if token := os.environ.get("GH_TOKEN"):
+                      reason = reason.replace(token, "[redacted]")
+                  reason = " ".join(reason.split())
+                  reason = "".join(char for char in reason if char.isprintable())
+                  message = f"PR evidence unavailable ({reason}); running every macOS job."
+                  print(message)
+                  with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                      print(f"    {message}", file=summary)
                   return
               if not reused:
                   print("No macOS job passed every step on the matching PR tree.")
@@ -367,6 +378,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Verify tested commit ${{ github.sha }}
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Install pinned Rust
         run: python3 scripts/guarded.py rustup show active-toolchain
       # Cargo cache, the same two steps in every job that compiles Rust. It holds
