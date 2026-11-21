@@ -80,6 +80,7 @@ extension SmokeQA {
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SELECTION_SETTINGS_QA"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         // Before S4: sleep(3), then OCR. L2b moved both settings from the handoff band to
