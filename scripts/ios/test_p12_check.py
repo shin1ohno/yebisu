@@ -160,6 +160,14 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
         self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
 
+    def test_palette_moves_the_pointer_before_validating_and_clicking_the_row(self):
+        choose = body(code(SWIFT), "private func choose(")
+        hover = choose.index('if caseName == "palette" { item.hover() }')
+        self.assertLess(choose.index("XCTAssertTrue(hittable,"), hover)
+        self.assertLess(hover, choose.index("let tapped = enabled && item.isHittable"))
+        self.assertLess(hover, choose.index("let pickStart ="))
+        self.assertEqual(choose.count("item.click()"), 1)
+
     def test_focus_waits_for_mutation_before_opening_the_stale_menu(self):
         swift = code(SWIFT)
         test = body(swift, "func testInstalledTerminalMenu(")

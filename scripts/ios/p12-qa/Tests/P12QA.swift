@@ -200,6 +200,10 @@ final class P12QA: XCTestCase {
             return
         }
         if negative && caseName != "focus" { sleep(7) } // Other stale cases still inject the fault with the menu open.
+        // Move the pointer to Command Palette before sending its click. An enabled
+        // AX row can disappear after a click without dispatching the command.
+        // Recheck the open menu after XCTest completes the pointer move.
+        if caseName == "palette" { item.hover() }
         let present = item.exists
         let enabled = present && item.isEnabled
         let tapped = enabled && item.isHittable
