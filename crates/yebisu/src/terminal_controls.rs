@@ -2,7 +2,13 @@ use crate::{
     actions::herdr_keys::Route, app::Smoke, settings_pages::toolbar_sync::ToolbarSetting,
     terminal_input::GeneratedInput,
 };
-use gpui::{AnyElement, Context, KeyDownEvent, KeyUpEvent, Window, div, prelude::*, rgb};
+use gpui::{
+    AnyElement, Context, KeyDownEvent, KeyUpEvent, Keystroke, Window, div, prelude::*, rgb,
+};
+
+pub(crate) fn is_settings_shortcut(key: &Keystroke) -> bool {
+    key.key == "," && key.modifiers.platform && key.modifiers.number_of_modifiers() == 1
+}
 
 impl Smoke {
     pub(crate) fn publish_native_edits(&mut self, window: &Window) {
@@ -184,6 +190,15 @@ impl Smoke {
             }
         }
     }
+    pub(crate) fn open_settings_from_shortcut(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.shell.shortcuts.open = false;
+        self.begin_settings_modal(window, cx);
+    }
+
     pub(crate) fn terminal_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -200,6 +215,14 @@ impl Smoke {
             },
             "down",
         );
+        if self.terminal_focus.is_focused(window) && is_settings_shortcut(&event.keystroke) {
+            if !event.is_held {
+                self.open_settings_from_shortcut(window, cx);
+            }
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         // The modal (Settings or Hosts, A6) consumes every key before any
         // native edit routing below.
         if self.input_modal() {

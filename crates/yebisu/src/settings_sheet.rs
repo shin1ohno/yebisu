@@ -5,6 +5,35 @@ use crate::app::Smoke;
 use gpui::{Context, Window};
 
 impl Smoke {
+    pub(crate) fn install_settings_shortcut(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.settings_shortcut.is_some() {
+            return;
+        }
+        // The terminal may have no focus while disconnected or covered by an overlay.
+        let owner = window.window_handle();
+        let view = cx.entity().downgrade();
+        self.settings_shortcut = Some(cx.intercept_keystrokes(move |event, window, app| {
+            if window.window_handle() != owner
+                || !crate::terminal_controls::is_settings_shortcut(&event.keystroke)
+            {
+                return;
+            }
+            let _ = view.update(app, |this, cx| {
+                // If the terminal owns the key path, its handler opens Settings once.
+                let terminal_receives_key = this.terminal.open
+                    && this.shell.fit.too_small.is_none()
+                    && this.terminal_focus.is_focused(window);
+                if this.actions.herdr_prefix && !terminal_receives_key {
+                    if !this.settings_modal {
+                        this.open_settings_from_shortcut(window, cx);
+                    }
+                    cx.stop_propagation();
+                    window.prevent_default();
+                }
+            });
+        }));
+    }
+
     pub(crate) fn begin_settings_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings_modal {
             return;

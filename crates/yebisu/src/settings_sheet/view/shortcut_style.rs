@@ -87,7 +87,7 @@ impl Smoke {
             .child(
                 shortcut_row(
                     TITLE,
-                    "Shortcuts shows this style. iPad: the prefix key goes straight to the terminal and ⌘ shortcuts do the rest. Herdr prefix: the prefix arms Herdr's chords; press it twice to send it to the terminal.",
+                    "Tab labels, the status bar and Shortcuts show this style. iPad: the prefix key goes straight to the terminal and ⌘ shortcuts do the rest. Herdr prefix: the prefix arms Herdr's chords; press it twice to send it to the terminal. App ⌘ shortcuts are off except ⌘, (Settings); ⌘C and ⌘V still copy and paste.",
                 )
                 .border_b_1()
                 .border_color(rgb(color::RAISED))

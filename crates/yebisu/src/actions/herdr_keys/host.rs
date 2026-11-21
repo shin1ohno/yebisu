@@ -1,4 +1,4 @@
-//! Read the selected connection's fixed config path using the existing pinned SSH transport.
+//! Read the selected connection's Herdr config using the existing pinned SSH transport.
 use super::{DEFAULTS, Fallback, MAX_BYTES, Prefix, Profile, Route};
 use crate::{app::Smoke, live::Live, settings_pages::Page, terminal_view::TerminalView};
 use gpui::{Context, KeyDownEvent};
@@ -10,13 +10,19 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-// The path and byte count are literals. No data from the config, target, or UI
-// is interpolated into the SSH command. A regular-file check avoids opening an
-// existing FIFO or device. The extra byte distinguishes an oversized file.
+// Only the remote shell expands its environment. No data from the config,
+// target, or UI is interpolated into the SSH command. A regular-file check
+// avoids opening an existing FIFO or device. The extra byte detects overflow.
 #[cfg(any(target_os = "ios", test))]
 const READ_CONFIG: &str = r#"exec /bin/sh -c '
-case "$HOME" in /*) ;; *) exit 46 ;; esac
-path="$HOME/.config/herdr/config.toml"
+case "$XDG_CONFIG_HOME" in
+    /*) config_home="$XDG_CONFIG_HOME" ;;
+    *)
+        case "$HOME" in /*) ;; *) exit 46 ;; esac
+        config_home="$HOME/.config"
+        ;;
+esac
+path="$config_home/herdr/config.toml"
 if [ ! -e "$path" ]; then exit 44; fi
 if [ ! -f "$path" ]; then exit 45; fi
 if [ ! -r "$path" ]; then exit 46; fi
