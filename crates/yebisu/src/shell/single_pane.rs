@@ -21,7 +21,6 @@ use std::{
 };
 
 #[path = "compact/mod.rs"]
-#[allow(dead_code)] // Removed when K1's frame and sizing hooks are wired.
 mod compact;
 
 /// How long a sent Zoom or Release may stay unconfirmed before it is sent

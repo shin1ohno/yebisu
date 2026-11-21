@@ -330,6 +330,9 @@ impl Smoke {
             self.terminal.report_surface_focus(false);
         }
         if let Some(too_small) = too_small {
+            if crate::layout::compact_window(window.viewport_size().width.into()) {
+                return self.shell_frame(too_small, window, cx);
+            }
             return too_small;
         }
         let legacy = self.legacy_bands();

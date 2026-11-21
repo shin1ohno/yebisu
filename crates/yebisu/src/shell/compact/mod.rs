@@ -82,6 +82,7 @@ impl Smoke {
                 panel: None,
             };
             self.shell.frame.overflow_open = false;
+            self.shell.frame.key_band.clear();
         }
     }
 
@@ -249,7 +250,10 @@ impl Smoke {
                     )
                     .aria_expanded(sidebar_open)
                     .relative()
-                    .children(crate::qa_ax::mark("qa.compact.menu", "Compact menu"))
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::COMPACT_MENU,
+                        "Compact menu",
+                    ))
                     .when(sidebar_open, |button| button.bg(rgb(color::RAISED)))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_compact_panel(Panel::Sidebar);
@@ -345,9 +349,16 @@ impl Smoke {
             .into_any_element()
     }
 
-    // K1's key elements replace this slot once its PR lands.
-    fn render_compact_keys(&mut self, _cx: &mut Context<Self>) -> AnyElement {
-        div().flex_none().h(px(KEY_ROW)).into_any_element()
+    fn render_compact_keys(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex_none()
+            .h(px(KEY_ROW))
+            .overflow_hidden()
+            .border_t_1()
+            .border_color(rgb(color::RAISED))
+            .bg(rgb(color::SURFACE))
+            .child(crate::shell::key_band::render_key_row(self, None, cx))
+            .into_any_element()
     }
 
     fn toggle_compact_panel(&mut self, panel: Panel) {

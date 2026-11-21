@@ -91,7 +91,7 @@ impl Smoke {
                     .button("shell-compact-close-menu", "Close menu", true)
                     .relative()
                     .children(crate::qa_ax::mark(
-                        "qa.compact.drawer.close",
+                        crate::qa_ax::ids::COMPACT_DRAWER_CLOSE,
                         "Close compact menu",
                     ))
                     .on_click(cx.listener(|this, _, _, cx| {

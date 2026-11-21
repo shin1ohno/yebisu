@@ -245,8 +245,9 @@ impl Smoke {
         _cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let layout = self.frame_layout(window);
-        let verdict = too_small(layout.terminal);
-        if verdict.is_some() || layout.key_band.is_none() {
+        let compact = self.compact_terminal_fit(window);
+        let verdict = too_small(compact.unwrap_or(layout.terminal));
+        if verdict.is_some() || (compact.is_none() && layout.key_band.is_none()) {
             self.shell.frame.key_band.clear();
         }
         self.shell.fit.too_small = verdict;

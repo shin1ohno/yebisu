@@ -38,28 +38,13 @@ fn compact_header_draws_53_points_above_the_page_row_and_sidebar_overlay(
     cx: &mut gpui::TestAppContext,
 ) {
     use crate::{app::Smoke, mock_peer};
-    use gpui::{AppContext, Context, Entity, Render, Window, div, px, size};
+    use gpui::{px, size};
     use std::time::{Duration, Instant};
 
-    struct CompactFrame(Entity<Smoke>);
-    impl Render for CompactFrame {
-        fn render(
-            &mut self,
-            window: &mut Window,
-            cx: &mut Context<Self>,
-        ) -> impl gpui::IntoElement {
-            use gpui::prelude::*;
-            self.0.update(cx, |this, cx| {
-                this.render_compact_frame(div().into_any_element(), window, cx)
-            })
-        }
-    }
-
-    let (view, cx) = cx.add_window_view(|_, cx| CompactFrame(cx.new(Smoke::new)));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(320.0), px(834.0)));
-    let smoke = view.read_with(cx, |frame, _| frame.0.clone());
     let client = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("peer: {error}"));
-    smoke.update(cx, |this, cx| {
+    view.update(cx, |this, cx| {
         this.select_host("sandbox");
         let generation = this.terminal.link.reset();
         this.terminal.link.install(generation, Ok(client.0));
@@ -67,7 +52,7 @@ fn compact_header_draws_53_points_above_the_page_row_and_sidebar_overlay(
     });
 
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !smoke.update(cx, |this, cx| {
+    while !view.update(cx, |this, cx| {
         this.poll_terminal(cx);
         this.focused_pane_count() == 2
     }) {
@@ -85,7 +70,7 @@ fn compact_header_draws_53_points_above_the_page_row_and_sidebar_overlay(
     assert_eq!(pager.origin.y - top_bar.origin.y, px(53.0));
     assert_eq!(pager.size.height, px(44.0));
 
-    smoke.update(cx, |this, cx| {
+    view.update(cx, |this, cx| {
         this.toggle_compact_panel(super::Panel::Sidebar);
         cx.notify();
     });
@@ -95,6 +80,14 @@ fn compact_header_draws_53_points_above_the_page_row_and_sidebar_overlay(
         .unwrap_or_else(|| panic!("sidebar panel"));
     assert_eq!(panel.origin.y, pager.origin.y);
     assert_eq!(panel.size.width, px(300.0));
+    cx.simulate_resize(size(px(352.0), px(834.0)));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("shell-compact-frame").is_none());
+    let terminal = cx
+        .debug_bounds("shell-terminal")
+        .unwrap_or_else(|| panic!("rail terminal"));
+    assert_eq!(terminal.origin.x, px(72.0));
+    assert_eq!(terminal.size.width, px(280.0));
 }
 
 #[gpui::test]

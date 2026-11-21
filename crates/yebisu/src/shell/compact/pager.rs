@@ -4,7 +4,7 @@ use crate::{
     core::Command,
     layout::compact_window,
     shell::{
-        fit::{docked_keyboard_height, ime_keyboard},
+        fit::key_band_height,
         style::{color, metric, text},
     },
 };
@@ -14,9 +14,6 @@ use gpui::{
 };
 use sheprd_client::protocol::ClientShellSnapshot;
 
-// The docked keyboard was 498 pt on the 13-inch Simulator. The 71 pt
-// assistant strip alone must leave the split in place (canvas.json:226).
-const SOFTWARE_KEYBOARD_MIN_HEIGHT: f32 = 120.0;
 // PanePager.dc.html:122 and Compact.dc.html:35.
 const PAGER_LABEL_GAP: f32 = 4.0;
 const MAX_DOTS: usize = 3;
@@ -94,8 +91,11 @@ impl Smoke {
         let viewport = window.viewport_size();
         let size = crate::layout::Size::new(viewport.width.into(), viewport.height.into());
         compact_window(size.width)
-            || docked_keyboard_height(size, ime_keyboard(size, &self.platform_insets(window).ime))
-                > SOFTWARE_KEYBOARD_MIN_HEIGHT
+            || key_band_height(
+                size,
+                &self.platform_insets(window).ime,
+                self.hardware_keyboard_attached(),
+            ) > 0.0
     }
 
     pub(in crate::shell) fn focused_pane_count(&self) -> usize {
@@ -189,8 +189,8 @@ impl Smoke {
                         .when(index == focused, |dot| dot.bg(rgb(color::TEXT))),
                 )
                 .children(match index {
-                    0 => crate::qa_ax::mark("qa.pager.pane.1", "Pane 1"),
-                    1 => crate::qa_ax::mark("qa.pager.pane.2", "Pane 2"),
+                    0 => crate::qa_ax::mark(crate::qa_ax::ids::PAGER_PANE_1, "Pane 1"),
+                    1 => crate::qa_ax::mark(crate::qa_ax::ids::PAGER_PANE_2, "Pane 2"),
                     _ => None,
                 })
                 .on_mouse_down(MouseButton::Left, |_, window, cx| {
