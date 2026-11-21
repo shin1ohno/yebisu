@@ -81,30 +81,33 @@ impl Smoke {
         } else {
             self.setup_input.text.trim().to_owned()
         };
-        self.select_host(&target);
         if from_setup {
-            self.terminal.core.take();
-            self.terminal.core_mode = false;
+            self.select_host_kind(&target, crate::shell::HerdrKind::Herdr1);
+        } else {
+            self.select_host(&target);
         }
         self.start_host_connection(target, cx);
         for host in self.setup.hosts.clone() {
-            if host != self.terminal.reconnect.target && !self.board.hidden.contains_key(&host) {
-                self.start_host_connection(host, cx);
+            if host != self.terminal.reconnect.target
+                && !self.board.hidden.contains_key(&host)
+                && !self.board.hidden_core.contains_key(&host)
+            {
+                self.start_herdr1_connection(host, cx);
             }
         }
     }
     pub(crate) fn start_host_connection(&mut self, target: String, cx: &mut Context<Self>) {
-        self.input_transition(|this| this.start_host_connection_inner(target, cx))
-    }
-    fn start_host_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
         if self.terminal.core_mode && self.terminal.reconnect.target == target {
             self.connect_core(cx);
-            return;
+        } else {
+            self.start_herdr1_connection(target, cx);
         }
-        if self.board.hidden.get(&target).is_some_and(|t| t.core_mode) {
-            return;
-        }
-        let selected = target == self.terminal.reconnect.target;
+    }
+    pub(crate) fn start_herdr1_connection(&mut self, target: String, cx: &mut Context<Self>) {
+        self.input_transition(|this| this.start_herdr1_connection_inner(target, cx))
+    }
+    fn start_herdr1_connection_inner(&mut self, target: String, cx: &mut Context<Self>) {
+        let selected = self.terminal.reconnect.target == target && !self.terminal.core_mode;
         let terminal = if selected {
             &mut self.terminal
         } else {
@@ -164,11 +167,7 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |this, cx| {
-                let terminal = if this.terminal.reconnect.target == host {
-                    Some(&mut this.terminal)
-                } else {
-                    this.board.hidden.get_mut(&host)
-                };
+                let terminal = this.herdr1_terminal_mut(&host);
                 if let Some(terminal) =
                     terminal.filter(|t| t.reconnect.current(&host, host_generation))
                 {
@@ -192,11 +191,14 @@ impl Smoke {
             .filter(|(_, t)| t.reconnect_pending && !t.reconnect.suspended)
             .map(|(host, _)| host.clone())
             .collect::<Vec<_>>();
-        if self.terminal.reconnect_pending && !self.terminal.reconnect.suspended {
+        if self.terminal.reconnect_pending
+            && !self.terminal.reconnect.suspended
+            && !self.terminal.core_mode
+        {
             pending.push(self.terminal.reconnect.target.clone());
         }
         for host in pending {
-            self.start_host_connection(host, cx);
+            self.start_herdr1_connection(host, cx);
         }
         self.poll_hidden(cx);
         for hidden in self.board.hidden.values_mut() {

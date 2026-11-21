@@ -4,8 +4,8 @@ use super::{
     icons::{self, Icon},
     long_press::{AgentMenu, PressedRow, agent_press_layer, long_press_layer},
     model::{
-        AgentLine, HostEntry, HostLink, OfflineReason, SpaceEntry, agents_list_with_pins,
-        host_link, order_hosts, record_live, snapshot_content,
+        AgentLine, HostEntry, HostLink, OfflineReason, agents_list_with_pins, host_link,
+        order_hosts, record_live, snapshot_content,
     },
 };
 use crate::{
@@ -14,12 +14,13 @@ use crate::{
     layout::{SIDEBAR_HEADER_HEIGHT, SIDEBAR_HEADER_PADDING},
     shell::{
         HerdrKind, filter,
+        herdr2_frame::sidebar::{CoreRow, herdr2_hosts},
+        sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
         style::{color, metric, radius, text, tint, weight},
     },
     terminal_view::TerminalView,
 };
 use gpui::{AnyElement, Context, Hsla, Role, div, prelude::*, px, rgb};
-use std::collections::BTreeMap;
 
 /// The list's heading and Simulator scroll anchor.
 pub(crate) const HOSTS_HEADING: &str = "HOSTS";
@@ -54,14 +55,14 @@ pub(crate) enum SidebarTap {
 /// Host rows for every reader this app holds, in the saved Hosts order.
 /// The receive order is recorded when updates arrive (`record_live`); this
 /// records again only to cover a reader no update has reached yet.
-pub(crate) fn host_entries(
+pub(crate) fn host_entries<'a>(
     state: &SidebarState,
     current: &TerminalView,
-    hidden: &BTreeMap<String, TerminalView>,
+    hidden: impl IntoIterator<Item = (&'a String, &'a TerminalView)>,
 ) -> Vec<HostEntry> {
     let mut hosts = Vec::new();
     for (host, terminal) in hidden
-        .iter()
+        .into_iter()
         .map(|(h, t)| (h.as_str(), t))
         .chain(std::iter::once((
             current.reconnect.target.as_str(),
@@ -71,15 +72,11 @@ pub(crate) fn host_entries(
         if host.is_empty() {
             continue;
         }
-        let kind = if terminal.core_mode {
-            HerdrKind::Herdr2
-        } else {
-            HerdrKind::Herdr1
-        };
+        let kind = terminal.herdr_kind();
         let live = &terminal.live;
         let link = host_link(live);
         let mut entry = HostEntry::new(host, kind, link);
-        entry.selected = host == current.reconnect.target;
+        entry.selected = std::ptr::eq(terminal, current);
         entry.generation = terminal.link.generation;
         record_live(state, host, kind, live);
         if let (HostLink::Connected, HerdrKind::Herdr1, Some(snap)) = (link, kind, snapshot(live)) {
@@ -97,8 +94,9 @@ pub(crate) fn host_entries(
 }
 
 /// Keep the identity of the connection the rendered space came from.
-pub(super) fn space_tap(host: &HostEntry, space: &SpaceEntry) -> SidebarTap {
-    crate::shell::sidebar_list::ListSpace {
+#[cfg(test)]
+pub(super) fn space_tap(host: &HostEntry, space: &super::model::SpaceEntry) -> SidebarTap {
+    ListSpace {
         host: host.host.clone(),
         kind: host.kind,
         entry: space.clone(),
@@ -315,14 +313,19 @@ impl Smoke {
             .into_any_element()
     }
 
-    /// The Herdr 1 sidebar. The frame still uses F's renderer in Herdr 2 mode.
-    pub(crate) fn render_sidebar_list(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.terminal.core_mode {
-            return None;
-        }
+    /// The same sidebar serves both daemon types, with the sessions supplied
+    /// by Herdr 2 replacing their sessionless connection entries.
+    pub(crate) fn render_sidebar_list(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let state = &mut self.shell.sidebar;
         state.notice_selected_host(&self.terminal.reconnect.target);
-        let mut hosts = host_entries(state, &self.terminal, &self.board.hidden);
+        let mut hosts = sources(
+            host_entries(
+                state,
+                &self.terminal,
+                self.board.hidden.iter().chain(&self.board.hidden_core),
+            ),
+            herdr2_hosts(state, &self.terminal, &self.board.hidden_core),
+        );
         let saved = &self.setup.hosts;
         for host in saved {
             if !hosts.iter().any(|entry| entry.host == *host) {
@@ -346,6 +349,7 @@ impl Smoke {
         let mut shown = agents.len();
         let mut list = div()
             .id("sidebar-list")
+            .debug_selector(|| "sidebar-list".into())
             .flex()
             .flex_col()
             .w_full()
@@ -354,17 +358,20 @@ impl Smoke {
                 crate::qa_ax::ids::SIDEBAR_LIST,
                 HOSTS_HEADING,
             ));
-        for host in &hosts {
-            list = list.child(self.host_row(host, cx));
-            if self.shell.sidebar.host_collapsed(&host.host) {
-                continue;
-            }
-            for space in &host.spaces {
-                if !filter::matches(&query, &format!("{} {}", space.name, host.host)) {
-                    continue;
+        for row in merge(&hosts) {
+            match row {
+                ListRow::Host(host) => list = list.child(self.host_row(&host, cx)),
+                ListRow::Space(space)
+                    if !self.shell.sidebar.host_collapsed(&space.host)
+                        && filter::matches(
+                            &query,
+                            &format!("{} {}", space.entry.name, space.host),
+                        ) =>
+                {
+                    shown += 1;
+                    list = list.child(self.space_row(&space, cx));
                 }
-                shown += 1;
-                list = list.child(self.space_row(host, space, cx));
+                ListRow::Space(_) => {}
             }
         }
         if let filter::FilterOutcome::Empty { .. } = filter::filter_outcome(&query, shown) {
@@ -383,23 +390,23 @@ impl Smoke {
         }
         let menu = self.render_long_press_menu(cx);
         let agent_menu = self.render_agent_menu(cx);
-        Some(list.children(menu).children(agent_menu).into_any_element())
+        list.children(menu).children(agent_menu).into_any_element()
     }
 
-    fn host_row(&self, host: &HostEntry, cx: &mut Context<Self>) -> AnyElement {
-        let tap = SidebarTap::Host(host.host.clone());
-        let press = PressedRow::Host(host.host.clone());
+    fn host_row(&self, host: &ListHost, cx: &mut Context<Self>) -> AnyElement {
+        let target = host.name.destination().to_owned();
+        let tap = SidebarTap::Host(target.clone());
+        let press = PressedRow::Host(target.clone());
+        let connection = host.link();
         let expanded =
-            host.link == HostLink::Connected && !self.shell.sidebar.host_collapsed(&host.host);
-        let name = host.display_name();
+            connection == HostLink::Connected && !self.shell.sidebar.host_collapsed(&target);
+        let name = host.name.to_string();
         let arrow = if expanded { Icon::Down } else { Icon::Right };
         let label = format!("{} {name}", if expanded { "Collapse" } else { "Expand" });
-        let connection = host.link;
-        let target = host.host.clone();
         let retry_target = target.clone();
         let row_id = format!("sidebar-host-{target}");
         let chevron_id = format!("sidebar-chevron-{target}");
-        let qa = host_mark(&host.host);
+        let qa = host_mark(&target);
         div()
             .id(gpui::ElementId::Name(row_id.clone().into()))
             .debug_selector(move || row_id.clone())
@@ -469,23 +476,26 @@ impl Smoke {
             .into_any_element()
     }
 
-    fn space_row(
-        &self,
-        host: &HostEntry,
-        space: &SpaceEntry,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let tap = space_tap(host, space);
+    fn space_row(&self, row: &ListSpace, cx: &mut Context<Self>) -> AnyElement {
+        let tap = row.tap();
+        let (host, kind, boot, generation) =
+            (row.host.clone(), row.kind, row.boot.clone(), row.generation);
+        let space = &row.entry;
+        let core_target = CoreRow::Space(space.id.clone());
         let tags = space
             .tags()
             .into_iter()
             .map(|tag| Badge::for_tag(tag).draw(tag));
         let press = PressedRow::Space {
-            host: host.host.clone(),
+            host: host.clone(),
             id: space.id.clone(),
             name: space.name.clone(),
         };
-        let id = format!("sidebar-space-{}-{}", host.host, space.id);
+        let prefix = match kind {
+            HerdrKind::Herdr1 => "sidebar-space",
+            HerdrKind::Herdr2 => "sidebar-core-space",
+        };
+        let id = format!("{prefix}-{host}-{}", space.id);
         div()
             .id(gpui::ElementId::Name(id.clone().into()))
             .debug_selector(move || id.clone())
@@ -537,8 +547,16 @@ impl Smoke {
                     .children(tags),
             )
             .child(second_line(space.detail.clone()).pl(px(metric::DETAIL_INDENT)))
-            .child(long_press_layer(press, cx))
-            .on_click(cx.listener(move |this, _, window, cx| this.tap_row(tap.clone(), window, cx)))
+            .when(kind == HerdrKind::Herdr1, |row| {
+                row.child(long_press_layer(press, cx))
+            })
+            .on_click(cx.listener(move |this, _, window, cx| match kind {
+                HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
+                HerdrKind::Herdr2 => {
+                    window.dismiss_virtual_keyboard();
+                    this.tap_core_row(&host, &boot, generation, core_target.clone(), cx);
+                }
+            }))
             .into_any_element()
     }
 
@@ -558,10 +576,16 @@ impl Smoke {
             tap: tap.clone(),
             at: Default::default(),
         };
+        let prefix = match id.kind {
+            HerdrKind::Herdr1 => "sidebar-agent",
+            HerdrKind::Herdr2 => "sidebar-core-agent",
+        };
+        let row_id = format!("{prefix}-{}-{}", id.host, id.pane.escape_default());
+        let boot = host.boot.clone();
+        let generation = host.generation;
         div()
-            .id(gpui::ElementId::Name(
-                format!("sidebar-agent-{}-{}", id.host, id.pane).into(),
-            ))
+            .id(gpui::ElementId::Name(row_id.clone().into()))
+            .debug_selector(move || row_id.clone())
             .role(Role::Button)
             .aria_label(if pinned {
                 format!("Pinned: {spoken}")
@@ -621,8 +645,36 @@ impl Smoke {
                     )
                     .child(second_line(line.place.clone())),
             )
-            .child(agent_press_layer(press, cx))
-            .on_click(cx.listener(move |this, _, window, cx| this.tap_row(tap.clone(), window, cx)))
+            .when(id.kind == HerdrKind::Herdr1, |row| {
+                row.child(agent_press_layer(press, cx))
+            })
+            .on_click(cx.listener(move |this, _, window, cx| match id.kind {
+                HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
+                HerdrKind::Herdr2 => {
+                    window.dismiss_virtual_keyboard();
+                    this.tap_core_row(
+                        &id.host,
+                        &boot,
+                        generation,
+                        CoreRow::Agent(id.pane.clone()),
+                        cx,
+                    );
+                }
+            }))
             .into_any_element()
+    }
+
+    fn tap_core_row(
+        &mut self,
+        host: &str,
+        boot: &str,
+        generation: u64,
+        target: CoreRow,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.open_herdr2_row(host, boot, generation, target, cx) {
+            self.terminal.live.status = error.to_string();
+        }
+        cx.notify();
     }
 }

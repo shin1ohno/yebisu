@@ -237,7 +237,7 @@ fn herdr2_agent_row_tap_opens_its_terminal(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     let row = cx
-        .debug_bounds("herdr2-agent-0")
+        .debug_bounds(r"sidebar-core-agent-pro-dev-yebisu\u{0}t2")
         .unwrap_or_else(|| panic!("Herdr 2 agent row must be drawn"));
     cx.simulate_click(row.center(), Modifiers::none());
     wait_for(&view, cx, "selected terminal t2", |this| {

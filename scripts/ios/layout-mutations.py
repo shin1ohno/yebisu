@@ -118,11 +118,11 @@ CASES = [
     ("l2b-footer-hosts", "shell/footer.rs", "            item: FooterItem::Hosts,\n",
      "            item: FooterItem::NewSpace,\n",
      "shell::footer::tests::items::sidebar_footer_has_new_space_hosts_settings"),
-    # L2b: New space enabled on Herdr 2 without its reason (q4).
+    # L2b: the sidebar header does not open the New space chooser.
     ("l2b-herdr2-new-space", "shell/footer.rs",
-     "            enabled: herdr1,\n            reason: (!herdr1).then_some(HERDR2_NEW_SPACE),\n",
-     "            enabled: true,\n            reason: None,\n",
-     "shell::footer::tests::new_space::new_space_herdr2_disabled_with_reason"),
+     "            .on_click(cx.listener(|this, _, _, cx| this.open_new_space(cx)))",
+     "            .on_click(cx.listener(|_, _, _, _| {}))",
+     "shell::footer::tests::new_space::sidebar_header_new_space_opens_chooser_on_both_herdrs"),
     # L2b: Settings removed from the sidebar footer.
     ("l2b-footer-settings", "shell/footer.rs", "            item: FooterItem::Settings,\n",
      "            item: FooterItem::Hosts,\n",

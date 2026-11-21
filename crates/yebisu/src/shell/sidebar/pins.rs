@@ -157,12 +157,8 @@ impl Smoke {
         generation: u64,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        let terminal = if id.host == self.terminal.reconnect.target {
-            Some(&self.terminal)
-        } else {
-            self.board.hidden.get(&id.host)
-        };
-        let current = terminal
+        let current = self
+            .terminal_for(&id.host, id.kind)
             .filter(|terminal| {
                 id.kind == HerdrKind::Herdr1
                     && !terminal.core_mode

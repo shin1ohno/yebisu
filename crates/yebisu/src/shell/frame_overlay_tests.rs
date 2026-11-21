@@ -171,9 +171,9 @@ fn herdr2_without_a_sidebar_list_keeps_the_footer_column(cx: &mut TestAppContext
     cx.simulate_resize(size(px(1200.), px(1000.)));
     let (collapsed, drawn, herdr1) = view.update_in(cx, |this, window, cx| {
         let layout = this.frame_layout(window);
-        let herdr1 = this.render_sidebar_column(&layout, false, cx).is_some();
+        let herdr1 = this.render_sidebar_column(&layout, cx).is_some();
         this.terminal.core_mode = true;
-        let drawn = this.render_sidebar_column(&layout, false, cx).is_some();
+        let drawn = this.render_sidebar_column(&layout, cx).is_some();
         (layout.sidebar_collapsed, drawn, herdr1)
     });
     assert!(!collapsed, "fixture: 1200 pt keeps the sidebar open");

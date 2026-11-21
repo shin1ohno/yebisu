@@ -43,6 +43,42 @@ fn agents_status_word_is_bold_yellow_needs_you_or_muted() {
 }
 
 #[test]
+fn agent_status_words_meet_sidebar_contrast_except_canvas_error() {
+    use crate::shell::style::color::SURFACE;
+
+    for status in SidebarStatus::ALL
+        .into_iter()
+        .filter(|status| status.is_agent())
+    {
+        let ratio = contrast(status.label_color(), SURFACE);
+        if status == SidebarStatus::Error {
+            // ModsMax.dc.html:85 specifies #bf616a on #1c1c22 (4.14:1).
+            // Keep this single canvas exception visible when the palette changes.
+            assert_eq!((ratio * 100.).round(), 414.);
+        } else {
+            assert!(ratio >= 4.5, "{status:?}: {ratio:.2}:1");
+        }
+    }
+    assert!(contrast(SidebarStatus::Unknown.dot_color(), SURFACE) < 4.5);
+}
+
+fn contrast(a: u32, b: u32) -> f64 {
+    fn luminance(rgb: u32) -> f64 {
+        let channel = |shift: u32| {
+            let value = f64::from((rgb >> shift) & 0xff) / 255.;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+#[test]
 fn agents_order_needs_you_error_pinned_then_working_done_idle() {
     use SidebarStatus::*;
     let mut rows = [

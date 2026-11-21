@@ -64,15 +64,10 @@ fn new_space_sends_workspace_on_herdr1(cx: &mut TestAppContext) {
     });
 }
 
-/// q4: on Herdr 2 New space is disabled and says why; a tap sends nothing.
+/// The legacy rail entry has no Herdr 2 command.
 #[gpui::test]
-fn new_space_herdr2_disabled_with_reason(cx: &mut TestAppContext) {
-    let entry = FooterEntry::for_new_space(HerdrKind::Herdr2);
-    assert!(!entry.enabled);
-    assert_eq!(entry.reason, Some(HERDR2_NEW_SPACE));
+fn legacy_rail_new_space_ignores_herdr2(cx: &mut TestAppContext) {
     assert_eq!(new_space_command(HerdrKind::Herdr2), None);
-    let herdr1 = FooterEntry::for_new_space(HerdrKind::Herdr1);
-    assert!(herdr1.enabled && herdr1.reason.is_none());
     let (view, cx) = window(cx);
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
@@ -83,4 +78,25 @@ fn new_space_herdr2_disabled_with_reason(cx: &mut TestAppContext) {
             assert_eq!(this.terminal.live.status, "before", "a disabled tap acts");
         });
     });
+}
+
+#[gpui::test]
+fn sidebar_header_new_space_opens_chooser_on_both_herdrs(cx: &mut TestAppContext) {
+    for kind in [HerdrKind::Herdr1, HerdrKind::Herdr2] {
+        let (view, cx) = window(cx);
+        cx.simulate_resize(size(px(1200.), px(1000.)));
+        view.update(cx, |this, cx| {
+            this.select_host("sandbox");
+            this.terminal.core_mode = kind == HerdrKind::Herdr2;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let button = cx
+            .debug_bounds("shell-footer-new-space")
+            .unwrap_or_else(|| panic!("{kind:?}: New space control not painted"));
+        cx.simulate_click(button.center(), gpui::Modifiers::none());
+        view.read_with(cx, |this, _| {
+            assert!(this.new_space_open(), "{kind:?}: chooser did not open");
+        });
+    }
 }

@@ -198,8 +198,3 @@ pub(crate) fn host_entry(
     entry.agents = agents;
     entry
 }
-
-/// Whether the sidebar has a list to draw.
-pub(crate) fn sidebar_list_ready(core_mode: bool, hosts: &[HostEntry]) -> bool {
-    !core_mode || hosts.iter().any(|h| h.kind == HerdrKind::Herdr2)
-}

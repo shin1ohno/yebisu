@@ -58,6 +58,7 @@ fn notification_context_keeps_herdr_kind() {
     let pane = snap.panes[0].pane_id.clone();
     let target = Context {
         host: "pro-dev".into(),
+        herdr: HerdrKind::Herdr2,
         generation: 1,
         boot: snap.boot_id.clone(),
         pane: Some(pane.clone()),
@@ -73,10 +74,23 @@ fn notification_context_keeps_herdr_kind() {
         resolve_target(&target, &on_two, ("pro-dev", HerdrKind::Herdr1), &snap),
         None
     );
-    // Positive control: the same notification from Herdr 1 resolves there.
-    let on_one = notification_agent(&target, &ConnectionKey::new("pro-dev", HerdrKind::Herdr1))
+    let one = ConnectionKey::new("pro-dev", HerdrKind::Herdr1);
+    assert_eq!(notification_agent(&target, &one), None);
+    let shell_target = Context {
+        herdr: HerdrKind::Herdr1,
+        ..target.clone()
+    };
+    let on_one = notification_agent(&shell_target, &one)
         .unwrap_or_else(|| panic!("a pane notification has an agent"));
-    assert!(resolve_target(&target, &on_one, ("pro-dev", HerdrKind::Herdr1), &snap).is_some());
+    assert!(
+        resolve_target(
+            &shell_target,
+            &on_one,
+            ("pro-dev", HerdrKind::Herdr1),
+            &snap
+        )
+        .is_some()
+    );
     // Another host's connection does not claim it.
     assert_eq!(
         notification_agent(&target, &ConnectionKey::new("mini", HerdrKind::Herdr2)),

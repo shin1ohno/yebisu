@@ -13,8 +13,6 @@ pub(crate) mod keys;
 pub(crate) const NEW_SPACE: &str = "New space";
 pub(crate) const HOSTS: &str = "Hosts";
 pub(crate) const SETTINGS: &str = "Settings";
-/// q4: Herdr 2 sessions are a separate task; New space says so.
-pub(crate) const HERDR2_NEW_SPACE: &str = "Herdr 2 sessions come in a later update";
 /// One footer row (Main.dc.html: buttons 44 high).
 pub(crate) const FOOTER_ROW_HEIGHT: f32 = metric::TOUCH;
 /// Padding above and below the footer row (Main.dc.html `padding: 4px 8px`).
@@ -76,23 +74,11 @@ pub(crate) fn footer_items(_kind: HerdrKind) -> Vec<FooterEntry> {
     ]
 }
 
-impl FooterEntry {
-    pub(crate) fn for_new_space(kind: HerdrKind) -> Self {
-        let herdr1 = kind == HerdrKind::Herdr1;
-        Self {
-            item: FooterItem::NewSpace,
-            enabled: herdr1,
-            reason: (!herdr1).then_some(HERDR2_NEW_SPACE),
-        }
-    }
-}
-
 /// The controls in the expanded sidebar chrome.
 pub(crate) fn footer_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
     if state.sidebar_hidden {
         return Vec::new();
     }
-    let header = FooterEntry::for_new_space(state.kind);
     footer_items(state.kind)
         .into_iter()
         .map(|entry| EntryPoint {
@@ -104,13 +90,13 @@ pub(crate) fn footer_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
         .chain(std::iter::once(EntryPoint {
             action: EntryAction::NewSpace,
             place: Place::SidebarHeader,
-            enabled: header.enabled,
-            reason: header.reason,
+            enabled: true,
+            reason: None,
         }))
         .collect()
 }
 
-/// The command New space sends: a new Herdr 1 workspace; none on Herdr 2.
+/// The legacy rail action requests a Herdr 1 workspace.
 pub(crate) fn new_space_command(kind: HerdrKind) -> Option<Command> {
     (kind == HerdrKind::Herdr1).then_some(Command::Workspace)
 }
@@ -132,7 +118,7 @@ pub(crate) const fn hosts_target(sheet_opened: bool) -> HostsTarget {
 }
 
 impl Smoke {
-    /// One footer tap. A disabled entry does nothing.
+    /// Footer controls and the legacy rail action.
     pub(crate) fn footer_tap(
         &mut self,
         item: FooterItem,
@@ -140,9 +126,6 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         let kind = self.chrome_state().kind;
-        if item == FooterItem::NewSpace && !FooterEntry::for_new_space(kind).enabled {
-            return;
-        }
         match item {
             FooterItem::NewSpace => {
                 if let Some(command) = new_space_command(kind)
@@ -175,6 +158,7 @@ impl Smoke {
         Some(
             div()
                 .id("shell-sidebar-footer")
+                .debug_selector(|| "shell-sidebar-footer".into())
                 .flex_none()
                 .flex()
                 .items_center()
@@ -193,17 +177,10 @@ impl Smoke {
     }
 
     pub(crate) fn render_new_space_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        let entry = FooterEntry::for_new_space(self.chrome_state().kind);
+        let item = FooterItem::NewSpace;
         Icon::Add
-            .button(entry.item.element_id(), entry.item.label(), entry.enabled)
-            .when_some(entry.reason, |button, reason| {
-                button.aria_description(reason)
-            })
-            .when(entry.enabled, |button| {
-                button.on_click(cx.listener(|this, _, window, cx| {
-                    this.footer_tap(FooterItem::NewSpace, window, cx);
-                }))
-            })
+            .button(item.element_id(), item.label(), true)
+            .on_click(cx.listener(|this, _, _, cx| this.open_new_space(cx)))
             .into_any_element()
     }
 }

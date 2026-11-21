@@ -14,12 +14,11 @@ pub(crate) struct Destination {
     pub(crate) pane: String,
 }
 
-/// The agent a notification is about. `kind` is the kind of the connection
-/// that delivered it (`Context` does not store it yet; L8 adds that).
-pub(crate) fn notification_identity(target: &Context, kind: HerdrKind) -> Option<AgentIdentity> {
+/// The agent a notification is about, on the connection that delivered it.
+pub(crate) fn notification_identity(target: &Context) -> Option<AgentIdentity> {
     target.pane.as_ref().map(|pane| AgentIdentity {
         host: target.host.clone(),
-        kind,
+        kind: target.herdr,
         pane: pane.clone(),
     })
 }
@@ -34,7 +33,7 @@ pub(crate) fn resolve_target(
     snapshot: &ClientShellSnapshot,
 ) -> Option<Destination> {
     if (agent.host.as_str(), agent.kind) != connection
-        || notification_identity(target, agent.kind).as_ref() != Some(agent)
+        || notification_identity(target).as_ref() != Some(agent)
         || target.boot != snapshot.boot_id
     {
         return None;

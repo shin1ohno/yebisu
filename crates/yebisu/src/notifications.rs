@@ -1,6 +1,6 @@
 //! Connected-only notification policy. No remote text, file paths or replay queue.
 //! Modeled on herdr-gpui 398c132a config/notifications.rs and state.rs:755-777.
-use crate::live::Live;
+use crate::{live::Live, shell::HerdrKind};
 use sheprd_client::protocol::{
     SemanticNotification, SemanticNotificationKind as Kind, SemanticNotificationSound as Sound,
 };
@@ -102,6 +102,7 @@ impl Policy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Context {
     pub host: String,
+    pub herdr: HerdrKind,
     pub generation: u64,
     pub boot: String,
     pub pane: Option<String>,
@@ -149,13 +150,14 @@ impl Event {
             received: now,
         };
         result
-            .context(String::new(), 0)
+            .context(String::new(), HerdrKind::Herdr1, 0)
             .validate_snapshot(snapshot, "", 0)?;
         Ok(result)
     }
-    pub fn context(&self, host: String, generation: u64) -> Context {
+    pub fn context(&self, host: String, herdr: HerdrKind, generation: u64) -> Context {
         Context {
             host,
+            herdr,
             generation,
             boot: self.boot.clone(),
             pane: self.pane.clone(),

@@ -320,7 +320,6 @@ fn new_space_create_explains_why_connection_was_refused(cx: &mut gpui::TestAppCo
 #[gpui::test]
 fn new_space_keeps_focus_keys_and_paste_off_the_terminal_wire(cx: &mut gpui::TestAppContext) {
     use sheprd_backend::ClientPaneInputEvent;
-    use sheprd_client::protocol::ClientMessage;
 
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.update(|window, _| window.activate_window());
@@ -353,12 +352,30 @@ fn new_space_keeps_focus_keys_and_paste_off_the_terminal_wire(cx: &mut gpui::Tes
                 .unwrap_or_else(|error| panic!("queue peer fence: {error}"));
         });
     });
+    let leaked = pane_input_before_fence(&receipts, "modal FIFO fence");
+    assert!(
+        leaked.is_empty(),
+        "input leaked before FIFO fence: {leaked:?}"
+    );
+    assert!(
+        !terminal_focused,
+        "terminal reclaimed focus behind the chooser"
+    );
+}
+
+fn pane_input_before_fence(
+    receipts: &std::sync::mpsc::Receiver<sheprd_client::protocol::ClientMessage>,
+    fence: &str,
+) -> Vec<sheprd_backend::ClientPaneInputEvent> {
+    use sheprd_backend::ClientPaneInputEvent;
+    use sheprd_client::protocol::ClientMessage;
+
     let mut leaked = Vec::new();
     loop {
         match receipts.recv_timeout(std::time::Duration::from_secs(3)) {
             Ok(ClientMessage::ClientShellPaneInput { events, .. }) => {
-                if events == [ClientPaneInputEvent::Paste("modal FIFO fence".into())] {
-                    break;
+                if events == [ClientPaneInputEvent::Paste(fence.into())] {
+                    return leaked;
                 }
                 leaked.extend(events);
             }
@@ -368,14 +385,70 @@ fn new_space_keeps_focus_keys_and_paste_off_the_terminal_wire(cx: &mut gpui::Tes
             message => panic!("expected FIFO fence, received {message:?}"),
         }
     }
+}
+
+#[gpui::test]
+fn new_space_owns_keys_and_direct_paste_after_forced_terminal_focus(cx: &mut gpui::TestAppContext) {
+    use crate::shell::footer::keys::KeyOwner;
+    use sheprd_backend::ClientPaneInputEvent;
+
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.update(|window, _| window.activate_window());
+    let receipts = open_herdr1(&view, cx);
+    choose(&view, cx, HerdrKind::Herdr1);
+    let (owner, owns_text, reads) = cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            // Exercise the shared input routes before the sheet draws again.
+            this.terminal_focus.focus(window, cx);
+            assert!(this.terminal_focus.is_focused(window));
+            this.terminal.size = None;
+            this.terminal.input.fresh_gesture();
+            this.terminal_key_down(
+                &gpui::KeyDownEvent {
+                    keystroke: gpui::Keystroke::parse("up")
+                        .unwrap_or_else(|error| panic!("key fixture: {error}")),
+                    is_held: false,
+                    prefer_character_input: false,
+                },
+                window,
+                cx,
+            );
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string("must stay local".into()));
+            let before = this.handoff.clipboard_reads;
+            this.start_paste(false, cx);
+            this.flush_terminal();
+            this.terminal
+                .link
+                .handle
+                .as_ref()
+                .unwrap_or_else(|| panic!("live peer handle"))
+                .send_input(
+                    "boot-v1",
+                    "w1:p1",
+                    [ClientPaneInputEvent::Paste(
+                        "forced-focus FIFO fence".into(),
+                    )],
+                )
+                .unwrap_or_else(|error| panic!("queue peer fence: {error}"));
+            (
+                this.key_owner(),
+                this.terminal_owns_text_input(),
+                this.handoff.clipboard_reads - before,
+            )
+        })
+    });
+    assert_eq!(
+        reads, 0,
+        "Paste read the terminal clipboard behind New space"
+    );
+    cx.run_until_parked();
+    let leaked = pane_input_before_fence(&receipts, "forced-focus FIFO fence");
     assert!(
         leaked.is_empty(),
-        "input leaked before FIFO fence: {leaked:?}"
+        "input reached the peer behind New space: {leaked:?}"
     );
-    assert!(
-        !terminal_focused,
-        "terminal reclaimed focus behind the chooser"
-    );
+    assert_eq!(owner, KeyOwner::NewSpaceSheet);
+    assert!(!owns_text);
 }
 
 #[gpui::test]

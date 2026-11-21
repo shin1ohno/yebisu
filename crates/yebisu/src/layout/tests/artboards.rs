@@ -24,7 +24,8 @@ fn artboard_10_fixture() {
 fn artboard_11_fixture() {
     let out = layout(artboard_11());
     assert_eq!(terminal_size(&out), Size::new(304.0, 596.0));
-    assert_eq!(out.region_size(Region::M1), Size::new(300.0, 129.0));
+    // SplitHalf.dc.html:125 shows M1 immediately above the one-row footer.
+    assert_eq!(out.region_size(Region::M1), Size::new(300.0, 173.0));
     assert_eq!(out.m2, None);
     assert_eq!(out.region_size(Region::M3), Size::new(304.0, 112.0));
     assert_eq!(out.region_size(Region::M4), Size::new(304.0, 44.0));
