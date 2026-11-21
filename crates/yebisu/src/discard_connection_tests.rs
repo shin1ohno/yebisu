@@ -206,7 +206,48 @@ fn sh1_156_terminal_key_keeps_existing_paste_fifo(cx: &mut TestAppContext) {
         })
     });
     wait_frame(&view, cx, |this| !this.handoff.preparing);
-    view.update(cx, |this, _| sentinel(this, "w1:p1"));
+    let mut first_flush = true;
+    wait_update(
+        &view,
+        cx,
+        "drain size-held inputs before sentinel",
+        |this| {
+            if !std::mem::take(&mut first_flush) {
+                return try_sentinel(this, "w1:p1");
+            }
+            // Reproduce the hosted assertion's preconditions independently of reader timing.
+            let inbox = this.terminal.link.inbox.clone();
+            let publishing = inbox.lock().unwrap_or_else(|err| panic!("inbox: {err}"));
+            let surface = publishing
+                .surface
+                .as_ref()
+                .unwrap_or_else(|| panic!("surface"));
+            let size = sheprd_client::ConnectOptions {
+                surface_size: sheprd_client::protocol::ClientSurfaceSize {
+                    cols: surface.frame.width + 1,
+                    rows: surface.frame.height,
+                },
+                cell_width_px: 8,
+                cell_height_px: 18,
+            };
+            this.terminal
+                .input
+                .sync(&publishing, this.terminal.link.generation, Some(size));
+            assert!(
+                this.terminal.input.destination.is_some(),
+                "resize lost the destination"
+            );
+            assert!(
+                !this.terminal.input.ready,
+                "the resize should still be pending"
+            );
+            assert!(
+                !try_sentinel(this, "w1:p1"),
+                "a busy inbox must leave the fence pending"
+            );
+            false
+        },
+    );
     assert_eq!(
         receive(&wire, "w1:p1"),
         vec![

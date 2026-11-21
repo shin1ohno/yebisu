@@ -22,6 +22,15 @@ pub(crate) fn wait_frame(
     cx: &mut TestAppContext,
     ready: impl Fn(&Smoke) -> bool,
 ) {
+    wait_update(view, cx, "SH1-156 frame timeout", |this| ready(this));
+}
+
+pub(crate) fn wait_update(
+    view: &Entity<Smoke>,
+    cx: &mut TestAppContext,
+    timeout_message: &str,
+    mut ready: impl FnMut(&mut Smoke) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         cx.run_until_parked();
@@ -31,7 +40,7 @@ pub(crate) fn wait_frame(
         }) {
             return;
         }
-        assert!(Instant::now() < deadline, "SH1-156 frame timeout");
+        assert!(Instant::now() < deadline, "{timeout_message}");
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -107,14 +116,15 @@ pub(crate) fn select(this: &mut Smoke, range: bool, window: &mut Window, cx: &mu
         );
     }
 }
-pub(crate) fn sentinel(this: &mut Smoke, pane: &str) {
+/// A reader holding the inbox may leave readiness unchanged. In that case
+/// the caller must wait for another update before sending a wire fence.
+pub(crate) fn try_sentinel(this: &mut Smoke, pane: &str) -> bool {
     this.terminal.size = None;
     this.refresh_terminal_input();
     this.flush_terminal();
-    assert!(
-        this.terminal.input.ready,
-        "drain size-held inputs before sentinel"
-    );
+    if !this.terminal.input.flushed() {
+        return false;
+    }
     this.terminal
         .link
         .handle
@@ -126,6 +136,14 @@ pub(crate) fn sentinel(this: &mut Smoke, pane: &str) {
             [ClientPaneInputEvent::Paste("SH1-156-end".into())],
         )
         .unwrap_or_else(|e| panic!("sentinel: {e}"));
+    true
+}
+
+pub(crate) fn sentinel(this: &mut Smoke, pane: &str) {
+    assert!(
+        try_sentinel(this, pane),
+        "drain size-held inputs before sentinel"
+    );
 }
 pub(crate) fn receive(
     wire: &mpsc::Receiver<ClientMessage>,

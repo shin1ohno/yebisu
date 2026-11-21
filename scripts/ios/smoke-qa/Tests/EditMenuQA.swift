@@ -8,6 +8,10 @@ import XCTest
 // condition is not reached is logged, not failed, where it was before (the oracle decides); a press
 // that never reaches its control, or that something else takes, fails by name (QAAx.press).
 final class EditMenuQA: XCTestCase {
+    private enum SetupError: Error {
+        case portraitScreenUnavailable
+    }
+
     // The case the app was launched with; markers and clipboard texts carry it.
     private var caseName = ""
 
@@ -151,8 +155,7 @@ final class EditMenuQA: XCTestCase {
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        // Observation only (E-launch in docs/ci-simulator.md): no retry, no wait or assertion changes.
+        // Keep the E-launch measurement scoped to app.launch() (docs/ci-simulator.md).
         let launchStarted = Date()
         app.launch()
         print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(launchStarted)))")
@@ -165,6 +168,7 @@ final class EditMenuQA: XCTestCase {
             XCTFail("SH1-152 qa.state not exposed after launch \(name) (YEBISU_QA_AX): \(error)")
             throw error
         }
+        try requirePortraitScreen(name)
         wait("launch \(name) input destination", ax, seconds: 30) { $0.string("input_pane") != nil }
         frame("launch \(name)", app)
         // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
@@ -178,6 +182,28 @@ final class EditMenuQA: XCTestCase {
             throw error
         }
         return (app, ax)
+    }
+
+    private func requirePortraitScreen(_ name: String) throws {
+        let initial = screenSize()
+        if initial.width > 0 && initial.height > initial.width {
+            print("SH1-152 PORTRAIT \(name) already portrait: \(initial)")
+            return
+        }
+        // A fresh Simulator can already show a portrait interface while an extra synthetic
+        // orientation request is still awaiting confirmation (run 44765771959).
+        if initial.height > 0 && initial.width > initial.height {
+            XCUIDevice.shared.orientation = .portrait
+        }
+        let portrait = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let screen = self.screenSize()
+            return screen.width > 0 && screen.height > screen.width
+        }, object: nil)
+        guard XCTWaiter().wait(for: [portrait], timeout: 10) == .completed else {
+            XCTFail("SH1-152 portrait screen not observed for \(name): initial=\(initial) last=\(screenSize())")
+            throw SetupError.portraitScreenUnavailable
+        }
+        print("SH1-152 PORTRAIT \(name) settled: \(screenSize())")
     }
 
     // Records whether the app still fills the screen, so a moved window shows up in the log at the
