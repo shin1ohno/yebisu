@@ -160,6 +160,17 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
         self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
 
+    def test_focus_waits_for_mutation_before_opening_the_stale_menu(self):
+        swift = code(SWIFT)
+        test = body(swift, "func testInstalledTerminalMenu(")
+        setup = test.index("try fixture(step)")
+        wait = test.index("try qa.waitState(\"P12 focus changed", setup)
+        mutation = test.index('self.p12(state)?["mutated"] as? Bool == true', wait)
+        pick = test.index('try choose("Split Right", caseName: step, negative: true)', mutation)
+        self.assertLess(pick, test.index('try fixture("current")', pick))
+        choose = body(swift, "private func choose(")
+        self.assertIn('if negative && caseName != "focus" { sleep(7) }', choose)
+
     def test_the_app_marks_each_fixture_and_counts_its_setup_end(self):
         rust = (HERE.parents[1] / "crates/yebisu/src/native_menus_qa.rs").read_text()
         table = re.search(r"const FIXTURES: \[\(&str, &str\); 13\] = \[(.*?)\];", rust, re.S).group(1)

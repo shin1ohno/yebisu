@@ -105,6 +105,14 @@ final class P12QA: XCTestCase {
         }
         for step in ["host", "pane", "boot", "focus", "capability"] {
             try fixture(step)
+            if step == "focus" {
+                // The fixture keeps the old menu scope installed. Finish changing
+                // panes before opening Springboard's menu so the pick uses that
+                // stale scope without keeping a presentation open across the change.
+                try qa.waitState("P12 focus changed with the old menu scope installed", timeout: 7) { state in
+                    self.p12(state)?["case"] as? String == step && self.p12(state)?["mutated"] as? Bool == true
+                }
+            }
             try choose("Split Right", caseName: step, negative: true)
             if step == "focus" {
                 try fixture("current")
@@ -191,7 +199,7 @@ final class P12QA: XCTestCase {
             assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
-        if negative { sleep(7) } // App injects the current-context fault after 6 seconds.
+        if negative && caseName != "focus" { sleep(7) } // Other stale cases still inject the fault with the menu open.
         let present = item.exists
         let enabled = present && item.isEnabled
         let tapped = enabled && item.isHittable
