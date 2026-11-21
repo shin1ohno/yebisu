@@ -98,6 +98,8 @@ impl Smoke {
             board_hidden: self.actions.board_hidden,
             drag_select: self.handoff.drag_select,
             copy_on_select: self.handoff.copy_on_select,
+            herdr_prefix: self.actions.herdr_prefix,
+            use_server_keybindings: self.actions.use_server_keybindings,
             option_alt,
             command_control,
             caret_anchor,
@@ -109,6 +111,13 @@ impl Smoke {
     /// and reconnect (SH1-157 L1) in the selected view: the same fields the
     /// sheet edits. Hidden views take them in `sync_input_settings`.
     fn adopt_input_settings(&mut self, values: &Values) {
+        if self.actions.herdr_prefix != values.herdr_prefix
+            || self.actions.use_server_keybindings != values.use_server_keybindings
+        {
+            self.actions.host_keys.clear_press();
+        }
+        self.actions.herdr_prefix = values.herdr_prefix;
+        self.actions.use_server_keybindings = values.use_server_keybindings;
         adopt_view_settings(&mut self.terminal, values);
     }
     /// The Input options and Return are app settings, but every terminal
@@ -142,6 +151,7 @@ impl Smoke {
         }
     }
     pub(crate) fn poll_settings(&mut self, cx: &mut gpui::Context<Self>) {
+        self.poll_host_keys(cx);
         self.sync_input_settings();
         let values = self.settings_values();
         let Some(host) = &mut self.settings else {
