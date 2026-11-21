@@ -17,7 +17,7 @@ use std::{
 };
 
 /// `qa.state` fields the layer owns; `report` refuses them.
-pub(crate) const RESERVED: [&str; 4] = ["seq", "launch", "presses", "duplicates"];
+pub(crate) const RESERVED: [&str; 5] = ["seq", "launch", "presses", "duplicates", "frames"];
 
 /// One exposed control: identifier, label and frame in window points
 /// (x, y, width, height).
@@ -47,7 +47,7 @@ pub(crate) struct State {
 }
 
 /// The `qa.state` value: one line of JSON with the fields flattened.
-pub(crate) fn state_json(state: &State) -> String {
+pub(crate) fn state_json(state: &State, frames: Option<&[Control]>) -> String {
     let mut object = serde_json::Map::new();
     for (key, value) in &state.fields {
         object.insert((*key).to_owned(), value.clone());
@@ -61,6 +61,13 @@ pub(crate) fn state_json(state: &State) -> String {
         .collect();
     object.insert("presses".to_owned(), Value::Object(presses));
     object.insert("duplicates".to_owned(), state.duplicates.clone().into());
+    if let Some(frames) = frames {
+        let frames = frames
+            .iter()
+            .map(|control| (control.id.to_owned(), serde_json::json!(control.frame)))
+            .collect();
+        object.insert("frames".to_owned(), Value::Object(frames));
+    }
     Value::Object(object).to_string()
 }
 
@@ -330,8 +337,15 @@ fn publish(
                 .as_ref()
                 .is_none_or(|(old, _)| *old != controls);
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
-        if !super::native::apply(view, &controls, &state_json(&state), layout_changed) {
-            return false;
+        {
+            // The full-screen edit-menu test can anchor real touches to the app window
+            // when XCTest's per-element scene-to-screen conversion mis-scales a frame.
+            let frames = std::env::var_os("YEBISU_QA_AX_FRAMES")
+                .is_some()
+                .then_some(controls.as_slice());
+            if !super::native::apply(view, &controls, &state_json(&state, frames), layout_changed) {
+                return false;
+            }
         }
         #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
         let _ = (layout_changed, view);

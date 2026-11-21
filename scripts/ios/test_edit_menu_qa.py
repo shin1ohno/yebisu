@@ -79,6 +79,21 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn("guard XCTWaiter().wait(for: [portrait]", portrait)
         self.assertIn("throw SetupError.portraitScreenUnavailable", portrait)
 
+    def test_basic_uses_app_window_points_after_observing_the_full_screen(self):
+        basic = body(self.code, "func testSH1152Basic(")
+        self.assertIn("try launch(name, useWindowFrames: true)", basic)
+        launch = body(self.code, "private func launch(")
+        self.assertIn('app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1"', launch)
+        self.assertLess(launch.index("if useWindowFrames && !full"), launch.index("ax.touchReady("))
+        qaax = code((TESTS / "QAAx.swift").read_text())
+        frame = body(qaax, "private func windowFrame(")
+        self.assertIn("$0.active && $0.windowFrame(id) != nil", frame)
+        coordinate = body(qaax, "func coordinate(")
+        self.assertIn("abs(reported.width - expected.width) < 1", coordinate)
+        self.assertLess(coordinate.index("if abs(reported.minX"), coordinate.index("QAAX frame mismatch"))
+        self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset", coordinate)
+        self.assertIn("try coordinate(empty, id: id", body(qaax, "func touchReady("))
+
     def test_controls_are_pressed_by_identifier_through_qa_press(self):
         press = body(self.code, "private func press(")
         self.assertIn("ax.settleIfMoved(", press)
@@ -94,7 +109,7 @@ class EditMenuQAIdentifiers(unittest.TestCase):
     def test_the_long_press_is_on_the_terminal_frame_and_never_repeated(self):
         menu = body(self.code, "private func menu(")
         self.assertIn("ax.find(QAIds.terminalInput)", menu)
-        self.assertRegex(menu, r"terminal\.coordinate\(withNormalizedOffset: [^\n]*\)\.press\(forDuration: 0\.8\)")
+        self.assertRegex(menu, r"ax\.coordinate\(terminal, id: QAIds\.terminalInput, at: [^\n]*\)\.press\(forDuration: 0\.8\)")
         self.assertEqual(menu.count("press(forDuration:"), 1)
         self.assertNotIn("ax.press(", menu, "QAAx.press presses once more on a lost press; a long press must not")
 

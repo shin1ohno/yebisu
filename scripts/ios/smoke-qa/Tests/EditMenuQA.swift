@@ -10,6 +10,7 @@ import XCTest
 final class EditMenuQA: XCTestCase {
     private enum SetupError: Error {
         case portraitScreenUnavailable
+        case fullScreenWindowUnavailable
     }
 
     // The case the app was launched with; markers and clipboard texts carry it.
@@ -17,7 +18,7 @@ final class EditMenuQA: XCTestCase {
 
     func testSH1152Basic() throws {
         for name in ["E1-text", "E1-key", "E2-text", "E2-key", "E1-core", "E2-core"] {
-            let (app, ax) = try launch(name)
+            let (app, ax) = try launch(name, useWindowFrames: true)
             try begin(QAIds.sh152Begin, ax)
             if name.hasPrefix("E2") { try select(QAIds.sh152Select, ax) }
             try menu(app, ax, name, selected: name.hasPrefix("E2"))
@@ -147,19 +148,20 @@ final class EditMenuQA: XCTestCase {
         }
     }
 
-    private func launch(_ name: String) throws -> (XCUIApplication, QAAx) {
+    private func launch(_ name: String, useWindowFrames: Bool = false) throws -> (XCUIApplication, QAAx) {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
         app.terminate()
         caseName = name
         app.launchEnvironment["YEBISU_SH1_152_CASE"] = name
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        if useWindowFrames { app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1" }
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
         // Keep the E-launch measurement scoped to app.launch() (docs/ci-simulator.md).
         let launchStarted = Date()
         app.launch()
         print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(launchStarted)))")
-        let ax = QAAx(app)
+        let ax = QAAx(app, useWindowFrames: useWindowFrames)
         // A Begin marker needs an input destination, which the app has once the terminal names its
         // pane. qa.state that never appears is a broken QA layer: fail by name.
         do {
@@ -170,7 +172,11 @@ final class EditMenuQA: XCTestCase {
         }
         try requirePortraitScreen(name)
         wait("launch \(name) input destination", ax, seconds: 30) { $0.string("input_pane") != nil }
-        frame("launch \(name)", app)
+        let full = frame("launch \(name)", app)
+        if useWindowFrames && !full {
+            XCTFail("SH1-152 \(name) requires a full-screen window for GPUI window coordinates")
+            throw SetupError.fullScreenWindowUnavailable
+        }
         // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
         // on the strip's empty space, so the case's first real press is not lost (QAAx.touchReady).
         do {
@@ -208,11 +214,13 @@ final class EditMenuQA: XCTestCase {
 
     // Records whether the app still fills the screen, so a moved window shows up in the log at the
     // step that moved it.
-    private func frame(_ step: String, _ app: XCUIApplication) {
+    @discardableResult
+    private func frame(_ step: String, _ app: XCUIApplication) -> Bool {
         let screen = screenSize()
         let frame = app.frame
         let full = abs(frame.minX) < 1 && abs(frame.minY) < 1 && abs(frame.width - screen.width) < 1 && abs(frame.height - screen.height) < 1
         print("SH1-152 FRAME \(step) app=\(frame) screen=\(screen) fullscreen=\(full)")
+        return full
     }
 
     // A drag in screen space (Control Center from the status corner): app.coordinate is relative
@@ -256,7 +264,7 @@ final class EditMenuQA: XCTestCase {
                        until: ((QAState) -> Bool)? = nil) throws -> QAState {
         try ax.settleIfMoved("before \(id)")
         let element = try ax.find(id)
-        let offset = visiblePart(element.frame, app, id)
+        let offset = try visiblePart(ax.screenFrame(element, id: id), app, id)
         return try ax.press(id, at: offset, what: what, until: until)
     }
 
@@ -287,7 +295,7 @@ final class EditMenuQA: XCTestCase {
         let before = try ax.waitState("\(name) qa.state before the long press", timeout: 5) { _ in true }
         let terminal = try ax.find(QAIds.terminalInput)
         // Upper third: the menu opens above the press, away from the QA strip under the terminal.
-        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.8)
+        try ax.coordinate(terminal, id: QAIds.terminalInput, at: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.8)
         // The long press focuses the terminal; the keyboard moved after it in 6 of 126 Mac mini
         // long presses (48c8b55).
         ax.keyboardMayMove("\(name) long press")

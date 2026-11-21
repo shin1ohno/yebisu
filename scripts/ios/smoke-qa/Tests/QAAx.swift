@@ -23,6 +23,13 @@ struct QAState: CustomStringConvertible {
 
     /// Presses GPUI delivered to the marked control `id` since launch.
     func presses(_ id: String) -> Int { (raw["presses"] as? [String: Any])?[id] as? Int ?? 0 }
+    func windowFrame(_ id: String) -> CGRect? {
+        guard let frames = raw["frames"] as? [String: [Double]],
+              let values = frames[id], values.count == 4, values.allSatisfy(\.isFinite),
+              values[2] > 0, values[3] > 0 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
     func string(_ key: String) -> String? { raw[key] as? String }
     func int(_ key: String) -> Int? { raw[key] as? Int }
     func bool(_ key: String) -> Bool? { raw[key] as? Bool }
@@ -155,9 +162,11 @@ struct QAAx {
 
     let app: XCUIApplication
     let session = Session()
+    private let useWindowFrames: Bool
 
-    init(_ app: XCUIApplication) {
+    init(_ app: XCUIApplication, useWindowFrames: Bool = false) {
         self.app = app
+        self.useWindowFrames = useWindowFrames
     }
 
     private static func since(_ start: Date) -> Double { Date().timeIntervalSince(start) }
@@ -218,6 +227,36 @@ struct QAAx {
         return element
     }
 
+    private func windowFrame(_ id: String) throws -> CGRect {
+        let state = try waitState("active window frame for \(id)") { $0.active && $0.windowFrame(id) != nil }
+        return try XCTUnwrap(state.windowFrame(id))
+    }
+
+    func screenFrame(_ element: XCUIElement, id: String) throws -> CGRect {
+        guard useWindowFrames else { return element.frame }
+        let origin = app.frame.origin
+        return try windowFrame(id).offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    func coordinate(_ element: XCUIElement, id: String, at offset: CGVector) throws -> XCUICoordinate {
+        guard useWindowFrames else { return element.coordinate(withNormalizedOffset: offset) }
+        let frame = try windowFrame(id)
+        let origin = app.frame.origin
+        let expected = frame.offsetBy(dx: origin.x, dy: origin.y)
+        let reported = element.frame
+        if abs(reported.minX - expected.minX) < 1 && abs(reported.minY - expected.minY) < 1 &&
+            abs(reported.width - expected.width) < 1 && abs(reported.height - expected.height) < 1 {
+            return element.coordinate(withNormalizedOffset: offset)
+        }
+        // In CI run 44787126992 the application frame was correct while the QA element's origin
+        // and size were halved. Use the painted bounds for the touch if the AX frames disagree.
+        print("QAAX frame mismatch \(id): XCTest=\(reported) GPUI in screen=\(expected)")
+        return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+            dx: frame.minX + frame.width * offset.dx,
+            dy: frame.minY + frame.height * offset.dy
+        ))
+    }
+
     /// Presses the control `id` (a tap, or a press held `duration` seconds) at its centre and
     /// waits until `qa.state` shows the press arrived (`presses[id]` grew) and `until` holds.
     /// If neither `presses[id]` nor what is on screen moved, the touch was lost, and it presses
@@ -238,8 +277,7 @@ struct QAAx {
         let element = try find(id, timeout: timeout)
         let start = Date()
         for attempt in 1...2 {
-            // The element's own coordinate: XCTest resolves the frame, and no hittability check runs.
-            let centre = element.coordinate(withNormalizedOffset: offset)
+            let centre = try coordinate(element, id: id, at: offset)
             if attempt == 1 && session.dropFirstPress.remove(id) != nil {
                 print("QAAX press \(id): injected fault, the first press is not sent")
             } else if let duration {
@@ -304,7 +342,7 @@ struct QAAx {
                 drop -= 1
                 print("QAAX touch-ready \(what): injected fault, press \(attempt) is not sent")
             } else {
-                empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                try coordinate(empty, id: id, at: CGVector(dx: 0.5, dy: 0.5)).tap()
             }
             if (try? waitState("touch-ready press \(attempt) reached GPUI (\(what))", timeout: 3, { $0.presses(id) > before.presses(id) })) != nil {
                 print(String(format: "QAAX touch-ready %@ after %ld press(es), %.2f s", what, attempt, QAAx.since(start)))
