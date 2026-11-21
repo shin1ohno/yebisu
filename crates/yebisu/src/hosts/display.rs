@@ -8,8 +8,7 @@ use std::{fmt, net::Ipv4Addr};
 ///
 /// The destination (`user@host[:port]`) is what `Store` saves and what every
 /// connection, host key pin and row identity keys on. The display name is
-/// derived from it for drawing only: it is never parsed back, saved or used
-/// as a key. Two destinations can share one display name (`me@pro-dev` and
+/// presentation only, with the destination supplying a fallback. Two destinations can share one display name (`me@pro-dev` and
 /// `root@pro-dev:2222`), so a row that must tell them apart keeps the
 /// destination too.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -25,9 +24,16 @@ impl HostName {
     /// string that is not an SSH target (a QA peer such as `qa-alpha`) shows
     /// as written; saved destinations always parse, as `Store` checks them.
     pub(crate) fn new(destination: &str) -> Self {
-        let display = match Target::parse(destination) {
-            Ok(target) => short_host(&target.host).to_owned(),
-            Err(_) => destination.to_owned(),
+        Self::with_saved(destination, None)
+    }
+
+    pub(crate) fn with_saved(destination: &str, saved: Option<&str>) -> Self {
+        let display = match saved {
+            Some(name) => name.to_owned(),
+            None => match Target::parse(destination) {
+                Ok(target) => short_host(&target.host).to_owned(),
+                Err(_) => destination.to_owned(),
+            },
         };
         Self {
             destination: destination.to_owned(),

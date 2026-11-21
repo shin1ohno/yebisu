@@ -1,18 +1,22 @@
 //! All Keychain, network and filesystem work lives in background jobs.
+#[cfg(any(target_os = "ios", test))]
+use crate::hosts::HostName;
 #[cfg(target_os = "ios")]
 use crate::{
     Error,
     hosts::{Store, authentication_gate},
 };
-use crate::{Result, shell::add_host::Probe};
+use crate::{Result, hosts::SavedHosts, shell::add_host::Probe};
 #[cfg(target_os = "ios")]
 use sheprd_client::ssh;
 use sheprd_client::ssh::{HostKeyScan, NewHostKey};
+use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(crate) struct Setup {
     pub(crate) busy: bool,
     pub(crate) hosts: Vec<String>,
+    host_names: BTreeMap<String, String>,
     pub(crate) status: String,
     pub(crate) target: String,
     pub(crate) fingerprints: String,
@@ -31,14 +35,14 @@ pub(crate) enum Job {
     Load,
     SaveFailure,
     Scan(String),
-    Trust(String, NewHostKey),
-    Authenticate(String),
+    Trust(String, NewHostKey, Option<String>),
+    Authenticate(String, Option<String>),
 }
 
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(crate) enum Reply {
     Loaded(String, String),
-    Hosts(crate::hosts::SavedHosts, String),
+    Hosts(SavedHosts, String),
     Scanned(String, HostKeyScan, String),
     /// The host offered a key that differs from the pinned one: both
     /// fingerprints, nothing trusted.
@@ -47,13 +51,13 @@ pub(crate) enum Reply {
         expected: String,
         seen: String,
     },
-    Saved(crate::hosts::SavedHosts, String),
+    Saved(SavedHosts, String),
     // Only tests still send it (setup/tests.rs, live/tests.rs): the L7 sign-in
     // replies SignedIn. Drop it with those tests' move to SignedIn.
     #[cfg_attr(target_os = "ios", allow(dead_code))]
-    Authenticated(crate::hosts::SavedHosts, String),
+    Authenticated(SavedHosts, String),
     /// Sign-in succeeded; the probe says which Herdr the host runs.
-    SignedIn(crate::hosts::SavedHosts, String, Probe),
+    SignedIn(SavedHosts, String, Probe),
 }
 
 #[cfg(target_os = "ios")]
@@ -94,17 +98,18 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
     match job {
         Job::Load => {
             let store = store()?;
-            let target = store.load()?;
+            let hosts = store.load_hosts()?;
+            let target = &hosts.selected;
             let fingerprints = if target.is_empty() {
                 String::new()
             } else {
-                match store.fingerprints(&target) {
+                match store.fingerprints(target) {
                     Ok(value) => value,
                     Err(Error::UntrustedHost) => "Host has no trusted key; scan again.".into(),
                     Err(e) => return Err(e),
                 }
             };
-            Ok(Reply::Hosts(store.load_hosts()?, fingerprints))
+            Ok(Reply::Hosts(hosts, fingerprints))
         }
         Job::SaveFailure => Err(Error::Storage(std::io::Error::other(
             "Developer-injected save failure; saved hosts unchanged",
@@ -132,17 +137,17 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             };
             Ok(Reply::Scanned(target, scan, fingerprints))
         }
-        Job::Trust(target, key) => {
+        Job::Trust(target, key, name) => {
             ssh::trust_host_key(&key).map_err(map)?;
             let store = store()?;
             // Failure is displayed even when pins were saved but the target was not.
-            store.save(&target)?;
+            store.save_with_name(&target, name.as_deref())?;
             Ok(Reply::Saved(
                 store.load_hosts()?,
                 store.fingerprints(&target)?,
             ))
         }
-        Job::Authenticate(target) => {
+        Job::Authenticate(target, name) => {
             // Scan sends no credentials. The authenticated probe independently checks
             // pins on its new connection, closing the scan/connect race.
             authentication_gate(&ssh::scan_host_key(&target).map_err(map)?)?;
@@ -152,7 +157,7 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
             }
             let facts = probe_facts(&probe);
             let store = store()?;
-            store.save(&target)?;
+            store.save_with_name(&target, name.as_deref())?;
             Ok(Reply::SignedIn(
                 store.load_hosts()?,
                 format!("SSH authenticated: {probe:?}"),
@@ -163,6 +168,22 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
 }
 
 impl Setup {
+    #[cfg(any(target_os = "ios", test))]
+    pub(crate) fn saved_name(&self, target: &str) -> Option<&str> {
+        self.host_names.get(target).map(String::as_str)
+    }
+
+    #[cfg(any(target_os = "ios", test))]
+    pub(crate) fn host_name(&self, target: &str) -> HostName {
+        HostName::with_saved(target, self.saved_name(target))
+    }
+
+    fn set_hosts(&mut self, hosts: SavedHosts) {
+        self.target = hosts.selected;
+        self.hosts = hosts.targets;
+        self.host_names = hosts.names;
+    }
+
     pub(crate) fn apply(&mut self, reply: Result<Reply>) {
         self.busy = false;
         if std::mem::take(&mut self.loading) {
@@ -180,8 +201,8 @@ impl Setup {
                 self.status = "Enter user@host[:port], then scan the host key.".into();
             }
             Ok(Reply::Hosts(hosts, fingerprints)) => {
-                self.apply(Ok(Reply::Loaded(hosts.selected, fingerprints)));
-                self.hosts = hosts.targets;
+                self.set_hosts(hosts);
+                self.fingerprints = fingerprints;
                 self.status = "Saved hosts loaded. Select a host or enter a new target.".into();
             }
             Ok(Reply::Scanned(target, scan, fingerprints)) => {
@@ -211,15 +232,13 @@ impl Setup {
                 self.status = "Host key changed. Refused; nothing was trusted.".into();
             }
             Ok(Reply::Saved(hosts, fingerprints)) => {
-                self.target = hosts.selected;
-                self.hosts = hosts.targets;
+                self.set_hosts(hosts);
                 self.pending = None;
                 self.fingerprints = fingerprints;
                 self.status = "Host key trusted and connection saved.".into();
             }
             Ok(Reply::Authenticated(hosts, message) | Reply::SignedIn(hosts, message, _)) => {
-                self.target = hosts.selected;
-                self.hosts = hosts.targets;
+                self.set_hosts(hosts);
                 self.status = message;
             }
         }
