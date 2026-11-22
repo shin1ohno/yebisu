@@ -253,10 +253,9 @@ final class P12QA: XCTestCase {
         [CGFloat(1), 2].first { abs($0 * reported - expected) < 1 }
     }
 
-    private static func menuBarButtonFrame(_ button: CGRect, in bar: CGRect, on screen: CGRect) -> CGRect? {
-        // As in QAAx, check the element's AX rectangle against the window geometry
-        // before using the application's origin for the touch. SpringBoard owns the
-        // menu, so its full-width status bar supplies the geometry the app cannot paint.
+    static func menuBarButtonFrame(_ button: CGRect, in bar: CGRect, on screen: CGRect) -> CGRect? {
+        // QAAx can compare an AX frame with GPUI's painted bounds. SpringBoard owns
+        // the menu, so use its full-width status bar and screen width as references.
         guard !button.isEmpty, !bar.isEmpty, !screen.isEmpty,
               let barScale = screenScale(bar.width, expected: screen.width) else { return nil }
         let barFrame = bar.applying(CGAffineTransform(scaleX: barScale, y: barScale))

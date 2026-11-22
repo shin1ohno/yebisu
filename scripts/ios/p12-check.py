@@ -123,7 +123,8 @@ def main():
         tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
             "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
             "-resultBundlePath", str(result_path), "CODE_SIGNING_ALLOWED=NO",
-            "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu"], guarded=True, check=False,
+            "-only-testing:P12Oracle/P12QA/testInstalledTerminalMenu",
+            "-only-testing:P12Oracle/P12MenuBarGeometryTests"], guarded=True, check=False,
             env=xctest_env(fault))
     finally:
         terminate(device)
