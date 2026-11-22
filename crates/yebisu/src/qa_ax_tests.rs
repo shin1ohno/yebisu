@@ -49,9 +49,9 @@ fn qa_ax_root_hook_is_off_in_a_non_qa_build(cx: &mut TestAppContext) {
 #[gpui::test]
 fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-    let fields = view.update(cx, |this, _| {
+    let fields = view.update_in(cx, |this, window, _| {
         this.smoke_mode = true;
-        this.qa_ax_fields()
+        this.qa_ax_fields(window)
     });
     let names: Vec<&str> = fields.iter().map(|(key, _)| *key).collect();
     assert_eq!(
@@ -89,10 +89,10 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
     for (key, _) in &fields {
         assert!(!layer::RESERVED.contains(key), "{key} is the layer's own");
     }
-    let fields = view.update(cx, |this, _| {
+    let fields = view.update_in(cx, |this, window, _| {
         this.settings_modal = true;
         this.shell.frame.overflow_open = true;
-        this.qa_ax_fields()
+        this.qa_ax_fields(window)
     });
     assert_eq!(fields[1].1, "settings");
     assert_eq!(fields[2].1, "overflow");
@@ -138,9 +138,9 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
         field("peer"),
         Some(serde_json::json!({"inputs": 0, "pastes": []}))
     );
-    let selecting = view.update(cx, |this, _| {
+    let selecting = view.update_in(cx, |this, window, _| {
         this.handoff.select_mode = true;
-        this.qa_ax_fields()
+        this.qa_ax_fields(window)
     });
     let selecting = selecting.iter().find(|(key, _)| *key == "selecting");
     assert_eq!(

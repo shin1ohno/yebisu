@@ -118,7 +118,7 @@ impl Smoke {
             _ => None,
         };
         let content = match self.settings_page {
-            Page::Fonts => self.settings_fonts(&values, can_edit, cx),
+            Page::Fonts => self.settings_fonts(&values, can_edit, window, cx),
             Page::Appearance => self.render_p15_settings(cx),
             Page::Sidebar => self.settings_sidebar(&values, can_edit, cx),
             Page::Keyboard => self.settings_keyboard(cx),
@@ -368,7 +368,13 @@ impl Smoke {
         (header.into_any_element(), notices)
     }
 
-    fn settings_fonts(&self, values: &Values, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn settings_fonts(
+        &self,
+        values: &Values,
+        enabled: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut options = segments("Terminal font");
         let current = Density::from_values(values);
         for density in Density::ALL {
@@ -394,7 +400,7 @@ impl Smoke {
                 .children(qa_mark),
             );
         }
-        let (size, height) = values.font.metrics(values.compact);
+        let (size, height) = self.terminal_font_metrics(window);
         let mut view = div()
             .flex()
             .flex_col()
@@ -418,9 +424,10 @@ impl Smoke {
             };
             view = view.child(
                 button(id, label, enabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         let mut v = this.settings_values();
-                        v.font.size = Some((v.font.metrics(v.compact).0 + delta).clamp(8., 48.));
+                        v.font.size =
+                            Some((this.terminal_font_metrics(window).0 + delta).clamp(8., 48.));
                         this.apply_settings(v, cx);
                     }))
                     .children(qa_mark),

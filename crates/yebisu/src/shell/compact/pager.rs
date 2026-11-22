@@ -2,7 +2,6 @@ use crate::{
     app::Smoke,
     board::{Navigation, Target, snapshot},
     core::Command,
-    layout::compact_window,
     shell::{
         fit::key_band_height,
         style::{color, metric, text},
@@ -78,7 +77,7 @@ impl Panes {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Pager {
+pub(super) struct Pager {
     host: String,
     generation: u64,
     boot: String,
@@ -90,7 +89,7 @@ impl Smoke {
     pub(in crate::shell) fn pager_available_at(&self, window: &Window) -> bool {
         let viewport = window.viewport_size();
         let size = crate::layout::Size::new(viewport.width.into(), viewport.height.into());
-        compact_window(size.width)
+        self.compact_window_at(window)
             || key_band_height(
                 size,
                 &self.platform_insets(window).ime,
@@ -98,14 +97,7 @@ impl Smoke {
             ) > 0.0
     }
 
-    pub(in crate::shell) fn focused_pane_count(&self) -> usize {
-        let Some((snapshot, _)) = self.terminal.coherent_frame() else {
-            return 0;
-        };
-        Panes::from_snapshot(&snapshot).map_or(0, |panes| panes.ids.len())
-    }
-
-    fn pager(&self) -> Option<Pager> {
+    pub(super) fn pager(&self) -> Option<Pager> {
         if !self.terminal.live.connected || self.input_modal() {
             return None;
         }
@@ -137,7 +129,13 @@ impl Smoke {
     }
 
     pub(in crate::shell) fn render_pane_pager(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let pager = self.pager()?;
+        self.pager().map(|pager| pager.render(cx))
+    }
+}
+
+impl Pager {
+    pub(super) fn render(self, cx: &mut Context<Smoke>) -> AnyElement {
+        let pager = self;
         let focused = pager.panes.focused;
         let count = pager.panes.ids.len();
         let owner = cx.weak_entity();
@@ -151,7 +149,8 @@ impl Smoke {
                 .justify_center()
                 .min_w_0()
                 .h(px(metric::TOUCH))
-                .flex_none(),
+                .flex_none()
+                .overflow_hidden(),
             owner.clone(),
             pager.clone(),
             None,
@@ -208,9 +207,11 @@ impl Smoke {
                 Some(Page::At(index)),
             ));
         }
-        Some(row.into_any_element())
+        row.into_any_element()
     }
+}
 
+impl Smoke {
     fn turn_pane_page(
         &mut self,
         shown: &Pager,
@@ -224,10 +225,20 @@ impl Smoke {
         let Some(index) = page.index(shown.panes.focused, shown.panes.ids.len()) else {
             return;
         };
+        let pane = &shown.panes.ids[index];
+        // An overlapping click while the peer acknowledges this focus is a no-op.
+        if !shown.core
+            && self.terminal.navigating.as_ref().is_some_and(|navigation| {
+                navigation.boot == shown.boot
+                    && matches!(&navigation.target, Target::Agent(id) if id == pane)
+            })
+        {
+            return;
+        }
         let result = if shown.core {
-            self.try_core_command(Command::FocusAddress(shown.panes.ids[index].clone()))
+            self.try_core_command(Command::FocusAddress(pane.clone()))
         } else {
-            self.input_transition(|this| this.focus_herdr1_page(shown, &shown.panes.ids[index]))
+            self.input_transition(|this| this.focus_herdr1_page(shown, pane))
         };
         if let Err(error) = result {
             self.terminal.live.status = error.to_string();
@@ -268,7 +279,8 @@ impl Smoke {
     }
 }
 
-// A dot registers after the strip so its bubble listener gets first refusal.
+// A dot claims the finger gesture at its start and handles both tap and swipe.
+// The dot's click handler is also needed for pointer input.
 fn drag_target<E: ParentElement>(
     element: E,
     owner: WeakEntity<Smoke>,
