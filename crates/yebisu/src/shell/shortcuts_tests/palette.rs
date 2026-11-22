@@ -15,13 +15,13 @@ fn palette_stays_local_command() {
         .into_iter()
         .find(|row| row.info.command == Command::Palette);
     assert!(palette.is_some_and(|row| row.available));
-    let menu = native_menus::catalog_rows(&t, &actions::Actions::default(), true);
+    let menu = native_menus::catalog_rows(&t, &Actions::default(), true);
     assert!(
         menu.iter()
             .any(|row| row.info.command == Command::Palette && row.available)
     );
     // The popover lists it as a row that is live while disconnected.
-    let rows = popover_rows(&t, &ChromeState::default());
+    let rows = popover_rows(&t, &ChromeState::default(), &Actions::default());
     assert!(
         rows.iter()
             .any(|(command, row)| *command == Command::Palette && row.enabled)

@@ -9,7 +9,7 @@
 //! and, as the canvas shows, a row of the popover that opens the palette.
 use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place, host_menus};
 use crate::{
-    actions::{self, Action},
+    actions::{self, Action, Actions, HELP_SHORTCUT},
     app::Smoke,
     native_menus::shortcut_glyphs,
     terminal_view::TerminalView,
@@ -88,6 +88,7 @@ pub(crate) fn grouped(
 enum PopoverAction {
     Catalog(Command),
     Focus(ShortcutGroup),
+    Settings,
     Copy,
     Paste,
 }
@@ -116,14 +117,24 @@ fn canvas_rows(
         Command::NextTab | Command::ClosePane => 2,
         Command::PreviousTab | Command::NextPane => 3,
         Command::TabNumber(_) | Command::PreviousPane => 4,
-        Command::FocusLeft | Command::FocusRight | Command::FocusUp | Command::FocusDown => 5,
-        _ => 6,
+        Command::FocusLeft => 5,
+        Command::FocusRight => 6,
+        Command::FocusUp => 7,
+        Command::FocusDown => 8,
+        _ => 9,
     });
     let mut shown = Vec::new();
     let mut focus_inserted = false;
     let focus_enabled = rows
         .iter()
         .any(|(command, row)| is_grouped_focus(*command) && row.enabled);
+    let focus_keys = if herdr_prefix {
+        focus_key_summary(group, &rows)
+    } else if group == ShortcutGroup::Tabs {
+        "⌘1 … ⌘9".into()
+    } else {
+        "⌥⌘←→↑↓".into()
+    };
     for (command, row) in rows {
         if group == ShortcutGroup::App
             && !matches!(command, Command::ToggleSidebar | Command::Palette)
@@ -132,20 +143,18 @@ fn canvas_rows(
         }
         if is_grouped_focus(command) {
             if !focus_inserted {
-                let (label, ipad_keys) = if group == ShortcutGroup::Tabs {
-                    ("Focus Tab 1–9", "⌘1 … ⌘9")
+                let label = if group == ShortcutGroup::Tabs {
+                    "Focus Tab 1–9"
+                } else if herdr_prefix {
+                    "Focus ← → ↑ ↓"
                 } else {
-                    ("Focus Left · Right · Up · Down", "⌥⌘←→↑↓")
+                    "Focus Left · Right · Up · Down"
                 };
                 shown.push((
                     PopoverAction::Focus(group),
                     ShortcutRow {
                         label: label.into(),
-                        keys: if herdr_prefix {
-                            String::new()
-                        } else {
-                            ipad_keys.into()
-                        },
+                        keys: focus_keys.clone(),
                         enabled: focus_enabled,
                     },
                 ));
@@ -157,11 +166,53 @@ fn canvas_rows(
         }
         shown.push((PopoverAction::Catalog(command), row));
     }
+    if group == ShortcutGroup::App {
+        shown.push((
+            PopoverAction::Settings,
+            ShortcutRow {
+                label: "Settings".into(),
+                keys: actions::SETTINGS_SHORTCUT.into(),
+                enabled: true,
+            },
+        ));
+    }
     shown
 }
 
-fn show_hold_hint(hardware_keyboard: bool) -> Option<&'static str> {
-    hardware_keyboard.then_some(view::HINT)
+fn focus_key_summary(group: ShortcutGroup, rows: &[(Command, ShortcutRow)]) -> String {
+    let keys: Vec<_> = rows
+        .iter()
+        .filter(|(command, _)| is_grouped_focus(*command))
+        .map(|(_, row)| row.keys.split(" / ").next().unwrap_or("—"))
+        .collect();
+    if keys.iter().all(|key| *key == "—") {
+        return "—".into();
+    }
+    if let Some((prefix, _)) = keys.first().and_then(|key| key.rsplit_once(' '))
+        && let Some(chords) = keys
+            .iter()
+            .map(|key| {
+                key.rsplit_once(' ')
+                    .filter(|(p, _)| *p == prefix)
+                    .map(|(_, chord)| chord)
+            })
+            .collect::<Option<Vec<_>>>()
+    {
+        if group == ShortcutGroup::Panes {
+            return format!("{prefix} {}", chords.join(" "));
+        }
+        if chords == ["1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+            return format!("{prefix} 1…9");
+        }
+    }
+    keys.join(" / ")
+}
+
+fn header_hint(terminal: &TerminalView, actions: &Actions) -> String {
+    const TAP: &str = "Tap a row to run it.";
+    actions
+        .first_shortcut(terminal, Command::Keybinds, HELP_SHORTCUT)
+        .map_or_else(|| TAP.into(), |key| format!("{TAP} Open with {key}."))
 }
 
 #[derive(Debug, Default)]
@@ -246,8 +297,20 @@ pub(crate) fn shortcut_rows(state: &ChromeState) -> Vec<ShortcutRow> {
 pub(crate) fn popover_rows(
     terminal: &TerminalView,
     state: &ChromeState,
+    actions: &Actions,
 ) -> Vec<(Command, ShortcutRow)> {
-    rows_from(actions::catalog(terminal), state, true)
+    let mut rows = rows_from(actions::catalog(terminal), state, true);
+    if actions.herdr_prefix {
+        for (command, row) in &mut rows {
+            let labels = actions.host_shortcut_labels(terminal, *command);
+            row.keys = if labels.is_empty() {
+                "—".into()
+            } else {
+                labels.join(" / ")
+            };
+        }
+    }
+    rows
 }
 
 /// 3 columns at 760 pt and wider, 1 below.
@@ -413,7 +476,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let enabled = popover_rows(&self.terminal, &self.popover_chrome_state())
+        let enabled = popover_rows(&self.terminal, &self.popover_chrome_state(), &self.actions)
             .into_iter()
             .any(|(c, row)| c == command && row.enabled);
         if !self.shortcuts_shown() || !enabled {

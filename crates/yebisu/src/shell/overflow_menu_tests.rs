@@ -205,3 +205,42 @@ fn compact_adds_new_tab_for_herdr1_and_preserves_the_normal_menu() {
         );
     }
 }
+
+#[test]
+fn hint_overflow_uses_first_host_key_for_each_command() {
+    let mut terminal = crate::terminal_view::TerminalView {
+        core_mode: true,
+        ..Default::default()
+    };
+    terminal.reconnect.target = "sandbox".into();
+    terminal.live.connected = true;
+    let mut actions = actions::Actions {
+        herdr_prefix: true,
+        ..Default::default()
+    };
+    actions.host_keys.set_test_config(
+        &terminal,
+        "[keys]\nprefix = 'ctrl+a'\nnew_tab = ['prefix+c', 'alt+t']\nsplit_vertical = 'alt+r'",
+    );
+    let shown = || {
+        HERDR2_TAB_COMMANDS
+            .map(|(_, command, _, ipad)| overflow_shortcut(&terminal, &actions, command, ipad))
+    };
+    assert_eq!(
+        shown(),
+        ["ctrl+a c", "alt+r", "ctrl+a minus"].map(|key| Some(key.into()))
+    );
+
+    actions
+        .host_keys
+        .set_test_config(&terminal, "[keys]\nsplit_horizontal = []");
+    assert_eq!(
+        overflow_shortcut(&terminal, &actions, Command::SplitDown, "⇧⌘D"),
+        None
+    );
+    terminal.live.connected = false;
+    assert_eq!(
+        overflow_shortcut(&terminal, &actions, Command::Tab, "⌘T"),
+        None
+    );
+}

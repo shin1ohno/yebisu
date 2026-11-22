@@ -109,12 +109,28 @@ pub(crate) fn shortcut_glyphs(shortcuts: &[&str]) -> String {
         .join(" / ")
 }
 
-fn menu_label(row: &actions::Action) -> String {
-    let shortcuts = shortcut_glyphs(row.shortcuts);
-    if shortcuts.is_empty() {
-        row.label.clone()
+fn menu_label(
+    row: &actions::Action,
+    terminal: &TerminalView,
+    actions: &actions::Actions,
+) -> String {
+    let shortcuts = if actions.herdr_prefix {
+        actions
+            .host_shortcut_labels(terminal, row.info.command)
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     } else {
-        format!("{}　{shortcuts}", row.label)
+        shortcut_glyphs(row.shortcuts)
+    };
+    with_shortcut(&row.label, &shortcuts)
+}
+
+fn with_shortcut(label: &str, shortcut: &str) -> String {
+    if shortcut.is_empty() {
+        label.into()
+    } else {
+        format!("{label}　{shortcut}")
     }
 }
 
@@ -147,10 +163,10 @@ impl AgentPin {
     }
 }
 
-fn copy_as_one_line_row(enabled: bool) -> MenuRow {
+fn copy_as_one_line_row(enabled: bool, herdr_prefix: bool) -> MenuRow {
     (
         COPY_ONE_LINE.into(),
-        format!("{COPY_ONE_LINE_LABEL}　⌥⌘C"),
+        with_shortcut(COPY_ONE_LINE_LABEL, if herdr_prefix { "" } else { "⌥⌘C" }),
         enabled,
     )
 }
@@ -159,8 +175,8 @@ fn menu_item((name, label, enabled): &MenuRow) -> MenuItem {
     MenuItem::action(label.clone(), NativeCommand { name: name.clone() }).disabled(!enabled)
 }
 
-fn edit_menu(enabled: bool) -> Menu {
-    Menu::new("Edit").items([menu_item(&copy_as_one_line_row(enabled))])
+fn edit_menu(enabled: bool, herdr_prefix: bool) -> Menu {
+    Menu::new("Edit").items([menu_item(&copy_as_one_line_row(enabled, herdr_prefix))])
 }
 
 #[derive(Default)]
@@ -168,6 +184,7 @@ pub(crate) struct NativeMenus {
     scope: Option<Scope>,
     rows: Vec<MenuRow>,
     copy_as_one_line: bool,
+    herdr_prefix: bool,
     agent_pin: Option<AgentPin>,
     /// The Host and Space menus (L6, Q8): title and (name, label, enabled).
     pub(crate) host_menus: HostMenuRows,
@@ -184,7 +201,13 @@ impl NativeMenus {
         let scope = Scope::current(terminal, actions, focused);
         let rows = catalog_rows(terminal, actions, focused)
             .iter()
-            .map(|row| (row.info.name.to_owned(), menu_label(row), row.available))
+            .map(|row| {
+                (
+                    row.info.name.to_owned(),
+                    menu_label(row, terminal, actions),
+                    row.available,
+                )
+            })
             .collect();
         if self.scope.as_ref() == Some(&scope) && self.rows == rows {
             return false;
@@ -297,9 +320,12 @@ impl Smoke {
             .refresh_host_menus(scope, &space_name, &state, focused);
         let copy_as_one_line = self.native_copy_as_one_line_available(focused);
         let agent_pin = self.native_agent_pin(focused);
+        let herdr_prefix = self.actions.herdr_prefix;
         let extras_changed = self.native_menus.copy_as_one_line != copy_as_one_line
+            || self.native_menus.herdr_prefix != herdr_prefix
             || self.native_menus.agent_pin != agent_pin;
         self.native_menus.copy_as_one_line = copy_as_one_line;
+        self.native_menus.herdr_prefix = herdr_prefix;
         self.native_menus.agent_pin = agent_pin;
         if !terminal_menu && !host_menus && !extras_changed {
             return;
@@ -317,7 +343,7 @@ impl Smoke {
         // the following "Edit" title to UIMenuEdit in the pinned SDK.
         let mut menus = vec![
             Menu::new("Terminal").items(items),
-            edit_menu(copy_as_one_line),
+            edit_menu(copy_as_one_line, herdr_prefix),
         ];
         menus.extend(
             self.native_menus

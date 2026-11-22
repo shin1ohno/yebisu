@@ -382,6 +382,15 @@ fn herdr_settings_shortcut_preserves_copy_and_paste(cx: &mut TestAppContext) {
                 end: (6, 2),
                 dragging: false,
             });
+            press(this, "alt-cmd-c", window, cx);
+            press(this, "shift-cmd-v", window, cx);
+            assert_eq!(
+                (this.handoff.clipboard_writes, this.handoff.clipboard_reads),
+                (0, 0),
+                "⌥⌘C and ⇧⌘V are off in Herdr prefix"
+            );
+
+            press(this, "ctrl-a", window, cx);
             press(this, "cmd-c", window, cx);
             assert_eq!(this.handoff.clipboard_writes, 1);
             press(this, "cmd-v", window, cx);
@@ -603,4 +612,85 @@ fn herdr_prefix_help_and_ipad_shortcut_open_the_same_popover(cx: &mut TestAppCon
             assert!(this.shell.shortcuts.open, "Herdr help");
         })
     });
+}
+
+#[test]
+fn hint_host_state_falls_back_while_loading_and_after_failure_without_leaking() {
+    let mut terminal = TerminalView::default();
+    terminal.reconnect.target = "sandbox".into();
+    terminal.live.connected = true;
+    let mut keys = HostKeys::default();
+    let binding =
+        |keys: &HostKeys, terminal: &TerminalView| keys.labels(terminal, true, Command::Tab);
+    assert_eq!(binding(&keys, &terminal), ["ctrl+b c"]);
+    assert_eq!(
+        keys.shortcut_notice(&terminal, true),
+        Some("Reading host keybindings · Using default keys")
+    );
+
+    keys.connection = Some(attach("sandbox", &terminal));
+    keys.result = Some(Err(Fallback::MissingFile));
+    assert_eq!(binding(&keys, &terminal), ["ctrl+b c"]);
+    assert_eq!(
+        keys.shortcut_notice(&terminal, true),
+        Some("Host keybindings unavailable · Using default keys")
+    );
+
+    keys.set_test_config(&terminal, "[keys]\nprefix = 'ctrl+a'\nnew_tab = 'alt+n'");
+    assert_eq!(binding(&keys, &terminal), ["alt+n"]);
+    assert_eq!(keys.labels(&terminal, false, Command::Tab), ["ctrl+a c"]);
+    assert_eq!(keys.shortcut_notice(&terminal, true), None);
+
+    terminal.link.reset();
+    terminal.reconnect.target = "new-host".into();
+    assert_eq!(binding(&keys, &terminal), ["ctrl+b c"]);
+    assert_eq!(
+        keys.shortcut_notice(&terminal, true),
+        Some("Reading host keybindings · Using default keys")
+    );
+
+    for (key, expected) in [
+        ("ctrl-b", Route::Consume(None)),
+        ("c", Route::Consume(Some(Command::Tab))),
+    ] {
+        let event = KeyDownEvent {
+            keystroke: Keystroke::parse(key).unwrap_or_else(|error| panic!("{key}: {error}")),
+            is_held: false,
+            prefer_character_input: false,
+        };
+        assert_eq!(keys.route(&terminal, 1, true, true, &event), expected);
+    }
+
+    terminal.live.connected = false;
+    assert!(binding(&keys, &terminal).is_empty());
+    assert_eq!(
+        keys.shortcut_notice(&terminal, true),
+        Some("No connected host")
+    );
+}
+
+#[test]
+fn hint_host_labels_match_input_conflicts_and_keep_binding_order() {
+    let mut terminal = TerminalView::default();
+    terminal.reconnect.target = "sandbox".into();
+    terminal.live.connected = true;
+    let mut keys = HostKeys::default();
+    keys.set_test_config(
+        &terminal,
+        r#"
+[keys]
+prefix = ['ctrl+a', 'ctrl+b']
+new_tab = ['prefix+ctrl+a', 'alt+t', 'ctrl+b', 'cmd+t']
+split_vertical = ['alt+t', 'prefix+v']
+close_tab = 'prefix+shift+/'
+help = ['prefix+?', 'command+h', 'prefix+super+x']
+"#,
+    );
+    let labels = |command| keys.labels(&terminal, true, command);
+    assert_eq!(labels(Command::Tab), ["ctrl+b ctrl+a", "alt+t"]);
+    assert_eq!(labels(Command::SplitRight), ["ctrl+a v", "ctrl+b v"]);
+    assert!(
+        labels(Command::Keybinds).is_empty(),
+        "shift+/ receives ? first"
+    );
 }

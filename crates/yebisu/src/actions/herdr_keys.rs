@@ -195,12 +195,13 @@ fn binding(command: Command, text: &str) -> Option<Binding> {
         .strip_prefix("prefix+")
         .map_or((false, text), |key| (true, key));
     let key = parse_key(label)?;
-    // Herdr rejects bare printable direct bindings so ordinary typing stays in the pane.
-    if !prefixed
-        && key.key.chars().count() == 1
-        && !key.modifiers.control
-        && !key.modifiers.alt
-        && !key.modifiers.platform
+    // Command belongs to the platform. Bare printable direct bindings
+    // also stay in the pane so that ordinary typing is preserved.
+    if key.modifiers.platform
+        || (!prefixed
+            && key.key.chars().count() == 1
+            && !key.modifiers.control
+            && !key.modifiers.alt)
     {
         return None;
     }
@@ -214,6 +215,12 @@ fn binding(command: Command, text: &str) -> Option<Binding> {
 
 fn parse_key(text: &str) -> Option<Keystroke> {
     let text = text.trim();
+    // These characters can reorder or break a shortcut label from the host.
+    if text.chars().any(|c| {
+        c.is_control() || matches!(c, '\u{061c}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        return None;
+    }
     let (modifiers, name) = if text == "+" {
         ("", "+")
     } else if let Some(modifiers) = text.strip_suffix("++") {
@@ -277,27 +284,40 @@ fn parse_key(text: &str) -> Option<Keystroke> {
     Some(key)
 }
 
+fn shifted_symbol(binding: &Keystroke) -> Option<char> {
+    const BASE: &str = "`1234567890-=[]\\;',./";
+    const SHIFTED: &str = "~!@#$%^&*()_+{}|:\"<>?";
+    let [base] = binding.key.as_bytes() else {
+        return None;
+    };
+    if !binding.modifiers.shift {
+        return None;
+    }
+    BASE.bytes()
+        .zip(SHIFTED.bytes())
+        .find_map(|(key, shifted)| (key == *base).then_some(char::from(shifted)))
+}
+
+fn ui_key(binding: &Keystroke) -> Keystroke {
+    // UIKit clears Shift on the resulting punctuation before dispatch.
+    let mut key = binding.clone();
+    if let Some(symbol) = shifted_symbol(binding) {
+        key.key = symbol.into();
+        key.modifiers.shift = false;
+    }
+    key
+}
+
 fn matches(binding: &Keystroke, key: &Keystroke) -> bool {
     if binding.key == key.key && binding.modifiers == key.modifiers {
         return true;
     }
-    if !binding.modifiers.shift
-        || key.modifiers
-            != (Modifiers {
-                shift: false,
-                ..binding.modifiers
-            })
-    {
-        return false;
-    }
-    // UIKit reports shifted punctuation as the resulting character with Shift cleared.
-    const BASE: &str = "`1234567890-=[]\\;',./";
-    const SHIFTED: &str = "~!@#$%^&*()_+{}|:\"<>?";
-    binding.key.len() == 1
-        && key.key.len() == 1
-        && BASE.bytes().zip(SHIFTED.bytes()).any(|(base, shifted)| {
-            binding.key.as_bytes() == [base] && key.key.as_bytes() == [shifted]
+    key.modifiers
+        == (Modifiers {
+            shift: false,
+            ..binding.modifiers
         })
+        && shifted_symbol(binding).is_some_and(|symbol| key.key.as_bytes() == [symbol as u8])
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -325,6 +345,10 @@ impl Prefix {
         key: &Keystroke,
         held: bool,
     ) -> Route {
+        if key.modifiers.platform {
+            self.clear();
+            return Route::Terminal;
+        }
         if held {
             return Route::Terminal; // Earlier app-owned presses are fenced by the key handler.
         }

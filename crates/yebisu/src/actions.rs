@@ -34,6 +34,38 @@ impl Default for Actions {
         }
     }
 }
+impl Actions {
+    pub(crate) fn host_shortcut_labels(
+        &self,
+        terminal: &TerminalView,
+        command: Command,
+    ) -> Vec<String> {
+        if terminal.core_mode && command != Command::Keybinds && !core_recognizes(command) {
+            return Vec::new();
+        }
+        self.host_keys
+            .labels(terminal, self.use_server_keybindings, command)
+    }
+
+    pub(crate) fn first_shortcut(
+        &self,
+        terminal: &TerminalView,
+        command: Command,
+        ipad: &'static str,
+    ) -> Option<String> {
+        if self.herdr_prefix {
+            self.host_shortcut_labels(terminal, command)
+                .into_iter()
+                .next()
+        } else {
+            Some(ipad.into())
+        }
+    }
+}
+
+pub(crate) const SETTINGS_SHORTCUT: &str = "⌘,";
+pub(crate) const HELP_SHORTCUT: &str = "⌘/";
+
 pub(crate) struct Action {
     pub info: &'static CommandInfo,
     pub label: String,

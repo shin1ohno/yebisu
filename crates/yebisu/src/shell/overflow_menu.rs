@@ -237,7 +237,8 @@ impl Smoke {
                             rows.len(),
                             command_entry,
                             label,
-                            Some((command, keys)),
+                            Some(command),
+                            overflow_shortcut(&self.terminal, &self.actions, command, keys),
                             cx,
                         ));
                     }
@@ -249,7 +250,7 @@ impl Smoke {
             } else {
                 item.label()
             };
-            rows.push(overflow_row(rows.len(), menu_entry, label, None, cx));
+            rows.push(overflow_row(rows.len(), menu_entry, label, None, None, cx));
         }
         Some(
             div()
@@ -391,15 +392,25 @@ fn menu_divider() -> gpui::Div {
         .bg(rgb(DIVIDER_COLOR))
 }
 
+fn overflow_shortcut(
+    terminal: &crate::terminal_view::TerminalView,
+    actions: &actions::Actions,
+    command: Command,
+    ipad: &'static str,
+) -> Option<String> {
+    actions.first_shortcut(terminal, command, ipad)
+}
+
 fn overflow_row(
     index: usize,
     entry: OverflowEntry,
     label: &'static str,
-    command: Option<(Command, &'static str)>,
+    command: Option<Command>,
+    keys: Option<String>,
     cx: &mut Context<Smoke>,
 ) -> AnyElement {
     let item = entry.item;
-    let has_legacy_qa_mark = !matches!(command, Some((Command::SplitDown, _)));
+    let has_legacy_qa_mark = command != Some(Command::SplitDown);
     div()
         .id(("shell-overflow-item", index))
         .debug_selector(move || format!("shell-overflow-item-{label}"))
@@ -420,9 +431,12 @@ fn overflow_row(
                 .items_center()
                 .justify_between()
                 .child(label)
-                .when_some(command, |line, (_, keys)| {
+                .gap_2()
+                .when_some(keys, |line, keys| {
                     line.child(
                         div()
+                            .min_w_0()
+                            .truncate()
                             .text_color(rgb(if entry.enabled {
                                 color::MUTED
                             } else {
@@ -442,7 +456,7 @@ fn overflow_row(
         .when(entry.enabled, |row| {
             row.on_click(cx.listener(move |this, _, window, cx| {
                 this.shell.frame.overflow_open = false;
-                this.run_overflow_item(item, command.map(|(command, _)| command), window, cx);
+                this.run_overflow_item(item, command, window, cx);
                 cx.notify();
             }))
         })

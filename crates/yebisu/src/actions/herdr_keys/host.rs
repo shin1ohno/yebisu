@@ -1,5 +1,5 @@
 //! Read the selected connection's Herdr config using the existing pinned SSH transport.
-use super::{DEFAULTS, Fallback, MAX_BYTES, Prefix, Profile, Route};
+use super::{DEFAULTS, Fallback, MAX_BYTES, Prefix, Profile, Route, matches, ui_key};
 use crate::{
     app::Smoke, live::Live, settings_pages::Page, setup::Setup, terminal_view::TerminalView,
 };
@@ -76,7 +76,7 @@ pub(crate) struct HostKeys {
     pending: Option<Pending>,
     result: Option<Result<Profile, Fallback>>,
     prefix: Prefix,
-    press_owner: Option<(u64, u64)>,
+    press_owner: Option<(u64, u64, u64)>,
 }
 
 impl HostKeys {
@@ -132,30 +132,65 @@ impl HostKeys {
         (key, detail)
     }
 
+    pub(crate) fn shortcut_notice(
+        &self,
+        terminal: &TerminalView,
+        server: bool,
+    ) -> Option<&'static str> {
+        if !connected(terminal) {
+            return Some("No connected host");
+        }
+        match self.result.as_ref().filter(|_| self.current(terminal)) {
+            None => Some("Reading host keybindings · Using default keys"),
+            Some(Err(_)) => Some("Host keybindings unavailable · Using default keys"),
+            Some(Ok(profile)) if profile.fallback.is_some() => Some("Using default prefix ctrl+b"),
+            Some(Ok(_)) if !server => Some("Using default chords"),
+            Some(Ok(_)) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_config(&mut self, terminal: &TerminalView, config: &str) {
+        self.connection = Some(Connection {
+            inbox: Arc::downgrade(&terminal.link.inbox),
+            target: terminal.reconnect.target.clone(),
+        });
+        self.result = Some(Profile::from_file(Ok(config.as_bytes())));
+    }
+
     pub(crate) fn labels(
         &self,
         terminal: &TerminalView,
         server: bool,
         command: Command,
     ) -> Vec<String> {
+        if !connected(terminal) {
+            return Vec::new();
+        }
         let prefixes = self.profile(terminal);
         let profile = if server { prefixes } else { &DEFAULTS };
-        profile
+        let mut labels = Vec::new();
+        for binding in profile
             .bindings
             .iter()
             .filter(|binding| binding.command == command)
-            .flat_map(|binding| {
-                if binding.prefixed {
-                    prefixes
-                        .prefixes
-                        .iter()
-                        .map(|(_, label)| format!("{label} {}", binding.label))
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![binding.label.clone()]
+        {
+            let key = ui_key(&binding.key);
+            if profile.command(&key, binding.prefixed) != Some(command) {
+                continue;
+            }
+            if binding.prefixed {
+                for (prefix, label) in &prefixes.prefixes {
+                    let prefix = ui_key(prefix);
+                    if !matches(&prefix, &key) {
+                        labels.push(format!("{label} {}", binding.label));
+                    }
                 }
-            })
-            .collect()
+            } else if !prefixes.prefix(&key) {
+                labels.push(binding.label.clone());
+            }
+        }
+        labels
     }
 
     pub(crate) fn clear_press(&mut self) {
@@ -171,13 +206,17 @@ impl HostKeys {
         server: bool,
         event: &KeyDownEvent,
     ) -> Route {
-        if !enabled {
+        if !enabled || !connected(terminal) {
             self.clear_press();
             return Route::Native;
         }
         let current = self.current(terminal);
-        let owner = (selection, terminal.input.retirement_revision());
-        if !current || self.press_owner != Some(owner) {
+        let owner = (
+            selection,
+            terminal.link.generation,
+            terminal.input.retirement_revision(),
+        );
+        if self.press_owner != Some(owner) {
             self.prefix.clear();
         }
         self.press_owner = Some(owner);
@@ -272,7 +311,10 @@ fn read(target: &str, cancelled: &AtomicBool) -> Result<Profile, Fallback> {
     if std::env::var_os("YEBISU_TERMINAL_QA").is_some()
         || std::env::var_os("YEBISU_CORE_QA").is_some()
     {
-        return Err(Fallback::Unavailable);
+        return match std::env::var("YEBISU_HERDR_KEYS_QA") {
+            Ok(config) => Profile::from_file(Ok(config.as_bytes())),
+            Err(_) => Err(Fallback::Unavailable),
+        };
     }
     let (status, output) =
         sheprd_client::run_ssh_command(target, READ_CONFIG, TIMEOUT, MAX_BYTES as u64 + 1, || {

@@ -20,7 +20,11 @@ fn shortcuts_rows_come_from_catalog() {
         .map(|row| row.label.clone());
     assert!(palette.is_some_and(|label| rows.iter().any(|row| row.label == label)));
     // The popover of a live terminal lists the same rows.
-    let live = popover_rows(&terminal(&["tab.create"]), &connected());
+    let live = popover_rows(
+        &terminal(&["tab.create"]),
+        &connected(),
+        &Actions::default(),
+    );
     let live: Vec<_> = live
         .into_iter()
         .map(|(_, row)| (row.label, row.keys))
@@ -97,12 +101,17 @@ fn unavailable_rows_are_disabled() {
     assert!(shortcut_rows(&sheet).iter().all(|row| !row.enabled));
     // A live terminal: a command whose method the host lacks is disabled
     // even when the chrome allows it.
-    let rows = popover_rows(&terminal(&["tab.create", "tab.focus"]), &state);
+    let rows = popover_rows(
+        &terminal(&["tab.create", "tab.focus"]),
+        &state,
+        &Actions::default(),
+    );
     assert!(enabled(&rows, Command::Tab));
     assert!(!enabled(&rows, Command::SplitRight));
     let rows = popover_rows(
         &terminal(&["tab.create", "tab.focus", "pane.split"]),
         &state,
+        &Actions::default(),
     );
     assert!(enabled(&rows, Command::SplitRight));
 }
