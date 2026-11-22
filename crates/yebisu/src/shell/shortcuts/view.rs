@@ -7,7 +7,7 @@
 //! goes above 16 pt.
 use super::{
     POPOVER_MARGIN, PopoverAction, ROW_HEIGHT, ShortcutGroup, ShortcutRow, canvas_rows, grouped,
-    popover_columns, popover_rows, popover_width, show_hold_hint,
+    header_hint, popover_columns, popover_rows, popover_width,
 };
 use crate::{
     app::Smoke,
@@ -31,7 +31,6 @@ const ARROW_HEIGHT: f32 = 10.;
 // Shortcuts.dc.html:44 renders the direction names on two lines.
 const FOCUS_LABEL_LINE: f32 = 16.;
 pub(crate) const TITLE: &str = "Keyboard shortcuts";
-pub(crate) const HINT: &str = "Hold ⌘ anywhere to see this list. Tap a row to run it.";
 pub(crate) const CHANGE_IN_SETTINGS: &str = "Change in Settings › Input";
 
 /// "Command key: Local · Shortcut priority: App" (the canvas footer).
@@ -54,22 +53,16 @@ impl Smoke {
         let width = popover_width(f32::from(viewport.width));
         let columns = popover_columns(width);
         let state = self.popover_chrome_state();
-        let mut rows = popover_rows(&self.terminal, &state);
+        let groups = grouped(popover_rows(&self.terminal, &state, &self.actions));
         let herdr_prefix = self.actions.herdr_prefix;
-        if herdr_prefix {
-            for (command, row) in &mut rows {
-                row.keys = self
-                    .actions
+        let hint = header_hint(&self.terminal, &self.actions);
+        let notice = herdr_prefix
+            .then(|| {
+                self.actions
                     .host_keys
-                    .labels(
-                        &self.terminal,
-                        self.actions.use_server_keybindings,
-                        *command,
-                    )
-                    .join(" / ");
-            }
-        }
-        let groups = grouped(rows);
+                    .shortcut_notice(&self.terminal, self.actions.use_server_keybindings)
+            })
+            .flatten();
         let footer = settings_line(
             self.terminal.input.options.command_control,
             self.actions.terminal_priority,
@@ -157,16 +150,24 @@ impl Smoke {
                             .font_weight(weight::BOLD)
                             .child(TITLE),
                     )
-                    .children(
-                        show_hold_hint(self.shell.fit.hardware_keyboard).map(|hint| {
+                    .when(self.shell.fit.hardware_keyboard, |header| {
+                        header.child(
                             div()
                                 .debug_selector(|| "shell-shortcuts-hold-hint".into())
                                 .text_size(px(text::SECONDARY))
                                 .text_color(rgb(color::MUTED))
-                                .child(hint)
-                        }),
-                    ),
+                                .child(hint),
+                        )
+                    }),
             )
+            .children(notice.map(|message| {
+                div()
+                    .px_5()
+                    .pb_2()
+                    .text_size(px(text::SECONDARY))
+                    .text_color(rgb(color::MUTED))
+                    .child(message)
+            }))
             .child(body)
             .child(
                 div()
@@ -232,7 +233,8 @@ impl Smoke {
     ) -> impl IntoElement {
         let id = row.label.clone();
         let enabled = row.enabled;
-        let focus_directions = action == PopoverAction::Focus(ShortcutGroup::Panes);
+        let focus_directions =
+            !self.actions.herdr_prefix && action == PopoverAction::Focus(ShortcutGroup::Panes);
         div()
             .id(gpui::ElementId::Name(format!("shell-shortcut-{id}").into()))
             .h(px(ROW_HEIGHT))
@@ -259,7 +261,8 @@ impl Smoke {
             )
             .child(
                 div()
-                    .flex_none()
+                    .when(self.actions.herdr_prefix, |key| key.min_w_0().truncate())
+                    .when(!self.actions.herdr_prefix, |key| key.flex_none())
                     .text_color(rgb(if enabled {
                         color::MUTED
                     } else {
@@ -278,6 +281,7 @@ impl Smoke {
                             *expanded = (*expanded != Some(group)).then_some(group);
                             cx.notify();
                         }
+                        PopoverAction::Settings => this.open_settings_from_shortcut(window, cx),
                         PopoverAction::Copy => {
                             this.copy_selection(cx);
                             this.close_shortcuts(window, cx);

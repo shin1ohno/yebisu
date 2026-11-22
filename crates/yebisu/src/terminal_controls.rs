@@ -371,6 +371,7 @@ impl Smoke {
         };
         if !matches!(route, Route::Consume(_) | Route::Replay)
             && event.keystroke.modifiers.platform
+            && (!self.actions.herdr_prefix || event.keystroke.modifiers.number_of_modifiers() == 1)
             && !event.keystroke.modifiers.control
             && !event.keystroke.modifiers.function
             && ((event.keystroke.key == "v" && !event.keystroke.modifiers.alt)

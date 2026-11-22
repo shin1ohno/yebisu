@@ -153,3 +153,27 @@ fn herdr_prefix_held_key_does_not_arm_or_retrigger() {
         Route::Consume(Some(Command::Tab))
     );
 }
+
+#[test]
+fn hint_command_aliases_do_not_become_host_actions() {
+    let profile = parse(
+        "[keys]\nprefix = 'ctrl+a'\nnew_tab = ['cmd+t', 'command+y', 'super+u', 'prefix+cmd+c', 'prefix+command+v', 'prefix+super+x']",
+    );
+    let mut prefix = Prefix::default();
+    for chord in ["cmd+t", "command+y", "super+u"] {
+        assert_eq!(
+            prefix.route(&profile, &profile, &key(chord), false),
+            Route::Terminal
+        );
+    }
+    for chord in ["cmd+c", "command+v", "super+x"] {
+        assert_eq!(
+            prefix.route(&profile, &profile, &key("ctrl+a"), false),
+            Route::Consume(None)
+        );
+        assert_eq!(
+            prefix.route(&profile, &profile, &key(chord), false),
+            Route::Terminal
+        );
+    }
+}

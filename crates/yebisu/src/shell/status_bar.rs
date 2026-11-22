@@ -22,7 +22,7 @@ use crate::{
 use gpui::{AnyElement, Context, Role, Window, deferred, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
-pub(crate) const SHOW_SIDEBAR: &str = "Expand sidebar ⌘B";
+pub(crate) const SHOW_SIDEBAR: &str = "Expand sidebar";
 pub(crate) const SHORTCUTS: &str = "Shortcuts";
 pub(crate) const RECONNECT: &str = "Reconnect";
 /// L9's optional item: a hardware keyboard is in use (Main.dc.html).
@@ -58,6 +58,7 @@ pub(crate) struct StatusBarModel {
     pub(crate) state: String,
     pub(crate) show_reconnect: bool,
     pub(crate) show_sidebar_hint: bool,
+    pub(crate) sidebar_label: String,
     pub(crate) accessibility_label: String,
 }
 
@@ -97,6 +98,7 @@ fn status_bar_model_for_host(state: &ChromeState, connection: &HostName) -> Stat
         show_reconnect: !state.connected,
         // While the width forces the rail, "Show sidebar" could not show it.
         show_sidebar_hint: state.sidebar_hidden && !state.sidebar_forced,
+        sidebar_label: format!("{SHOW_SIDEBAR} ⌘B"),
     }
 }
 
@@ -126,7 +128,9 @@ pub(crate) fn status_bar_details(
     let chips = [
         Some(SHORTCUTS),
         model.show_reconnect.then_some(RECONNECT),
-        model.show_sidebar_hint.then_some(SHOW_SIDEBAR),
+        model
+            .show_sidebar_hint
+            .then_some(model.sidebar_label.as_str()),
         mods,
     ];
     let stay = chips
@@ -151,12 +155,24 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
     )
 }
 
+fn sidebar_label(
+    terminal: &crate::terminal_view::TerminalView,
+    actions: &crate::actions::Actions,
+) -> String {
+    match actions.first_shortcut(terminal, Command::ToggleSidebar, "⌘B") {
+        Some(key) => format!("{SHOW_SIDEBAR} {key}"),
+        None => SHOW_SIDEBAR.into(),
+    }
+}
+
 impl Smoke {
     pub(in crate::shell) fn current_status_bar_model(&self, state: &ChromeState) -> StatusBarModel {
-        status_bar_model_for_host(
+        let mut model = status_bar_model_for_host(
             state,
             &self.setup.host_name(&self.terminal.reconnect.target),
-        )
+        );
+        model.sidebar_label = sidebar_label(&self.terminal, &self.actions);
+        model
     }
 
     /// L9: a press only a hardware keyboard sends marks one in use
@@ -171,6 +187,14 @@ impl Smoke {
         if docked > SOFTWARE_KEYBOARD_MIN_HEIGHT {
             self.shell.fit.hardware_keyboard = false;
         }
+        // XCTest's text injection does not always report a printable hardware key.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if docked <= SOFTWARE_KEYBOARD_MIN_HEIGHT
+            && std::env::var_os("YEBISU_HERDR_KEYS_QA").is_some()
+            && std::env::var_os("YEBISU_HERDR_KEYS_QA_HARDWARE").is_some()
+        {
+            self.shell.fit.hardware_keyboard = true;
+        }
     }
 
     pub(crate) fn render_status_bar(
@@ -182,10 +206,24 @@ impl Smoke {
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
         self.note_hardware_keyboard(window, cx);
-        let model = self.current_status_bar_model(&state);
+        let mut model = self.current_status_bar_model(&state);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
         let software_keyboard = layout.key_band.is_some();
+        let available_for_sidebar = layout.status_bar.width
+            - BAR_PADDING
+            - MIN_LINE_WIDTH
+            - DOT_WIDTH
+            - STATUS_GAP * 3.
+            - if software_keyboard {
+                chip_width("Software keyboard")
+            } else {
+                SHORTCUTS_WIDTH
+            }
+            - mods.as_deref().map_or(0., chip_width);
+        if self.actions.herdr_prefix && chip_width(&model.sidebar_label) > available_for_sidebar {
+            model.sidebar_label = SHOW_SIDEBAR.into();
+        }
         let details = status_bar_details(
             layout.status_bar.width,
             &model,
@@ -327,12 +365,15 @@ impl Smoke {
                 .children(self.render_mods_status(&layout.withdrawn, cx))
                 .when(model.show_sidebar_hint, |view| {
                     view.child(
-                        chip("shell-status-show-sidebar", SHOW_SIDEBAR, None).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.toggle_sidebar();
-                                cx.notify();
-                            }),
-                        ),
+                        chip(
+                            "shell-status-show-sidebar",
+                            model.sidebar_label.clone(),
+                            None,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_sidebar();
+                            cx.notify();
+                        })),
                     )
                 })
                 .when(!software_keyboard, |view| {
@@ -363,7 +404,11 @@ impl Smoke {
     }
 }
 
-fn chip(id: &'static str, label: &'static str, icon: Option<Icon>) -> gpui::Stateful<gpui::Div> {
+fn chip(
+    id: &'static str,
+    label: impl Into<gpui::SharedString>,
+    icon: Option<Icon>,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .debug_selector(move || id.to_owned())
@@ -376,7 +421,7 @@ fn chip(id: &'static str, label: &'static str, icon: Option<Icon>) -> gpui::Stat
         .text_color(rgb(color::MUTED))
         .gap(px(ICON_GAP))
         .children(icon.map(Icon::muted))
-        .child(label)
+        .child(label.into())
 }
 
 #[cfg(test)]

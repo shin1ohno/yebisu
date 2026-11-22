@@ -471,16 +471,11 @@ impl Smoke {
     fn settings_keyboard(&self, _cx: &mut Context<Self>) -> AnyElement {
         let mut view = div().flex().flex_col().gap_2();
         for row in crate::settings_pages::keyboard::shortcut_rows(&self.terminal, &self.actions) {
-            view = view.child(format!(
-                "{} · {}{}",
-                row.label,
-                if row.shortcuts.is_empty() {
-                    "—".into()
-                } else {
-                    row.shortcuts.join(", ")
-                },
-                if row.available { "" } else { " (unavailable)" }
-            ));
+            view = view.child(
+                div()
+                    .min_w_0()
+                    .child(row.display(self.actions.herdr_prefix)),
+            );
         }
         view.into_any_element()
     }

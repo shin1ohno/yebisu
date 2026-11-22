@@ -6,7 +6,11 @@ use sheprd_commands::Command;
 
 #[test]
 fn rows_are_grouped_like_the_canvas() {
-    let rows = popover_rows(&terminal(&["tab.create"]), &connected());
+    let rows = popover_rows(
+        &terminal(&["tab.create"]),
+        &connected(),
+        &Actions::default(),
+    );
     let total = rows.len();
     let groups = grouped(rows);
     let titles: Vec<_> = groups.iter().map(|(group, _)| group.title()).collect();
@@ -37,13 +41,6 @@ fn footer_shows_command_key_and_priority() {
         settings_line(true, true),
         "Command key: Ctrl · Shortcut priority: Terminal"
     );
-}
-
-#[test]
-fn shortcuts_hint_only_with_a_hardware_keyboard() {
-    use crate::shell::shortcuts::{show_hold_hint, view::HINT};
-    assert_eq!(show_hold_hint(false), None);
-    assert_eq!(show_hold_hint(true), Some(HINT));
 }
 
 #[test]
@@ -106,9 +103,76 @@ fn shortcuts_show_the_canvas_focus_and_app_groups() {
                     [
                         PopoverAction::Catalog(Command::ToggleSidebar),
                         PopoverAction::Catalog(Command::Palette),
+                        PopoverAction::Settings,
                     ]
                 );
             }
         }
     }
+}
+
+#[test]
+fn hint_popover_shows_help_settings_and_ordered_focus_keys() {
+    let mut terminal = terminal(&["tab.create"]);
+    terminal.reconnect.target = "sandbox".into();
+    let mut actions = Actions::default();
+    assert_eq!(
+        header_hint(&terminal, &actions),
+        "Tap a row to run it. Open with ⌘/."
+    );
+    actions.herdr_prefix = true;
+    actions.host_keys.set_test_config(
+        &terminal,
+        "[keys]\nprefix = 'ctrl+a'\nnew_tab = ['prefix+c', 'alt+t']\nhelp = 'prefix+F1'",
+    );
+    assert_eq!(
+        header_hint(&terminal, &actions),
+        "Tap a row to run it. Open with ctrl+a F1."
+    );
+    let rows = popover_rows(&terminal, &connected(), &actions);
+    assert!(
+        rows.iter()
+            .any(|(cmd, row)| *cmd == Command::Tab && row.keys == "ctrl+a c / alt+t")
+    );
+    assert!(
+        rows.iter()
+            .any(|(cmd, row)| *cmd == Command::Palette && row.keys == "—")
+    );
+    for (group, members) in grouped(rows) {
+        let rows = canvas_rows(group, members, true, true);
+        match group {
+            ShortcutGroup::Tabs => {
+                assert!(
+                    rows.iter()
+                        .any(|(_, row)| row.label == "Focus Tab 1–9" && row.keys == "ctrl+a 1…9")
+                );
+            }
+            ShortcutGroup::Panes => {
+                assert!(
+                    rows.iter().any(
+                        |(_, row)| row.label == "Focus ← → ↑ ↓" && row.keys == "ctrl+a h l k j"
+                    )
+                );
+                let directions: Vec<_> = rows.iter().filter_map(|(action, row)|
+                    matches!(action, PopoverAction::Catalog(command) if is_grouped_focus(*command))
+                        .then_some(row.keys.as_str())).collect();
+                assert_eq!(directions, ["ctrl+a h", "ctrl+a l", "ctrl+a k", "ctrl+a j"]);
+            }
+            ShortcutGroup::App => {
+                for herdr in [false, true] {
+                    let app = canvas_rows(group, Vec::new(), false, herdr);
+                    assert!(app.iter().any(
+                        |(action, row)| *action == PopoverAction::Settings && row.keys == "⌘,"
+                    ));
+                }
+            }
+        }
+    }
+    terminal.live.connected = false;
+    assert_eq!(header_hint(&terminal, &actions), "Tap a row to run it.");
+    assert!(
+        popover_rows(&terminal, &ChromeState::default(), &actions)
+            .iter()
+            .all(|(_, row)| row.keys == "—")
+    );
 }

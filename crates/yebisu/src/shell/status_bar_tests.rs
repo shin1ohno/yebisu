@@ -66,7 +66,10 @@ fn hidden_sidebar_offers_show_in_status_bar() {
         ..shown
     };
     assert!(status_bar_model(&hidden, "h").show_sidebar_hint);
-    assert_eq!(SHOW_SIDEBAR, "Expand sidebar ⌘B");
+    assert_eq!(
+        sidebar_label(&Default::default(), &Default::default()),
+        "Expand sidebar ⌘B"
+    );
     // Integration 2 (L4 review F1): no Show sidebar while the width forces
     // the rail; pressing it could not show the sidebar.
     let forced = ChromeState {
@@ -122,4 +125,30 @@ fn selection_status_counts_characters_and_names_copy() {
         crate::shell::edit_bar::selection_status_line(7, usize::MAX),
         "Selected 7 characters · ⌘C copies · Typing is paused until you cancel the selection"
     );
+}
+
+#[test]
+fn hint_sidebar_uses_the_first_host_key_and_hides_it_without_a_binding() {
+    let mut terminal = crate::terminal_view::TerminalView::default();
+    terminal.reconnect.target = "sandbox".into();
+    terminal.live.connected = true;
+    let mut actions = crate::actions::Actions {
+        herdr_prefix: true,
+        ..Default::default()
+    };
+    actions.host_keys.set_test_config(
+        &terminal,
+        "[keys]\nprefix = 'ctrl+a'\ntoggle_sidebar = ['prefix+s', 'alt+b']",
+    );
+    assert_eq!(
+        sidebar_label(&terminal, &actions),
+        "Expand sidebar ctrl+a s"
+    );
+
+    actions
+        .host_keys
+        .set_test_config(&terminal, "[keys]\nprefix = 'ctrl+a'\ntoggle_sidebar = []");
+    assert_eq!(sidebar_label(&terminal, &actions), "Expand sidebar");
+    terminal.live.connected = false;
+    assert_eq!(sidebar_label(&terminal, &actions), "Expand sidebar");
 }

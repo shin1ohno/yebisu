@@ -35,7 +35,7 @@ fn tapping_each_enabled_row_runs_it(cx: &mut TestAppContext) {
     let enabled: Vec<Command> = {
         let (view, cx) = connected(cx);
         view.update(cx, |this, _| {
-            let rows = popover_rows(&this.terminal, &this.popover_chrome_state());
+            let rows = popover_rows(&this.terminal, &this.popover_chrome_state(), &this.actions);
             let enabled: Vec<Command> = rows
                 .iter()
                 .filter(|(_, row)| row.enabled)
@@ -115,7 +115,7 @@ fn find_row_opens_the_find_bar(cx: &mut TestAppContext) {
     });
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
-            let find = popover_rows(&this.terminal, &this.popover_chrome_state())
+            let find = popover_rows(&this.terminal, &this.popover_chrome_state(), &this.actions)
                 .into_iter()
                 .find(|(command, _)| *command == Command::Find);
             assert!(find.is_some_and(|(_, row)| row.enabled), "Find is live");

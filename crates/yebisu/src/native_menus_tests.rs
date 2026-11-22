@@ -88,7 +88,7 @@ fn menu_rows_match_catalog_labels_shortcuts_and_availability() {
             assert_eq!(settings.len(), menus.rows.len());
             for (row, (name, label, enabled)) in settings.iter().zip(&menus.rows) {
                 assert_eq!(row.info.name, name);
-                assert_eq!(menu_label(row), *label);
+                assert_eq!(menu_label(row, &t, &a), *label);
                 assert_eq!(row.available, *enabled);
                 assert_eq!(row.shortcuts, row.info.default_shortcuts());
                 assert!(!matches!(name.as_str(), "copy" | "paste" | "new_window"));
@@ -607,4 +607,41 @@ fn copy_as_one_line_is_in_the_edit_menu_with_option_command_c(cx: &mut TestAppCo
             }
         });
     });
+}
+
+#[test]
+fn hint_native_menu_refreshes_after_read_and_omits_unbound_and_disconnected_keys() {
+    let mut terminal = terminal();
+    terminal.live.connected = true;
+    terminal.reconnect.target = "sandbox".into();
+    let mut actions = actions::Actions {
+        herdr_prefix: true,
+        ..Default::default()
+    };
+    let mut menus = NativeMenus::default();
+    let has =
+        |menu: &NativeMenus, label: &str| menu.rows.iter().any(|(_, shown, _)| shown == label);
+
+    assert!(menus.refresh(&terminal, &actions, true));
+    assert!(has(&menus, "New Tab　ctrl+b c"));
+    actions.host_keys.set_test_config(
+        &terminal,
+        "[keys]\nprefix = 'ctrl+a'\nnew_tab = ['prefix+c', 'alt+t']",
+    );
+    assert!(menus.refresh(&terminal, &actions, true));
+    assert!(has(&menus, "New Tab　ctrl+a c"));
+    assert!(has(&menus, "Command Palette"));
+    assert!(!menus.refresh(&terminal, &actions, true));
+
+    terminal.live.connected = false;
+    assert!(menus.refresh(&terminal, &actions, true));
+    assert!(has(&menus, "New Tab"));
+    assert!(
+        !menus
+            .rows
+            .iter()
+            .any(|(_, label, _)| label.contains("ctrl+"))
+    );
+    assert_eq!(copy_as_one_line_row(true, true).1, COPY_ONE_LINE_LABEL);
+    assert_eq!(copy_as_one_line_row(true, false).1, "Copy as One Line　⌥⌘C");
 }
