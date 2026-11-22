@@ -392,7 +392,10 @@ fn empty_corrupt_unsupported_and_excess_pixel_images_are_refused() {
 
 #[gpui::test]
 fn command_v_with_only_image_uses_the_full_machine_address(cx: &mut TestAppContext) {
-    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    use gpui::AppContext as _;
+
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
     let probe = Probe::default();
     let (backend, _) =
         core_mock::named(probe.clone(), "machine/t7").unwrap_or_else(|e| panic!("peer:{e}"));
@@ -400,12 +403,13 @@ fn command_v_with_only_image_uses_the_full_machine_address(cx: &mut TestAppConte
         this.setup_input.text = "remote".into();
         this.connect_core_using(cx, move |_| Ok(backend));
     });
-    wait(&view, cx, |this| this.terminal.live.connected);
+    wait(&view, cx, |this| {
+        this.terminal.input.ready && this.handoff.stamp.is_some()
+    });
     clipboard(cx, false);
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);
-            this.terminal.size = None;
             let key = gpui::Keystroke {
                 key: "v".into(),
                 key_char: Some("v".into()),

@@ -19,7 +19,9 @@ fn saved_workspace_rejects_another_host() -> crate::Result<()> {
 }
 
 use crate::app::Smoke;
-use gpui::{EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, TestAppContext};
+use gpui::{
+    AppContext, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, TestAppContext,
+};
 use std::time::{Duration, Instant};
 
 #[gpui::test]
@@ -92,10 +94,13 @@ fn old_tunnel_completion_cannot_replace_new_host_view(cx: &mut TestAppContext) {
 fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppContext) {
     // 4 runtime switches x both host keyboard-reporting modes, through Smoke's
     // actual key and EntityInputHandler callbacks, then the core wire encoder.
+    // The adapter supplies its own geometry below. An empty window keeps
+    // focus and the callback context without scheduling a paint resize.
+    let cx = cx.add_empty_window();
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
     for bits in 0..32 {
-        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
-        cx.update(|window, _| window.activate_window());
-        cx.run_until_parked();
+        let view = cx.new(Smoke::new);
         let report = bits & 16 != 0;
         let (backend, receipts) =
             crate::core_mock::recorded(report).unwrap_or_else(|e| panic!("mock: {e}"));
@@ -119,7 +124,9 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
         loop {
             if view.update(cx, |this, cx| {
                 this.poll_terminal(cx);
-                this.terminal.live.connected && this.terminal.live.keyboard_report_all == report
+                this.terminal.input.ready
+                    && this.handoff.stamp.is_some()
+                    && this.terminal.live.keyboard_report_all == report
             }) {
                 break;
             }
@@ -134,7 +141,6 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                 this.terminal.input.options.command_control = bits & 2 != 0;
                 this.terminal.input.options.caret_anchor = bits & 4 != 0;
                 this.actions.terminal_priority = bits & 8 != 0;
-                this.terminal.size = None;
                 this.refresh_terminal_input();
                 this.terminal.input.fresh_gesture();
                 this.replace_and_mark_text_in_range(None, "日本語", Some(1..2), window, cx);
