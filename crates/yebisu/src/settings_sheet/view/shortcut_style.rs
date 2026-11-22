@@ -45,7 +45,10 @@ impl Smoke {
                 })),
             );
         }
-        let (prefix, detail) = self.actions.host_keys.prefix_row(&self.terminal);
+        let (prefix, detail) = self
+            .actions
+            .host_keys
+            .prefix_row(&self.terminal, &self.setup);
         let server = values.use_server_keybindings;
         let switch = div()
             .id("settings-server-keybindings")

@@ -76,6 +76,7 @@ fn one_line(text: &str) -> String {
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn status_bar_model(state: &ChromeState, connection: &str) -> StatusBarModel {
     status_bar_model_for_host(state, &HostName::new(connection))
 }
@@ -151,7 +152,7 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 }
 
 impl Smoke {
-    fn current_status_bar_model(&self, state: &ChromeState) -> StatusBarModel {
+    pub(in crate::shell) fn current_status_bar_model(&self, state: &ChromeState) -> StatusBarModel {
         status_bar_model_for_host(
             state,
             &self.setup.host_name(&self.terminal.reconnect.target),

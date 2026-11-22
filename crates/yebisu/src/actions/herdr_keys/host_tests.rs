@@ -108,7 +108,7 @@ fn herdr_prefix_row_identifies_the_host_and_never_leaks_the_previous_config() {
         result: Some(Ok(parse("[keys]\nprefix = 'ctrl+a'"))),
         ..Default::default()
     };
-    let (value, detail) = keys.prefix_row(&terminal);
+    let (value, detail) = keys.prefix_row(&terminal, &Setup::default());
     assert_eq!(value, "ctrl+a");
     assert!(detail.contains("pro-dev"));
     assert!(detail.contains("[keys].prefix"));
@@ -120,17 +120,48 @@ fn herdr_prefix_row_identifies_the_host_and_never_leaks_the_previous_config() {
         Fallback::PermissionDenied,
     ] {
         keys.result = Some(Err(error));
-        let (value, detail) = keys.prefix_row(&terminal);
+        let (value, detail) = keys.prefix_row(&terminal, &Setup::default());
         assert_eq!(value, "ctrl+b");
         assert!(detail.contains(error.reason()), "{detail}");
     }
     keys.result = Some(Ok(parse("[keys]\nprefix = 'ctrl+a'")));
     terminal.link.reset();
     terminal.reconnect.target = "another.example.test".into();
-    let (value, detail) = keys.prefix_row(&terminal);
+    let (value, detail) = keys.prefix_row(&terminal, &Setup::default());
     assert_eq!(value, "ctrl+b");
     assert!(!detail.contains("pro-dev"), "{detail}");
     assert!(detail.contains("another"), "{detail}");
+}
+
+#[test]
+fn herdr_prefix_detail_shows_saved_name_and_falls_back_to_derived_name() {
+    use crate::hosts::test_support::{MINI, STUDIO, named_setup};
+
+    let setup = named_setup();
+    let mut terminal = TerminalView::default();
+    terminal.live.connected = true;
+    for (target, label) in [(STUDIO, "Studio Mac"), (MINI, "mini")] {
+        terminal.reconnect.target = target.into();
+        let mut keys = HostKeys {
+            connection: Some(attach(target, &terminal)),
+            result: Some(Ok(parse("[keys]\nprefix = 'ctrl+a'"))),
+            ..HostKeys::default()
+        };
+        let (prefix, detail) = keys.prefix_row(&terminal, &setup);
+        assert_eq!(prefix, "ctrl+a");
+        assert!(
+            detail.starts_with(&format!("From {label}’s Herdr config")),
+            "{detail}"
+        );
+
+        keys.result = Some(Err(Fallback::MissingFile));
+        let (prefix, detail) = keys.prefix_row(&terminal, &setup);
+        assert_eq!(prefix, "ctrl+b");
+        assert!(
+            detail.starts_with(&format!("{label}. Using Herdr's default.")),
+            "{detail}"
+        );
+    }
 }
 
 fn press(this: &mut Smoke, name: &'static str, window: &mut Window, cx: &mut Context<Smoke>) {
@@ -541,7 +572,7 @@ fn herdr_prefix_timeout_discards_late_completion(cx: &mut TestAppContext) {
             .unwrap_or_else(|error| panic!("late completion: {error}"));
         keys.poll(&this.terminal, true, cx);
         assert!(keys.pending.is_none());
-        let (value, detail) = keys.prefix_row(&this.terminal);
+        let (value, detail) = keys.prefix_row(&this.terminal, &this.setup);
         assert_eq!(value, "ctrl+b");
         assert!(detail.contains("timed out"), "{detail}");
     });

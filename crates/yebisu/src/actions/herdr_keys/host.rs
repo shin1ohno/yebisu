@@ -1,6 +1,8 @@
 //! Read the selected connection's Herdr config using the existing pinned SSH transport.
 use super::{DEFAULTS, Fallback, MAX_BYTES, Prefix, Profile, Route};
-use crate::{app::Smoke, live::Live, settings_pages::Page, terminal_view::TerminalView};
+use crate::{
+    app::Smoke, live::Live, settings_pages::Page, setup::Setup, terminal_view::TerminalView,
+};
 use gpui::{Context, KeyDownEvent};
 use sheprd_commands::Command;
 use std::sync::{
@@ -94,7 +96,7 @@ impl HostKeys {
         }
     }
 
-    pub(crate) fn prefix_row(&self, terminal: &TerminalView) -> (String, String) {
+    pub(crate) fn prefix_row(&self, terminal: &TerminalView, setup: &Setup) -> (String, String) {
         let profile = self.profile(terminal);
         let key = profile
             .prefixes
@@ -110,7 +112,7 @@ impl HostKeys {
             (true, Some(Err(reason))) => Some(*reason),
             (true, Some(Ok(profile))) => profile.fallback,
         };
-        let host = crate::hosts::HostName::new(&terminal.reconnect.target);
+        let host = setup.host_name(&terminal.reconnect.target);
         let detail = if let Some(reason) = reason {
             if connected(terminal) {
                 format!(
