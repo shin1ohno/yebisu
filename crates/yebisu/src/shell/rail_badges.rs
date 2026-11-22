@@ -10,17 +10,19 @@
 //! Everything here is pure: the caller passes the text measure, so the rule is
 //! tested without a window.
 
+use super::style::metric;
+
 /// Width of a rail button.
 pub(crate) const BUTTON_WIDTH: f32 = 64.0;
 /// Space between the button edge and a badge.
-pub(crate) const EDGE_INSET: f32 = 8.0;
+pub(crate) const EDGE_INSET: f32 = metric::SMALL_INSET;
 /// The badge's `min-width` and its height in the canvas.
 pub(crate) const BADGE_MIN_WIDTH: f32 = 16.0;
 pub(crate) const BADGE_HEIGHT: f32 = 16.0;
 /// The status dot between the badges.
 pub(crate) const DOT_SIZE: f32 = 12.0;
 /// The least space between a badge and the dot.
-pub(crate) const MIN_GAP: f32 = 2.0;
+pub(crate) const MIN_GAP: f32 = metric::SEGMENT_INSET;
 /// Badge digits are 11 pt bold (D10: nothing in the rail is smaller).
 pub(crate) const BADGE_TEXT_PT: f32 = super::style::text::SMALL;
 /// A count above this is written `99+`.

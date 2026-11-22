@@ -3,11 +3,11 @@
 //! The status bar's Shortcuts opens a 760 pt popover above it (plan v2
 //! 7.11): the action catalog's rows in 3 columns (1 below 760 pt), 36 pt
 //! each, a tap runs the row, an unavailable row is disabled. Below the rows
-//! it shows the current Command key and Shortcut priority. It replaces the
+//! it shows iPad shortcut settings or the host for Herdr prefix. It replaces the
 //! command palette as the status bar's target; `Command::Palette` stays a
 //! local catalog command (P12QA, the OS menu and the legacy actions band)
 //! and, as the canvas shows, a row of the popover that opens the palette.
-use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place, host_menus};
+use super::{ChromeState, EntryAction, EntryPoint, HerdrKind, Place, host_menus, style::metric};
 use crate::{
     actions::{self, Action, Actions, HELP_SHORTCUT},
     app::Smoke,
@@ -23,7 +23,7 @@ mod view;
 /// (design text D1: min(760, window − 32)).
 pub(crate) const POPOVER_WIDTH: f32 = 760.;
 pub(crate) const ROW_HEIGHT: f32 = 36.;
-const POPOVER_MARGIN: f32 = 16.;
+const POPOVER_MARGIN: f32 = metric::SIDE;
 const WIDE_COLUMNS: u8 = 3;
 
 /// The canvas' row groups (`Shortcuts.dc.html`), one per column at 3

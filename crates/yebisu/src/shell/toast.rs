@@ -7,6 +7,7 @@
 //! `STATUS_BAR_HEIGHT` tall with a hairline over it, so the toast is lifted
 //! past all of that.
 use super::overlay;
+use crate::shell::style::metric;
 use crate::{
     app::Smoke,
     layout::{RULE, STATUS_BAR_HEIGHT},
@@ -15,7 +16,7 @@ use crate::{
 use gpui::{Pixels, Window, px};
 
 /// Gap between the status bar's hairline and the toast.
-pub(crate) const TOAST_GAP: f32 = 8.0;
+pub(crate) const TOAST_GAP: f32 = metric::INLINE_GAP;
 
 /// Points to add to `overlay_bottom` so the toast's bottom edge sits above
 /// the status bar and its hairline. The status bar's top comes from the same

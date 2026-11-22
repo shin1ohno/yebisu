@@ -18,7 +18,7 @@ pub(super) use hardware::hardware_keyboard_attached;
 
 // KeyBand.dc.html:188–206. Compact.dc.html's key row uses the same controls.
 pub(super) const HEIGHT: f32 = 76.0;
-const ROW_HEIGHT: f32 = 56.0;
+pub(crate) const ROW_HEIGHT: f32 = 56.0;
 const KEY_HEIGHT: f32 = 44.0;
 const WIDE_KEY: f32 = 52.0;
 const ARROW_KEY: f32 = 48.0;

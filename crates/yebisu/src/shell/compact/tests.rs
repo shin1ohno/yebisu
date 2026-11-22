@@ -251,11 +251,20 @@ fn compact_settings_first_larger_click_and_qa_use_the_terminal_default(cx: &mut 
     use crate::settings::SettingsHost;
     use std::time::{Duration, Instant};
 
-    let root = std::env::temp_dir().join(format!("yebisu-compact-font-{}", std::process::id()));
+    struct SettingsDirectory(std::path::PathBuf);
+    impl Drop for SettingsDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let path = std::env::temp_dir().join(format!("yebisu-compact-font-{}", std::process::id()));
+    std::fs::create_dir(&path).unwrap_or_else(|e| panic!("create settings directory: {e}"));
+    let root = SettingsDirectory(path);
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(320.0), px(834.0)));
     view.update_in(cx, |this, window, cx| {
-        this.settings = Some(SettingsHost::open(root.clone()).unwrap_or_else(|e| panic!("{e}")));
+        this.settings = Some(SettingsHost::open(root.0.clone()).unwrap_or_else(|e| panic!("{e}")));
         this.settings_fonts = vec![this.terminal.font.family.clone()];
         this.begin_settings_modal(window, cx);
     });
@@ -289,5 +298,4 @@ fn compact_settings_first_larger_click_and_qa_use_the_terminal_default(cx: &mut 
         assert!(Instant::now() < until, "settings saved");
         std::thread::sleep(Duration::from_millis(2));
     }
-    std::fs::remove_dir_all(root).unwrap_or_else(|e| panic!("{e}"));
 }

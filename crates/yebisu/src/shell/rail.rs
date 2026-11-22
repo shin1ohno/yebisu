@@ -9,7 +9,7 @@
 //! source of truth for `Command::ToggleSidebar`, the settings file and the
 //! menu bar, and the legacy board band keeps its behaviour until the frame
 //! hosts the sidebar.
-use super::{ChromeState, EntryAction, EntryPoint, Place, rail_badges::RailBadges};
+use super::{ChromeState, EntryAction, EntryPoint, Place, rail_badges::RailBadges, style::metric};
 use crate::{
     app::Smoke,
     layout::{RULE, SIDEBAR_WIDTH, TERMINAL_MIN_WIDTH},
@@ -112,15 +112,14 @@ pub(crate) const LABEL_PT: f32 = super::style::text::SMALL;
 /// Height of a host or space button at the default text scale.
 pub(crate) const ITEM_BASE_HEIGHT: f32 = 56.0;
 /// Padding above the list and below the footer; the gap between buttons.
-pub(crate) const EDGE_PAD: f32 = 8.0;
-pub(crate) const ITEM_GAP: f32 = 6.0;
-pub(crate) const FOOTER_BUTTON_HEIGHT: f32 = super::style::metric::TOUCH;
+pub(crate) const EDGE_PAD: f32 = metric::SMALL_INSET;
+pub(crate) const ITEM_GAP: f32 = metric::TIGHT_GAP;
+pub(crate) const FOOTER_BUTTON_HEIGHT: f32 = metric::TOUCH;
 /// Hosts, Settings and the expand button.
 pub(crate) const FOOTER_BUTTONS: usize = 3;
 const DIVIDER_WIDTH: f32 = 40.0;
 const HOST_DIVIDER_MARGIN: f32 = 4.0;
-const HEADER_CONTROLS_HEIGHT: f32 =
-    FOOTER_BUTTON_HEIGHT + 2.0 * ITEM_GAP + super::style::metric::LINE;
+const HEADER_CONTROLS_HEIGHT: f32 = FOOTER_BUTTON_HEIGHT + 2.0 * ITEM_GAP + metric::LINE;
 
 pub(crate) fn rail_metrics(text_scale: f32) -> RailMetrics {
     let scale = if text_scale.is_finite() {

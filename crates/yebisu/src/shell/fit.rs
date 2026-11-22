@@ -14,7 +14,11 @@
 //! docked along the window's bottom edge is an L0 inset. The edit bar and the
 //! IME candidates move clear of a floating keyboard instead
 //! (`place_clear_of_keyboard`).
-use super::{disconnect::DisconnectClock, key_band};
+use super::{
+    disconnect::DisconnectClock,
+    key_band,
+    style::{color, metric, text},
+};
 use crate::{
     app::Smoke,
     layout::{
@@ -31,7 +35,7 @@ pub(crate) const TOO_SMALL_TITLE: &str = "Window too small";
 /// before it, an 18 pt icon, a 6 pt gap and the 13 pt label (Main.dc.html).
 pub(crate) const HARDWARE_KEYBOARD_WIDTH: f32 = 152.0;
 /// Gap between status bar items (Main.dc.html `gap: 12px`).
-pub(crate) const STATUS_GAP: f32 = 12.0;
+pub(crate) const STATUS_GAP: f32 = metric::GAP;
 
 #[derive(Debug, Default)]
 pub(crate) struct FitState {
@@ -262,16 +266,16 @@ impl Smoke {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_2()
-                .px_4()
-                .bg(rgb(0x101419))
-                .text_color(rgb(0xd8dee9))
-                .child(div().text_lg().child(TOO_SMALL_TITLE))
+                .gap(px(metric::INLINE_GAP))
+                .px(px(metric::SIDE))
+                .bg(rgb(color::BACKGROUND))
+                .text_color(rgb(color::TEXT))
+                .child(div().text_size(px(text::PAGE_TITLE)).child(TOO_SMALL_TITLE))
                 .child(
                     div()
                         .max_w(px(420.))
-                        .text_sm()
-                        .text_color(rgb(0xacb2bb))
+                        .text_size(px(text::NAME))
+                        .text_color(rgb(color::MUTED))
                         .child(too_small_message(&verdict)),
                 )
                 .into_any_element(),

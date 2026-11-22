@@ -12,6 +12,7 @@ use crate::{
     shell::{
         ChromeState,
         fit::{docked_keyboard_height, ime_keyboard},
+        key_band::ROW_HEIGHT,
         sidebar::icons::Icon,
         status_bar::status_line,
         style::{color, metric, radius, text, weight},
@@ -23,8 +24,7 @@ use gpui::{AnyElement, Context, MouseButton, Role, Window, div, prelude::*, px, 
 // Compact.dc.html:23, :25 and :53. The rule is drawn separately.
 const TOP_BAR: f32 = 52.0;
 const HEADER_SPACING: f32 = 4.0;
-const SWITCHER_GAP: f32 = 6.0;
-const KEY_ROW: f32 = 56.0;
+const SWITCHER_GAP: f32 = metric::TIGHT_GAP;
 // Compact.dc.html:37.
 const TERMINAL_LINE_HEIGHT: f32 = 18.0;
 
@@ -58,7 +58,8 @@ impl Geometry {
             + RULE
             + if shows_pager { metric::TOUCH } else { 0.0 }
             + if find { FIND_BAR_HEIGHT } else { 0.0 };
-        let height = (self.height - (y - self.top) - STATUS_BAR_HEIGHT - RULE - KEY_ROW).max(0.0);
+        let height =
+            (self.height - (y - self.top) - STATUS_BAR_HEIGHT - RULE - ROW_HEIGHT).max(0.0);
         if self.width >= TERMINAL_MIN_WIDTH && height >= TERMINAL_MIN_HEIGHT {
             TerminalFit::Fits(Rect::new(self.left, y, self.width, height))
         } else {
@@ -337,8 +338,8 @@ impl Smoke {
             .flex_none()
             .flex()
             .items_center()
-            .gap_3()
-            .px_3()
+            .gap(px(metric::GAP))
+            .px(px(metric::INSET))
             .bg(rgb(color::SURFACE))
             .child(dot(if state.connected {
                 color::GREEN
@@ -357,7 +358,7 @@ impl Smoke {
     fn render_compact_keys(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_none()
-            .h(px(KEY_ROW))
+            .h(px(ROW_HEIGHT))
             .overflow_hidden()
             .border_t_1()
             .border_color(rgb(color::RAISED))

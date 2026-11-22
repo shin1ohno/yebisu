@@ -5,7 +5,7 @@
 //! not withdrawn, and never counts (q1). Tapping Mods lists the withdrawn
 //! regions in overlay O (ModsMax.dc.html, SplitHalf.dc.html).
 use super::{
-    style::{color, radius, text, weight},
+    style::{color, metric, radius, text, weight},
     tab_row::icons::Icon,
 };
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 use gpui::{AnyElement, Context, Role, Window, div, prelude::*, px, rgb};
 
 // ModsMax.dc.html:190–192.
-const MODS_ICON_GAP: f32 = 6.;
+const MODS_ICON_GAP: f32 = metric::TIGHT_GAP;
 const MODS_BADGE_SIZE: f32 = 16.;
 
 /// "Mods n" only when `withdrawn` > 0.
@@ -165,21 +165,23 @@ impl Smoke {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .p_4()
-                        .rounded_md()
-                        .bg(rgb(0x1c1c22))
+                        .p(px(metric::SIDE))
+                        .rounded(px(radius::RAIL_ITEM))
+                        .bg(rgb(color::SURFACE))
                         .border_1()
-                        .border_color(rgb(0x2b2933))
-                        .text_color(rgb(0xd8dee9))
+                        .border_color(rgb(color::RAISED))
+                        .text_color(rgb(color::TEXT))
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(px(text::NAME))
                                 .child(mods_item(withdrawn.len()).unwrap_or_default()),
                         )
-                        .children(
-                            rows.into_iter()
-                                .map(|row| div().text_sm().text_color(rgb(0xacb2bb)).child(row)),
-                        ),
+                        .children(rows.into_iter().map(|row| {
+                            div()
+                                .text_size(px(text::NAME))
+                                .text_color(rgb(color::MUTED))
+                                .child(row)
+                        })),
                 )
                 .into_any_element(),
         )

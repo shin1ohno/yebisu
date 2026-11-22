@@ -12,7 +12,7 @@ use std::time::Duration;
 
 // Canvas v18 canvas.json notes.nearby, and the 56 pt row in fork 6c4b06eaa.
 const ROW_HEIGHT: f32 = 56.;
-const SELECTION_MARK: f32 = 18.;
+const SELECTION_MARK: f32 = text::PAGE_TITLE;
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
 #[derive(Default)]

@@ -145,6 +145,28 @@ fn a_claim_on_the_old_tab_does_not_suppress_reclaim_on_the_new_tab(cx: &mut Test
 }
 
 #[gpui::test]
+fn a_claim_from_an_old_generation_does_not_suppress_reclaim(cx: &mut TestAppContext) {
+    let (case, cx) = reclaim_fixture(cx);
+    case.set_frame(cx, 0, 1);
+    draw_terminal(&case.view, cx);
+    case.assert_received_reclaim(cx, case.sent);
+
+    // Isolate the generation comparison: keep the boot, tab, size and
+    // completed claim, and model the replacement link as already focused.
+    case.view.update(cx, |this, _| {
+        let terminal = &mut this.terminal;
+        terminal.link.generation += 1;
+        let (generation, _, _) = terminal
+            .surface_focus
+            .as_mut()
+            .unwrap_or_else(|| panic!("no reported focus"));
+        *generation = terminal.link.generation;
+    });
+    draw_terminal(&case.view, cx);
+    case.assert_received_reclaim(cx, case.sent);
+}
+
+#[gpui::test]
 fn a_claim_from_an_old_boot_does_not_suppress_reclaim_on_the_current_boot(cx: &mut TestAppContext) {
     let (case, cx) = reclaim_fixture(cx);
     let (_, boot, _) = case.connection(cx);

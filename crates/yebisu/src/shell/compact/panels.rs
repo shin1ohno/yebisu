@@ -135,7 +135,7 @@ impl Smoke {
                     .flex_none()
                     .flex()
                     .items_center()
-                    .px_3()
+                    .px(px(metric::INSET))
                     .when(active, |row| row.bg(gpui::Rgba::from(tint::SELECTED)))
                     .child(div().truncate().child(name))
                     .on_click(cx.listener(move |this, _, window, cx| {

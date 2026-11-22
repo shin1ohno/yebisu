@@ -10,9 +10,8 @@ use gpui::{AnyElement, Context, MouseButton, Window, div, prelude::*, px, rgb};
 use sheprd_commands::Command;
 
 // Herdr2.dc.html:123. The menu is inset from the column and clears the tab row.
-const MENU_RIGHT: f32 = 8.;
+const MENU_RIGHT: f32 = metric::SMALL_INSET;
 const MENU_TOP: f32 = 40.;
-const DIVIDER_COLOR: u32 = 0x3b3945;
 const DETACH_LABEL: &str = "Detach (keeps terminals running)";
 const COMMAND_UNAVAILABLE: &str = "Action unavailable";
 const HERDR2_TAB_COMMANDS: [(OverflowItem, Command, &str, &str); 3] = [
@@ -389,7 +388,7 @@ fn menu_divider() -> gpui::Div {
         .flex_none()
         .h(px(metric::LINE))
         .my_1()
-        .bg(rgb(DIVIDER_COLOR))
+        .bg(rgb(color::SEPARATOR))
 }
 
 fn overflow_shortcut(
@@ -415,7 +414,7 @@ fn overflow_row(
         .id(("shell-overflow-item", index))
         .debug_selector(move || format!("shell-overflow-item-{label}"))
         .h(px(metric::MENU_ITEM))
-        .px_4()
+        .px(px(metric::SIDE))
         .flex()
         .flex_none()
         .flex_col()
@@ -431,7 +430,7 @@ fn overflow_row(
                 .items_center()
                 .justify_between()
                 .child(label)
-                .gap_2()
+                .gap(px(metric::INLINE_GAP))
                 .when_some(keys, |line, keys| {
                     line.child(
                         div()

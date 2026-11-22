@@ -161,7 +161,7 @@ impl Smoke {
                     .justify_between()
                     .gap(px(metric::INLINE_GAP))
                     .h(px(metric::TOUCH))
-                    .px_3()
+                    .px(px(metric::INSET))
                     .child(
                         div()
                             .min_w_0()
@@ -188,7 +188,7 @@ impl Smoke {
                     .role(Role::MenuItem)
                     .aria_label(label.clone())
                     .h(px(metric::TOUCH))
-                    .px_3()
+                    .px(px(metric::INSET))
                     .flex()
                     .flex_col()
                     .justify_center()

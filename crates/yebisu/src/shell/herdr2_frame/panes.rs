@@ -7,6 +7,7 @@
 //! wide, with the half next to the focused pane in the accent colour. The control
 //! band (CB) retires only when every control it holds has a home in the
 //! frame (plan v2 5.1 rule 1: a move adds the new place first).
+use crate::shell::style::color;
 use crate::shell::{
     ChromeState, HerdrKind,
     overflow_menu::{OverflowEntry, OverflowItem, overflow_menu_items},
@@ -27,9 +28,9 @@ pub(crate) const SIDE_BY_SIDE_LINE: &str = "│";
 pub(crate) const STACKED_LINE: &str = "─";
 /// The focused pane's edge: the frame's accent (nord8), as a wire cell
 /// colour (`CellData::fg`: RGB is `0x02RRGGBB`).
-pub(crate) const FOCUSED_EDGE: u32 = 0x0288_c0d0;
+pub(crate) const FOCUSED_EDGE: u32 = 0x0200_0000 | color::ACCENT;
 /// The other edges (nord3), as a wire cell colour.
-pub(crate) const EDGE: u32 = 0x024c_566a;
+pub(crate) const EDGE: u32 = 0x0200_0000 | color::SLATE;
 
 /// One pane's cells inside the composed frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

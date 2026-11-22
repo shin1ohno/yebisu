@@ -277,10 +277,20 @@ fn rpc_timeout_discards_late_success_and_allows_next_image(cx: &mut TestAppConte
     admit(&view, cx, true);
     key(&view, cx, "discard");
     wait(&view, cx, |_| probe.lock().puts.len() == 1);
-    std::thread::sleep(Duration::from_secs(11));
-    wait(&view, cx, |this| this.handoff.workers == 0);
+    let deadline = Instant::now() + Duration::from_secs(16);
+    wait(&view, cx, |this| {
+        assert!(Instant::now() < deadline, "image RPC did not time out");
+        this.handoff.workers == 0
+    });
+    assert_eq!(
+        view.read_with(cx, |this, _| this.terminal.live.status.clone()),
+        "Paste failed: host did not answer"
+    );
     assert!(inputs(&probe).is_empty());
     release(&probe, 0);
+    wait(&view, cx, |_| {
+        probe.replies_written.load(Ordering::Acquire) == 1
+    });
     admit(&view, cx, true);
     wait(&view, cx, |this| {
         this.handoff.workers == 0 && probe.lock().inputs.len() == 1
@@ -324,10 +334,12 @@ fn real_socket_write_timeout_closes_connection_and_new_session_can_paste(cx: &mu
     admit(&view, cx, true);
     key(&view, cx, "discard");
     cx.run_until_parked();
-    // The mock client has the same five-second socket write deadline as SSH.
-    // Keep the peer stopped beyond that deadline, without a synthetic error.
-    std::thread::sleep(Duration::from_secs(6));
-    wait(&view, cx, |this| this.handoff.workers == 0);
+    // Keep the peer stopped until the socket timeout closes the connection.
+    let deadline = Instant::now() + Duration::from_secs(12);
+    wait(&view, cx, |this| {
+        assert!(Instant::now() < deadline, "socket write did not time out");
+        this.handoff.workers == 0 && !this.terminal.live.connected
+    });
     assert!(inputs(&probe).is_empty());
     assert!(probe.lock().puts.is_empty());
     view.update(cx, |this, cx| {

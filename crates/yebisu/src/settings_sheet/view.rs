@@ -23,7 +23,7 @@ const DONE_LABEL: &str = "Done";
 // Settings.dc.html:26–28
 const HEADER_SIDE_WIDTH: f32 = 72.;
 // Settings.dc.html:34
-const SECTION_SIDE_PADDING: f32 = 12.;
+const SECTION_SIDE_PADDING: f32 = metric::INSET;
 // Settings.dc.html:46
 const CONTENT_PADDING: f32 = 28.;
 const CONTENT_GAP: f32 = 24.;
@@ -46,8 +46,8 @@ pub(crate) fn button(
             button.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
         })
         .min_h(px(metric::TOUCH))
-        .px_3()
-        .py_2()
+        .px(px(metric::INSET))
+        .py(px(metric::SMALL_INSET))
         .flex_shrink_0()
         .border_1()
         .border_color(rgb(color::RAISED))
@@ -145,7 +145,7 @@ impl Smoke {
             Page::General => div()
                 .flex()
                 .flex_col()
-                .gap_4()
+                .gap(px(metric::SIDE))
                 .child(Document::Notice.text())
                 .child(Document::License.text())
                 .into_any_element(),
@@ -404,7 +404,7 @@ impl Smoke {
         let mut view = div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(metric::INLINE_GAP))
             .child(choice_row("Terminal font", None, options))
             .child(format!(
                 "Current: {size} px / {height} line · {:?}",
@@ -469,7 +469,7 @@ impl Smoke {
     /// The Shortcuts section: the read-only shortcut list. Its priority
     /// toggle is the Input page's Shortcut priority row (plan v2 7.4).
     fn settings_keyboard(&self, _cx: &mut Context<Self>) -> AnyElement {
-        let mut view = div().flex().flex_col().gap_2();
+        let mut view = div().flex().flex_col().gap(px(metric::INLINE_GAP));
         for row in crate::settings_pages::keyboard::shortcut_rows(&self.terminal, &self.actions) {
             view = view.child(
                 div()
@@ -582,7 +582,11 @@ impl Smoke {
         let Some(host) = &self.settings else {
             return div().child("Settings unavailable").into_any_element();
         };
-        let mut view = div().flex().flex_col().gap_2().child(host.keys.label());
+        let mut view = div()
+            .flex()
+            .flex_col()
+            .gap(px(metric::INLINE_GAP))
+            .child(host.keys.label());
         if let Some(error) = host.keys.failure {
             view = view.child(format!("{error:?}"));
         }
