@@ -1,6 +1,6 @@
 # Shortcut style の Simulator 比較
 
-iPad Pro 13-inch (M5) の iPadOS 26.5 Simulator を横向き（1376 × 1032 pt）にし、Xcode 27.2 の XCTest で撮影しました。Herdr 1 は `private-peer`、Herdr 2 は `private-core` のアプリ内 QA 接続です。ホスト設定には canvas v24 と同じ `prefix = "ctrl+a"` と `new_tab = ["prefix+c", "alt+t"]` を渡しました。XCTest で再現できる表示状態として、ソフトウェアキーボードを閉じた上でハードウェアキーボード利用フラグを設定しました。
+iPad Pro 13-inch (M5) の iPadOS 26.5 Simulator を横向き（1376 × 1032 pt）にし、Xcode 27.2 の XCTest で撮影しました。 Simulator の画像は向きを画素に反映した 2752 × 2064 px の PNG です。Herdr 1 は `private-peer`、Herdr 2 は `private-core` のアプリ内 QA 接続です。ホスト設定には canvas v24 と同じ `prefix = "ctrl+a"` と `new_tab = ["prefix+c", "alt+t"]` を渡しました。XCTest で再現できる表示状態として、ソフトウェアキーボードを閉じた上でハードウェアキーボード利用フラグを設定しました。
 
 | 画面 | canvas v24 | Simulator | 確認結果と差分 |
 | --- | --- | --- | --- |
