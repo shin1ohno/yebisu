@@ -54,7 +54,22 @@ impl Smoke {
         let width = popover_width(f32::from(viewport.width));
         let columns = popover_columns(width);
         let state = self.popover_chrome_state();
-        let groups = grouped(popover_rows(&self.terminal, &state));
+        let mut rows = popover_rows(&self.terminal, &state);
+        let herdr_prefix = self.actions.herdr_prefix;
+        if herdr_prefix {
+            for (command, row) in &mut rows {
+                row.keys = self
+                    .actions
+                    .host_keys
+                    .labels(
+                        &self.terminal,
+                        self.actions.use_server_keybindings,
+                        *command,
+                    )
+                    .join(" / ");
+            }
+        }
+        let groups = grouped(rows);
         let footer = settings_line(
             self.terminal.input.options.command_control,
             self.actions.terminal_priority,
@@ -71,7 +86,7 @@ impl Smoke {
                 .flex_col()
                 .child(group_header(group.title()));
             let expanded = self.shell.shortcuts.expanded == Some(group);
-            for (action, row) in canvas_rows(group, rows, expanded) {
+            for (action, row) in canvas_rows(group, rows, expanded, herdr_prefix) {
                 column = column.child(self.shortcut_row(action, row, cx));
             }
             if group == ShortcutGroup::App {

@@ -1,5 +1,7 @@
 //! P7's single catalog view, shared by shortcuts, buttons and the palette.
 //! Keyless native menus and Settings labels also derive from this catalog.
+pub(crate) mod herdr_keys;
+
 use crate::{
     app::Smoke,
     board::{Navigation, Target, snapshot},
@@ -10,12 +12,27 @@ use gpui::Keystroke;
 use sheprd_commands::{Command, CommandInfo};
 use std::collections::BTreeSet;
 
-#[derive(Default)]
 pub(crate) struct Actions {
     pub board_hidden: bool,
     pub palette: bool,
     pub terminal_priority: bool,
     pub consumed: BTreeSet<String>,
+    pub herdr_prefix: bool,
+    pub use_server_keybindings: bool,
+    pub host_keys: herdr_keys::HostKeys,
+}
+impl Default for Actions {
+    fn default() -> Self {
+        Self {
+            board_hidden: false,
+            palette: false,
+            terminal_priority: false,
+            consumed: BTreeSet::new(),
+            herdr_prefix: false,
+            use_server_keybindings: true,
+            host_keys: herdr_keys::HostKeys::default(),
+        }
+    }
 }
 pub(crate) struct Action {
     pub info: &'static CommandInfo,
@@ -198,6 +215,11 @@ pub(crate) fn shortcut_candidate(
         || (actions.terminal_priority && terminal.input.options.command_control)
     {
         return None;
+    }
+    if Keystroke::parse("cmd-/")
+        .is_ok_and(|help| help.key == key.key && help.modifiers == key.modifiers)
+    {
+        return Some(Command::Keybinds);
     }
     catalog(terminal)
         .into_iter()

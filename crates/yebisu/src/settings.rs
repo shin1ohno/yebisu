@@ -25,6 +25,8 @@ pub(crate) struct Values {
     pub drag_select: bool,
     pub copy_on_select: bool,
     // SH1-157 L1 (Q7, q7): Input options and Return, see input_options.rs.
+    pub herdr_prefix: bool,
+    pub use_server_keybindings: bool,
     pub option_alt: bool,
     pub command_control: bool,
     pub caret_anchor: bool,
@@ -44,6 +46,8 @@ impl Default for Values {
             board_hidden: false,
             drag_select: true,
             copy_on_select: false,
+            herdr_prefix: false,
+            use_server_keybindings: true,
             option_alt: false,
             command_control: false,
             caret_anchor: false,

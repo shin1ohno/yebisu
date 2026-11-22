@@ -18,6 +18,7 @@ pub(crate) struct Smoke {
     pub(crate) settings: Option<crate::settings::SettingsHost>,
     pub(crate) settings_modal: bool,
     pub(crate) settings_focus: FocusHandle,
+    pub(crate) settings_shortcut: Option<gpui::Subscription>,
     pub(crate) settings_page: crate::settings_pages::Page,
     pub(crate) settings_fonts: Vec<String>,
     pub(crate) settings_fonts_loading: bool,
@@ -120,6 +121,7 @@ impl Smoke {
             settings: None,
             settings_modal: false,
             settings_focus: cx.focus_handle(),
+            settings_shortcut: None,
             settings_page: crate::settings_pages::Page::Fonts,
             settings_fonts: Vec::new(),
             settings_fonts_loading: false,
@@ -160,6 +162,7 @@ impl Smoke {
 
 impl Render for Smoke {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.install_settings_shortcut(window, cx);
         #[cfg(target_os = "ios")]
         self.bind_text_retirement(window, cx);
         // A draw has begun: a retired search field is no longer GPUI's input

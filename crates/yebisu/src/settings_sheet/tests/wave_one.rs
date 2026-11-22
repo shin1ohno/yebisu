@@ -178,3 +178,39 @@ fn tapping_the_backdrop_closes_the_sheet(cx: &mut TestAppContext) {
     cx.simulate_click(outside, Default::default());
     assert!(!view.read_with(cx, |this, _| this.settings_modal));
 }
+
+#[gpui::test]
+fn input_shortcut_style_writes_both_controls_to_the_settings_store(cx: &mut TestAppContext) {
+    let root = store("shortcut-style");
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("{error}"));
+    let host = SettingsHost::open(root.clone()).unwrap_or_else(|error| panic!("{error}"));
+    let (view, cx) = open_sheet(cx, Some(host));
+    wait_for_save(&view, cx);
+    press(cx, "settings-page-input");
+
+    let ipad = bounds(cx, "settings-shortcut-style-ipad");
+    let herdr = bounds(cx, "settings-shortcut-style-herdr");
+    assert_eq!(ipad.size.height, px(40.));
+    assert_eq!(ipad.right(), herdr.left());
+    let switch = bounds(cx, "settings-server-keybindings");
+    assert_eq!(switch.size, size(px(52.), px(32.)));
+    assert_eq!(
+        herdr.right() + px(2.),
+        switch.right(),
+        "inline controls share the right edge"
+    );
+    assert!(herdr.origin.y < bounds(cx, "settings-option-key-0").origin.y);
+    assert!(!view.read_with(cx, |this, _| this.actions.herdr_prefix));
+    assert!(view.read_with(cx, |this, _| this.actions.use_server_keybindings));
+
+    press(cx, "settings-shortcut-style-herdr");
+    press(cx, "settings-server-keybindings");
+    wait_for_save(&view, cx);
+    let stored = document(&root);
+    assert_eq!(stored["shortcut_style"], "herdr-prefix");
+    assert_eq!(stored["server_keybindings"], "off");
+    assert!(view.read_with(cx, |this, _| this.actions.herdr_prefix));
+    assert!(!view.read_with(cx, |this, _| this.actions.use_server_keybindings));
+    drop(view);
+    std::fs::remove_dir_all(root).unwrap_or_else(|error| panic!("{error}"));
+}
