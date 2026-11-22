@@ -1,4 +1,5 @@
 use super::*;
+use crate::hosts::test_support::{MINI, STUDIO, named_setup};
 use crate::shell::sidebar::{accessibility_name, model::agents_list};
 
 fn agent_names(host: &crate::shell::sidebar::model::HostEntry) -> Vec<String> {
@@ -98,10 +99,25 @@ fn herdr2_rows_accessibility_name_includes_kind() {
     let host = connected_host("pro-dev", &[raw("t2", Some("error"))], &state);
     let line = &host.agents[0];
     assert_eq!(line.row.identity.kind, HerdrKind::Herdr2);
-    let spoken = accessibility_name(&line.row);
+    let name = crate::hosts::HostName::new(&host.host);
+    let spoken = accessibility_name(&line.row, &name);
     assert!(spoken.contains("Herdr 2"), "{spoken}");
     assert!(spoken.contains("pane t2"), "{spoken}");
     assert_eq!(host.detail(), "SSH · Herdr 2");
+}
+
+#[test]
+fn herdr2_session_agent_place_shows_the_saved_name() {
+    let state = SidebarState::default();
+    let setup = named_setup();
+    for (target, label) in [(STUDIO, "Studio Mac"), (MINI, "mini")] {
+        let host = connected_host(target, &[raw("t2", Some("working"))], &state);
+        let line = &host.agents[0];
+        let name = setup.host_name(&line.row.identity.host);
+        assert_eq!(line.place(&name), format!("{HERDR2_SESSION} · {label}"));
+        assert!(accessibility_name(&line.row, &name).ends_with(&format!("{label}, Herdr 2")));
+        assert_eq!(line.row.identity.host, target);
+    }
 }
 
 #[test]

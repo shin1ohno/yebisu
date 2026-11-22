@@ -358,7 +358,7 @@ impl Smoke {
                 crate::qa_ax::ids::SIDEBAR_LIST,
                 HOSTS_HEADING,
             ));
-        for row in merge(&hosts) {
+        for row in merge(&hosts, &self.setup) {
             match row {
                 ListRow::Host(host) => list = list.child(self.host_row(&host, cx)),
                 ListRow::Space(space)
@@ -570,7 +570,8 @@ impl Smoke {
         };
         let pinned = self.shell.sidebar.is_agent_pinned(&id, &host.boot);
         let status = line.row.status;
-        let spoken = accessibility_name(&line.row);
+        let host_name = self.setup.host_name(&id.host);
+        let spoken = accessibility_name(&line.row, &host_name);
         let press = AgentMenu {
             id: id.clone(),
             tap: tap.clone(),
@@ -643,7 +644,7 @@ impl Smoke {
                                     .child(status.label()),
                             ),
                     )
-                    .child(second_line(line.place.clone())),
+                    .child(second_line(line.place(&host_name))),
             )
             .when(id.kind == HerdrKind::Herdr1, |row| {
                 row.child(agent_press_layer(press, cx))

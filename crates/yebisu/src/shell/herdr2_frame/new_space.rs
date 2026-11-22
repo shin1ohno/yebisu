@@ -3,6 +3,7 @@ use super::new_space_choices;
 use crate::{
     app::Smoke,
     hosts::HostName,
+    setup::Setup,
     shell::{
         HerdrKind,
         sidebar::{model::HostLink, view::host_entries},
@@ -65,7 +66,7 @@ impl Chooser {
 }
 
 fn host_choices(
-    saved: &[String],
+    setup: &Setup,
     links: impl IntoIterator<Item = (String, HerdrKind)>,
 ) -> Vec<HostChoice> {
     let mut hosts = BTreeMap::<String, Vec<HerdrKind>>::new();
@@ -73,20 +74,23 @@ fn host_choices(
         hosts.entry(host).or_default().push(kind);
     }
     let mut ordered = Vec::new();
-    for host in saved {
-        ordered.push(make_host(host, hosts.remove(host).unwrap_or_default()));
+    for host in &setup.hosts {
+        ordered.push(make_host(
+            setup.host_name(host),
+            hosts.remove(host).unwrap_or_default(),
+        ));
     }
     ordered.extend(
         hosts
             .into_iter()
-            .map(|(host, kinds)| make_host(&host, kinds)),
+            .map(|(host, kinds)| make_host(setup.host_name(&host), kinds)),
     );
     ordered
 }
 
-fn make_host(host: &str, kinds: Vec<HerdrKind>) -> HostChoice {
+fn make_host(name: HostName, kinds: Vec<HerdrKind>) -> HostChoice {
     HostChoice {
-        name: HostName::new(host),
+        name,
         kinds: new_space_choices(&kinds),
     }
 }
@@ -118,7 +122,7 @@ impl Smoke {
             .cloned()
             .map(|host| (host, HerdrKind::Herdr2));
         let hosts = host_choices(
-            &self.setup.hosts,
+            &self.setup,
             entries
                 .into_iter()
                 .filter(|entry| entry.link == HostLink::Connected)

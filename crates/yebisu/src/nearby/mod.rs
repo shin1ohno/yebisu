@@ -2,6 +2,8 @@
 //! worker so waiting for a Bonjour socket never holds a GPUI executor thread.
 #[cfg(target_os = "ios")]
 mod bonjour;
+#[cfg(any(target_os = "ios", test))]
+mod reply;
 
 use std::{
     sync::{

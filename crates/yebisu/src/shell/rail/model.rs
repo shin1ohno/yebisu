@@ -1,7 +1,7 @@
 //! The rail's rows as plain data: hosts and their spaces, with the counts of
 //! agents that need the user. No GPUI type, so the rules are tested directly.
 use crate::shell::{HerdrKind, sidebar::AgentIdentity, sidebar_status::SidebarStatus};
-use crate::{hosts::HostName, shell::rail_badges::badge_accessibility};
+use crate::{setup::Setup, shell::rail_badges::badge_accessibility};
 
 /// One space of a host, as the rail needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,11 +130,11 @@ fn space_name(space: &RailSpace) -> String {
 
 /// One header per destination, using its preferred connection. Each connected
 /// reader contributes spaces with its own connection identity.
-pub(crate) fn rail_items(hosts: &[RailHost]) -> Vec<RailItem> {
+pub(crate) fn rail_items(hosts: &[RailHost], setup: &Setup) -> Vec<RailItem> {
     let mut items = Vec::new();
     for connections in hosts.chunk_by(|left, right| left.name == right.name) {
         let host = &connections[0];
-        let display = HostName::new(&host.name).to_string();
+        let display = setup.host_name(&host.name).to_string();
         items.push(RailItem {
             kind: RailItemKind::Host,
             name: display.clone(),

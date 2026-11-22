@@ -69,7 +69,7 @@ fn click_row(
 ) {
     cx.run_until_parked();
     let index = view.read_with(cx, |this, _| {
-        rail_items(&this.rail_hosts())
+        rail_items(&this.rail_hosts(), &this.setup)
             .into_iter()
             .chain(this.rail_agent_items())
             .position(|item| matches_row(&item))

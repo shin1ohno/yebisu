@@ -131,7 +131,7 @@ fn agents_follow_saved_host_order() {
         entry.agents = vec![AgentLine {
             row: row(name, "p", agent, Working, 0),
             shown: agent.into(),
-            place: name.into(),
+            space: None,
         }];
         entry
     };

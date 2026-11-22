@@ -17,7 +17,7 @@ fn rail_tab_target_finds_a_disconnected_kept_core_host(cx: &mut gpui::TestAppCon
         kept.link.generation = 7;
         kept.live.snapshot = Some(Arc::new(shown));
         this.board.hidden_core.insert("beta".into(), kept);
-        let items = rail_items(&this.rail_hosts());
+        let items = rail_items(&this.rail_hosts(), &this.setup);
         let host = items
             .iter()
             .find(|item| item.target == RailTarget::Host("beta".into()))

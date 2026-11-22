@@ -118,7 +118,7 @@ fn status_less_terminal_is_not_an_agent() {
         .into_iter()
         .map(|row| model::AgentLine {
             shown: row.name.clone(),
-            place: "Space · h".into(),
+            space: Some("Space".into()),
             row,
         })
         .collect();

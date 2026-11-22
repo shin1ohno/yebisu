@@ -189,7 +189,7 @@ fn agents_list_puts_pinned_after_needs_you_and_error() {
     .map(|(name, status)| AgentLine {
         row: row("h", name, name, status, 0),
         shown: name.into(),
-        place: "space · h".into(),
+        space: Some("space".into()),
     })
     .collect();
     let lines = model::agents_list_with_pins(&[host], &|id, boot| {

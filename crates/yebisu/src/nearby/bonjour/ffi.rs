@@ -4,7 +4,7 @@
 //! before freeing its callback context, and children before the parent.
 #![allow(unsafe_code)]
 
-use super::{Device, POLL};
+use super::{super::reply::resolved_device, Device, POLL};
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -254,23 +254,7 @@ extern "C" fn resolve_reply(
     }
     // SAFETY: host is a valid C string on success and unused on error.
     let host = (code == 0).then(|| unsafe { dns_name(host) }).flatten();
-    let device = host.and_then(|host| {
-        let domain = host.to_str().ok()?.trim_end_matches('.');
-        let port = u16::from_be(port);
-        let address = if port == 22 {
-            domain.to_owned()
-        } else {
-            format!("{domain}:{port}")
-        };
-        herdr_ssh::Target::parse(&format!("user@{address}")).ok()?;
-        let name: String = service
-            .name
-            .to_string_lossy()
-            .chars()
-            .filter(|ch| !ch.is_control())
-            .collect();
-        Some(Device { address, name })
-    });
+    let device = host.and_then(|host| resolved_device(&host, port, &service.name));
     push(
         &context.inbox,
         device.map_or_else(
