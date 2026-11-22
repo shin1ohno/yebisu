@@ -151,7 +151,7 @@ impl Smoke {
     pub(super) fn rail_column(&mut self, header: f32, cx: &mut Context<Self>) -> AnyElement {
         self.load_sidebar_agent_pins(cx);
         let metrics = rail_metrics(1.0);
-        let items = rail_items(&self.rail_hosts());
+        let items = rail_items(&self.rail_hosts(), &self.setup);
         let agents = self.rail_agent_items();
         let measure = badge_measure(cx, metrics.badge_pt);
         self.record_rail_badges(&items, &measure);

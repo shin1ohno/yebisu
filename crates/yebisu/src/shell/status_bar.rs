@@ -76,8 +76,13 @@ fn one_line(text: &str) -> String {
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn status_bar_model(state: &ChromeState, connection: &str) -> StatusBarModel {
-    let connection = one_line(HostName::new(connection).display());
+    status_bar_model_for_host(state, &HostName::new(connection))
+}
+
+fn status_bar_model_for_host(state: &ChromeState, connection: &HostName) -> StatusBarModel {
+    let connection = one_line(connection.display());
     let status = if state.connected {
         "Connected"
     } else {
@@ -147,6 +152,13 @@ pub(crate) fn status_line(model: &StatusBarModel) -> String {
 }
 
 impl Smoke {
+    pub(in crate::shell) fn current_status_bar_model(&self, state: &ChromeState) -> StatusBarModel {
+        status_bar_model_for_host(
+            state,
+            &self.setup.host_name(&self.terminal.reconnect.target),
+        )
+    }
+
     /// L9: a press only a hardware keyboard sends marks one in use
     /// (`fit::watch_hardware_keys`); the software keyboard docked on screen
     /// clears it.
@@ -170,7 +182,7 @@ impl Smoke {
         // L9: the mod regions' 30 s fade runs on this line state.
         self.observe_disconnect(state.connected, cx);
         self.note_hardware_keyboard(window, cx);
-        let model = status_bar_model(&state, &self.terminal.reconnect.target);
+        let model = self.current_status_bar_model(&state);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
         let software_keyboard = layout.key_band.is_some();

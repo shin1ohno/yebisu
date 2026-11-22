@@ -8,6 +8,7 @@ use super::{
     HerdrKind,
     sidebar_status::{AgentGroup, SidebarStatus},
 };
+use crate::hosts::HostName;
 use std::{
     cell::RefCell,
     cmp::Ordering,
@@ -272,18 +273,17 @@ pub(crate) fn display_name(row: &AgentRow, all: &[AgentRow]) -> String {
 }
 
 /// Spoken name: always includes tab and pane (S-8).
-pub(crate) fn accessibility_name(row: &AgentRow) -> String {
+pub(crate) fn accessibility_name(row: &AgentRow, host: &HostName) -> String {
     let kind = match row.identity.kind {
         HerdrKind::Herdr1 => "",
         HerdrKind::Herdr2 => ", Herdr 2",
     };
     format!(
-        "{}, {}, tab {}, pane {}, {}{kind}",
+        "{}, {}, tab {}, pane {}, {host}{kind}",
         row.name,
         row.status.label(),
         row.tab,
         row.identity.pane,
-        crate::hosts::HostName::new(&row.identity.host)
     )
 }
 

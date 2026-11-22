@@ -130,7 +130,7 @@ fn herdr2_sessions_merge_into_the_sidebar_list(cx: &mut TestAppContext) {
             HerdrKind::Herdr1,
             HostLink::Connected,
         ));
-        let merged = merge(&sources(readers, vec![catalog_row(this)]));
+        let merged = merge(&sources(readers, vec![catalog_row(this)]), &this.setup);
         assert_eq!(
             merged
                 .iter()

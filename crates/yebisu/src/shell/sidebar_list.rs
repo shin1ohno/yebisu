@@ -14,7 +14,7 @@ use super::{
         view::SidebarTap,
     },
 };
-use crate::hosts::HostName;
+use crate::{hosts::HostName, setup::Setup};
 
 /// One connection of a host: the Herdr that answers there and its state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,7 +169,7 @@ pub(crate) fn sources(
 /// row stands where its first entry stands; its Herdr 1 spaces follow, then
 /// its Herdr 2 sessions. A connection that is not connected adds its state
 /// to the host row and no spaces (`HostEntry::with_content` keeps none then).
-pub(crate) fn merge(hosts: &[HostEntry]) -> Vec<ListRow> {
+pub(crate) fn merge(hosts: &[HostEntry], setup: &Setup) -> Vec<ListRow> {
     let mut groups: Vec<(&str, Vec<&HostEntry>)> = Vec::new();
     for entry in hosts {
         match groups.iter_mut().find(|(host, _)| *host == entry.host) {
@@ -182,7 +182,7 @@ pub(crate) fn merge(hosts: &[HostEntry]) -> Vec<ListRow> {
         // Stable: of two entries of one kind, the first one given counts.
         entries.sort_by_key(|entry| entry.kind);
         entries.dedup_by_key(|entry| entry.kind);
-        let name = HostName::new(host);
+        let name = setup.host_name(host);
         let spaces = entries
             .iter()
             .flat_map(|entry| {

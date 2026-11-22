@@ -10,9 +10,10 @@ use crate::{
         TERMINAL_MIN_WIDTH, TerminalFit, TooSmall,
     },
     shell::{
+        ChromeState,
         fit::{docked_keyboard_height, ime_keyboard},
         sidebar::icons::Icon,
-        status_bar::{kind_label, status_bar_model},
+        status_bar::status_line,
         style::{color, metric, radius, text, weight},
         tab_row::icons::Icon as TabIcon,
     },
@@ -328,10 +329,10 @@ impl Smoke {
     fn render_compact_status(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let state = self.chrome_state();
         self.observe_disconnect(state.connected, cx);
-        let model = status_bar_model(&state, &self.terminal.reconnect.target);
+        let (line, accessibility_label) = self.compact_status_labels(&state);
         div()
             .id("shell-compact-status")
-            .aria_label(model.accessibility_label)
+            .aria_label(accessibility_label)
             .h(px(STATUS_BAR_HEIGHT))
             .flex_none()
             .flex()
@@ -344,13 +345,13 @@ impl Smoke {
             } else {
                 color::RED
             }))
-            .child(div().min_w_0().truncate().child(format!(
-                "{} · {} · {}",
-                model.connection,
-                kind_label(model.kind),
-                model.state
-            )))
+            .child(div().min_w_0().truncate().child(line))
             .into_any_element()
+    }
+
+    fn compact_status_labels(&self, state: &ChromeState) -> (String, String) {
+        let model = self.current_status_bar_model(state);
+        (status_line(&model), model.accessibility_label)
     }
 
     fn render_compact_keys(&self, cx: &mut Context<Self>) -> AnyElement {

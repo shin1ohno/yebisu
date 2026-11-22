@@ -1,8 +1,25 @@
 use super::{host, space};
+use crate::hosts::test_support::{MINI, STUDIO, named_setup};
+use crate::setup::Setup;
 use crate::shell::{
     rail::{RailItemKind, RailTarget, rail_items},
     sidebar_status::SidebarStatus::{Error, Idle, NeedsYou, Working},
 };
+
+#[test]
+fn rail_rows_show_saved_name_and_keep_the_ssh_destination() {
+    let rows = rail_items(
+        &[
+            host(STUDIO, true, vec![space("w1", "build", &[])]),
+            host(MINI, false, Vec::new()),
+        ],
+        &named_setup(),
+    );
+    assert_eq!(rows[0].name, "Studio Mac");
+    assert_eq!(rows[0].target, RailTarget::Host(STUDIO.into()));
+    assert!(rows[1].accessibility_label().contains("Studio Mac"));
+    assert_eq!(rows[2].name, "mini");
+}
 
 #[test]
 fn rail_full_name_in_accessibility_label() {
@@ -12,7 +29,7 @@ fn rail_full_name_in_accessibility_label() {
         true,
         vec![space("w1", long, &[NeedsYou, NeedsYou, Error, Idle])],
     )];
-    let items = rail_items(&hosts);
+    let items = rail_items(&hosts, &Setup::default());
     let label = items[1].accessibility_label();
     assert!(label.starts_with(long), "{label}");
     assert!(label.contains("pro-dev"), "{label}");
@@ -22,7 +39,7 @@ fn rail_full_name_in_accessibility_label() {
     // A host row says connected and which Herdr, not a space status.
     let host_label = items[0].accessibility_label();
     assert_eq!(host_label, "pro-dev, connected, Herdr 1");
-    let off = rail_items(&[host("mini", false, vec![])]);
+    let off = rail_items(&[host("mini", false, vec![])], &Setup::default());
     assert_eq!(off[0].accessibility_label(), "mini, not connected, Herdr 1");
 }
 
@@ -36,7 +53,7 @@ fn rows_list_hosts_then_their_spaces() {
     current.current = true;
     current.spaces[0].focused = true;
     let offline = host("mini", false, vec![space("w9", "stale", &[Idle])]);
-    let items = rail_items(&[current, offline]);
+    let items = rail_items(&[current, offline], &Setup::default());
     let names: Vec<_> = items.iter().map(|i| (i.kind, i.name.as_str())).collect();
     assert_eq!(
         names,

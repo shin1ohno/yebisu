@@ -206,8 +206,16 @@ fn space_entry_with_reason(
 pub(crate) struct AgentLine {
     pub(crate) row: AgentRow,
     pub(crate) shown: String,
-    /// Second line: space · host.
-    pub(crate) place: String,
+    pub(crate) space: Option<String>,
+}
+
+impl AgentLine {
+    pub(crate) fn place(&self, host: &HostName) -> String {
+        match &self.space {
+            Some(space) => format!("{space} · {host}"),
+            None => host.to_string(),
+        }
+    }
 }
 
 /// One host row (64 pt) with its spaces and agents.
@@ -411,7 +419,6 @@ pub(crate) fn snapshot_content(
             status: from_agent_status(agent.agent_status),
         }
     };
-    let display_host = HostName::new(host);
     let mut spaces = Vec::new();
     let mut lines = Vec::new();
     for space in &snapshot.workspaces {
@@ -425,7 +432,7 @@ pub(crate) fn snapshot_content(
         for row in &rows {
             lines.push(AgentLine {
                 shown: display_name(row, &rows),
-                place: format!("{name} · {display_host}"),
+                space: Some(name.clone()),
                 row: row.clone(),
             });
         }
@@ -463,7 +470,7 @@ pub(crate) fn snapshot_content(
         let row = row_of(agent);
         lines.push(AgentLine {
             shown: row.name.clone(),
-            place: display_host.to_string(),
+            space: None,
             row,
         });
     }

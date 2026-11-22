@@ -23,6 +23,7 @@ impl HostName {
     /// Main.dc.html:41), or the whole address for an IPv4 or IPv6 host. A
     /// string that is not an SSH target (a QA peer such as `qa-alpha`) shows
     /// as written; saved destinations always parse, as `Store` checks them.
+    #[cfg(test)]
     pub(crate) fn new(destination: &str) -> Self {
         Self::with_saved(destination, None)
     }

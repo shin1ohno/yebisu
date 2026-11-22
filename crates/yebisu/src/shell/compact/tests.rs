@@ -3,7 +3,30 @@ use crate::{
     app::Smoke,
     layout::{Rect, TerminalFit, compact_window},
 };
-use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
+use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext, px, size};
+
+#[gpui::test]
+fn compact_status_shows_saved_name_and_falls_back_to_derived_name(cx: &mut TestAppContext) {
+    use crate::{
+        hosts::test_support::{MINI, STUDIO, named_setup},
+        shell::ChromeState,
+    };
+
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, _| {
+        this.setup = named_setup();
+        let state = ChromeState {
+            connected: true,
+            ..ChromeState::default()
+        };
+        for (target, label) in [(STUDIO, "Studio Mac"), (MINI, "mini")] {
+            this.terminal.reconnect.target = target.into();
+            let (line, spoken) = this.compact_status_labels(&state);
+            assert_eq!(line, format!("{label} · Herdr 1 · Connected"));
+            assert_eq!(spoken, format!("{label}, Herdr 1, Connected"));
+        }
+    });
+}
 
 #[test]
 fn compact_starts_below_the_rail_and_terminal_budget() {

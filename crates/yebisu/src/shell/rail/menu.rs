@@ -322,7 +322,7 @@ impl Smoke {
         let current_rows = if item.kind == RailItemKind::Agent {
             self.rail_agent_items()
         } else {
-            rail_items(&self.rail_hosts())
+            rail_items(&self.rail_hosts(), &self.setup)
         };
         if self.input_modal()
             || !current_rows.iter().any(|row| {

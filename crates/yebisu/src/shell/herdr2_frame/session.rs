@@ -2,7 +2,6 @@
 use super::{CoreStatus, HERDR2_SESSION, core_status_to_sidebar};
 use crate::{
     core::SessionInfo,
-    hosts::HostName,
     shell::{
         HerdrKind,
         sidebar::{
@@ -143,11 +142,7 @@ pub(crate) fn catalog_content(
         .iter()
         .map(|row| AgentLine {
             shown: crate::shell::sidebar::display_name(row, &rows),
-            place: format!(
-                "{} · {}",
-                one_line(split_pane_identity(&row.identity.pane).0),
-                HostName::new(host),
-            ),
+            space: Some(one_line(split_pane_identity(&row.identity.pane).0)),
             row: row.clone(),
         })
         .collect();

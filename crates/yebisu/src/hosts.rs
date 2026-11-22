@@ -136,6 +136,8 @@ fn parse(target: &str) -> Result<Target> {
     Target::parse(target).map_err(|e| Error::Ssh(e.to_string()))
 }
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(all(test, not(target_os = "ios")))]
 mod tests;
 

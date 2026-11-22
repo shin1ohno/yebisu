@@ -64,7 +64,7 @@ fn rail_marks_only_the_current_space(cx: &mut TestAppContext) {
     view.update(cx, |this, _| {
         this.terminal.live.connected = true;
         this.terminal.live.snapshot = Some(Arc::new(snapshot()));
-        let items = rail_items(&this.rail_hosts());
+        let items = rail_items(&this.rail_hosts(), &this.setup);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].kind, RailItemKind::Host);
         assert!(!items[0].current, "host should have no current ring");
@@ -83,7 +83,7 @@ fn rail_space_dot_is_the_most_urgent_agent(cx: &mut TestAppContext) {
         stamped.agents.insert(0, working);
         this.terminal.live.connected = true;
         this.terminal.live.snapshot = Some(Arc::new(stamped.clone()));
-        let rows = rail_items(&this.rail_hosts());
+        let rows = rail_items(&this.rail_hosts(), &this.setup);
         assert_eq!(rows[1].status, Some(SidebarStatus::NeedsYou));
         assert_eq!(
             rows[1].status.map(SidebarStatus::dot_color),
@@ -91,7 +91,7 @@ fn rail_space_dot_is_the_most_urgent_agent(cx: &mut TestAppContext) {
         );
         stamped.agents.clear();
         this.terminal.live.snapshot = Some(Arc::new(stamped));
-        let rows = rail_items(&this.rail_hosts());
+        let rows = rail_items(&this.rail_hosts(), &this.setup);
         assert_eq!(
             rows[1].status.map(SidebarStatus::dot_color),
             Some(color::SLATE)
@@ -137,7 +137,7 @@ fn rail_labels_use_the_display_name(cx: &mut TestAppContext) {
         stamped.workspaces[0].label = long.to_owned();
         this.terminal.live.connected = true;
         this.terminal.live.snapshot = Some(Arc::new(stamped));
-        let items = rail_items(&this.rail_hosts());
+        let items = rail_items(&this.rail_hosts(), &this.setup);
         assert_eq!(items[0].name, "pro-dev");
         assert_eq!(items[0].target, RailTarget::Host(full.into()));
         assert!(items[1].accessibility_label().starts_with(long));
@@ -205,7 +205,8 @@ fn rail_long_press_opens_the_row_menu(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn rail_agent_menu_toggles_the_sidebar_pin_and_uses_its_order(cx: &mut TestAppContext) {
-    let (view, cx) = show(cx, "alpha");
+    use crate::hosts::test_support::{STUDIO, named_setup};
+    let (view, cx) = show(cx, STUDIO);
     let mut shown = snapshot();
     for (pane_id, status) in [
         ("w1:done", AgentStatus::Done),
@@ -222,6 +223,9 @@ fn rail_agent_menu_toggles_the_sidebar_pin_and_uses_its_order(cx: &mut TestAppCo
         shown.agents.push(agent);
     }
     view.update(cx, |this, cx| {
+        let mut setup = named_setup();
+        setup.hosts.truncate(1);
+        this.setup = setup;
         this.terminal.live.connected = true;
         this.terminal.live.snapshot = Some(Arc::new(shown));
         cx.notify();
@@ -232,6 +236,8 @@ fn rail_agent_menu_toggles_the_sidebar_pin_and_uses_its_order(cx: &mut TestAppCo
             .into_iter()
             .filter_map(|item| match &item.target {
                 RailTarget::Agent { id, boot, .. } => {
+                    assert_eq!(item.host, "Studio Mac");
+                    assert_eq!(id.host, STUDIO);
                     let pinned = this.shell.sidebar.is_agent_pinned(id, boot);
                     assert_eq!(item.pinned, pinned);
                     if pinned {
@@ -283,7 +289,7 @@ fn rail_draws_a_disconnected_kept_core_host_as_herdr2(cx: &mut TestAppContext) {
     cx.run_until_parked();
     bounds(cx, "rail-item-2");
     view.read_with(cx, |this, _| {
-        let items = rail_items(&this.rail_hosts());
+        let items = rail_items(&this.rail_hosts(), &this.setup);
         assert_eq!(
             items[1].accessibility_label(),
             "beta, not connected, Herdr 2"

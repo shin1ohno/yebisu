@@ -2,7 +2,6 @@ use super::{RailItem, RailItemKind, RailTarget};
 use crate::{
     app::Smoke,
     board::snapshot,
-    hosts::HostName,
     shell::{
         HerdrKind,
         herdr2_frame::{HERDR2_SESSION, sidebar::herdr2_hosts},
@@ -72,7 +71,7 @@ impl Smoke {
                 Some(RailItem {
                     kind: RailItemKind::Agent,
                     name: line.shown,
-                    host: HostName::new(&id.host).to_string(),
+                    host: self.setup.host_name(&id.host).to_string(),
                     space: Some(space.name.clone()),
                     herdr: id.kind,
                     status: Some(line.row.status),

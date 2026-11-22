@@ -78,7 +78,10 @@ fn drawn_space(view: &gpui::Entity<Smoke>, cx: &mut gpui::TestAppContext) -> Lis
         },
         &[],
     );
-    let rows = merge(&[entry.with_content(vec![w1], Vec::new())]);
+    let rows = merge(
+        &[entry.with_content(vec![w1], Vec::new())],
+        &Setup::default(),
+    );
     match rows.as_slice() {
         [ListRow::Host(_), ListRow::Space(space)] => space.clone(),
         other => panic!("rows: {other:?}"),

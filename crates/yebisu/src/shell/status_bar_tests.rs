@@ -1,4 +1,20 @@
 use super::*;
+use crate::hosts::test_support::{MINI, STUDIO, named_setup};
+
+#[gpui::test]
+fn full_status_bar_shows_saved_name_and_falls_back_to_derived_name(cx: &mut gpui::TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, _| {
+        this.setup = named_setup();
+        let state = state(HerdrKind::Herdr1, true);
+        this.terminal.reconnect.target = STUDIO.into();
+        let model = this.current_status_bar_model(&state);
+        assert_eq!(status_line(&model), "Studio Mac · Herdr 1 · Connected");
+        assert_eq!(model.accessibility_label, "Studio Mac, Herdr 1, Connected");
+        this.terminal.reconnect.target = MINI.into();
+        assert_eq!(this.current_status_bar_model(&state).connection, "mini");
+    });
+}
 
 fn state(kind: HerdrKind, connected: bool) -> ChromeState {
     ChromeState {

@@ -1,8 +1,26 @@
 use super::*;
+use crate::hosts::test_support::{MINI, STUDIO, named_setup};
 use crate::notifications::Context as Target;
 use model::{observed, snapshot_content};
 use sheprd_client::protocol::AgentStatus;
 use target::{Destination, notification_identity, resolve_target};
+
+#[test]
+fn snapshot_agent_places_show_the_saved_name_with_or_without_a_space() {
+    let setup = named_setup();
+    let state = SidebarState::default();
+    let mut snapshot = fixture();
+    for (target, label) in [(STUDIO, "Studio Mac"), (MINI, "mini")] {
+        let (_, lines) = snapshot_content(target, &snapshot, &state);
+        let line = &lines[0];
+        let name = setup.host_name(&line.row.identity.host);
+        assert!(line.place(&name).ends_with(&format!(" · {label}")));
+        assert_eq!(line.row.identity.host, target);
+    }
+    snapshot.workspaces.clear();
+    let (_, lines) = snapshot_content(STUDIO, &snapshot, &state);
+    assert_eq!(lines[0].place(&setup.host_name(STUDIO)), "Studio Mac");
+}
 
 #[test]
 fn identity_survives_rename() {
@@ -55,12 +73,13 @@ fn duplicate_names_show_tab_and_pane() {
 fn accessibility_name_always_includes_tab_and_pane() {
     let mut a = row("host-1", "w1:p1", "claude", SidebarStatus::NeedsYou, 0);
     a.tab = 3;
-    let spoken = accessibility_name(&a);
-    assert_eq!(spoken, "claude, Needs you, tab 3, pane w1:p1, host-1");
+    let host = HostName::with_saved(&a.identity.host, Some("Studio Mac"));
+    let spoken = accessibility_name(&a, &host);
+    assert_eq!(spoken, "claude, Needs you, tab 3, pane w1:p1, Studio Mac");
     // Even with a unique shown name, the spoken name keeps the numbers.
     assert_eq!(display_name(&a, std::slice::from_ref(&a)), "claude");
     a.identity.kind = HerdrKind::Herdr2;
-    assert!(accessibility_name(&a).contains("tab 3, pane w1:p1"));
+    assert!(accessibility_name(&a, &host).contains("tab 3, pane w1:p1"));
 }
 
 #[test]

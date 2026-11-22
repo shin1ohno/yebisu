@@ -2,12 +2,13 @@ use super::*;
 
 #[gpui::test]
 fn new_space_asks_for_the_host_and_the_herdr(cx: &mut gpui::TestAppContext) {
+    let setup = crate::hosts::test_support::named_setup();
     let hosts = host_choices(
-        &["me@pro-dev.home.local".to_owned(), "mini".to_owned()],
+        &setup,
         [
-            ("mini".into(), HerdrKind::Herdr1),
-            ("me@pro-dev.home.local".into(), HerdrKind::Herdr1),
-            ("me@pro-dev.home.local".into(), HerdrKind::Herdr2),
+            ("dev@mini.local".into(), HerdrKind::Herdr1),
+            ("dev@studio.local".into(), HerdrKind::Herdr1),
+            ("dev@studio.local".into(), HerdrKind::Herdr2),
         ],
     );
     let mut chooser = Chooser::new(hosts);
@@ -17,34 +18,38 @@ fn new_space_asks_for_the_host_and_the_herdr(cx: &mut gpui::TestAppContext) {
         "the host must be chosen on every invocation"
     );
     chooser.select_host(0);
-    assert_eq!(chooser.hosts[0].name.display(), "pro-dev");
+    assert_eq!(chooser.hosts[0].name.display(), "Studio Mac");
     assert_eq!(
         chooser.selection(),
-        Some(("me@pro-dev.home.local", HerdrKind::Herdr2))
+        Some(("dev@studio.local", HerdrKind::Herdr2))
     );
     chooser.select_kind(HerdrKind::Herdr1);
     assert_eq!(
         chooser.selection(),
-        Some(("me@pro-dev.home.local", HerdrKind::Herdr1))
+        Some(("dev@studio.local", HerdrKind::Herdr1))
     );
+    assert_eq!(chooser.hosts[1].name.display(), "mini");
     chooser.select_host(1);
     chooser.select_kind(HerdrKind::Herdr2);
-    assert_eq!(chooser.selection(), Some(("mini", HerdrKind::Herdr1)));
+    assert_eq!(
+        chooser.selection(),
+        Some(("dev@mini.local", HerdrKind::Herdr1))
+    );
     chooser.select_host(0);
     assert_eq!(
         chooser.selection(),
-        Some(("me@pro-dev.home.local", HerdrKind::Herdr2))
+        Some(("dev@studio.local", HerdrKind::Herdr2))
     );
 
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     view.update(cx, |this, cx| {
-        this.setup.hosts = vec!["me@pro-dev.home.local".into()];
-        this.terminal.reconnect.target = "me@pro-dev.home.local".into();
+        this.setup = crate::hosts::test_support::named_setup();
+        this.terminal.reconnect.target = "dev@studio.local".into();
         this.terminal.open = true;
         this.terminal.live.connected = true;
         this.shell
             .herdr2
-            .confirm_session("me@pro-dev.home.local", "default");
+            .confirm_session("dev@studio.local", "default");
         this.open_new_space(cx);
     });
     cx.run_until_parked();
@@ -59,7 +64,7 @@ fn new_space_asks_for_the_host_and_the_herdr(cx: &mut gpui::TestAppContext) {
                 .new_space
                 .as_ref()
                 .and_then(Chooser::selection),
-            Some(("me@pro-dev.home.local", HerdrKind::Herdr2))
+            Some(("dev@studio.local", HerdrKind::Herdr2))
         );
     });
 }
@@ -75,7 +80,10 @@ fn choose(view: &gpui::Entity<Smoke>, cx: &mut gpui::VisualTestContext, kind: He
             .new_space
             .as_mut()
             .unwrap_or_else(|| panic!("chooser must open"));
-        chooser.hosts = vec![make_host(HOST, vec![HerdrKind::Herdr1, HerdrKind::Herdr2])];
+        chooser.hosts = vec![make_host(
+            HostName::new(HOST),
+            vec![HerdrKind::Herdr1, HerdrKind::Herdr2],
+        )];
         chooser.select_host(0);
         chooser.select_kind(kind);
     });
