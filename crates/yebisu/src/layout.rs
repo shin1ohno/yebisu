@@ -359,6 +359,10 @@ pub fn compute(input: &Input) -> Layout {
     compute_with_key_band(input, 0.0)
 }
 
+pub(crate) fn usable_width(width: f32, safe_left: f32, safe_right: f32) -> f32 {
+    (width - safe_left.max(0.0) - safe_right.max(0.0)).max(0.0)
+}
+
 pub(crate) fn compute_with_key_band(input: &Input, band_height: f32) -> Layout {
     let left = input.insets.safe_left.max(0.0);
     let top = input.insets.safe_top.max(0.0);
@@ -368,7 +372,11 @@ pub(crate) fn compute_with_key_band(input: &Input, band_height: f32) -> Layout {
     let key_band =
         (band_height > 0.0).then(|| Rect::new(0.0, band_top, input.window.width, band_height));
     let usable = Size::new(
-        (input.window.width - left - input.insets.safe_right.max(0.0)).max(0.0),
+        usable_width(
+            input.window.width,
+            input.insets.safe_left,
+            input.insets.safe_right,
+        ),
         (band_top - top).max(0.0),
     );
     let mut withdrawn = Vec::new();

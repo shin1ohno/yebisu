@@ -179,7 +179,7 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if layout::compact_window(window.viewport_size().width.into()) {
+        if self.compact_window_at(window) {
             return self.render_compact_frame(body, window, cx);
         }
         let layout = self.frame_layout(window);
