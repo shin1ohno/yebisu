@@ -37,10 +37,7 @@ enum Panel {
 pub(super) struct CompactState {
     panel: Option<Panel>,
     active: bool,
-}
-
-fn page_height(pane_count: usize) -> f32 {
-    if pane_count >= 2 { metric::TOUCH } else { 0.0 }
+    pager: Option<pager::Pager>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -54,11 +51,11 @@ struct Geometry {
 }
 
 impl Geometry {
-    fn fit(self, pane_count: usize, find: bool) -> TerminalFit {
+    fn fit(self, shows_pager: bool, find: bool) -> TerminalFit {
         let y = self.top
             + TOP_BAR
             + RULE
-            + page_height(pane_count)
+            + if shows_pager { metric::TOUCH } else { 0.0 }
             + if find { FIND_BAR_HEIGHT } else { 0.0 };
         let height = (self.height - (y - self.top) - STATUS_BAR_HEIGHT - RULE - KEY_ROW).max(0.0);
         if self.width >= TERMINAL_MIN_WIDTH && height >= TERMINAL_MIN_HEIGHT {
@@ -73,13 +70,22 @@ impl Geometry {
 }
 
 impl Smoke {
+    pub(crate) fn compact_window_at(&self, window: &Window) -> bool {
+        let safe = self.platform_insets(window).safe_area;
+        layout::compact_window(layout::usable_width(
+            window.viewport_size().width.into(),
+            safe.left.into(),
+            safe.right.into(),
+        ))
+    }
+
     pub(super) fn sync_compact_panels(&mut self, window: &Window) {
-        let active = layout::compact_window(window.viewport_size().width.into());
+        let active = self.compact_window_at(window);
         let compact = &mut self.shell.single_pane.compact;
         if compact.active != active {
             *compact = CompactState {
                 active,
-                panel: None,
+                ..CompactState::default()
             };
             self.shell.frame.overflow_open = false;
             self.shell.frame.key_band.clear();
@@ -88,7 +94,7 @@ impl Smoke {
 
     pub(crate) fn terminal_font_metrics(&self, window: &Window) -> (f32, f32) {
         let font = &self.terminal.font;
-        if font.size.is_none() && layout::compact_window(window.viewport_size().width.into()) {
+        if font.size.is_none() && self.compact_window_at(window) {
             (text::BASE, TERMINAL_LINE_HEIGHT)
         } else {
             font.metrics(self.terminal.compact)
@@ -98,18 +104,19 @@ impl Smoke {
     fn compact_geometry(&self, window: &Window) -> Option<Geometry> {
         let viewport = window.viewport_size();
         let size = Size::new(viewport.width.into(), viewport.height.into());
-        if !layout::compact_window(size.width) {
-            return None;
-        }
         let insets = self.platform_insets(window);
         let safe = insets.safe_area;
+        let width = layout::usable_width(size.width, safe.left.into(), safe.right.into());
+        if !layout::compact_window(width) {
+            return None;
+        }
         let left = f32::from(safe.left).max(0.0);
         let right = f32::from(safe.right).max(0.0);
         let top = f32::from(safe.top).max(0.0);
         let keyboard = docked_keyboard_height(size, ime_keyboard(size, &insets.ime));
         let bottom = keyboard.max(safe.bottom.into());
         Some(Geometry {
-            width: (size.width - left - right).max(0.0),
+            width,
             height: (size.height - top - bottom).max(0.0),
             left,
             right,
@@ -118,9 +125,13 @@ impl Smoke {
         })
     }
 
-    pub(crate) fn compact_terminal_fit(&self, window: &Window) -> Option<TerminalFit> {
+    pub(crate) fn compact_terminal_fit(&mut self, window: &Window) -> Option<TerminalFit> {
         let geometry = self.compact_geometry(window)?;
-        Some(geometry.fit(self.focused_pane_count(), self.find.is_some()))
+        let pager = self.pager();
+        let fit = geometry.fit(pager.is_some(), self.find.is_some());
+        // A Core catalog can change on its worker while this frame is drawn.
+        self.shell.single_pane.compact.pager = pager;
+        Some(fit)
     }
 
     pub(in crate::shell) fn render_compact_frame(
@@ -140,14 +151,7 @@ impl Smoke {
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
         self.set_edit_bar_width(Some(geometry.width));
 
-        let pager = self.render_pane_pager(cx);
-        let pane_count = self.focused_pane_count();
-        let page = div()
-            .w_full()
-            .flex_none()
-            .h(px(page_height(pane_count)))
-            .overflow_hidden()
-            .children(pager);
+        let pager = self.shell.single_pane.compact.pager.take();
         let bar = self.render_compact_header(
             if layout.controls.rail_top > 0.0 {
                 layout.controls.header_leading
@@ -182,7 +186,7 @@ impl Smoke {
                     .flex_col()
                     .child(bar)
                     .child(rule())
-                    .when(pane_count >= 2, |column| column.child(page))
+                    .children(pager.map(|pager| pager.render(cx)))
                     .children(self.render_find_bar(cx))
                     .child(
                         div()

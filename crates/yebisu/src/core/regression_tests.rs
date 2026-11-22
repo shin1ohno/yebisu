@@ -1,8 +1,11 @@
 use super::*;
 use crate::{app::Smoke, live::Live};
-use gpui::{Entity, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext};
+use gpui::{
+    AppContext, Entity, EntityInputHandler, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext,
+};
 use std::time::{Duration, Instant};
 
+#[track_caller]
 fn wait_frame(view: &Entity<Smoke>, cx: &mut TestAppContext, predicate: impl Fn(&Live) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -133,7 +136,10 @@ fn hidden_palette_shortcut_keeps_core_text_and_paste_live(cx: &mut TestAppContex
 
 #[gpui::test]
 fn pending_herdr1_navigation_is_discarded_before_first_core_frame(cx: &mut TestAppContext) {
-    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    // This fixture drives resize explicitly. A rendered root would enqueue
+    // its own viewport size, which the worker can publish in the same batch.
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
     let (client, old_wire, release) =
         crate::mock_peer::connect_controlled().unwrap_or_else(|e| panic!("old peer: {e}"));
     view.update(cx, |this, _| {
@@ -207,7 +213,10 @@ fn pending_herdr1_navigation_is_discarded_before_first_core_frame(cx: &mut TestA
 
 #[gpui::test]
 fn pane_close_preserves_final_frame_and_keeps_other_pane_live(cx: &mut TestAppContext) {
-    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    // This fixture drives resize explicitly. A rendered root would enqueue
+    // its own viewport size, which the worker can publish in the same batch.
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
     let wire = start(&view, cx);
     command(&view, cx, Command::Split);
     wait_frame(&view, cx, |live| {

@@ -19,7 +19,7 @@ impl Smoke {
             let view = cx.entity();
             Some(super::layer::publisher(move |window, cx| {
                 let this = view.read(cx);
-                let mut fields = this.qa_ax_fields();
+                let mut fields = this.qa_ax_fields(window);
                 fields.extend(this.qa_ax_window_fields(window));
                 fields
             }))
@@ -35,7 +35,7 @@ impl Smoke {
     /// (a test checks these before pressing, because `isHittable` does not
     /// see a GPUI menu or sheet over a control).
     #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
-    pub(crate) fn qa_ax_fields(&self) -> Vec<(&'static str, serde_json::Value)> {
+    pub(crate) fn qa_ax_fields(&self, window: &Window) -> Vec<(&'static str, serde_json::Value)> {
         use serde_json::{Value, json};
         let screen = if self.terminal.open {
             "terminal"
@@ -151,10 +151,7 @@ impl Smoke {
             // the field draws), the terminal's font size, the local theme
             // and the selected host (P11, P15).
             ("p0_input", json!(self.input.text)),
-            (
-                "font_size",
-                json!(self.terminal.font.metrics(self.terminal.compact).0),
-            ),
+            ("font_size", json!(self.terminal_font_metrics(window).0)),
             ("theme", json!(self.local_theme.key())),
             ("host", json!(self.terminal.reconnect.target)),
         ]

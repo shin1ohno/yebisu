@@ -90,7 +90,7 @@ fn cancellation_sources_fence_preparation_and_waiting_put(cx: &mut TestAppContex
             connect(&view, cx, probe.clone(), Control::default(), "cancel-host");
             let gate = preparing.then(|| preparation_gate(&view, cx));
             clipboard(cx, false);
-            start(&view, cx, true);
+            admit(&view, cx, true);
             if preparing {
                 cx.run_until_parked();
             } else {
@@ -133,7 +133,7 @@ fn queued_cancel_preserves_already_released_keys_and_blocks_next_paste(cx: &mut 
         connect(&view, cx, probe.clone(), control.clone(), "cancel-host");
         view.update(cx, |this, _| this.handoff.core_test = Some(hooks.clone()));
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "one");
         key(&view, cx, "two");
         key(&view, cx, "three");
@@ -222,7 +222,7 @@ fn partial_cancel_disconnects_and_finished_cancel_does_not_replay(cx: &mut TestA
         connect(&view, cx, probe.clone(), control.clone(), "cancel-host");
         view.update(cx, |this, _| this.handoff.core_test = Some(hooks.clone()));
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         if partial {
             key(&view, cx, "old-one");
             key(&view, cx, "old-two");
@@ -272,7 +272,7 @@ fn inactive_continues_but_background_closes_even_across_response_race(cx: &mut T
         connect(&view, cx, probe.clone(), control.clone(), "lifecycle");
         view.update(cx, |this, _| this.handoff.core_test = Some(hooks.clone()));
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         if mode != 0 {
             key(&view, cx, "old-one");
             key(&view, cx, "old-two");
@@ -330,17 +330,20 @@ fn old_completion_cannot_release_the_next_pastes_keys(cx: &mut TestAppContext) {
         let probe = Probe::default();
         probe.lock().replies.extend([None, None]);
         connect(&view, cx, probe.clone(), Control::default(), "old");
-        if timeout {
-            // The timer starts at send and discards a put that arrives after it
-            // expires, so leave room for a loaded host to deliver the put first.
+        let expire = timeout.then(|| {
             view.update(cx, |this, _| {
-                this.handoff.core_timeout = Some(Duration::from_secs(6))
+                this.handoff.core_timeout = Some(Duration::ZERO)
             });
-        }
+            crate::core::paste_test_support::defer_outcome_timeout()
+        });
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         wait(&view, cx, |_| probe.lock().puts.len() == 1);
-        if !timeout {
+        if let Some(expire) = expire {
+            expire
+                .send(())
+                .unwrap_or_else(|e| panic!("start timeout: {e}"));
+        } else {
             trigger(&view, cx, 1);
             start(&view, cx, true);
             assert_eq!(probe.lock().puts.len(), 1);
@@ -352,7 +355,7 @@ fn old_completion_cannot_release_the_next_pastes_keys(cx: &mut TestAppContext) {
             this.terminal.input.fresh_gesture();
             this.handoff.core_timeout = None;
         });
-        start(&view, cx, true);
+        admit(&view, cx, true);
         wait(&view, cx, |_| probe.lock().puts.len() == 2);
         key(&view, cx, "second-a");
         key(&view, cx, "second-b");
@@ -386,7 +389,7 @@ fn two_hosts_and_detach_do_not_deliver_old_paths(cx: &mut TestAppContext) {
         first.lock().replies.push_back(None);
         connect(&view, cx, first.clone(), Control::default(), "first");
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         wait(&view, cx, |_| first.lock().puts.len() == 1);
         if detach {
             view.update(cx, |this, _| this.detach_core());
@@ -430,7 +433,7 @@ fn queued_host_switch_closes_old_connection_without_stale_input_or_completion(
                 .clone()
         });
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "old-one");
         key(&view, cx, "old-two");
         key(&view, cx, "old-three");

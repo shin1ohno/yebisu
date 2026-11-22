@@ -10,6 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "reclaim.rs"]
+mod reclaim;
+
 #[gpui::test]
 fn resize_fits_the_painted_terminal_across_chrome_states(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
@@ -296,7 +299,7 @@ fn background_terminal_does_not_reclaim_geometry(cx: &mut TestAppContext) {
     case.assert_reclaim();
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum GeometryMessage {
     Resize(ClientSurfaceSize),
     Focus(bool),
@@ -339,14 +342,23 @@ fn reclaim_fixture(cx: &mut TestAppContext) -> (ReclaimFixture, &mut VisualTestC
 }
 
 fn draw_terminal(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    draw_terminal_at_height(view, cx, 600.);
+}
+
+fn draw_terminal_at_height(view: &Entity<Smoke>, cx: &mut VisualTestContext, height: f32) {
     let paint = view.update(cx, |this, cx| this.terminal_paint_callback(cx));
-    cx.draw(point(px(0.), px(0.)), size(px(800.), px(600.)), |_, _| {
+    cx.draw(point(px(0.), px(0.)), size(px(800.), px(height)), |_, _| {
         canvas(|_, _, _| (), paint).size_full()
     });
 }
 
 impl ReclaimFixture {
     fn draw_frame(&self, cx: &mut VisualTestContext, fewer_cols: u16, fewer_rows: u16) {
+        self.set_frame(cx, fewer_cols, fewer_rows);
+        draw_terminal(&self.view, cx);
+    }
+
+    fn set_frame(&self, cx: &mut VisualTestContext, fewer_cols: u16, fewer_rows: u16) {
         self.view.update(cx, |this, _| {
             let surface = this
                 .terminal
@@ -369,7 +381,6 @@ impl ReclaimFixture {
                 blank,
             );
         });
-        draw_terminal(&self.view, cx);
     }
 
     fn geometry_messages(&self) -> Vec<GeometryMessage> {

@@ -169,13 +169,9 @@ class P12QASourceTests(unittest.TestCase):
         self.assertNotIn("XCTWaiter", position + reveal)
         self.assertNotIn("applicationMenu.tap()", choose)
 
-    def test_menu_bar_press_reconciles_the_button_and_its_bar_with_the_screen(self):
-        swift = code(SWIFT)
-        calibration = body(swift, "private static func menuBarButtonFrame(")
-        self.assertIn("screenScale(bar.width, expected: screen.width)", calibration)
-        self.assertIn("screenScale(button.height, expected: barFrame.height)", calibration)
-        self.assertIn("button.applying(CGAffineTransform(scaleX: buttonScale, y: buttonScale))", calibration)
-        self.assertIn("barFrame.contains(buttonFrame)", calibration)
+    def test_runner_includes_the_executable_menu_bar_geometry_tests(self):
+        driver = (HERE / "p12-check.py").read_text()
+        self.assertIn('"-only-testing:P12Oracle/P12MenuBarGeometryTests"', driver)
 
     def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
         swift = code(SWIFT)
