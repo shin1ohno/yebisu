@@ -187,7 +187,7 @@ pub(crate) mod radius {
     /// Buttons, Settings items, segmented controls and Shortcuts rows
     /// (Main.dc.html:26, :115; Settings.dc.html:34, :56; Shortcuts.dc.html:39).
     pub(crate) const CONTROL: f32 = 8.;
-    /// Rail items and a segment's selected option (Rail.dc.html:26;
+    /// Rail items, compact panels and a segment's selected option (Rail.dc.html:26;
     /// Settings.dc.html:57).
     pub(crate) const RAIL_ITEM: f32 = 6.;
     /// The Needs you badge and the Error tag (Main.dc.html:63;
@@ -251,8 +251,14 @@ pub(crate) mod metric {
     pub(crate) const RING: f32 = 2.;
     /// Section heading rows (Main.dc.html:36, :88).
     pub(crate) const HEADING_ROW: f32 = 32.;
-    /// Space above the AGENTS heading (Main.dc.html:88).
-    pub(crate) const HEADING_GAP: f32 = 12.;
+    /// A 12 pt gap, including the space above the AGENTS heading (Main.dc.html:88).
+    pub(crate) const GAP: f32 = 12.;
+    pub(crate) const HEADING_GAP: f32 = GAP;
+    /// Compact inline and icon spacing.
+    pub(crate) const TIGHT_GAP: f32 = 6.;
+    /// Insets for chips and content within sheets or popovers.
+    pub(crate) const SMALL_INSET: f32 = 8.;
+    pub(crate) const INSET: f32 = 12.;
     /// Side inset of headings and AGENTS rows (Main.dc.html:36, :91).
     pub(crate) const SIDE: f32 = 16.;
     /// Gap between a dot and its text in host and AGENTS rows

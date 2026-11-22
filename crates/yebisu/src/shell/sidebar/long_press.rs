@@ -10,7 +10,7 @@ use crate::{
     app::Smoke,
     shell::{
         host_menus::{self, MenuEntry, MenuItemId, MenuScope},
-        style::{color, metric, radius, shadow},
+        style::{color, metric, radius, shadow, text},
     },
 };
 use gpui::{
@@ -104,9 +104,9 @@ impl Smoke {
             .id("sidebar-long-press")
             .w(px(MENU_WIDTH))
             .py_1()
-            .rounded(px(10.))
-            .bg(rgb(0x2b2933))
-            .text_color(rgb(0xd8dee9))
+            .rounded(px(radius::EDIT_BAR))
+            .bg(rgb(color::RAISED))
+            .text_color(rgb(color::TEXT))
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.shell.sidebar.long_press = None;
@@ -120,17 +120,18 @@ impl Smoke {
                         format!("sidebar-long-press-{}", item.name()).into(),
                     ))
                     .min_h(px(ITEM_HEIGHT))
-                    .px_3()
+                    .px(px(metric::INSET))
                     .flex()
                     .flex_col()
                     .justify_center()
-                    .text_color(rgb(if entry.enabled { 0xd8dee9 } else { 0x6b7080 }))
+                    .text_color(rgb(if entry.enabled { color::TEXT } else { 0x6b7080 }))
                     .child(host_menus::menu_item_label(item, &target))
-                    .children(
-                        entry
-                            .reason
-                            .map(|why| div().text_xs().text_color(rgb(0x9ca3af)).child(why)),
-                    )
+                    .children(entry.reason.map(|why| {
+                        div()
+                            .text_size(px(text::SECONDARY))
+                            .text_color(rgb(0x9ca3af))
+                            .child(why)
+                    }))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Err(e) = this.pick_long_press(item, window, cx) {
                             this.terminal.live.status = e.to_string();

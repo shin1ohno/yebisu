@@ -39,14 +39,14 @@ pub(super) struct StatusDetailScope {
     connected: bool,
 }
 // Main.dc.html:185–189 and Shortcuts.dc.html:66.
-const ICON_GAP: f32 = 6.;
+const ICON_GAP: f32 = metric::TIGHT_GAP;
 const SHORTCUTS_WIDTH: f32 = 104.;
 const SHORTCUTS_HEIGHT: f32 = 36.;
 /// The connection line at its shortest: a few characters and the ellipsis.
 const MIN_LINE_WIDTH: f32 = 96.0;
 /// Width per character of a 13 pt chip label, and a chip's `px_2` padding.
 const CHIP_CHAR_WIDTH: f32 = 7.0;
-const CHIP_PADDING: f32 = 16.0;
+const CHIP_PADDING: f32 = metric::SIDE;
 /// A docked keyboard taller than this is the software keyboard; the bar a
 /// hardware keyboard leaves at the bottom edge is shorter [inference].
 const SOFTWARE_KEYBOARD_MIN_HEIGHT: f32 = 120.0;
@@ -251,8 +251,8 @@ impl Smoke {
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap_3()
-                .px_3()
+                .gap(px(metric::GAP))
+                .px(px(metric::INSET))
                 .w_full()
                 .h(px(STATUS_BAR_HEIGHT))
                 .bg(rgb(color::SURFACE))
@@ -324,8 +324,8 @@ impl Smoke {
                             .left_3()
                             .bottom(px(STATUS_BAR_HEIGHT))
                             .max_w(px((layout.status_bar.width - BAR_PADDING).max(0.)))
-                            .px_3()
-                            .py_2()
+                            .px(px(metric::INSET))
+                            .py(px(metric::SMALL_INSET))
                             .bg(rgb(color::RAISED))
                             .rounded(px(radius::CONTROL))
                             .shadow(vec![shadow::POPOVER.box_shadow()])
@@ -416,7 +416,7 @@ fn chip(
         .h_full()
         .flex()
         .items_center()
-        .px_2()
+        .px(px(metric::SMALL_INSET))
         .whitespace_nowrap()
         .text_color(rgb(color::MUTED))
         .gap(px(ICON_GAP))

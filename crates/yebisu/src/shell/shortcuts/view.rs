@@ -22,7 +22,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, relative, rgb,
 };
 
-const ANCHOR_GAP: f32 = 12.;
+const ANCHOR_GAP: f32 = metric::GAP;
 const GROUP_HEADER_HEIGHT: f32 = 28.;
 const FOOTER_HEIGHT: f32 = 48.;
 // Shortcuts.dc.html:63.
@@ -33,14 +33,29 @@ const FOCUS_LABEL_LINE: f32 = 16.;
 pub(crate) const TITLE: &str = "Keyboard shortcuts";
 pub(crate) const CHANGE_IN_SETTINGS: &str = "Change in Settings › Input";
 
-/// "Command key: Local · Shortcut priority: App" (the canvas footer).
-pub(crate) fn settings_line(command_control: bool, terminal_priority: bool) -> String {
-    let command = if command_control { "Ctrl" } else { "Local" };
-    let priority = if terminal_priority { "Terminal" } else { "App" };
-    format!("Command key: {command} · Shortcut priority: {priority}")
-}
-
 impl Smoke {
+    pub(in crate::shell::shortcuts) fn shortcuts_settings_line(&self) -> String {
+        if self.actions.herdr_prefix {
+            let host = self.setup.host_name(&self.terminal.reconnect.target);
+            return if host.display().is_empty() {
+                "Shortcut style: Herdr prefix".into()
+            } else {
+                format!("Shortcut style: Herdr prefix · keys from {host}'s Herdr config")
+            };
+        }
+        let command = if self.terminal.input.options.command_control {
+            "Ctrl"
+        } else {
+            "Local"
+        };
+        let priority = if self.actions.terminal_priority {
+            "Terminal"
+        } else {
+            "App"
+        };
+        format!("Command key: {command} · Shortcut priority: {priority}")
+    }
+
     pub(crate) fn render_shortcuts_popover(
         &mut self,
         window: &mut Window,
@@ -63,10 +78,7 @@ impl Smoke {
                     .shortcut_notice(&self.terminal, self.actions.use_server_keybindings)
             })
             .flatten();
-        let footer = settings_line(
-            self.terminal.input.options.command_control,
-            self.actions.terminal_priority,
-        );
+        let footer = self.shortcuts_settings_line();
         // The top stays 16 pt below the window's top; the rows scroll.
         let max_height =
             (f32::from(viewport.height) - STATUS_BAR_HEIGHT - ANCHOR_GAP - POPOVER_MARGIN)
@@ -112,11 +124,11 @@ impl Smoke {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .px_3()
-            .pb_2()
+            .px(px(metric::INSET))
+            .pb(px(metric::SMALL_INSET))
             .flex()
             .when(columns == 1, |view| view.flex_col())
-            .gap_x_4()
+            .gap_x(px(metric::SIDE))
             .children(columns_of);
         let popover = div()
             .id("shell-shortcuts-popover")
@@ -127,7 +139,7 @@ impl Smoke {
             .max_h(px(max_height))
             .flex()
             .flex_col()
-            .pt_4()
+            .pt(px(metric::SIDE))
             .rounded(px(radius::POPOVER))
             .shadow(vec![shadow::POPOVER.box_shadow()])
             .bg(rgb(color::RAISED))
@@ -138,12 +150,12 @@ impl Smoke {
             .child(
                 div()
                     .px_5()
-                    .pb_3()
+                    .pb(px(metric::INSET))
                     .flex()
                     .flex_wrap()
                     .items_baseline()
                     .justify_between()
-                    .gap_x_4()
+                    .gap_x(px(metric::SIDE))
                     .child(
                         div()
                             .text_size(px(text::SHEET_TITLE))
@@ -163,7 +175,7 @@ impl Smoke {
             .children(notice.map(|message| {
                 div()
                     .px_5()
-                    .pb_2()
+                    .pb(px(metric::SMALL_INSET))
                     .text_size(px(text::SECONDARY))
                     .text_color(rgb(color::MUTED))
                     .child(message)
@@ -183,7 +195,7 @@ impl Smoke {
                     .px_5()
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(metric::INLINE_GAP))
                     .border_t_1()
                     .border_color(rgb(color::SEPARATOR))
                     .text_size(px(text::SECONDARY))
@@ -193,7 +205,7 @@ impl Smoke {
                     .child(
                         div()
                             .id("shell-shortcuts-settings")
-                            .h(px(44.))
+                            .h(px(metric::TOUCH))
                             .px_1()
                             .flex()
                             .items_center()
@@ -239,11 +251,11 @@ impl Smoke {
             .id(gpui::ElementId::Name(format!("shell-shortcut-{id}").into()))
             .h(px(ROW_HEIGHT))
             .w(relative(1.))
-            .px_2()
+            .px(px(metric::SMALL_INSET))
             .flex()
             .items_center()
             .justify_between()
-            .gap_2()
+            .gap(px(metric::INLINE_GAP))
             .rounded(px(radius::CONTROL))
             .text_color(rgb(if enabled {
                 color::TEXT

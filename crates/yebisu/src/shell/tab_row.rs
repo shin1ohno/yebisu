@@ -36,7 +36,7 @@ pub(crate) const MAX_TAB_WIDTH: f32 = 240.0;
 /// The refusal while the host is suspended or speaks another version.
 pub(crate) const HOST_UNAVAILABLE: &str = "Host unavailable or command pending";
 /// Left padding before a tab's label.
-const TAB_PADDING: f32 = 12.0;
+const TAB_PADDING: f32 = metric::INSET;
 // Rail.dc.html:64 and :66.
 const SPACE_SWITCHER_WIDTH: f32 = 180.0;
 const SPACE_PICKER_MAX_HEIGHT: f32 = 288.0;

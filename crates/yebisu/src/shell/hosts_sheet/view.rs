@@ -28,8 +28,8 @@ const BODY_GAP: f32 = 20.;
 // AddHost.dc.html:41–45
 const BADGE_SIZE: f32 = 24.;
 const STEP_INDENT: f32 = 34.;
-const KEY_PADDING_Y: f32 = 10.;
-const KEY_PADDING_X: f32 = 12.;
+const KEY_PADDING_Y: f32 = metric::ROW_GAP;
+const KEY_PADDING_X: f32 = metric::INSET;
 // AddHost.dc.html:61–62
 pub(super) const HOST_CONTROL_HEIGHT: f32 = 48.;
 // AddHost.dc.html:64
@@ -55,7 +55,7 @@ pub(super) fn button(
         .role(Role::Button)
         .aria_label(label.clone())
         .min_h(px(metric::TOUCH))
-        .px_4()
+        .px(px(metric::SIDE))
         .flex()
         .items_center()
         .justify_center()
@@ -164,7 +164,12 @@ impl Smoke {
         let sidebar_width = SIDEBAR_WIDTH.min(f32::from(window.viewport_size().width));
         let hosts = self.setup.hosts.clone();
         let selected = self.setup.target.clone();
-        let mut list = div().id("first-run-hosts").flex().flex_col().gap_1().p_2();
+        let mut list = div()
+            .id("first-run-hosts")
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p(px(metric::SMALL_INSET));
         for (index, host) in hosts.into_iter().enumerate() {
             let target = host.clone();
             let label = self
@@ -196,13 +201,13 @@ impl Smoke {
             .child(
                 div()
                     .h(px(44.))
-                    .px_3()
+                    .px(px(metric::INSET))
                     .flex()
                     .items_center()
                     .justify_between()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(text::SECONDARY))
                             .text_color(rgb(color::MUTED))
                             .font_weight(weight::SEMIBOLD)
                             .child("HOSTS"),
@@ -218,10 +223,10 @@ impl Smoke {
             )
             .child(
                 div()
-                    .p_2()
+                    .p(px(metric::SMALL_INSET))
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(metric::INLINE_GAP))
                     .child(
                         button("first-run-add-host", "Add host", !self.setup.busy, true).on_click(
                             cx.listener(|this, _, _, cx| {
@@ -322,7 +327,7 @@ impl Smoke {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .px_2()
+            .px(px(metric::SMALL_INSET))
             .border_b_1()
             .border_color(rgb(color::RAISED))
             .child(div().w(px(104.)).flex().justify_start().child(left))
@@ -437,7 +442,11 @@ impl Smoke {
 
     fn hosts_list_sheet(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.setup.busy;
-        let mut rows = div().id("hosts-rows").flex().flex_col().gap_2();
+        let mut rows = div()
+            .id("hosts-rows")
+            .flex()
+            .flex_col()
+            .gap(px(metric::INLINE_GAP));
         let hosts = self.setup.hosts.clone();
         if hosts.is_empty() {
             rows = rows.child(div().text_color(rgb(color::MUTED)).child("No hosts yet."));
@@ -462,7 +471,7 @@ impl Smoke {
                     .id(("hosts-row", index))
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(metric::INLINE_GAP))
                     .child(div().flex_1().min_w_0().overflow_hidden().child(label))
                     .child(
                         button(format!("host-open-{index}"), HOST_OPEN_LABEL, !busy, true)
@@ -480,7 +489,7 @@ impl Smoke {
                     ),
             );
         }
-        let mut developer = div().flex().flex_col().gap_2();
+        let mut developer = div().flex().flex_col().gap(px(metric::INLINE_GAP));
         for label in developer_items(DEVELOPER_BUTTONS) {
             developer = developer.child(button(label, label, !busy, false).on_click(cx.listener(
                 move |this, _, window, cx| {
@@ -519,15 +528,15 @@ impl Smoke {
                     .id("hosts-list-body")
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p_4()
+                    .p(px(metric::SIDE))
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap(px(metric::SIDE))
                     .child(rows)
                     .child(
                         div()
                             .id("setup-status")
-                            .text_sm()
+                            .text_size(px(text::NAME))
                             .text_color(rgb(color::MUTED))
                             .child(self.setup.status.clone()),
                     )
@@ -554,7 +563,7 @@ impl Smoke {
             .flex_1()
             .min_w_0()
             .h(px(HOST_CONTROL_HEIGHT))
-            .px_3()
+            .px(px(metric::INSET))
             .flex()
             .items_center()
             .overflow_hidden()
@@ -608,9 +617,15 @@ impl Smoke {
             .ml(px(STEP_INDENT))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(metric::INLINE_GAP))
             .child(div().text_color(rgb(color::MUTED)).child("Host"))
-            .child(div().flex().gap_2().child(field).child(scan_control));
+            .child(
+                div()
+                    .flex()
+                    .gap(px(metric::INLINE_GAP))
+                    .child(field)
+                    .child(scan_control),
+            );
         if self.nearby_needs_username() {
             check = check.child(
                 div()
@@ -646,7 +661,7 @@ impl Smoke {
                     .py(px(KEY_PADDING_X))
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(metric::INLINE_GAP))
                     .rounded(px(radius::CARD))
                     .border_1()
                     .border_color(rgb(color::RAISED))
@@ -665,7 +680,7 @@ impl Smoke {
                         div()
                             .flex()
                             .justify_end()
-                            .gap_2()
+                            .gap(px(metric::INLINE_GAP))
                             .child(
                                 button("host-reject", "Not this host", !trusting, false)
                                     .bg(gpui::transparent_black())
@@ -783,10 +798,10 @@ impl Smoke {
             .flex()
             .flex_col()
             .gap_1()
-            .p_3()
+            .p(px(metric::INSET))
             .rounded(px(radius::CONTROL))
             .border_1()
-            .border_color(rgb(0xbf616a))
+            .border_color(rgb(color::RED))
             .children(lines.into_iter().map(|line| div().child(line)))
             .into_any_element()
     }

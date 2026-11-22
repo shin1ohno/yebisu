@@ -1,7 +1,7 @@
 //! The canvas' TABS / PANES / APP groups and the footer line.
-use super::super::view::settings_line;
 use super::super::*;
 use super::support::{connected, terminal};
+use gpui::{AppContext as _, TestAppContext};
 use sheprd_commands::Command;
 
 #[test]
@@ -31,16 +31,31 @@ fn rows_are_grouped_like_the_canvas() {
     assert_eq!(group_of(Command::ToggleSidebar), Some(ShortcutGroup::App));
 }
 
-#[test]
-fn footer_shows_command_key_and_priority() {
-    assert_eq!(
-        settings_line(false, false),
-        "Command key: Local · Shortcut priority: App"
-    );
-    assert_eq!(
-        settings_line(true, true),
-        "Command key: Ctrl · Shortcut priority: Terminal"
-    );
+#[gpui::test]
+fn footer_shows_settings_for_each_shortcut_style(cx: &mut TestAppContext) {
+    let view = cx.new(Smoke::new);
+    view.update(cx, |this, _| {
+        this.actions.herdr_prefix = false;
+        this.terminal.input.options.command_control = false;
+        this.actions.terminal_priority = false;
+        assert_eq!(
+            this.shortcuts_settings_line(),
+            "Command key: Local · Shortcut priority: App"
+        );
+        this.terminal.input.options.command_control = true;
+        this.actions.terminal_priority = true;
+        assert_eq!(
+            this.shortcuts_settings_line(),
+            "Command key: Ctrl · Shortcut priority: Terminal"
+        );
+
+        this.actions.herdr_prefix = true;
+        this.terminal.reconnect.target = "user@pro-dev.home.local".into();
+        assert_eq!(
+            this.shortcuts_settings_line(),
+            "Shortcut style: Herdr prefix · keys from pro-dev's Herdr config"
+        );
+    });
 }
 
 #[test]

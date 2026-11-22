@@ -13,6 +13,7 @@
 //! tracks rebuilding it as a UIKit text-input target with IME support.
 use super::sidebar::{AgentRow, model::AgentLine};
 use crate::app::Smoke;
+use crate::shell::style::{color, metric};
 use gpui::{AnyElement, Context, Role, div, prelude::*, px, rgb};
 
 /// Label of the button that clears an active filter.
@@ -111,10 +112,10 @@ impl Smoke {
                 .role(Role::Button)
                 .aria_label(CLEAR_LABEL)
                 .min_h(px(44.))
-                .px_3()
+                .px(px(metric::INSET))
                 .flex()
                 .items_center()
-                .text_color(rgb(0x88c0d0))
+                .text_color(rgb(color::ACCENT))
                 .child(CLEAR_LABEL)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.clear_sidebar_filter();

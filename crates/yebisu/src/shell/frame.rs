@@ -95,7 +95,11 @@ pub(crate) const COLUMN_ORDER: [ColumnSlot; 6] = [
 ];
 
 fn rule() -> gpui::Div {
-    div().flex_none().w_full().h(px(RULE)).bg(rgb(0x2b2933))
+    div()
+        .flex_none()
+        .w_full()
+        .h(px(RULE))
+        .bg(rgb(color::RAISED))
 }
 
 impl Smoke {
@@ -246,8 +250,13 @@ impl Smoke {
                 - layout.tab_row.right())
             .max(0.0)))
             .when_some(sidebar, |view, sidebar| {
-                view.child(sidebar)
-                    .child(div().flex_none().h_full().w(px(RULE)).bg(rgb(0x2b2933)))
+                view.child(sidebar).child(
+                    div()
+                        .flex_none()
+                        .h_full()
+                        .w(px(RULE))
+                        .bg(rgb(color::RAISED)),
+                )
             })
             .child(column);
         if layout.key_band.is_none() {
@@ -259,8 +268,8 @@ impl Smoke {
             .flex()
             .flex_col()
             .pb(px(window_bottom_inset(&layout, window)))
-            .bg(rgb(0x101419))
-            .text_color(rgb(0xd8dee9))
+            .bg(rgb(color::BACKGROUND))
+            .text_color(rgb(color::TEXT))
             .child(columns)
             .when_some(layout.key_band, |frame, band| {
                 let pager = self.render_pane_pager(cx);

@@ -1,7 +1,7 @@
 use crate::{
     hosts::MAX_HOST_NAME_BYTES,
     input::Input,
-    shell::style::{color, radius, text},
+    shell::style::{color, metric, radius, text},
 };
 use gpui::{prelude::*, *};
 use std::ops::Range;
@@ -199,7 +199,7 @@ impl Render for NameField {
             .debug_selector(|| "host-name-field".into())
             .track_focus(&self.focus)
             .h(px(super::view::HOST_CONTROL_HEIGHT))
-            .px_3()
+            .px(px(metric::INSET))
             .rounded(px(radius::CONTROL))
             .border_1()
             .border_color(rgb(color::RAISED))

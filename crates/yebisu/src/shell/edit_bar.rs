@@ -30,7 +30,7 @@ pub(crate) const COPY_ONE_LINE_LABEL: &str = "Copy as One Line";
 const PASTE_WIDTH: f32 = 68.0;
 const PASTE_IMAGE_WIDTH: f32 = 112.0;
 // Selection.dc.html:84.
-const BAR_MARGIN: f32 = 10.0;
+const BAR_MARGIN: f32 = metric::ROW_GAP;
 const BAR_TOP: f32 = 4.0;
 
 #[derive(Debug, Default)]

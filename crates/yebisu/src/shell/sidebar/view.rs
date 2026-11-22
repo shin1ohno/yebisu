@@ -28,9 +28,9 @@ pub(crate) const AGENTS_HEADING: &str = "AGENTS";
 
 // Main.dc.html:25, :52, :66, :101. ModsMax.dc.html:85.
 const HEADER_GAP: f32 = 4.;
-const SPACE_TRAILING: f32 = 12.;
-const SPACE_LINE_GAP: f32 = 2.;
-const NEEDS_BADGE_PADDING: f32 = 6.;
+const SPACE_TRAILING: f32 = metric::INSET;
+const SPACE_LINE_GAP: f32 = metric::SEGMENT_INSET;
+const NEEDS_BADGE_PADDING: f32 = metric::TIGHT_GAP;
 const ERROR_BADGE_PADDING: f32 = 5.;
 const PINNED_TRAILING: f32 = 36.;
 
