@@ -2,12 +2,41 @@ use super::*;
 use crate::{
     layout::{Rect, Size},
     mock_peer,
-    shell::fit,
+    shell::{add_host::SheetMode, fit},
     terminal::InputTarget,
 };
-use gpui::{ClipboardItem, Edges, TestAppContext, VisualTestContext, WindowInsets, size};
+use gpui::{
+    AnyWindowHandle, App, ClipboardItem, Edges, EntityInputHandler, Global, TestAppContext,
+    VisualTestContext, WindowInsets, size,
+};
 use sheprd_client::protocol::{ClientKeyCode, ClientKeyKind, ClientMessage, ClientPaneInputEvent};
 use std::time::{Duration, Instant};
+
+#[derive(Default)]
+struct Dismissals(std::cell::RefCell<Vec<AnyWindowHandle>>);
+
+impl Global for Dismissals {}
+
+// GPUI's test platform keeps its dismissal counter private to the crate.
+pub(super) fn observe_dismissal(dismiss: fn(&Window), cx: &App) -> impl FnOnce(&Window) + '_ {
+    move |window| {
+        dismiss(window);
+        if let Some(dismissals) = cx.try_global::<Dismissals>() {
+            dismissals.0.borrow_mut().push(window.window_handle());
+        }
+    }
+}
+
+fn record_dismissals(cx: &mut VisualTestContext) -> AnyWindowHandle {
+    cx.update(|window, app| {
+        app.set_global(Dismissals::default());
+        window.window_handle()
+    })
+}
+
+fn assert_dismissals(cx: &mut VisualTestContext, expected: &[AnyWindowHandle]) {
+    cx.update(|_, app| assert_eq!(app.global::<Dismissals>().0.borrow().as_slice(), expected));
+}
 
 fn destination() -> Destination {
     Destination {
@@ -84,6 +113,23 @@ fn toggling_twice_and_switching_destination_both_clear_the_latch() {
         [Some(commit("x")), None]
     );
     assert!(!state.is_armed());
+}
+
+#[test]
+fn a_committed_control_character_consumes_the_latch_without_reencoding() {
+    for (modifier, text) in [(Action::Control, "\n"), (Action::Alt, "\t")] {
+        let mut state = State::default();
+        state.toggle(modifier, destination());
+        assert_eq!(
+            apply_latch(&mut state, commit(text), true),
+            [Some(commit(text)), None]
+        );
+        assert_eq!(
+            apply_latch(&mut state, commit("a"), true),
+            [Some(commit("a")), None]
+        );
+        assert!(!state.is_armed());
+    }
 }
 
 fn insets(keyboard: f32, left: f32) -> WindowInsets {
@@ -287,6 +333,16 @@ fn taps_use_semantic_input_on_the_current_peer(cx: &mut TestAppContext) {
     cx.simulate_input("a");
     assert_eq!(received(&replies), commit("a").event);
 
+    tap(cx, "key-band-ctrl");
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            app.replace_text_in_range(None, "\n", window, cx);
+        });
+    });
+    assert_eq!(received(&replies), commit("\n").event);
+    cx.simulate_input("a");
+    assert_eq!(received(&replies), commit("a").event);
+
     cx.write_to_clipboard(ClipboardItem::new_string("key band paste".into()));
     tap(cx, "key-band-paste");
     cx.run_until_parked();
@@ -297,6 +353,66 @@ fn taps_use_semantic_input_on_the_current_peer(cx: &mut TestAppContext) {
 
     tap(cx, "key-band-alt");
     assert!(view.update(cx, |app, _| app.shell.frame.key_band.is_armed()));
+    let window = record_dismissals(cx);
     tap(cx, "key-band-hide");
+    assert_dismissals(cx, &[window]);
     assert!(!view.update(cx, |app, _| app.shell.frame.key_band.is_armed()));
+}
+
+#[gpui::test]
+fn hide_dismisses_the_keyboard_over_settings(cx: &mut TestAppContext) {
+    hide_over_sheet(cx, "settings-overlay", |app, window, cx| {
+        app.begin_settings_modal(window, cx);
+    });
+}
+
+#[gpui::test]
+fn hide_dismisses_the_keyboard_over_add_host(cx: &mut TestAppContext) {
+    hide_over_sheet(cx, "hosts-overlay", |app, window, cx| {
+        app.open_hosts(cx);
+        app.shell.hosts_sheet.open_add(SheetMode::Add, "");
+        app.hand_keys_to_sheet(window, cx);
+    });
+}
+
+fn hide_over_sheet(
+    cx: &mut TestAppContext,
+    overlay: &'static str,
+    open: impl FnOnce(&mut Smoke, &mut Window, &mut Context<Smoke>),
+) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1376.), px(1032.)));
+    let (client, _) = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
+    view.update(cx, |app, _| install(app, client));
+    wait_for_terminal(&view, cx);
+    let window = record_dismissals(cx);
+    cx.update(|window, app| view.update(app, |app, cx| open(app, window, cx)));
+    set_insets(&view, cx, 498., false);
+    let scrim = cx
+        .debug_bounds(overlay)
+        .unwrap_or_else(|| panic!("{overlay} is absent"));
+    let hide = cx
+        .debug_bounds("key-band-hide")
+        .unwrap_or_else(|| panic!("Hide is absent"));
+    assert!(scrim.contains(&hide.center()));
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            assert!(app.input_modal());
+            app.shell
+                .frame
+                .key_band
+                .toggle(Action::Control, destination());
+            app.press_key_band(Action::Key("tab"), window, cx);
+            assert!(app.shell.frame.key_band.is_armed());
+            app.press_key_band(Action::Paste, window, cx);
+            assert!(app.shell.frame.key_band.is_armed());
+        });
+    });
+    assert_dismissals(cx, &[]);
+    tap(cx, "key-band-hide");
+    assert_dismissals(cx, &[window]);
+    view.update(cx, |app, _| {
+        assert!(app.input_modal());
+        assert!(!app.shell.frame.key_band.is_armed());
+    });
 }

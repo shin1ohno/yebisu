@@ -7,8 +7,8 @@ use crate::{
     terminal_input::{Destination, GeneratedInput},
 };
 use gpui::{
-    AnyElement, Context, Div, KeyDownEvent, Keystroke, Modifiers, MouseButton, PathBuilder, Role,
-    Stateful, Window, canvas, div, point, prelude::*, px, rgb,
+    AnyElement, AvailableSpace, Context, Div, KeyDownEvent, Keystroke, Modifiers, MouseButton,
+    PathBuilder, Role, Stateful, Window, canvas, div, point, prelude::*, px, rgb,
 };
 
 #[cfg(not(test))]
@@ -247,18 +247,14 @@ fn group(app: &Smoke, keys: &'static [Key], cx: &mut Context<Smoke>) -> Div {
         .children(keys.iter().map(|key| button(app, key, cx)))
 }
 
-fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<Div> {
+fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> AnyElement {
     let pressed = app
         .shell
         .frame
         .key_band
         .pressed(key.action, app.terminal.input.destination.as_ref());
     let action = key.action;
-    div()
-        .id(key.id)
-        .debug_selector(move || key.id.into())
-        .role(Role::Button)
-        .aria_label(key.accessibility_label)
+    let face = div()
         .flex()
         .flex_none()
         .w(px(key.width))
@@ -268,7 +264,6 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<D
         .justify_center()
         .text_size(px(KEY_TEXT))
         .text_color(rgb(color::TEXT))
-        .cursor_pointer()
         .when(pressed, |button| {
             button
                 .bg(rgb(color::ACCENT))
@@ -279,7 +274,25 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<D
             action == Action::Hide,
             |button| button.child(hide_icon()),
             |button| button.child(key.label),
-        )
+        );
+    if action == Action::Hide && app.input_modal() {
+        let target = bind_button(div().occlude(), key, cx);
+        face.relative()
+            .child(hide_above_sheet(target))
+            .into_any_element()
+    } else {
+        bind_button(face, key, cx).into_any_element()
+    }
+}
+
+fn bind_button(button: Div, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<Div> {
+    let action = key.action;
+    button
+        .id(key.id)
+        .debug_selector(move || key.id.into())
+        .role(Role::Button)
+        .aria_label(key.accessibility_label)
+        .cursor_pointer()
         .on_mouse_down(MouseButton::Left, |_, window, cx| {
             window.prevent_default();
             cx.stop_propagation();
@@ -288,6 +301,28 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<D
             cx.stop_propagation();
             app.press_key_band(action, window, cx);
         }))
+}
+
+fn hide_above_sheet(target: Stateful<Div>) -> impl IntoElement {
+    canvas(
+        move |bounds, window, cx| {
+            // Raise only the hit target over the scrim. Respect the key row's
+            // scroll clip so an offscreen Hide cannot intercept sheet input.
+            let visible = bounds.intersect(&window.content_mask().bounds);
+            if visible.is_empty() {
+                return;
+            }
+            let mut target = target
+                .w(visible.size.width)
+                .h(visible.size.height)
+                .into_any_element();
+            target.layout_as_root(visible.size.map(AvailableSpace::Definite), window, cx);
+            window.defer_draw(target, visible.origin, 0, None);
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
+    .inset_0()
 }
 
 fn hide_icon() -> impl IntoElement {
@@ -357,11 +392,12 @@ pub(crate) fn apply_latch(
     let Some(ch) = chars.next() else {
         return [Some(input), None];
     };
-    if ch.is_control() || chars.next().is_some() {
+    if chars.next().is_some() {
         return [Some(input), None];
     }
     let modifiers = state.take(&input.destination);
-    if !modifiers.alt && !modifiers.control {
+    // A committed control character spends the latch and keeps its original bytes.
+    if ch.is_control() || (!modifiers.alt && !modifiers.control) {
         return [Some(input), None];
     }
     let key = if ch == ' ' { "space" } else { text.as_str() };
@@ -386,18 +422,21 @@ pub(crate) fn apply_latch(
 
 impl Smoke {
     fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        if action == Action::Hide {
+            self.shell.frame.key_band.clear();
+            let dismiss = Window::dismiss_virtual_keyboard;
+            #[cfg(test)]
+            let dismiss = tests::observe_dismissal(dismiss, cx);
+            dismiss(window);
+            cx.notify();
+            return;
+        }
         if self.input_modal()
             || self.find.is_some()
             || self.find_handoff.paused
             || self.actions.palette
             || self.shell.shortcuts.open
         {
-            return;
-        }
-        if action == Action::Hide {
-            self.shell.frame.key_band.clear();
-            window.dismiss_virtual_keyboard();
-            cx.notify();
             return;
         }
         if !self.terminal_focus.is_focused(window) || self.shell.fit.too_small.is_some() {
