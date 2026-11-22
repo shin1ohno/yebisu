@@ -5,7 +5,11 @@ use crate::{
     handoff_ticket::{PasteTicket, Queued},
 };
 use std::{
-    sync::{Arc, Mutex, mpsc::Receiver},
+    cell::Cell,
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, Sender},
+    },
     task::Poll,
     time::Duration,
 };
@@ -19,7 +23,13 @@ pub(crate) fn outcome(
     let shared = Arc::new(Mutex::new((None, None::<std::task::Waker>, false)));
     PENDING.with(|pending| pending.borrow_mut().push(shared.clone()));
     let worker = shared.clone();
+    let start_timeout = TIMEOUT_START.with(Cell::take);
     std::thread::spawn(move || {
+        if let Some(start) = start_timeout {
+            start
+                .recv_timeout(Duration::from_secs(30))
+                .unwrap_or_else(|e| panic!("start timeout: {e}"));
+        }
         let hooks = ticket.test.clone();
         let result = crate::core_paste_view::await_outcome(receive, ticket, timeout);
         hooks.ui_completion.pass();
@@ -61,4 +71,14 @@ pub(crate) fn pump() {
             true
         })
     });
+}
+
+thread_local! { static TIMEOUT_START: Cell<Option<Receiver<()>>> = const { Cell::new(None) }; }
+
+// Hold the real outcome receiver until the fixture observes the delivery phase
+// it wants to time out. Only the test worker's start time is controlled here.
+pub(super) fn defer_outcome_timeout() -> Sender<()> {
+    let (start, wait) = mpsc::channel();
+    TIMEOUT_START.with(|slot| assert!(slot.replace(Some(wait)).is_none()));
+    start
 }
