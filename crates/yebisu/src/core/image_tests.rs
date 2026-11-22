@@ -31,13 +31,22 @@ fn clipboard(cx: &mut TestAppContext, both: bool) {
 }
 #[track_caller]
 fn wait(view: &Entity<Smoke>, cx: &mut TestAppContext, mut ready: impl FnMut(&Smoke) -> bool) {
+    wait_for(view, cx, |this, _| ready(this));
+}
+
+#[track_caller]
+fn wait_for(
+    view: &Entity<Smoke>,
+    cx: &mut TestAppContext,
+    mut ready: impl FnMut(&mut Smoke, &mut gpui::Context<Smoke>) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         super::paste_test_support::pump();
         cx.run_until_parked();
         if view.update(cx, |this, cx| {
             this.poll_terminal(cx);
-            ready(this)
+            ready(this, cx)
         }) {
             return;
         }
@@ -63,58 +72,51 @@ fn connect(
         this.terminal.open = false;
         this.connect_core_using(cx, move |_| Ok(backend));
     });
-    wait(view, cx, |this| {
-        this.terminal.live.connected && this.terminal.live.surface.is_some()
-    });
-    view.update(cx, |this, _| {
-        this.terminal.size = None;
+    wait_for(view, cx, |this, _| {
+        this.terminal.live.connected && input_frame_ready(this)
     });
 }
 fn start(view: &Entity<Smoke>, cx: &mut TestAppContext, image_only: bool) {
     view.update(cx, |this, cx| this.start_paste(image_only, cx));
 }
-/// Starts a paste only once start_paste can admit it. Its admission check reads
-/// two states other threads settle after the peer has already recorded the
-/// previous input: the SDK writer marks the path's write gate Written after the
-/// write returns, and the core worker holds the inbox while it publishes the
-/// echo, which start_paste only try_locks. Wait for the gate, park the worker
-/// between commands, then start, and fail at once if the gesture is refused.
+// Observe the mailbox and the latest resize in the same UI update as the
+// gesture. A connected frame can belong to the previous viewport.
+fn input_frame_ready(this: &mut Smoke) -> bool {
+    let terminal = &mut this.terminal;
+    let Ok(live) = terminal.link.inbox.try_lock() else {
+        return false;
+    };
+    terminal
+        .input
+        .sync(&live, terminal.link.generation, terminal.size);
+    terminal.input.ready
+}
+
+#[track_caller]
 fn admit(view: &Entity<Smoke>, cx: &mut TestAppContext, image_only: bool) {
-    wait(view, cx, |this| {
-        this.handoff
-            .core_ticket
-            .as_ref()
-            .is_none_or(|ticket| ticket.is_finished())
-    });
-    let (entered, arrived) = std::sync::mpsc::sync_channel(1);
-    let (release, resume) = std::sync::mpsc::sync_channel(1);
-    view.update(cx, |this, _| {
-        this.terminal
-            .core
-            .as_ref()
-            .unwrap_or_else(|| panic!("core"))
-            .send(crate::core::Command::PauseInput(
-                crate::handoff::PublicationGate {
-                    entered,
-                    release: resume,
-                },
-            ))
-            .unwrap_or_else(|e| panic!("pause: {e}"));
-    });
-    arrived
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or_else(|e| panic!("park: {e}"));
-    let (reads, status) = view.update(cx, |this, cx| {
+    wait_for(view, cx, |this, cx| {
+        if !input_frame_ready(this)
+            || this.handoff.workers != 0
+            || this
+                .handoff
+                .core_ticket
+                .as_ref()
+                .is_some_and(|ticket| !ticket.is_finished())
+        {
+            return false;
+        }
         let before = this.handoff.clipboard_reads;
         this.start_paste(image_only, cx);
-        (
+        assert_eq!(
             this.handoff.clipboard_reads - before,
-            this.terminal.live.status.clone(),
-        )
+            1,
+            "paste not admitted, status={}",
+            this.terminal.live.status
+        );
+        true
     });
-    release.send(()).unwrap_or_else(|e| panic!("resume: {e}"));
-    assert_eq!(reads, 1, "paste not admitted, status={status}");
 }
+
 fn key(view: &Entity<Smoke>, cx: &mut TestAppContext, text: &str) {
     view.update(cx, |this, _| {
         let destination = this
@@ -192,7 +194,7 @@ fn pending_put_holds_keys_fifo_and_refuses_double_tap(cx: &mut TestAppContext) {
     probe.lock().replies.push_back(None);
     connect(&view, cx, probe.clone(), Control::default(), "fifo");
     clipboard(cx, false);
-    start(&view, cx, true);
+    admit(&view, cx, true);
     wait(&view, cx, |_| probe.lock().puts.len() == 1);
     for text in ["a", "b", "c"] {
         key(&view, cx, text);
@@ -238,20 +240,27 @@ fn refused_and_invalid_puts_release_slot_discard_keys_and_allow_new_paste(cx: &m
     for reply in replies.into_iter().chain(errors) {
         let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
         let probe = Probe::default();
-        probe.lock().replies.push_back(Some(reply));
+        probe.lock().replies.push_back(None);
         connect(&view, cx, probe.clone(), Control::default(), "failure");
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "discard");
+        assert_eq!(view.update(cx, |this, _| this.handoff.held.len()), 1);
+        wait(&view, cx, |_| probe.lock().puts.len() == 1);
+        probe.lock().releases.push((0, reply));
         wait(&view, cx, |this| this.handoff.workers == 0);
         assert!(inputs(&probe).is_empty());
-        assert_eq!(probe.lock().puts.len(), 1);
         assert!(view.update(cx, |this, _| this.handoff.held.is_empty()));
-        start(&view, cx, true);
+
+        admit(&view, cx, true);
         wait(&view, cx, |this| {
-            this.handoff.workers == 0 && probe.lock().inputs.len() == 1
+            this.handoff.workers == 0 && !probe.lock().inputs.is_empty()
         });
         assert_eq!(probe.lock().puts.len(), 2);
+        assert_eq!(
+            inputs(&probe),
+            [br"/state\ with\ space/paste-1.png".to_vec()]
+        );
     }
 }
 
@@ -269,13 +278,13 @@ fn optional_method_and_injected_busy_fail_without_retry(cx: &mut TestAppContext)
         hooks.input_busy.store(mode == 2, Ordering::Release);
         view.update(cx, |this, _| this.handoff.core_test = Some(hooks));
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "discard");
         wait(&view, cx, |this| this.handoff.workers == 0);
         assert!(inputs(&probe).is_empty());
         assert_eq!(probe.lock().puts.len(), usize::from(mode == 2));
         if mode != 0 {
-            start(&view, cx, true);
+            admit(&view, cx, true);
             wait(&view, cx, |this| {
                 this.handoff.workers == 0 && probe.lock().inputs.len() == 1
             });
@@ -383,7 +392,10 @@ fn empty_corrupt_unsupported_and_excess_pixel_images_are_refused() {
 
 #[gpui::test]
 fn command_v_with_only_image_uses_the_full_machine_address(cx: &mut TestAppContext) {
-    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    use gpui::AppContext as _;
+
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
     let probe = Probe::default();
     let (backend, _) =
         core_mock::named(probe.clone(), "machine/t7").unwrap_or_else(|e| panic!("peer:{e}"));
@@ -391,12 +403,13 @@ fn command_v_with_only_image_uses_the_full_machine_address(cx: &mut TestAppConte
         this.setup_input.text = "remote".into();
         this.connect_core_using(cx, move |_| Ok(backend));
     });
-    wait(&view, cx, |this| this.terminal.live.connected);
+    wait(&view, cx, |this| {
+        this.terminal.input.ready && this.handoff.stamp.is_some()
+    });
     clipboard(cx, false);
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);
-            this.terminal.size = None;
             let key = gpui::Keystroke {
                 key: "v".into(),
                 key_char: Some("v".into()),

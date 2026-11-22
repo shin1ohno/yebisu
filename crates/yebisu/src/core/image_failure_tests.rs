@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::{Command, Session};
+use gpui::AppContext;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64},
     mpsc,
@@ -21,7 +22,7 @@ fn acquisition_failure_never_reserves_or_calls_put(cx: &mut TestAppContext) {
                 .map(|_| Payload::Image(Vec::new())),
             )
         });
-        start(&view, cx, image_only);
+        admit(&view, cx, image_only);
         view.update(cx, |this, _| {
             assert_eq!(this.handoff.workers, 0);
             assert_eq!(this.terminal.live.status, "Paste exceeds acquisition limit");
@@ -33,7 +34,8 @@ fn acquisition_failure_never_reserves_or_calls_put(cx: &mut TestAppContext) {
 #[gpui::test]
 fn queue_full_and_dropped_reply_release_ui_slot(cx: &mut TestAppContext) {
     for full in [true, false] {
-        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        // Only the upload belongs on the substitute queue.
+        let view = cx.new(Smoke::new);
         let probe = Probe::default();
         connect(&view, cx, probe.clone(), Control::default(), "queue");
         let (queue, receive) = mpsc::sync_channel(1);
@@ -57,37 +59,60 @@ fn queue_full_and_dropped_reply_release_ui_slot(cx: &mut TestAppContext) {
                 finished: Arc::new(AtomicBool::new(false)),
             })
         });
-        let waiter = if !full {
-            Some(std::thread::spawn(move || {
-                let _command = receive.recv_timeout(Duration::from_secs(30));
-            }))
-        } else {
-            None
-        };
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "discard");
-        wait(&view, cx, |this| this.handoff.workers == 0);
+        assert_eq!(view.update(cx, |this, _| this.handoff.held.len()), 1);
+        if full {
+            wait(&view, cx, |this| this.handoff.workers == 0);
+            assert!(matches!(
+                receive.try_recv(),
+                Ok(crate::core::Queued {
+                    command: Command::Orientation,
+                    ..
+                })
+            ));
+        } else {
+            // Drop the reply for the put itself. A resize or focus command
+            // taking this slot would exercise a different failure branch.
+            wait(&view, cx, |_| match receive.try_recv() {
+                Ok(crate::core::Queued {
+                    command: Command::PutImage { .. },
+                    ..
+                }) => true,
+                Err(mpsc::TryRecvError::Empty) => false,
+                other => panic!("expected PutImage, got {:?}", other.map(|_| ())),
+            });
+            wait(&view, cx, |this| this.handoff.workers == 0);
+            assert!(
+                matches!(receive.try_recv(), Err(mpsc::TryRecvError::Empty)),
+                "a dropped reply released input into the substitute queue"
+            );
+        }
         assert!(probe.lock().puts.is_empty());
         assert!(inputs(&probe).is_empty());
-        if let Some(waiter) = waiter {
-            waiter.join().unwrap_or_else(|e| panic!("worker:{e:?}"));
-        }
         view.update(cx, |this, _| {
             this.terminal.core = old;
             assert!(this.handoff.held.is_empty());
         });
-        start(&view, cx, true);
+        admit(&view, cx, true);
         wait(&view, cx, |this| {
             this.handoff.workers == 0 && probe.lock().inputs.len() == 1
         });
+        assert_eq!(probe.lock().puts.len(), 1);
+        assert_eq!(
+            inputs(&probe),
+            [br"/state\ with\ space/paste-0.png".to_vec()]
+        );
     }
 }
 
 #[gpui::test]
 fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut TestAppContext) {
     for mode in 0..5 {
-        let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+        // The transport gates must see the image path write, with no paint
+        // resize competing for the next write to the same socket.
+        let view = cx.new(Smoke::new);
         let probe = Probe::default();
         let control = Control::default();
         let hooks = Arc::new(TestHooks::default());
@@ -100,14 +125,16 @@ fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut 
         connect(&view, cx, probe.clone(), control.clone(), "timeout");
         view.update(cx, |this, _| {
             this.handoff.core_test = Some(hooks.clone());
-            // The timer starts when the command is sent, while this test still
-            // steps the worker through its hooks; leave room for a loaded host.
-            this.handoff.core_timeout = Some(Duration::from_secs(6));
+            this.handoff.core_timeout = Some(Duration::ZERO);
         });
+        let expire = crate::core::paste_test_support::defer_outcome_timeout();
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "held");
-        if mode > 0 {
+        assert_eq!(view.update(cx, |this, _| this.handoff.held.len()), 1);
+        if mode == 0 {
+            wait(&view, cx, |_| probe.lock().puts.len() == 1);
+        } else {
             wait(&view, cx, |_| {
                 hooks.before_input.reached.load(Ordering::Acquire)
             });
@@ -122,12 +149,25 @@ fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut 
                     .store(if mode == 3 { 1 } else { 2 }, Ordering::Release);
             }
             hooks.before_input.resume();
-            if mode >= 3 {
-                wait(&view, cx, |_| {
-                    control.writing.reached.load(Ordering::Acquire)
-                });
-            }
+            let delivery = match mode {
+                1 => sheprd_core_client::Delivery::Queued,
+                2 => sheprd_core_client::Delivery::Written,
+                _ => sheprd_core_client::Delivery::Writing,
+            };
+            wait(&view, cx, |this| {
+                (mode < 3 || control.writing.reached.load(Ordering::Acquire))
+                    && this
+                        .handoff
+                        .core_ticket
+                        .as_ref()
+                        .and_then(|ticket| ticket.delivery())
+                        == Some(delivery)
+                    && hooks.notification.reached.load(Ordering::Acquire)
+            });
         }
+        expire
+            .send(())
+            .unwrap_or_else(|e| panic!("start timeout: {e}"));
         wait(&view, cx, |_| hooks.timed_out.load(Ordering::Acquire));
         if mode >= 3 {
             control.writing.resume();
@@ -144,13 +184,20 @@ fn timeout_branches_distinguish_unsent_written_and_partial_final_write(cx: &mut 
         let success = mode == 2 || mode == 4;
         if success {
             wait(&view, cx, |_| probe.lock().inputs.len() == 2);
-            assert_eq!(inputs(&probe)[1], b"held");
+            assert_eq!(
+                inputs(&probe),
+                [
+                    br"/state\ with\ space/paste-0.png".to_vec(),
+                    b"held".to_vec(),
+                ],
+                "mode {mode}"
+            );
         } else {
             assert!(inputs(&probe).is_empty());
             assert!(view.update(cx, |this, _| this.handoff.held.is_empty()));
         }
         if mode == 3 {
-            wait(&view, cx, |_| probe.closed.load(Ordering::Acquire));
+            wait(&view, cx, |_| probe.eof.load(Ordering::Acquire));
         }
     }
 }
@@ -174,7 +221,7 @@ fn host_paths_and_bracketed_paste_reach_the_expected_terminal(cx: &mut TestAppCo
                 .push_back(Some(json!({"path":path,"bytes":png().len()})));
             connect(&view, cx, probe.clone(), Control::default(), "path");
             clipboard(cx, false);
-            start(&view, cx, true);
+            admit(&view, cx, true);
             wait(&view, cx, |this| {
                 this.handoff.workers == 0 && probe.lock().inputs.len() == 1
             });
@@ -202,7 +249,7 @@ fn lost_transport_and_ended_terminal_never_paste(cx: &mut TestAppContext) {
         probe.lock().replies.push_back(None);
         connect(&view, cx, probe.clone(), Control::default(), "lost");
         clipboard(cx, false);
-        start(&view, cx, true);
+        admit(&view, cx, true);
         key(&view, cx, "discard");
         wait(&view, cx, |_| probe.lock().puts.len() == 1);
         if ended {
@@ -227,14 +274,14 @@ fn rpc_timeout_discards_late_success_and_allows_next_image(cx: &mut TestAppConte
     probe.lock().replies.push_back(None);
     connect(&view, cx, probe.clone(), Control::default(), "rpc-timeout");
     clipboard(cx, false);
-    start(&view, cx, true);
+    admit(&view, cx, true);
     key(&view, cx, "discard");
     wait(&view, cx, |_| probe.lock().puts.len() == 1);
     std::thread::sleep(Duration::from_secs(11));
     wait(&view, cx, |this| this.handoff.workers == 0);
     assert!(inputs(&probe).is_empty());
     release(&probe, 0);
-    start(&view, cx, true);
+    admit(&view, cx, true);
     wait(&view, cx, |this| {
         this.handoff.workers == 0 && probe.lock().inputs.len() == 1
     });
@@ -274,7 +321,7 @@ fn real_socket_write_timeout_closes_connection_and_new_session_can_paste(cx: &mu
     crate::handoff_clipboard::INJECTED.with(|slot| {
         *slot.borrow_mut() = Some(Ok(Payload::Image(bytes.into_inner())));
     });
-    start(&view, cx, true);
+    admit(&view, cx, true);
     key(&view, cx, "discard");
     cx.run_until_parked();
     // The mock client has the same five-second socket write deadline as SSH.
@@ -302,7 +349,7 @@ fn real_socket_write_timeout_closes_connection_and_new_session_can_paste(cx: &mu
     );
     assert!(inputs(&fresh).is_empty());
     clipboard(cx, false);
-    start(&view, cx, true);
+    admit(&view, cx, true);
     wait(&view, cx, |this| {
         this.handoff.workers == 0 && fresh.lock().inputs.len() == 1
     });
