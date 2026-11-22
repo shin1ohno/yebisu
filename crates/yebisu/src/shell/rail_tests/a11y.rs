@@ -55,6 +55,7 @@ fn rows_list_hosts_then_their_spaces() {
         items[1].target,
         RailTarget::Space {
             host: "pro-dev".into(),
+            kind: crate::shell::HerdrKind::Herdr1,
             workspace_id: "w1".into(),
             boot: "boot-1".into(),
             generation: 3,

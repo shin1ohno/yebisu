@@ -76,9 +76,28 @@ pub(crate) const RETURN_POLICY: Field = Field {
     set: |v, on| v.reconnect_automatic = on,
 };
 
+const SHORTCUT_STYLE: Field = Field {
+    key: "shortcut_style",
+    off: "ipad",
+    on: "herdr-prefix",
+    default: false,
+    get: |v| v.herdr_prefix,
+    set: |v, on| v.herdr_prefix = on,
+};
+const SERVER_KEYBINDINGS: Field = Field {
+    key: "server_keybindings",
+    off: "off",
+    on: "on",
+    default: true,
+    get: |v| v.use_server_keybindings,
+    set: |v, on| v.use_server_keybindings = on,
+};
+
 /// Every two-way choice the settings file stores, in edit-tracking order
 /// (`Edited::choices` has one flag per entry).
 pub(crate) const FIELDS: &[&Field] = &[
+    &SHORTCUT_STYLE,
+    &SERVER_KEYBINDINGS,
     &OPTION_KEY,
     &COMMAND_KEY,
     &CANDIDATES,

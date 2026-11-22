@@ -21,7 +21,7 @@ fn snapshot() -> ClientShellSnapshot {
         .unwrap_or_else(|error| panic!("endpoint fixture: {error}"))
 }
 
-fn show<'a>(
+pub(super) fn show<'a>(
     cx: &'a mut TestAppContext,
     destination: &str,
 ) -> (Entity<Smoke>, &'a mut VisualTestContext) {
@@ -230,11 +230,17 @@ fn rail_agent_menu_toggles_the_sidebar_pin_and_uses_its_order(cx: &mut TestAppCo
     let agents = |this: &Smoke, _: &gpui::App| {
         this.rail_agent_items()
             .into_iter()
-            .filter_map(|item| match item.target {
+            .filter_map(|item| match &item.target {
                 RailTarget::Agent { id, boot, .. } => {
-                    let pinned = this.shell.sidebar.is_agent_pinned(&id, &boot);
+                    let pinned = this.shell.sidebar.is_agent_pinned(id, boot);
                     assert_eq!(item.pinned, pinned);
-                    Some((id.pane, pinned))
+                    if pinned {
+                        assert_eq!(
+                            item.accessibility_label(),
+                            format!("Pinned: {}, repo, Done", item.name)
+                        );
+                    }
+                    Some((id.pane.clone(), pinned))
                 }
                 _ => None,
             })
@@ -261,6 +267,29 @@ fn rail_agent_menu_toggles_the_sidebar_pin_and_uses_its_order(cx: &mut TestAppCo
     press_rail_row(cx, "rail-item-4");
     click_rail_row(cx, "rail-menu-pin");
     assert_eq!(view.read_with(cx, agents), default_order);
+}
+
+#[gpui::test]
+fn rail_draws_a_disconnected_kept_core_host_as_herdr2(cx: &mut TestAppContext) {
+    let (view, cx) = show(cx, "alpha");
+    view.update(cx, |this, cx| {
+        let mut kept = crate::terminal_view::TerminalView::default();
+        kept.reconnect.target = "beta".into();
+        kept.core_mode = true;
+        kept.live.snapshot = Some(Arc::new(snapshot()));
+        this.board.hidden_core.insert("beta".into(), kept);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    bounds(cx, "rail-item-2");
+    view.read_with(cx, |this, _| {
+        let items = rail_items(&this.rail_hosts());
+        assert_eq!(
+            items[1].accessibility_label(),
+            "beta, not connected, Herdr 2"
+        );
+        assert_eq!(items.len(), 2, "offline spaces must stay hidden");
+    });
 }
 
 #[gpui::test]

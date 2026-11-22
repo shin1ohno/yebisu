@@ -6,6 +6,7 @@ pub(crate) use display::HostName;
 use crate::{Error, Result};
 use herdr_ssh::{KnownHosts, Pins, Target};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{Read as _, Write as _},
     path::PathBuf,
@@ -16,6 +17,7 @@ pub(crate) struct Store {
 }
 
 impl Store {
+    #[cfg(all(test, not(target_os = "ios")))]
     pub(crate) fn load(&self) -> Result<String> {
         Ok(self.load_hosts()?.selected)
     }
@@ -44,13 +46,20 @@ impl Store {
                         vec![target.clone()]
                     },
                     selected: target,
+                    names: BTreeMap::new(),
                 })
             }
             Err(e) => Err(e.into()),
         }
     }
 
+    #[cfg(all(test, not(target_os = "ios")))]
     pub(crate) fn save(&self, target: &str) -> Result<()> {
+        self.save_with_name(target, None)
+    }
+
+    /// Omitted names keep the existing value; an explicit empty name clears it.
+    pub(crate) fn save_with_name(&self, target: &str, name: Option<&str>) -> Result<()> {
         parse(target)?;
         let mut hosts = self.load_hosts()?;
         if !hosts.targets.iter().any(|t| t == target) {
@@ -59,15 +68,29 @@ impl Store {
             }
             hosts.targets.push(target.to_owned());
         }
+        if let Some(name) = name {
+            let name = name.trim();
+            if name.is_empty() {
+                hosts.names.remove(target);
+            } else {
+                if !valid_name(name) {
+                    return Err(invalid("invalid display name"));
+                }
+                hosts.names.insert(target.to_owned(), name.to_owned());
+            }
+        }
         hosts.selected = target.to_owned();
         fs::create_dir_all(&self.root)?;
         let path = self.root.join("yebisu-target.pending");
         let result = (|| -> Result<()> {
             let mut file = fs::File::create(&path)?;
             file.write_all(
-                serde_json::json!({"version":1,"targets":hosts.targets,"selected":hosts.selected})
-                    .to_string()
-                    .as_bytes(),
+                serde_json::json!({
+                    "version": 1, "targets": hosts.targets, "selected": hosts.selected,
+                    "names": hosts.names,
+                })
+                .to_string()
+                .as_bytes(),
             )?;
             file.sync_all()?;
             fs::rename(&path, self.root.join("yebisu-hosts.json"))?;
@@ -120,10 +143,17 @@ mod tests;
 pub(crate) struct SavedHosts {
     pub targets: Vec<String>,
     pub selected: String,
+    pub names: BTreeMap<String, String>,
 }
 fn invalid(message: &str) -> Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, message).into()
 }
+pub(crate) const MAX_HOST_NAME_BYTES: usize = 128;
+
+fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_HOST_NAME_BYTES && !name.chars().any(char::is_control)
+}
+
 impl SavedHosts {
     fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > 65536 {
@@ -157,6 +187,15 @@ impl SavedHosts {
             && !(result.targets.is_empty() && result.selected.is_empty())
         {
             return Err(invalid("selection is not saved"));
+        }
+        if let Some(names) = value["names"].as_object() {
+            for target in &result.targets {
+                if let Some(name) = names.get(target).and_then(serde_json::Value::as_str)
+                    && valid_name(name)
+                {
+                    result.names.insert(target.clone(), name.to_owned());
+                }
+            }
         }
         Ok(result)
     }

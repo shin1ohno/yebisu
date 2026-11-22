@@ -249,6 +249,7 @@ fn p2_reply_variants_remain_visible() {
         crate::hosts::SavedHosts {
             targets: vec!["saved".into()],
             selected: "saved".into(),
+            ..Default::default()
         },
         "pin2".into(),
     )));

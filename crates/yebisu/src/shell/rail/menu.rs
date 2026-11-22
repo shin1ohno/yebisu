@@ -5,6 +5,7 @@ use crate::{
     layout::RAIL_WIDTH,
     shell::{
         HerdrKind,
+        herdr2_frame::sidebar::CoreRow,
         host_menus::{HostMenuItem, MenuItemId, MenuScope},
         sidebar_status::SidebarStatus,
         style::{color, metric, radius, shadow, weight},
@@ -17,6 +18,10 @@ use gpui::{
 };
 use sheprd_commands::Command;
 use std::time::Duration;
+
+#[cfg(test)]
+#[path = "../rail_tests/menu.rs"]
+mod tests;
 
 const MENU_WIDTH: f32 = 240.0; // canvas.json:274, note "railmenu".
 const COUNT_SIZE: f32 = 10.0; // canvas.json:274, note "railmenu".
@@ -59,38 +64,60 @@ impl Action {
 }
 
 impl Smoke {
-    pub(super) fn open_rail_target(&mut self, target: &RailTarget, window: &mut Window) {
+    pub(super) fn open_rail_target(
+        &mut self,
+        target: &RailTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.dismiss_virtual_keyboard();
         self.dismiss_rail_menu();
-        match target {
-            RailTarget::Host(host) => self.select_host(host),
+        let result = match target {
+            RailTarget::Host(host) => {
+                self.select_host(host);
+                return;
+            }
             RailTarget::Space {
                 host,
+                kind,
                 workspace_id,
                 boot,
                 generation,
-            } => {
-                if let Err(error) = self.navigate_board(
+            } => match kind {
+                HerdrKind::Herdr1 => self.navigate_board(
                     host,
                     Target::Space(workspace_id.clone()),
                     boot,
                     *generation,
-                ) {
-                    self.terminal.live.status = error.to_string();
-                }
-            }
+                ),
+                HerdrKind::Herdr2 => self.open_herdr2_row(
+                    host,
+                    boot,
+                    *generation,
+                    CoreRow::Space(workspace_id.clone()),
+                    cx,
+                ),
+            },
             RailTarget::Agent {
                 id,
                 boot,
                 generation,
                 ..
-            } => {
-                if let Err(error) =
+            } => match id.kind {
+                HerdrKind::Herdr1 => {
                     self.navigate_board(&id.host, Target::Agent(id.pane.clone()), boot, *generation)
-                {
-                    self.terminal.live.status = error.to_string();
                 }
-            }
+                HerdrKind::Herdr2 => self.open_herdr2_row(
+                    &id.host,
+                    boot,
+                    *generation,
+                    CoreRow::Agent(id.pane.clone()),
+                    cx,
+                ),
+            },
+        };
+        if let Err(error) = result {
+            self.terminal.live.status = error.to_string();
         }
     }
 
@@ -109,9 +136,12 @@ impl Smoke {
         let extra = match &menu.item.target {
             RailTarget::Host(_) => Some(Action::Detach),
             RailTarget::Space { .. } => None,
-            RailTarget::Agent { id, boot, .. } => Some(Action::Pin {
-                was_pinned: self.shell.sidebar.is_agent_pinned(id, boot),
-            }),
+            RailTarget::Agent { id, boot, .. } if id.kind == HerdrKind::Herdr1 => {
+                Some(Action::Pin {
+                    was_pinned: self.shell.sidebar.is_agent_pinned(id, boot),
+                })
+            }
+            RailTarget::Agent { .. } => None,
         };
         let actions = [Action::Open, Action::NewTab].into_iter().chain(extra);
         let panel = div()
@@ -230,14 +260,11 @@ impl Smoke {
             RailTarget::Host(host) => self
                 .rail_hosts()
                 .into_iter()
-                .find(|row| &row.name == host)
-                .map_or(0, |row| {
-                    row.spaces
-                        .into_iter()
-                        .flat_map(|space| space.agents)
-                        .filter(|status| *status == SidebarStatus::NeedsYou)
-                        .count()
-                }),
+                .filter(|row| &row.name == host)
+                .flat_map(|row| row.spaces)
+                .flat_map(|space| space.agents)
+                .filter(|status| *status == SidebarStatus::NeedsYou)
+                .count(),
             RailTarget::Space { .. } => item.needs,
             RailTarget::Agent { .. } => usize::from(item.status == Some(SidebarStatus::NeedsYou)),
         };
@@ -261,6 +288,7 @@ impl Smoke {
             } => {
                 return Some(RailTarget::Space {
                     host: id.host.clone(),
+                    kind: id.kind,
                     workspace_id: workspace_id.clone(),
                     boot: boot.clone(),
                     generation: *generation,
@@ -271,6 +299,7 @@ impl Smoke {
         let workspace_id = snapshot(&terminal.live)?.focused_workspace_id.clone()?;
         Some(RailTarget::Space {
             host: host.clone(),
+            kind: terminal.herdr_kind(),
             workspace_id,
             boot: item.boot.clone(),
             generation: item.generation,
@@ -309,10 +338,11 @@ impl Smoke {
             return Err(crate::Error::NativeMenu(reason));
         }
         match action {
-            Action::Open => self.open_rail_target(&item.target, window),
+            Action::Open => self.open_rail_target(&item.target, window, cx),
             Action::NewTab => {
                 let Some(RailTarget::Space {
                     host,
+                    kind: HerdrKind::Herdr1,
                     workspace_id,
                     boot,
                     generation,

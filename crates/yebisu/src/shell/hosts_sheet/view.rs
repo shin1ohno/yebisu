@@ -1,6 +1,6 @@
 //! Drawing for the first-run frame, the Hosts sheet and the Add host sheet.
 //! Colours and sizes follow canvas AddHost.dc.html; no rule lives here.
-use super::{DEVELOPER_BUTTONS, developer_items};
+use super::{DEVELOPER_BUTTONS, developer_items, name_field::NameField};
 use crate::{
     app::Smoke,
     layout::SIDEBAR_WIDTH,
@@ -31,7 +31,7 @@ const STEP_INDENT: f32 = 34.;
 const KEY_PADDING_Y: f32 = 10.;
 const KEY_PADDING_X: f32 = 12.;
 // AddHost.dc.html:61–62
-const HOST_CONTROL_HEIGHT: f32 = 48.;
+pub(super) const HOST_CONTROL_HEIGHT: f32 = 48.;
 // AddHost.dc.html:64
 const FINGERPRINT_CARD: u32 = 0x22222a;
 const FINGERPRINT_SIDE_PADDING: f32 = 14.;
@@ -41,7 +41,7 @@ const UPCOMING_STEP_OPACITY: f32 = 0.6;
 const KEY_COPY_LABEL: &str = "Copy authorized_keys line";
 const HOST_OPEN_LABEL: &str = "Open";
 
-fn button(
+pub(super) fn button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     enabled: bool,
@@ -167,10 +167,14 @@ impl Smoke {
         let mut list = div().id("first-run-hosts").flex().flex_col().gap_1().p_2();
         for (index, host) in hosts.into_iter().enumerate() {
             let target = host.clone();
+            let label = self
+                .setup
+                .saved_name(&host)
+                .map_or_else(|| host.clone(), |name| format!("{name} · {host}"));
             list = list.child(
                 button(
                     format!("first-run-host-{index}"),
-                    host.clone(),
+                    label,
                     !self.setup.busy,
                     host == selected,
                 )
@@ -254,6 +258,14 @@ impl Smoke {
             self.record_setup_observation();
         }
         let available = window.fully_visible_bounds();
+        // The screenshot fixture captures the whole sheet with the keyboard down.
+        #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+        if std::env::var_os("YEBISU_QA_NEARBY_SCREENSHOT").is_some()
+            && self.shell.hosts_sheet.add.is_some()
+            && available.size.height + px(metric::TOUCH) < window.viewport_size().height
+        {
+            window.on_next_frame(|window, _| window.dismiss_virtual_keyboard());
+        }
         let width = sheet_width(f32::from(available.size.width));
         let available_height = f32::from(available.size.height);
         let margin = crate::layout::OVERLAY_MARGIN / 2.;
@@ -431,6 +443,11 @@ impl Smoke {
             rows = rows.child(div().text_color(rgb(color::MUTED)).child("No hosts yet."));
         }
         for (index, host) in hosts.into_iter().enumerate() {
+            let display = self.setup.host_name(&host);
+            let label = self
+                .setup
+                .saved_name(&host)
+                .map_or_else(|| host.clone(), |_| format!("{display} · {host}"));
             let open = host.clone();
             let edit = host.clone();
             // The saved-host QA fixture uses the same host selection identifier
@@ -446,13 +463,7 @@ impl Smoke {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .child(host.clone()),
-                    )
+                    .child(div().flex_1().min_w_0().overflow_hidden().child(label))
                     .child(
                         button(format!("host-open-{index}"), HOST_OPEN_LABEL, !busy, true)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -533,6 +544,7 @@ impl Smoke {
         let flow = &session.flow;
         let key_line = self.hosts_key_line();
         let key_ready = key_line.is_some();
+        let key = self.key_block(key_line, cx);
         let scanning = flow.scanning && flow.step == AddHostStep::Address;
         let trusting = flow.scanning && flow.step == AddHostStep::Trust;
         let host_done = flow.step == AddHostStep::SignIn;
@@ -582,10 +594,15 @@ impl Smoke {
                 .h(px(HOST_CONTROL_HEIGHT))
                 .on_click(cx.listener(|this, _, _, cx| this.hosts_cancel_scan(cx)))
         } else {
-            button("host-scan", "Scan", flow.can_scan(), false)
-                .h(px(HOST_CONTROL_HEIGHT))
-                .aria_label("Scan host key")
-                .on_click(cx.listener(|this, _, _, cx| this.hosts_scan(cx)))
+            button(
+                "host-scan",
+                "Scan",
+                flow.can_scan() && !self.nearby_needs_username(),
+                false,
+            )
+            .h(px(HOST_CONTROL_HEIGHT))
+            .aria_label("Scan host key")
+            .on_click(cx.listener(|this, _, _, cx| this.hosts_scan(cx)))
         };
         let mut check = div()
             .ml(px(STEP_INDENT))
@@ -594,6 +611,29 @@ impl Smoke {
             .gap_2()
             .child(div().text_color(rgb(color::MUTED)).child("Host"))
             .child(div().flex().gap_2().child(field).child(scan_control));
+        if self.nearby_needs_username() {
+            check = check.child(
+                div()
+                    .text_color(rgb(color::MUTED))
+                    .child("Add your SSH username before the host."),
+            );
+        }
+        if session.mode != SheetMode::Open {
+            let name = self
+                .shell
+                .hosts_sheet
+                .name
+                .get_or_insert_with(|| {
+                    let saved = self.setup.saved_name(&flow.typed_host).map(str::to_owned);
+                    cx.new(|cx| NameField::new(saved, cx))
+                })
+                .clone();
+            name.update(cx, |field, _| field.set_enabled(!self.setup.busy));
+            check = check
+                .children(self.nearby_list(cx))
+                .child(div().text_color(rgb(color::MUTED)).child("Name"))
+                .child(name);
+        }
         if scanning {
             check = check.child(div().id("scan-progress").child("Scanning…"));
         }
@@ -695,7 +735,6 @@ impl Smoke {
                     .child(session.mode.title()),
             )
             .child(connect);
-        let key = self.key_block(key_line, cx);
         div()
             .id("add-host-sheet")
             .flex()

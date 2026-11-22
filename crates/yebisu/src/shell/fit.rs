@@ -14,7 +14,7 @@
 //! docked along the window's bottom edge is an L0 inset. The edit bar and the
 //! IME candidates move clear of a floating keyboard instead
 //! (`place_clear_of_keyboard`).
-use super::disconnect::DisconnectClock;
+use super::{disconnect::DisconnectClock, key_band};
 use crate::{
     app::Smoke,
     layout::{
@@ -53,6 +53,8 @@ pub(crate) struct FitState {
     /// The window controls' reach and L0's clearance last offered to the
     /// observation log; a record is offered only on change.
     pub(crate) recorded_controls: Option<(ControlsReach, ControlsClearance)>,
+    #[cfg(test)]
+    pub(crate) hardware_keyboard_attached: bool,
     /// Tests move the fit clock ahead without waiting.
     #[cfg(test)]
     pub(crate) clock_ahead: std::time::Duration,
@@ -152,6 +154,20 @@ pub(crate) fn docked_keyboard_height(window: Size, keyboard: Option<Rect>) -> f3
     }
 }
 
+/// The keyboard guide includes short bars (an input assistant or a safe-area
+/// inset). Canvas keyband note: only a full-width docked software keyboard
+/// gets the 76 pt band. The window's measured inset still applies to bars.
+pub(super) fn key_band_height(window: Size, ime: &Edges<Pixels>, hardware_attached: bool) -> f32 {
+    // Same discriminator as the status bar; the measured assistant was ≤71 pt.
+    const SOFTWARE_KEYBOARD_MIN_HEIGHT: f32 = 120.0;
+    let keyboard = docked_keyboard_height(window, ime_keyboard(window, ime));
+    if keyboard > SOFTWARE_KEYBOARD_MIN_HEIGHT && !hardware_attached {
+        key_band::HEIGHT
+    } else {
+        0.0
+    }
+}
+
 /// The keyboard as a rect from the platform's keyboard insets, `None` when
 /// the platform reports none. A keyboard inset from the left or right edge
 /// does not span the window, so `docked_keyboard_height` takes it as floating.
@@ -228,7 +244,12 @@ impl Smoke {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let verdict = too_small(self.frame_layout(window).terminal);
+        let layout = self.frame_layout(window);
+        let compact = self.compact_terminal_fit(window);
+        let verdict = too_small(compact.unwrap_or(layout.terminal));
+        if verdict.is_some() || (compact.is_none() && layout.key_band.is_none()) {
+            self.shell.frame.key_band.clear();
+        }
         self.shell.fit.too_small = verdict;
         self.terminal.input.hold_for_size(verdict.is_some());
         let verdict = verdict?;
@@ -255,6 +276,17 @@ impl Smoke {
                 )
                 .into_any_element(),
         )
+    }
+
+    pub(super) fn hardware_keyboard_attached(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.shell.fit.hardware_keyboard_attached
+        }
+        #[cfg(not(test))]
+        {
+            key_band::hardware_keyboard_attached()
+        }
     }
 
     /// The platform's insets for this window (safe area and keyboard).

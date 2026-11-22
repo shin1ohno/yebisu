@@ -1,7 +1,4 @@
-use crate::shell::{
-    ChromeState, EntryAction, HerdrKind, Place,
-    rail::{new_space_unavailable, rail_entry_points},
-};
+use crate::shell::{ChromeState, EntryAction, HerdrKind, Place, rail::rail_entry_points};
 
 fn hidden(kind: HerdrKind, connected: bool) -> ChromeState {
     ChromeState {
@@ -52,16 +49,12 @@ fn rail_entries_exist_only_while_the_rail_is_shown() {
 }
 
 #[test]
-fn new_space_is_disabled_with_a_reason_where_it_cannot_work() {
-    for (kind, connected, reason) in [
-        (HerdrKind::Herdr2, true, "Not available on Herdr 2"),
-        (HerdrKind::Herdr1, false, "Not connected"),
-    ] {
-        let entries = rail_entry_points(&hidden(kind, connected));
-        let new_space = entries.iter().find(|e| e.action == EntryAction::NewSpace);
-        let new_space = new_space.map(|e| (e.enabled, e.reason));
-        assert_eq!(new_space, Some((false, Some(reason))));
-        assert_eq!(new_space_unavailable(kind, connected), Some(reason));
+fn new_space_can_choose_a_host_independently_of_the_current_connection() {
+    for kind in [HerdrKind::Herdr1, HerdrKind::Herdr2] {
+        for connected in [false, true] {
+            let entries = rail_entry_points(&hidden(kind, connected));
+            let new_space = entries.iter().find(|e| e.action == EntryAction::NewSpace);
+            assert_eq!(new_space.map(|e| (e.enabled, e.reason)), Some((true, None)));
+        }
     }
-    assert_eq!(new_space_unavailable(HerdrKind::Herdr1, true), None);
 }

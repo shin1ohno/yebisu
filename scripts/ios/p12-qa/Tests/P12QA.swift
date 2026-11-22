@@ -26,6 +26,9 @@ final class P12QA: XCTestCase {
     private static let receiptTimeout: TimeInterval = 5
     /// How long a swipe gets to reveal the OS menu bar before it is repeated once.
     private static let revealTimeout: TimeInterval = 10
+    private static let menuItemTimeout: TimeInterval = 3
+    private static let menuPollInterval: useconds_t = 50_000
+    private typealias MenuBarPressPosition = (point: CGPoint, reported: CGRect, useButton: Bool)
     /// What the reveal of the case in progress needed, quoted by its failure.
     private var revealNote = ""
     /// The fixture controls in panel order: the setup step each prepares and its QA identifier.
@@ -105,13 +108,10 @@ final class P12QA: XCTestCase {
         }
         for step in ["host", "pane", "boot", "focus", "capability"] {
             try fixture(step)
-            if step == "focus" {
-                // The fixture keeps the old menu scope installed. Finish changing
-                // panes before opening Springboard's menu so the pick uses that
-                // stale scope without keeping a presentation open across the change.
-                try qa.waitState("P12 focus changed with the old menu scope installed", timeout: 7) { state in
-                    self.p12(state)?["case"] as? String == step && self.p12(state)?["mutated"] as? Bool == true
-                }
+            // The fixture freezes the original installed menu. Wait for the stale
+            // scope before presenting it so a scope change cannot interrupt the pick.
+            try qa.waitState("P12 \(step) changed with the old menu scope installed", timeout: 7) { state in
+                self.p12(state)?["case"] as? String == step && self.p12(state)?["mutated"] as? Bool == true
             }
             try choose("Split Right", caseName: step, negative: true)
             if step == "focus" {
@@ -155,25 +155,27 @@ final class P12QA: XCTestCase {
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
         let owner = springboard
-        let applicationMenu = owner.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
-        let reveal = revealMenuBar(applicationMenu, caseName: caseName)
-        springboardHierarchy("p12-revealed-" + caseName)
-        // Screenshots taken while the OS menu is open are failure evidence only: on a
-        // hosted runner one of them can stall for the 30 s XCTest limit while the
-        // Simulator is not drawing. Success is proved by the Springboard hierarchy.
-        screenshotOnFailure("p12-revealed-" + caseName,
-                            reveal == .completed && applicationMenu.exists && applicationMenu.isHittable
-                                && applicationMenu.frame.maxY <= 64)
-        XCTAssertEqual(reveal, .completed, "OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary())
-        XCTAssertTrue(applicationMenu.exists, "Installed OS application menu must exist")
-        XCTAssertTrue(applicationMenu.isHittable, "Installed OS application menu must be reachable")
-        XCTAssertLessThanOrEqual(applicationMenu.frame.maxY, 64, "Application menu must be in the OS menu bar")
-        applicationMenu.tap()
+        let menuBar = owner.statusBars.containing(.button, identifier: "yebisu").firstMatch
+        let applicationMenu = menuBar.buttons.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
+        guard let pressPosition = revealMenuBar(applicationMenu, in: menuBar, caseName: caseName) else {
+            springboardHierarchy("p12-revealed-" + caseName)
+            screenshotOnFailure("p12-revealed-" + caseName, false)
+            XCTFail("OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary())
+            return
+        }
+        let target: XCUICoordinate
+        if pressPosition.useButton {
+            target = applicationMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        } else {
+            let offset = CGVector(dx: pressPosition.point.x - appOrigin.x, dy: pressPosition.point.y - appOrigin.y)
+            target = app.coordinate(withNormalizedOffset: .zero).withOffset(offset)
+        }
+        target.tap()
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
         let available = waitForEnabledMenuItem(item)
-        let hittable = available && item.isHittable
+        let hittable = available && !item.frame.isEmpty && item.isHittable
         // The current-focus menu stays a screenshot: it is the only visual proof of
         // the rebuilt menu after the stale rejection.
         if observeOnly { screenshot("p12-menu-" + caseName) }
@@ -199,10 +201,13 @@ final class P12QA: XCTestCase {
             assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
             return
         }
-        if negative && caseName != "focus" { sleep(7) } // Other stale cases still inject the fault with the menu open.
-        let present = item.exists
-        let enabled = present && item.isEnabled
-        let tapped = enabled && item.isHittable
+        // Position the pointer before the click and check that the same menu
+        // still has an actionable row after XCTest completes the move.
+        let pointerStart = Date().timeIntervalSince1970
+        if item.exists && item.isEnabled { item.hover() }
+        let (present, enabled, tapped) = waitForMenuItemAfterHover(item)
+        events.append(["kind": "pointer-ready", "case": caseName, "started": pointerStart,
+                       "ended": Date().timeIntervalSince1970, "actionable": tapped])
         let mustTap = !negative || caseName == "focus"
         screenshotOnFailure("p12-before-" + caseName, present && (!mustTap || tapped) && (!enabled || tapped))
         XCTAssertTrue(present, "Native menu disappeared; this is not refusal evidence")
@@ -230,19 +235,66 @@ final class P12QA: XCTestCase {
         if item.exists && item.isEnabled { return true }
         let available = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND enabled == true"), object: item)
-        return XCTWaiter().wait(for: [available], timeout: 3) == .completed
+        return XCTWaiter().wait(for: [available], timeout: Self.menuItemTimeout) == .completed
     }
 
-    /// Swipes down from the top edge and waits on the observable condition (the OS
-    /// menu-bar control exists and is hittable), never on a fixed sleep. A swipe
+    private func waitForMenuItemAfterHover(_ item: XCUIElement) -> (present: Bool, enabled: Bool, hittable: Bool) {
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.menuItemTimeout
+        while item.exists {
+            guard item.isEnabled else { return (true, false, false) }
+            if !item.frame.isEmpty && item.isHittable { return (true, true, true) }
+            if ProcessInfo.processInfo.systemUptime >= deadline { return (true, true, false) }
+            usleep(Self.menuPollInterval)
+        }
+        return (false, false, false)
+    }
+
+    private static func screenScale(_ reported: CGFloat, expected: CGFloat) -> CGFloat? {
+        [CGFloat(1), 2].first { abs($0 * reported - expected) < 1 }
+    }
+
+    private static func menuBarButtonFrame(_ button: CGRect, in bar: CGRect, on screen: CGRect) -> CGRect? {
+        // As in QAAx, check the element's AX rectangle against the window geometry
+        // before using the application's origin for the touch. SpringBoard owns the
+        // menu, so its full-width status bar supplies the geometry the app cannot paint.
+        guard !button.isEmpty, !bar.isEmpty, !screen.isEmpty,
+              let barScale = screenScale(bar.width, expected: screen.width) else { return nil }
+        let barFrame = bar.applying(CGAffineTransform(scaleX: barScale, y: barScale))
+        guard abs(barFrame.minX - screen.minX) < 1, abs(barFrame.minY - screen.minY) < 1,
+              barFrame.maxY <= 64,
+              let buttonScale = screenScale(button.height, expected: barFrame.height) else { return nil }
+        let buttonFrame = button.applying(CGAffineTransform(scaleX: buttonScale, y: buttonScale))
+        return barFrame.contains(buttonFrame) ? buttonFrame : nil
+    }
+
+    private func waitForMenuBarPressPosition(_ button: XCUIElement, in bar: XCUIElement, on screen: CGRect)
+        -> MenuBarPressPosition? {
+        // A nested AX frame request can be interrupted by a predicate waiter.
+        // Poll the geometry directly and use its centre for the touch.
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.revealTimeout
+        repeat {
+            if button.exists {
+                let reported = button.frame
+                if let frame = Self.menuBarButtonFrame(reported, in: bar.frame, on: screen) {
+                    return (CGPoint(x: frame.midX, y: frame.midY), reported, frame == reported)
+                }
+            }
+            if ProcessInfo.processInfo.systemUptime >= deadline { return nil }
+            usleep(Self.menuPollInterval)
+        } while true
+    }
+
+    /// Swipes down from the top edge and waits for a valid OS menu-bar button frame. A swipe
     /// that reveals nothing is repeated once, and the repeat is logged with its
     /// reason (`reveal-retry`); the second miss fails as class B. In the failed runs
     /// of 2026-11-17 the swipe call itself took 5.6 s and 5.7 s against 0.6-1.1 s
     /// for 14 of the 15 reveals that worked (the 15th took 4.2 s), so the gesture was
     /// spread over a stalled Simulator [unproven]. The assertion after this call is unchanged.
-    private func revealMenuBar(_ applicationMenu: XCUIElement, caseName: String) -> XCTWaiter.Result {
+    private func revealMenuBar(_ applicationMenu: XCUIElement, in bar: XCUIElement, caseName: String)
+        -> MenuBarPressPosition? {
         var attempt = 1
         revealNote = ""
+        let screen = springboard.frame
         while true {
             let swipeStart = Date()
             let injected = attempt == 1 && faults.remove("skip-swipe:" + caseName) != nil
@@ -251,16 +303,19 @@ final class P12QA: XCTestCase {
                     .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
             }
             let swipeSeconds = Date().timeIntervalSince(swipeStart)
-            let revealed = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "exists == true AND hittable == true"), object: applicationMenu)
             let revealStart = Date()
-            let reveal = XCTWaiter().wait(for: [revealed], timeout: Self.revealTimeout)
+            let position = waitForMenuBarPressPosition(applicationMenu, in: bar, on: screen)
             let waited = Date().timeIntervalSince(revealStart)
-            if reveal == .completed || attempt == 2 {
-                events.append(["kind": "reveal-result", "case": caseName, "revealed": reveal == .completed,
+            if position != nil || attempt == 2 {
+                events.append(["kind": "reveal-result", "case": caseName, "revealed": position != nil,
+                               "pressPosition": position.map { [$0.point.x, $0.point.y] } ?? [],
+                               "axButtonFrame": position.map {
+                                   [$0.reported.minX, $0.reported.minY, $0.reported.width, $0.reported.height]
+                               } ?? [],
+                               "pressAnchor": position.map { $0.useButton ? "button" : "window" } ?? "",
                                "waited": waited, "attempts": attempt, "swipeSeconds": swipeSeconds,
                                "time": Date().timeIntervalSince1970])
-                return reveal
+                return position
             }
             var reason = injected ? "injected fault: the first swipe was skipped; " : ""
             reason += "OS menu bar not revealed \(Int(waited)) s after the first swipe"

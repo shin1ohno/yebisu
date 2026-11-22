@@ -6,7 +6,7 @@ use crate::{
         key_ops::{Failure, Owner, Provider, State},
     },
 };
-use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
+use gpui::{Entity, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext, point, px, size};
 use std::{
     path::PathBuf,
     sync::{
@@ -272,6 +272,18 @@ fn press(cx: &mut VisualTestContext, id: &str) {
     cx.run_until_parked();
 }
 
+fn scroll_input_to_selection(cx: &mut VisualTestContext) {
+    let anchor = cx
+        .debug_bounds("settings-japanese-candidates-0")
+        .unwrap_or_else(|| panic!("missing Input scroll anchor"));
+    cx.simulate_event(ScrollEvent {
+        position: anchor.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-230.))),
+        ..ScrollEvent::default()
+    });
+    cx.run_until_parked();
+}
+
 #[gpui::test]
 fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut TestAppContext) {
     use crate::{settings::Values, settings_pages::choices};
@@ -314,6 +326,9 @@ fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut 
     ] {
         press(cx, page);
         for &choice in rows {
+            if choice == choices::Choice::StartSelection {
+                scroll_input_to_selection(cx);
+            }
             let before = view.read_with(cx, |this, _| this.settings_values());
             let target = !choice.get(&before);
             let mut expected = before.clone();
@@ -328,6 +343,7 @@ fn p11_sheet_smaller_keyboard_toggles_and_retry_press_their_own_fields(cx: &mut 
         }
     }
     press(cx, "settings-page-input");
+    scroll_input_to_selection(cx);
     // A failed write stays unsaved until Retry save is pressed.
     until_ready(&view, cx);
     let pending = root.join("yebisu-settings.pending");

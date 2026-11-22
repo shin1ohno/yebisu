@@ -6,7 +6,7 @@
 //! bar). L0 `layout::compute` decides every size; the frame only places the
 //! slots in that order. The legacy toolbar and bands stay inside the
 //! terminal body until L2b retires them (plan v2 5.1 rule 1).
-use super::{ChromeState, HerdrKind, fit, rail::SidebarMode, style::color};
+use super::{ChromeState, HerdrKind, fit, key_band, rail::SidebarMode, style::color};
 use crate::{
     app::Smoke,
     layout::{self, ControlsReach, Insets, Layout, RULE, Rect, Size},
@@ -18,6 +18,7 @@ use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 pub(crate) struct FrameState {
     /// The tab row's ... menu is open.
     pub(crate) overflow_open: bool,
+    pub(crate) key_band: key_band::State,
     /// L0 collapsed the sidebar in the last frame. `board_in_band` reads it
     /// before the body is built, so the board moves in the same frame as the
     /// body; only a resize across the collapse width takes one more frame.
@@ -127,6 +128,11 @@ impl Smoke {
         )
     }
 
+    #[cfg(any(target_os = "ios", test))]
+    pub(crate) fn key_band_can_apply(&self, window: &Window) -> bool {
+        self.shell.frame.key_band.is_armed() && self.frame_layout(window).key_band.is_some()
+    }
+
     /// `frame_layout` for a window `size` with the platform's `platform`
     /// insets (safe area and keyboard) and the reach of its window
     /// `controls` past the safe area (all zero without controls).
@@ -148,14 +154,20 @@ impl Smoke {
             keyboard: fit::docked_keyboard_height(size, fit::ime_keyboard(size, &platform.ime)),
             window_controls: controls,
         };
-        layout::compute(&layout::Input {
+        let input = layout::Input {
             // Command-B and the rail's button collapse to 72 at any width (L4).
             sidebar_rail: self.sidebar_user_mode() == SidebarMode::Rail,
             // L9: the requested mod regions, size 0 once the line has been
             // down for 30 s.
             regions: self.requested_mod_regions(self.fit_now()),
             ..frame_input(size, insets, self.find.is_some())
-        })
+        };
+        let band = fit::key_band_height(size, &platform.ime, self.hardware_keyboard_attached());
+        if band > 0.0 {
+            layout::compute_with_key_band(&input, band)
+        } else {
+            layout::compute(&input)
+        }
     }
 
     /// Wraps the terminal screen built by `render_terminal` in the frame:
@@ -167,6 +179,9 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if layout::compact_window(window.viewport_size().width.into()) {
+            return self.render_compact_frame(body, window, cx);
+        }
         let layout = self.frame_layout(window);
         self.shell.frame.withdrawn = layout.withdrawn.len();
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
@@ -220,24 +235,37 @@ impl Smoke {
         let column = column
             .children(self.render_overflow_backdrop(cx))
             .children(self.render_overflow_menu(cx));
-        div()
-            .id("shell-frame")
-            .size_full()
+        let columns = div()
             .flex()
             .flex_row()
+            .flex_1()
+            .min_h_0()
             .pt(px(layout.tab_row.y))
             .pl(px(layout.sidebar.x))
             .pr(px((f32::from(window.viewport_size().width)
                 - layout.tab_row.right())
             .max(0.0)))
-            .pb(px(window_bottom_inset(&layout, window)))
-            .bg(rgb(0x101419))
-            .text_color(rgb(0xd8dee9))
             .when_some(sidebar, |view, sidebar| {
                 view.child(sidebar)
                     .child(div().flex_none().h_full().w(px(RULE)).bg(rgb(0x2b2933)))
             })
-            .child(column)
+            .child(column);
+        if layout.key_band.is_none() {
+            self.shell.frame.key_band.clear();
+        }
+        div()
+            .id("shell-frame")
+            .size_full()
+            .flex()
+            .flex_col()
+            .pb(px(window_bottom_inset(&layout, window)))
+            .bg(rgb(0x101419))
+            .text_color(rgb(0xd8dee9))
+            .child(columns)
+            .when_some(layout.key_band, |frame, band| {
+                let pager = self.render_pane_pager(cx);
+                frame.child(key_band::render_band(self, band.height, pager, cx))
+            })
             .into_any_element()
     }
 
@@ -307,11 +335,11 @@ impl Smoke {
     }
 }
 
-/// Space under the status bar: the larger of the keyboard and the safe area
-/// bottom (D1), as L0 used it.
+/// Space below the last rendered slot, excluding the key band's own height.
 fn window_bottom_inset(layout: &Layout, window: &Window) -> f32 {
     let height = f32::from(window.viewport_size().height);
-    (height - layout.status_bar.bottom()).max(0.0)
+    let bottom = layout.key_band.unwrap_or(layout.status_bar).bottom();
+    (height - bottom).max(0.0)
 }
 
 #[cfg(test)]

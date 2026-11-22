@@ -107,6 +107,7 @@ fn canvas_rows(
     group: ShortcutGroup,
     mut rows: Vec<(Command, ShortcutRow)>,
     expanded: bool,
+    herdr_prefix: bool,
 ) -> Vec<(PopoverAction, ShortcutRow)> {
     // Shortcuts.dc.html:30–52. Keep the catalog's order inside a focus group.
     rows.sort_by_key(|(command, _)| match command {
@@ -131,7 +132,7 @@ fn canvas_rows(
         }
         if is_grouped_focus(command) {
             if !focus_inserted {
-                let (label, keys) = if group == ShortcutGroup::Tabs {
+                let (label, ipad_keys) = if group == ShortcutGroup::Tabs {
                     ("Focus Tab 1–9", "⌘1 … ⌘9")
                 } else {
                     ("Focus Left · Right · Up · Down", "⌥⌘←→↑↓")
@@ -140,7 +141,11 @@ fn canvas_rows(
                     PopoverAction::Focus(group),
                     ShortcutRow {
                         label: label.into(),
-                        keys: keys.into(),
+                        keys: if herdr_prefix {
+                            String::new()
+                        } else {
+                            ipad_keys.into()
+                        },
                         enabled: focus_enabled,
                     },
                 ));
@@ -345,6 +350,7 @@ impl Smoke {
         }
         self.shell.shortcuts.open ^= true;
         if self.shell.shortcuts.open {
+            self.actions.host_keys.clear_press();
             // The popover and the palette exclude each other (S6); the
             // terminal stops taking text while it is open (S1, the
             // L6 part; the key guards are integrator patch 05).

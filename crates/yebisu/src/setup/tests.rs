@@ -37,10 +37,11 @@ fn invalid_key_is_not_displayed() {
     assert!(setup.status.contains("unexpected key comment"));
 }
 
-fn saved_hosts(selected: &str) -> crate::hosts::SavedHosts {
-    crate::hosts::SavedHosts {
+fn saved_hosts(selected: &str) -> SavedHosts {
+    SavedHosts {
         targets: vec!["existing@host".into(), selected.into()],
         selected: selected.into(),
+        ..Default::default()
     }
 }
 

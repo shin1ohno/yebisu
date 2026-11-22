@@ -74,12 +74,13 @@ extension SmokeQA {
     func testSH1151SelectionSettings() throws {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        let qa = QAAx(app)
+        let qa = QAAx(app, useWindowFrames: true)
         app.terminate()
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SELECTION_SETTINGS_QA"] = "1"
         app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         // Before S4: sleep(3), then OCR. L2b moved both settings from the handoff band to
@@ -89,12 +90,15 @@ extension SmokeQA {
             $0.string("screen") == "terminal" && $0.isNull("sheet") && $0.bool("settings_saved") == true
         }
         let fresh = try openInputPage(qa)
-        // Both choices are drawn (before S4: OCR found "Double tap" and "On selection").
-        try qa.find(QAIds.startDoubleTap)
-        try qa.find(QAIds.copyOnSelection)
         XCTAssertEqual(fresh.bool("drag_select"), true, "fresh default is Drag: \(fresh)")
         XCTAssertEqual(fresh.bool("copy_on_select"), false, "fresh default is Manual: \(fresh)")
         save("sh1-151-fresh")
+        // Shortcut style precedes Hardware keyboard and Selection. The lower
+        // rows can be below the fold, even on a full-size iPad.
+        let close = try qa.find(QAIds.settingsClose)
+        let header = try qa.coordinate(close, id: QAIds.settingsClose, at: CGVector(dx: 0, dy: 0.5))
+        let insideContent = header.withOffset(CGVector(dx: -100, dy: 540))
+        insideContent.press(forDuration: 0.08, thenDragTo: insideContent.withOffset(CGVector(dx: 0, dy: -230)))
         try qa.press(QAIds.startDoubleTap, what: "Start a selection is Double tap") { $0.bool("drag_select") == false }
         try qa.press(QAIds.copyOnSelection, what: "Copy is On selection") { $0.bool("copy_on_select") == true }
         // Before S4: sleep(2). The settings worker wrote both edits (the sheet's "Saved").
