@@ -1,5 +1,5 @@
 use super::{
-    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
+    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo, ended,
     screen::{self, Screen},
     sort_sessions,
     store::{self, Saved, Tab, Workspace},
@@ -11,7 +11,7 @@ use sheprd_core_client::{
     wire::{Run, Terminal as ListedTerminal, TerminalState},
 };
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -70,11 +70,14 @@ pub(super) fn run(
             "Herdr 2 terminal no longer exists".into(),
         ));
     }
+    let size = Size::new(80, 24)?;
+    // Attaching first drops what finished while no client was attached.
+    let mut active = Active::attach(&backend, &mut workspace, size, column.latest())?;
     if workspace.tabs.is_empty() {
         workspace.tabs.push(spawn_tab(&backend)?);
+        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
     }
-    let mut size = Size::new(80, 24)?;
-    let mut active = Active::attach(&backend, &workspace, size, column.latest())?;
+    let mut size = size;
     let mut epoch = 0;
     let mut revision = 0;
     if stop.load(Ordering::Acquire) {
@@ -90,6 +93,11 @@ pub(super) fn run(
     #[cfg(test)]
     let mut publication_probe: Option<Box<super::publication_probe::AfterCompare>> = None;
     while !stop.load(Ordering::Acquire) {
+        // With every pane ended nothing reads a stream, yet a lost link is
+        // still the session's end and must reach the view.
+        if backend.core().is_lost() {
+            return Err(sheprd_core_client::Error::Lost.into());
+        }
         let mut changed = false;
         let mut persist = false;
         let mut command_error = None;
@@ -189,7 +197,7 @@ pub(super) fn run(
                 Command::NewTab => {
                     workspace.tabs.push(spawn_tab(&backend)?);
                     workspace.active = workspace.tabs.len() - 1;
-                    active = Active::attach(&backend, &workspace, size, column.latest())?;
+                    active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     persist = true;
                     changed = true;
                     epoch += 1;
@@ -199,7 +207,7 @@ pub(super) fn run(
                         && index != workspace.active
                     {
                         workspace.active = index;
-                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                         persist = true;
                         changed = true;
                         epoch += 1;
@@ -238,7 +246,7 @@ pub(super) fn run(
                             .unwrap_or(0);
                     }
                     if was_active {
-                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     }
                     epoch += 1;
                     persist = true;
@@ -248,7 +256,8 @@ pub(super) fn run(
                         if tab != workspace.active {
                             workspace.active = tab;
                             workspace.tabs[tab].layout.active = pane;
-                            active = Active::attach(&backend, &workspace, size, column.latest())?;
+                            active =
+                                Active::attach(&backend, &mut workspace, size, column.latest())?;
                         } else {
                             let saved = &mut workspace.tabs[tab].layout;
                             active.focus(saved, pane)?;
@@ -258,7 +267,7 @@ pub(super) fn run(
                         if !focus_address(&mut workspace, &address, &available) {
                             continue;
                         }
-                        active = Active::attach(&backend, &workspace, size, column.latest())?;
+                        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     }
                     persist = true;
                     changed = true;
@@ -309,35 +318,16 @@ pub(super) fn run(
                 _ => {}
             }
         }
+        let saving = (root.as_deref(), host.as_str(), name.as_str());
         if persist {
-            let _storage = store::LOCK
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if stop.load(Ordering::Acquire) {
+            if !save(stop, saving, &workspace, &mut sessions)? {
                 return Ok(());
-            }
-            store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
-            if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
-                *entry = session_info(name.clone(), &workspace, true, Vec::new());
             }
             changed = true;
         }
         if let Some(saved) = active_layout(&workspace) {
             if changed {
-                let sizes = screen::pane_sizes(
-                    size,
-                    active.terminals.len(),
-                    saved.vertical,
-                    saved.active,
-                    column.latest(),
-                )?;
-                for ((terminal, screen), sent) in
-                    active.terminals.iter_mut().zip(&active.screens).zip(sizes)
-                {
-                    if let (false, Some(sent)) = (screen.ended, sent) {
-                        terminal.resize(sent)?;
-                    }
-                }
+                active.resize(saved, size, column.latest())?;
             }
             for (terminal, screen) in active.terminals.iter_mut().zip(&mut active.screens) {
                 if screen.ended {
@@ -351,6 +341,19 @@ pub(super) fn run(
                     changed = true;
                 }
             }
+        }
+        // A pane whose program ended closes at once; the session goes on.
+        if let Some(saved) = active_layout_mut(&mut workspace)
+            && active.close_ended(saved)?
+        {
+            active.resize(saved, size, column.latest())?;
+            epoch += 1;
+            changed = true;
+            if !save(stop, saving, &workspace, &mut sessions)? {
+                return Ok(());
+            }
+        }
+        if let Some(saved) = active_layout(&workspace) {
             let current = screen::publish(
                 &active.screens,
                 saved,
@@ -423,23 +426,88 @@ struct Active {
 }
 
 impl Active {
+    /// Attaches the tab in use. A terminal whose program already finished
+    /// cannot be attached (herdr-core refuses with `finished`): its pane
+    /// leaves the layout, and a tab left empty closes (`ended`). The caller
+    /// saves the layout. Any other failure is the connection's.
     fn attach(
         backend: &CoreBackend,
-        workspace: &Workspace,
+        workspace: &mut Workspace,
         size: Size,
         column: Option<crate::shell::single_pane::ColumnMetrics>,
     ) -> crate::Result<Self> {
-        let Some(saved) = active_layout(workspace) else {
-            return Ok(Self::default());
-        };
-        let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column)?;
-        let terminals = saved
-            .ids
-            .iter()
-            .map(|id| backend.attach(id, initial, Role::Active))
-            .collect::<Result<Vec<_>, _>>()?;
-        let screens = terminals.iter().map(|_| Screen::default()).collect();
-        Ok(Self { terminals, screens })
+        loop {
+            let Some(saved) = active_layout(workspace) else {
+                return Ok(Self::default());
+            };
+            let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column)?;
+            let mut terminals = Vec::with_capacity(saved.ids.len());
+            let mut gone = None;
+            for id in &saved.ids {
+                match backend.attach(id, initial, Role::Active) {
+                    Ok(terminal) => terminals.push(terminal),
+                    Err(error) if ended::finished(&error) => {
+                        gone = Some(id.clone());
+                        break;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            let Some(id) = gone else {
+                let screens = terminals.iter().map(|_| Screen::default()).collect();
+                return Ok(Self { terminals, screens });
+            };
+            tracing::info!(terminal = %id.as_str(), "Herdr 2 terminal finished; its pane closes");
+            // Each pass removes one pane, so this ends.
+            drop(terminals);
+            ended::remove_terminal(workspace, &id);
+        }
+    }
+
+    /// Closes the panes whose program ended while another pane of the tab
+    /// remains; the last pane keeps its final screen. True when one closed.
+    fn close_ended(&mut self, saved: &mut Saved) -> crate::Result<bool> {
+        let before = saved.ids.get(saved.active).cloned();
+        let mut closed = false;
+        while self.screens.len() > 1 {
+            let Some(index) = self.screens.iter().position(|screen| screen.ended) else {
+                break;
+            };
+            self.terminals.remove(index);
+            self.screens.remove(index);
+            ended::remove_pane(saved, index);
+            closed = true;
+        }
+        // The pane that takes over tells its program it has the focus.
+        if closed
+            && saved.ids.get(saved.active) != before.as_ref()
+            && !self.screens[saved.active].ended
+        {
+            self.terminals[saved.active].focus(true)?;
+        }
+        Ok(closed)
+    }
+
+    /// Sends each drawn pane its size; an ended or hidden pane keeps its own.
+    fn resize(
+        &mut self,
+        saved: &Saved,
+        size: Size,
+        column: Option<crate::shell::single_pane::ColumnMetrics>,
+    ) -> crate::Result<()> {
+        let sizes = screen::pane_sizes(
+            size,
+            self.terminals.len(),
+            saved.vertical,
+            saved.active,
+            column,
+        )?;
+        for ((terminal, screen), sent) in self.terminals.iter_mut().zip(&self.screens).zip(sizes) {
+            if let (false, Some(sent)) = (screen.ended, sent) {
+                terminal.resize(sent)?;
+            }
+        }
+        Ok(())
     }
 
     fn focus(&mut self, saved: &mut Saved, next: usize) -> crate::Result<()> {
@@ -452,6 +520,27 @@ impl Active {
         }
         Ok(())
     }
+}
+
+/// Saves the layout and refreshes the session's catalog row. False when the
+/// connection was retired meanwhile: nothing may be saved for it then.
+fn save(
+    stop: &AtomicBool,
+    (root, host, name): (Option<&Path>, &str, &str),
+    workspace: &Workspace,
+    sessions: &mut [SessionInfo],
+) -> crate::Result<bool> {
+    let _storage = store::LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if stop.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    store::save_workspace(root, host, name, workspace)?;
+    if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
+        *entry = session_info(name.to_owned(), workspace, true, Vec::new());
+    }
+    Ok(true)
 }
 
 fn active_layout(workspace: &Workspace) -> Option<&Saved> {
@@ -586,7 +675,7 @@ fn reconcile_live(workspace: &mut Workspace, available: &[ListedTerminal]) {
 }
 
 pub(super) fn catalog_sessions(
-    root: Option<&std::path::Path>,
+    root: Option<&Path>,
     host: &str,
     mut observed: Observations,
 ) -> crate::Result<Vec<SessionInfo>> {

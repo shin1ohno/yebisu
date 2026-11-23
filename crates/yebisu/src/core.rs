@@ -1,8 +1,11 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
 mod discovery_tests;
+mod ended;
 #[cfg(test)]
 mod image_tests;
+#[cfg(all(test, unix))]
+mod live_core_tests;
 mod paste;
 mod paste_path;
 #[cfg(test)]

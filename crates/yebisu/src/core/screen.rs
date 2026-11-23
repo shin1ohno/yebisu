@@ -316,7 +316,10 @@ pub(super) fn publish_for(
         graphics: Default::default(),
     };
     let mut live = Live::default();
-    live.connected = screens.iter().any(|s| s.frame.is_some() && !s.ended);
+    // The session's link, not its panes: a pane whose program ended keeps
+    // its final screen and the session stays connected (input to that pane
+    // is refused above, through `focused_pane_id`).
+    live.connected = screens.iter().any(|s| s.frame.is_some() || s.ended);
     live.input_epoch = epoch;
     live.snapshot = Some(Arc::new(snapshot));
     live.surface = Some(Arc::new(surface));
