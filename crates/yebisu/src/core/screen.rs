@@ -202,6 +202,15 @@ pub(super) fn publish_for(
             continue;
         };
         let (x, y) = (rect.x, rect.y);
+        // Each terminal numbers its hyperlinks into its own table; the
+        // merged frame keeps one table, so this pane's links move past the
+        // ones before it (L66). A cell naming no entry links nothing.
+        let links = u32::try_from(frame.hyperlinks.len()).unwrap_or(u32::MAX);
+        frame.hyperlinks.extend(source.hyperlinks.iter().cloned());
+        let relink = |link: Option<u32>| {
+            link.filter(|&index| (index as usize) < source.hyperlinks.len())
+                .and_then(|index| index.checked_add(links))
+        };
         // Clip to the pane's rect: it never leaves the frame (pane_rects).
         for row in 0..source
             .height
@@ -217,9 +226,11 @@ pub(super) fn publish_for(
                     .cells
                     .get(usize::from(row) * usize::from(source.width) + usize::from(col))
                 {
+                    let mut cell = cell.clone();
+                    cell.hyperlink = relink(cell.hyperlink);
                     frame.cells
                         [usize::from(y + row) * usize::from(size.cols()) + usize::from(x + col)] =
-                        cell.clone();
+                        cell;
                 }
             }
         }

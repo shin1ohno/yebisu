@@ -63,7 +63,7 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
             cells[11 * width + n * 4 + x].bg = 0x01000000 + n as u32;
         }
     }
-    PaneSurfaceFrame {
+    let mut surface = PaneSurfaceFrame {
         boot_id: "boot-v1".into(),
         projection_revision: revision,
         surface_revision: 1,
@@ -84,7 +84,12 @@ pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
         splits: vec![],
         popup: None,
         graphics: handoff_graphics(),
+    };
+    // L66: the link fixture, only with YEBISU_URL_TAP_QA.
+    if crate::terminal_links::qa::enabled() {
+        crate::terminal_links::qa::herdr1_fixture(&mut surface.frame);
     }
+    surface
 }
 fn serve(
     mut server: Stream,

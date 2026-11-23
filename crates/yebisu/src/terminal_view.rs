@@ -345,6 +345,8 @@ impl Smoke {
             if compact { "Compact" } else { "Standard" }
         );
         let status = self.terminal_status();
+        #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
+        self.publish_link_targets();
         let body = div()
             .size_full()
             .flex()
@@ -482,6 +484,11 @@ impl Smoke {
                                 return;
                             }
                             if !this.front_layers.covers(event.position, window) {
+                                // L66: Command + press on a link opens it and
+                                // reaches nothing else.
+                                if this.command_press(event, window, cx) {
+                                    return;
+                                }
                                 this.selection_down(event, window, cx);
                             }
                         }),

@@ -10,7 +10,7 @@ use sheprd_client::{
 use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 #[path = "handoff_cells.rs"]
-mod cells;
+pub(crate) mod cells;
 
 pub(crate) const CORE_IMAGE_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) const TEXT_LIMIT: usize = 2 * 1024 * 1024;

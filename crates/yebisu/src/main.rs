@@ -47,6 +47,8 @@ mod animation_qa;
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 mod mock_peer;
 #[cfg(any(target_os = "ios", test))]
+mod terminal_links;
+#[cfg(any(target_os = "ios", test))]
 mod terminal_view;
 
 #[cfg(any(target_os = "ios", test))]
