@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import plistlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -35,6 +36,18 @@ class IconTests(unittest.TestCase):
             self.assertRegex(compiled['DTXcode'], r'\A[0-9]{4}\Z')
             self.assertGreater((app / 'Assets.car').stat().st_size, 0)
             self.assertIn('CFBundleIcons~ipad', compiled)
+            # Assets.car keeps the 1024 icon in each appearance: the opaque default (light),
+            # dark, and the tintable grayscale image.
+            report = subprocess.run(['xcrun', 'assetutil', '--info', str(app / 'Assets.car')],
+                                    check=True, capture_output=True, text=True).stdout
+            renditions = {entry.get('Appearance'): entry for entry in json.loads(report)[1:]
+                          if entry.get('AssetType') == 'Icon Image' and entry.get('Name') == 'AppIcon'}
+            self.assertEqual(set(renditions), {None, 'UIAppearanceDark', 'ISAppearanceTintable'}, renditions)
+            for entry in renditions.values():
+                self.assertEqual((entry['PixelWidth'], entry['PixelHeight']), (1024, 1024))
+            self.assertIs(renditions[None]['Opaque'], True)
+            self.assertIs(renditions['UIAppearanceDark']['Opaque'], False)
+            self.assertEqual(renditions['ISAppearanceTintable']['Encoding'], 'Gray')
             ipa = root / 'fixture.ipa'
             with zipfile.ZipFile(ipa, 'w') as archive:
                 for file in app.iterdir():

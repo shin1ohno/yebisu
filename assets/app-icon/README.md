@@ -36,3 +36,13 @@ no longer matches the manifest or a PNG is not in the form above.
 device development and distribution builds carry the same icon. `scripts/ios/Info.plist`
 names the icon (`CFBundleIcons~ipad` / `CFBundlePrimaryIcon` / `CFBundleIconName`);
 actool adds the file list.
+`scripts/ios/test_distribution_icons.py` reads the compiled `Assets.car` with
+`xcrun assetutil --info` on macOS and requires the 1024 icon in the default (opaque),
+`UIAppearanceDark` and `ISAppearanceTintable` (grayscale) appearances.
+
+## Home Screen screenshots
+
+`docs/screenshots/w5-app-icon/` holds the iPadOS 26.5 Simulator Home Screen in the
+Default (light), Dark and Tinted icon styles, and the design canvas render. The bundle
+in them was assembled by `scripts/ios/bundle.sh` with the real `Info.plist`, artwork and
+actool step but a stub executable, so they show the icon, not a running app.
