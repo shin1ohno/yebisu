@@ -212,7 +212,7 @@ fn pending_herdr1_navigation_is_discarded_before_first_core_frame(cx: &mut TestA
 }
 
 #[gpui::test]
-fn pane_close_preserves_final_frame_and_keeps_other_pane_live(cx: &mut TestAppContext) {
+fn pane_exit_in_a_split_closes_it_and_keeps_other_pane_live(cx: &mut TestAppContext) {
     // This fixture drives resize explicitly. A rendered root would enqueue
     // its own viewport size, which the worker can publish in the same batch.
     let view = cx.new(Smoke::new);
@@ -222,8 +222,86 @@ fn pane_close_preserves_final_frame_and_keeps_other_pane_live(cx: &mut TestAppCo
     wait_frame(&view, cx, |live| {
         live.status.contains("2 pane(s)") && text(live).contains("pane 2")
     });
+    let second = view.update(cx, |this, _| {
+        this.terminal
+            .live
+            .surface
+            .as_ref()
+            .and_then(|s| s.panes.get(1))
+            .map(|p| p.pane_id.clone())
+    });
     command(&view, cx, Command::Focus(0));
     wait_frame(&view, cx, |live| live.status.contains("active 1"));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "exit\r", window, cx);
+        })
+    });
+    assert_eq!(receive(&view, cx, &wire), (1, b"exit\r".to_vec()));
+    // The ended pane closes, as the desktop client closes one in a split;
+    // the session and the other pane stay (owner report 2026-11-24).
+    wait_frame(&view, cx, |live| {
+        live.status.contains("1 pane(s)")
+            && !live.status.contains("ended")
+            && live.surface.as_ref().is_some_and(|s| s.panes.len() == 1)
+    });
+    view.update(cx, |this, _| {
+        assert!(
+            this.terminal.live.connected,
+            "live pane disconnected on sibling exit"
+        );
+        let pane = this
+            .terminal
+            .live
+            .surface
+            .as_ref()
+            .and_then(|s| s.panes.first())
+            .map(|p| p.pane_id.clone());
+        assert!(second.is_some());
+        assert_eq!(pane, second, "the surviving pane is pane 2");
+    });
+    // Resize reaches the surviving pane, now the whole column.
+    view.update(cx, |this, _| {
+        this.terminal
+            .resize_if_ready(sheprd_client::ConnectOptions {
+                surface_size: sheprd_client::protocol::ClientSurfaceSize {
+                    cols: 100,
+                    rows: 30,
+                },
+                ..Default::default()
+            });
+    });
+    wait_frame(&view, cx, |live| {
+        live.status.contains("active 1")
+            && live.surface.as_ref().is_some_and(|s| s.frame.width == 100)
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "SURVIVOR", window, cx);
+        })
+    });
+    assert_eq!(receive(&view, cx, &wire), (2, b"SURVIVOR".to_vec()));
+    wait_frame(&view, cx, |live| {
+        live.connected && text(live).contains("SURVIVOR")
+    });
+    view.update(cx, |this, _| {
+        this.terminal.core.take();
+    });
+}
+
+#[gpui::test]
+fn last_pane_exit_keeps_the_session_connected(cx: &mut TestAppContext) {
+    // The tab's only pane ends: it keeps its final screen and refuses input,
+    // but the session is still connected (other tabs, New Tab, Close Tab).
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
+    let wire = start(&view, cx);
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);
@@ -239,43 +317,13 @@ fn pane_close_preserves_final_frame_and_keeps_other_pane_live(cx: &mut TestAppCo
     view.update(cx, |this, _| {
         assert!(
             this.terminal.live.connected,
-            "live pane disconnected on sibling exit"
+            "the session disconnected when its last pane ended"
         );
         assert!(
             crate::terminal_input::destination(&this.terminal.live, this.terminal.link.generation)
                 .is_none(),
             "ended pane accepts input"
         );
-    });
-    // Resize/focus must not call the ended terminal, but must still reach pane 2.
-    view.update(cx, |this, _| {
-        this.terminal
-            .resize_if_ready(sheprd_client::ConnectOptions {
-                surface_size: sheprd_client::protocol::ClientSurfaceSize {
-                    cols: 100,
-                    rows: 30,
-                },
-                ..Default::default()
-            });
-    });
-    command(&view, cx, Command::Focus(1));
-    wait_frame(&view, cx, |live| {
-        live.status.contains("active 2")
-            && live.surface.as_ref().is_some_and(|s| s.frame.width == 100)
-    });
-    cx.update(|window, cx| {
-        view.update(cx, |this, cx| {
-            this.terminal_focus.focus(window, cx);
-            this.refresh_terminal_input();
-            this.terminal.input.fresh_gesture();
-            this.replace_text_in_range(None, "SURVIVOR", window, cx);
-        })
-    });
-    assert_eq!(receive(&view, cx, &wire), (2, b"SURVIVOR".to_vec()));
-    wait_frame(&view, cx, |live| {
-        live.connected && text(live).contains("SURVIVOR") && text(live).contains("pane exited")
-    });
-    view.update(cx, |this, _| {
         this.terminal.core.take();
     });
 }
