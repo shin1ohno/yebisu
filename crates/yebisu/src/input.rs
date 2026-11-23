@@ -186,6 +186,8 @@ impl EntityInputHandler for Smoke {
             if self.handoff.blocks_input() {
                 return;
             }
+            // Typing ends an earlier key binding's failure reason (L57).
+            self.actions.key_status = None;
             self.refresh_terminal_input();
             let composing = self.terminal.input.composition.marked.is_some();
             if let Some(event) = self.terminal.input.replace(range, text) {
@@ -252,6 +254,7 @@ impl EntityInputHandler for Smoke {
                 cx.notify();
                 return;
             }
+            self.actions.key_status = None;
             self.refresh_terminal_input();
             self.terminal.input.mark(text, selected);
             window.notify_text_input_changed(self.active_focus());

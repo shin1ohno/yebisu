@@ -587,3 +587,93 @@ fn real_herdr1_prefix_c(cx: &mut TestAppContext, command_as_control: bool) {
         cx.run_until_parked();
     }
 }
+
+/// The status line after a live update, which replaces the live status.
+fn status_after_update(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
+    view.update(cx, |this, cx| {
+        if let Ok(mut live) = this.terminal.link.inbox.lock() {
+            live.dirty = true;
+        }
+        this.poll_terminal(cx);
+        this.terminal_status()
+    })
+}
+
+/// ctrl+a, c while the window is inactive fails with a reason.
+fn fail_chord(view: &Entity<Smoke>, cx: &mut VisualTestContext, before: &str) {
+    cx.deactivate_window();
+    press(view, cx, "ctrl-a");
+    press(view, cx, "c");
+    cx.update(|window, _| window.activate_window());
+    let status = status_after_update(view, cx);
+    assert!(
+        status.contains("inactive terminal focus"),
+        "before {before}: {status}"
+    );
+}
+
+/// L57 review F1: the reason must end with any input that types into the
+/// terminal, and must never show for another host or connection.
+#[gpui::test]
+fn a_chord_failure_reason_ends_with_typing_actions_and_reconnects(cx: &mut TestAppContext) {
+    let (view, cx, _receipts) = herdr1(cx, true);
+    // Every case runs, so a failure lists each path that keeps the reason.
+    let mut kept = Vec::new();
+    let mut gone = |view: &Entity<Smoke>, cx: &mut VisualTestContext, what: &str| {
+        let status = status_after_update(view, cx);
+        if status.contains("inactive terminal focus") {
+            kept.push(format!("{what}: {status}"));
+        }
+    };
+    fail_chord(&view, cx, "software keyboard text");
+    typed(&view, cx, "l");
+    gone(&view, cx, "software keyboard text");
+
+    fail_chord(&view, cx, "IME composition");
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.replace_and_mark_text_in_range(None, "k", None, window, cx);
+            this.unmark_text(window, cx);
+        });
+    });
+    gone(&view, cx, "IME composition");
+
+    fail_chord(&view, cx, "key band key");
+    tap(cx, "key-band-esc");
+    gone(&view, cx, "key band key");
+
+    fail_chord(&view, cx, "tab row, palette or menu action");
+    view.update(cx, |this, _| {
+        let _ = this.run_action(sheprd_commands::Command::ToggleSidebar);
+    });
+    gone(&view, cx, "tab row, palette or menu action");
+
+    fail_chord(&view, cx, "a setting change");
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.begin_settings_modal(window, cx);
+            this.end_settings_modal(window, cx);
+        });
+    });
+    gone(&view, cx, "a setting change");
+
+    // Only the host name changes here; a real switch also dials a new link.
+    fail_chord(&view, cx, "another host");
+    let host = view.update(cx, |this, _| {
+        std::mem::replace(&mut this.terminal.reconnect.target, "host-b".into())
+    });
+    gone(&view, cx, "another host");
+    view.update(cx, |this, _| this.terminal.reconnect.target = host);
+
+    // Last: a new connection pauses text input until the next gesture.
+    fail_chord(&view, cx, "a new connection");
+    view.update(cx, |this, _| {
+        this.terminal.link.reset();
+    });
+    gone(&view, cx, "a new connection");
+    assert!(
+        kept.is_empty(),
+        "reason still shown after:\n{}",
+        kept.join("\n")
+    );
+}

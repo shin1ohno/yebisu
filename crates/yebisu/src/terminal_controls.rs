@@ -92,8 +92,10 @@ impl Smoke {
         if let Some(reason) = self.find_keyboard_status() {
             return reason.into();
         }
-        if let Some(status) = &self.actions.key_status {
-            return status.clone();
+        if let Some(status) = &self.actions.key_status
+            && status.current(&self.terminal, self.board.selection)
+        {
+            return status.text.clone();
         }
         if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             if let Some(reason) = self.retirement.reason {
@@ -469,10 +471,14 @@ impl Smoke {
                 if !held {
                     // A live update replaces the live status at once, so
                     // the reason stays visible until the next key (L57).
-                    self.actions.key_status = self
-                        .run_shortcut(command, herdr, window)
-                        .err()
-                        .map(|error| format!("{}: {error}", command_name(command)));
+                    let failure = self.run_shortcut(command, herdr, window).err();
+                    self.actions.key_status = failure.map(|error| {
+                        crate::actions::KeyStatus::new(
+                            format!("{}: {error}", command_name(command)),
+                            &self.terminal,
+                            self.board.selection,
+                        )
+                    });
                 }
                 window.notify_text_input_changed(&self.terminal_focus);
                 cx.notify();

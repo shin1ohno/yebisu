@@ -507,6 +507,8 @@ impl Smoke {
     }
 
     fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        // Any band key ends an earlier key binding's failure reason (L57).
+        self.actions.key_status = None;
         if action == Action::Hide {
             self.shell.frame.key_band.clear();
             let dismiss = Window::dismiss_virtual_keyboard;

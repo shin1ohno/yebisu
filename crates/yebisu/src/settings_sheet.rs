@@ -40,6 +40,7 @@ impl Smoke {
         }
         self.settings_modal = true;
         self.actions.host_keys.clear_press();
+        self.actions.key_status = None;
         if let Some(core) = &self.terminal.core {
             core.invalidate_input();
         }

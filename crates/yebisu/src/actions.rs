@@ -22,7 +22,33 @@ pub(crate) struct Actions {
     pub host_keys: herdr_keys::HostKeys,
     /// Why the last key binding's command did not run. Kept apart from the
     /// live status, which each live update replaces (L57).
-    pub key_status: Option<String>,
+    pub key_status: Option<KeyStatus>,
+}
+
+/// A key binding's failure reason, for the terminal it happened on: another
+/// host, a new connection or another board selection never shows it.
+pub(crate) struct KeyStatus {
+    pub text: String,
+    host: String,
+    generation: u64,
+    selection: u64,
+}
+
+impl KeyStatus {
+    pub(crate) fn new(text: String, terminal: &TerminalView, selection: u64) -> Self {
+        Self {
+            text,
+            host: terminal.reconnect.target.clone(),
+            generation: terminal.link.generation,
+            selection,
+        }
+    }
+
+    pub(crate) fn current(&self, terminal: &TerminalView, selection: u64) -> bool {
+        self.host == terminal.reconnect.target
+            && self.generation == terminal.link.generation
+            && self.selection == selection
+    }
 }
 impl Default for Actions {
     fn default() -> Self {
@@ -319,6 +345,8 @@ impl Smoke {
         self.input_transition(|this| this.run_action_inner(command))
     }
     fn run_action_inner(&mut self, command: Command) -> crate::Result<()> {
+        // A new action replaces an earlier key binding's failure.
+        self.actions.key_status = None;
         // A sheet over the terminal (Settings or Hosts, A6) blocks actions.
         if self.input_modal() || self.new_space_open() {
             return Err(crate::Error::Settings(
