@@ -36,6 +36,12 @@ src/app/{state,mod}.rs, and src/client/shell.rs. Adaptations include native RGB
 palette projection, bounded parsing, conflict-aware atomic persistence, and
 GPUI indicator rendering. No upstream NOTICE file was present at that revision.
 
+The agent-name aliases and their normalization that resolve a Herdr 2
+Status.app value to an agent icon in crates/yebisu/src/shell/sidebar/agent_icon.rs
+are adapted from Herdr (https://github.com/herdrdev/herdr), Apache-2.0,
+revision e8d7d9705a7a2c89cef4dd42079379f05685af87: src/detect/mod.rs
+(lookup_agent, normalized_agent_lookup_name, path_basename).
+
 The notification policy and bundled audio assets adapted or copied from Herdr
 are attributed in crates/sheprd-gpui/SOUND-NOTICE.md (Apache-2.0).
 Specifically, assets/sounds/done.mp3 and assets/sounds/request.mp3 are unmodified

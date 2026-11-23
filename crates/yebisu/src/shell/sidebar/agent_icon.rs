@@ -102,6 +102,42 @@ agent_icons! {
     Muse => "muse",
 }
 
+/// Herdr's other names for an agent (herdrdev/herdr `src/detect/mod.rs`
+/// `lookup_agent`, e8d7d97), each with the canonical label it stands for.
+/// Canonical labels themselves resolve through `from_identity`.
+const ALIASES: &[(&str, &str)] = &[
+    ("claude-code", "claude"),
+    ("cursor-agent", "cursor"),
+    ("devin-cli", "devin"),
+    ("devin cli", "devin"),
+    ("antigravity", "agy"),
+    ("antigravity-cli", "agy"),
+    (".cline", "cline"),
+    ("mastra-code", "mastracode"),
+    ("mastra code", "mastracode"),
+    ("opencode2", "opencode"),
+    ("open-code", "opencode"),
+    ("github-copilot", "copilot"),
+    ("ghcs", "copilot"),
+    ("kimi-code", "kimi"),
+    ("kimi code", "kimi"),
+    ("kiro-cli", "kiro"),
+    ("amp-local", "amp"),
+    ("grok-build", "grok"),
+    ("hermes-agent", "hermes"),
+    ("kilo-code", "kilo"),
+    ("kilo code", "kilo"),
+    ("qoderclicn", "qodercli"),
+    ("qoder", "qodercli"),
+    ("qodercn", "qodercli"),
+    ("qwen-code", "qwen"),
+    ("qwen code", "qwen"),
+    ("letta-code", "letta"),
+    ("letta code", "letta"),
+    ("muse-code", "muse"),
+    ("muse-cli", "muse"),
+];
+
 impl AgentIcon {
     /// A Herdr 1 agent: its canonical identity, then (as the fork's iPad
     /// chrome does for ACP's generic identity) its display name.
@@ -110,6 +146,38 @@ impl AgentIcon {
             Self::Generic => Self::from_identity(agent.display_agent.as_deref()),
             icon => icon,
         }
+    }
+
+    /// A Herdr 2 terminal's `Status.app`, which is the program's own word
+    /// (Claude Code reports `claude-code`, Codex `codex`). It is read the way
+    /// Herdr's `parse_agent_label` reads a name: trimmed, lowercased, without
+    /// an executable suffix or a path, then through Herdr's aliases.
+    pub(crate) fn from_app(app: Option<&str>) -> Self {
+        let Some(app) = app else {
+            return Self::Generic;
+        };
+        let mut name = app.trim().to_lowercase();
+        if let Some(suffix) = [".exe", ".cmd", ".bat", ".ps1", ".js"]
+            .into_iter()
+            .find(|suffix| name.ends_with(suffix))
+        {
+            name.truncate(name.len() - suffix.len());
+        }
+        let name = name
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(&name);
+        let muse_release = name
+            .strip_prefix("muse-bin-")
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
+        let label = ALIASES
+            .iter()
+            .find(|(alias, _)| *alias == name)
+            .map_or(name, |(_, label)| *label);
+        if muse_release {
+            return Self::Muse;
+        }
+        Self::from_identity(Some(label))
     }
 
     /// The mark at `place`'s size in `INK`. `row` names the row for the

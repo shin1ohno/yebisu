@@ -182,14 +182,20 @@ fn core_status(address: &str, app: &str) -> CoreStatus {
 
 #[test]
 fn herdr2_rows_take_the_icon_from_the_status_app() {
-    let statuses = vec![core_status("t1", "Codex"), core_status("t2", "")];
+    // Status.app as Claude Code 2.1.330 and Codex 0.167.0 report it on
+    // pro-dev's Herdr 2 (2026-11-23), and a program that names nothing.
+    let statuses = vec![
+        core_status("t1", "claude-code"),
+        core_status("t2", "codex"),
+        core_status("t3", ""),
+    ];
     let session = SessionInfo {
         name: "default".into(),
         tabs: vec![TabInfo {
             id: "default".into(),
             label: "default".into(),
             active: true,
-            panes: vec!["t1".into(), "t2".into()],
+            panes: vec!["t1".into(), "t2".into(), "t3".into()],
             focused_pane: 0,
             vertical: false,
         }],
@@ -206,9 +212,71 @@ fn herdr2_rows_take_the_icon_from_the_status_app() {
         .collect::<Vec<_>>();
     assert_eq!(
         icons,
-        [("t1", AgentIcon::Codex), ("t2", AgentIcon::Generic)]
+        [
+            ("t1", AgentIcon::Claude),
+            ("t2", AgentIcon::Codex),
+            ("t3", AgentIcon::Generic)
+        ]
     );
-    assert_eq!(spaces[0].icon, Some(AgentIcon::Codex));
+    assert_eq!(spaces[0].icon, Some(AgentIcon::Claude));
+}
+
+/// Herdr's other names (herdrdev/herdr e8d7d97, src/detect/mod.rs:198-228).
+const HERDR_ALIASES: &[(&str, AgentIcon)] = &[
+    ("claude-code", AgentIcon::Claude),
+    ("cursor-agent", AgentIcon::Cursor),
+    ("devin-cli", AgentIcon::Devin),
+    ("devin cli", AgentIcon::Devin),
+    ("antigravity", AgentIcon::Antigravity),
+    ("antigravity-cli", AgentIcon::Antigravity),
+    (".cline", AgentIcon::Cline),
+    ("mastra-code", AgentIcon::Mastracode),
+    ("mastra code", AgentIcon::Mastracode),
+    ("opencode2", AgentIcon::OpenCode),
+    ("open-code", AgentIcon::OpenCode),
+    ("github-copilot", AgentIcon::Copilot),
+    ("ghcs", AgentIcon::Copilot),
+    ("kimi-code", AgentIcon::Kimi),
+    ("kimi code", AgentIcon::Kimi),
+    ("kiro-cli", AgentIcon::Kiro),
+    ("amp-local", AgentIcon::Amp),
+    ("grok-build", AgentIcon::Grok),
+    ("hermes-agent", AgentIcon::Hermes),
+    ("kilo-code", AgentIcon::Kilo),
+    ("kilo code", AgentIcon::Kilo),
+    ("qoderclicn", AgentIcon::Qodercli),
+    ("qoder", AgentIcon::Qodercli),
+    ("qodercn", AgentIcon::Qodercli),
+    ("qwen-code", AgentIcon::Qwen),
+    ("qwen code", AgentIcon::Qwen),
+    ("letta-code", AgentIcon::Letta),
+    ("letta code", AgentIcon::Letta),
+    ("muse-code", AgentIcon::Muse),
+    ("muse-cli", AgentIcon::Muse),
+];
+
+#[test]
+fn herdr2_status_apps_resolve_like_herdr_agent_labels() {
+    for (identity, icon) in FORK {
+        assert_eq!(AgentIcon::from_app(Some(identity)), *icon, "{identity}");
+    }
+    for (alias, icon) in HERDR_ALIASES {
+        assert_eq!(AgentIcon::from_app(Some(alias)), *icon, "{alias}");
+        let upper = alias.to_ascii_uppercase();
+        assert_eq!(AgentIcon::from_app(Some(&upper)), *icon, "{upper}");
+    }
+    for (app, icon) in [
+        (" Claude-Code ", AgentIcon::Claude),
+        ("/usr/local/bin/codex", AgentIcon::Codex),
+        ("C:\\Tools\\codex.exe", AgentIcon::Codex),
+        ("claude-code.js", AgentIcon::Claude),
+        ("muse-bin-2.4.1", AgentIcon::Muse),
+    ] {
+        assert_eq!(AgentIcon::from_app(Some(app)), icon, "{app:?}");
+    }
+    for app in [None, Some(""), Some("zsh"), Some("omo"), Some("muse-bin-x")] {
+        assert_eq!(AgentIcon::from_app(app), AgentIcon::Generic, "{app:?}");
+    }
 }
 
 fn show(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext) {

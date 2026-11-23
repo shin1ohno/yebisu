@@ -9,6 +9,9 @@ files with the fork's table (`crates/sheprd-gpui/src/icons.rs:34`), compared
 without regard to case; unknown, empty and missing identities use
 `agent-generic.svg`. The files are embedded in the binary (`include_bytes!`),
 and `PROVENANCE.tsv` records each copy.
+Herdr 2 reports an agent as its own `Status.app` word (Claude Code says
+`claude-code`), so those values first go through Herdr's agent-name aliases
+(herdrdev/herdr `src/detect/mod.rs` `lookup_agent`) to the canonical label.
 
 The fork's `omo` mark is a PNG (`agent-omo.png`) with no license record, so it
 is not copied and Omo shows the generic icon.

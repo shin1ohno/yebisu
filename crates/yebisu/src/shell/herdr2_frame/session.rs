@@ -111,7 +111,7 @@ pub(crate) fn catalog_content(
                 name: agent_name(entry),
                 tab: tab as u64,
                 status,
-                icon: AgentIcon::from_identity(entry.status.as_ref().map(|s| s.app.as_str())),
+                icon: AgentIcon::from_app(entry.status.as_ref().map(|s| s.app.as_str())),
             }
         })
         .collect::<Vec<_>>();
