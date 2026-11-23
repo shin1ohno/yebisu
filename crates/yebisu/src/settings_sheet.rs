@@ -48,6 +48,7 @@ impl Smoke {
             host.keys.view_open();
         }
         self.key_ticket = None;
+        self.read_key_on_page_open(cx);
         if self.settings_fonts.is_empty() && !self.settings_fonts_loading {
             self.settings_fonts_loading = true;
             let text_system = cx.text_system().clone();
@@ -87,6 +88,16 @@ impl Smoke {
         self.terminal.needs_focus = false;
         window.notify_text_input_changed(&self.terminal_focus);
         cx.notify();
+    }
+
+    /// The page with the iPad's SSH public key reads it when it opens, as
+    /// Add host does (shell/hosts_sheet/actions.rs): on the device-key
+    /// worker, never this thread, with the page's usual failure line. The
+    /// page's Read button stays as the retry.
+    pub(crate) fn read_key_on_page_open(&mut self, cx: &mut Context<Self>) {
+        if self.settings_page == crate::settings_pages::Page::DeviceKey {
+            self.read_device_key(cx);
+        }
     }
 
     pub(crate) fn complete_settings_font_enumeration(
@@ -152,3 +163,7 @@ mod publication_reproducers;
 #[cfg(test)]
 #[path = "settings_sheet/tests/wave_one.rs"]
 mod wave_one_tests;
+
+#[cfg(test)]
+#[path = "settings_sheet/tests/key_on_open.rs"]
+mod key_on_open_tests;

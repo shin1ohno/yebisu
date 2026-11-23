@@ -509,6 +509,7 @@ impl Smoke {
                 host.keys.view_open();
             }
             this.settings_page = page;
+            this.read_key_on_page_open(cx);
             cx.notify();
         }))
         .children(section_mark(section))
