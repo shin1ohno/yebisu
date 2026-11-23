@@ -390,7 +390,8 @@ impl Smoke {
             return;
         }
         if let Some(command) = command {
-            if self.run_key_command(command, event.is_held, window, cx) {
+            let herdr = matches!(route, Route::Consume(_));
+            if self.run_key_command(command, herdr, event.is_held, window, cx) {
                 self.actions.consumed.insert(event.keystroke.key.clone());
             }
             cx.stop_propagation();
@@ -435,10 +436,11 @@ impl Smoke {
     }
 
     /// Run a shortcut's command. Returns whether its press stays the app's
-    /// until the release.
+    /// until the release. `herdr` is a Herdr prefix style key binding.
     fn run_key_command(
         &mut self,
         command: sheprd_commands::Command,
+        herdr: bool,
         held: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -458,10 +460,7 @@ impl Smoke {
                 false
             }
             _ => {
-                if !held
-                    && let Err(e) =
-                        self.run_catalog_command(command, None, window.is_window_active())
-                {
+                if !held && let Err(e) = self.run_shortcut(command, herdr, window) {
                     self.terminal.live.status = e.to_string();
                 }
                 window.notify_text_input_changed(&self.terminal_focus);
@@ -469,6 +468,26 @@ impl Smoke {
                 true
             }
         }
+    }
+
+    /// A Herdr binding is not an iPad ⌘ shortcut. Terminal priority with
+    /// Command as Control gives ⌘ keys to the terminal, so the OS menu rows
+    /// are unavailable then (native_menus.rs `catalog_rows`); that must not
+    /// refuse a Herdr chord, which holds no ⌘ (L57: ctrl+a c swallowed c and
+    /// created no tab). The focus requirement still applies.
+    fn run_shortcut(
+        &mut self,
+        command: sheprd_commands::Command,
+        herdr: bool,
+        window: &Window,
+    ) -> crate::Result<()> {
+        if !herdr {
+            return self.run_catalog_command(command, None, window.is_window_active());
+        }
+        if !window.is_window_active() {
+            return Err(crate::Error::NativeMenu("inactive terminal focus"));
+        }
+        self.run_action(command)
     }
 
     /// The prefix route of `terminal_key_down` for a key without a KeyDown
@@ -502,7 +521,7 @@ impl Smoke {
         ) {
             Route::Consume(None) => true,
             Route::Consume(Some(command)) => {
-                self.run_key_command(command, false, window, cx);
+                self.run_key_command(command, true, false, window, cx);
                 true
             }
             Route::Native | Route::Terminal | Route::Replay => false,
