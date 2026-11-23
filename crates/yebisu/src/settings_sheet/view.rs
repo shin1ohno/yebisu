@@ -8,7 +8,7 @@ use crate::{
         fonts::Density,
         general::Document,
         sections::{self, Section},
-        sheet_layout::sheet_frame,
+        sheet_layout::{HeaderInset, header_inset, sheet_frame},
     },
     shell::style::{color, metric, radius, shadow, text, tint, weight},
 };
@@ -201,7 +201,13 @@ impl Smoke {
                     }))
                     .child(content),
             );
-        let (header, notices) = self.settings_header(cx);
+        // The same clearance the shell chrome keeps for the window controls.
+        let inset = header_inset(
+            frame,
+            f32::from(available.size.width),
+            self.platform_window_controls(window).clearance(),
+        );
+        let (header, notices) = self.settings_header(inset, cx);
         div()
             .id("settings-overlay")
             .debug_selector(|| "settings-overlay".into())
@@ -259,7 +265,11 @@ impl Smoke {
             .into_any_element()
     }
 
-    fn settings_header(&self, cx: &mut Context<Self>) -> (AnyElement, Option<AnyElement>) {
+    fn settings_header(
+        &self,
+        inset: HeaderInset,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, Option<AnyElement>) {
         let status = self.settings.as_ref().map(|host| host.save_status());
         let (label, failure) = match status {
             None => ("Unavailable", None),
@@ -274,7 +284,8 @@ impl Smoke {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .px(px(metric::INLINE_GAP))
+            .pl(px(inset.leading))
+            .pr(px(inset.trailing))
             .border_b_1()
             .border_color(rgb(color::RAISED))
             .child(
@@ -509,6 +520,7 @@ impl Smoke {
                 host.keys.view_open();
             }
             this.settings_page = page;
+            this.read_key_on_page_open(cx);
             cx.notify();
         }))
         .children(section_mark(section))

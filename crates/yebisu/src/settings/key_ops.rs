@@ -58,6 +58,8 @@ pub(crate) struct Owner {
     display: KeyView,
     worker: Option<Worker>,
     unresolved: bool,
+    /// The view that `read_after_earlier_view` left waiting for a read.
+    waiting_read: Option<u64>,
     #[cfg(test)]
     refuse: Option<Refusal>,
 }
@@ -93,6 +95,7 @@ impl Owner {
             display: KeyView::failed(),
             worker: None,
             unresolved: false,
+            waiting_read: None,
             #[cfg(test)]
             refuse: None,
         }
@@ -147,6 +150,20 @@ impl Owner {
         }
         self.cancel();
         self.start(Operation::Read)
+    }
+    /// For a page that shows the key and opened while a read for an earlier
+    /// view is still on the worker: that read's reply is dropped (`poll`), so
+    /// this view reads once it ends, if the view is still current then.
+    /// Returns whether a read was left waiting.
+    pub fn read_after_earlier_view(&mut self) -> bool {
+        let earlier = self
+            .worker
+            .as_ref()
+            .is_some_and(|w| w.kind == Operation::Read && w.view != self.view);
+        if earlier && self.supported() {
+            self.waiting_read = Some(self.view);
+        }
+        earlier
     }
     fn start(&mut self, kind: Operation) -> bool {
         let (send, receive) = mpsc::sync_channel::<Operation>(1);
@@ -248,6 +265,9 @@ impl Owner {
             return false;
         };
         let joined = worker.handle.join().is_ok();
+        // A waiting read is for the view current when it was asked; any
+        // reply settles it, so it never outlives the worker it waited for.
+        let waiting = self.waiting_read.take();
         if !worker.admitted {
             return true;
         }
@@ -263,6 +283,10 @@ impl Owner {
             } else {
                 State::Unavailable
             };
+            if waiting == Some(self.view) {
+                self.cancel();
+                self.start(Operation::Read);
+            }
             return true;
         }
         match (joined, worker.kind, reply.map(|r| r.value)) {
@@ -292,7 +316,7 @@ impl Owner {
     }
     pub fn label(&self) -> &'static str {
         match self.state {
-            State::Unavailable => "No current key. Read or initialize explicitly.",
+            State::Unavailable => "No current key. Press Read to try again.",
             State::Unsupported => "Device keys are unavailable on this platform.",
             State::Ready => "Current public key",
             State::Confirming => {
