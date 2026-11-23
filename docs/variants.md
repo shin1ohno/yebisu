@@ -181,8 +181,14 @@ The baseline overlay survey found six syntax matches in four groups:
 
 The SDK preflight selected UICommand items and an empty UIMenu for a revoked
 owned configuration. Therefore S2c and E3i require zero children; UIAction S8 is
-not applicable. An unrelated configuration may retain the two ordinary suggested
-commands. Simulator tests and [device acceptance](device-check.md#sh1-152) remain
+not applicable. UIKit also presents the interaction's menu by itself, with an
+unrelated configuration, on a pointer's secondary click anywhere over the window
+(L61: Paste over the sidebar's AGENTS rows). Since the SDK returns an empty menu
+for every unrelated configuration while the app publishes its availability, the
+menu appears only where the app presents it: a secondary click or long press on
+the terminal's content area. E3i replays the two ordinary suggested commands
+itself; `sh1_152_targets.py` checks the sidebar, rail, tab row and status bar.
+Simulator tests and [device acceptance](device-check.md#sh1-152) remain
 separate evidence.
 
 Visible items follow the iOS convention the owner chose on 2026-11-14: only

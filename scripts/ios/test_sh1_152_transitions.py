@@ -49,7 +49,7 @@ def fixture():
             record(case, "sh1-152-capture", start, stage=stage, token=stage+1)
             record(case, "sh1-152-result", start+3, stage=stage)
             if case == "E3i" and stage == 1:
-                record(case, "sh1-152-replay", start+1, stage=stage, ordinary=True, count=2)
+                record(case, "sh1-152-replay", start+1, stage=stage, ordinary=True, count=2, delegate_count=0)
             else:
                 record(case, "edit-menu-exec", start+1, action="Paste", result="executed")
             destination = "t2" if case.endswith("core") else "w1:p3" if case in ("E3a", "E3i") else "w1:p1"
@@ -78,6 +78,7 @@ class TransitionsTests(unittest.TestCase):
         for mutation, expected in [
             ("current", "produced switch failure"), ("external", "irreversibly revoke"),
             ("delegate", "empty-menu contract"), ("ordinary", "ordinary suggestions"),
+            ("unowned-menu", "unowned delegate menu was not empty"),
             ("reused", "reused revoked"), ("core-key", "semantic Paste"),
             ("core-destination", "semantic destination"), ("stale-exec", "stale native"),
             ("reconnect", "reconnect did not change"), ("destination", "destination did not change"),
@@ -90,6 +91,8 @@ class TransitionsTests(unittest.TestCase):
             elif mutation == "external": find("E3f-text", "sh1-152-result", 0)["status"] = "Current"
             elif mutation == "delegate": find("E3i", "sh1-152-replay", 0)["count"] = 2
             elif mutation == "ordinary": find("E3i", "sh1-152-replay", 1)["count"] = 0
+            # origin/main's SDK forwarded UIKit's suggestions for an unowned configuration (L61).
+            elif mutation == "unowned-menu": find("E3i", "sh1-152-replay", 1)["delegate_count"] = 2
             elif mutation == "reused": find("E3a", "sh1-152-capture", 1)["token"] = 1
             elif mutation == "core-key": find("E3a-core", "terminal-input")["variant"] = "Key"
             elif mutation == "core-destination": find("E3a-core", "terminal-input")["terminal"] = "t1"

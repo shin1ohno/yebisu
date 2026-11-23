@@ -333,11 +333,20 @@ impl Smoke {
                         let _ = weak.update(cx, |this,_| this.observation.record(serde_json::json!({"kind":"sh1-152-probe-error","error":"missing capture"})));
                         return;
                     };
-                    let commands = if case() == "E3i" || ordinary { native::delegate(&capture, !ordinary) } else { Some(capture.commands.clone()) };
+                    // Ordinary: the delegate's menu for an unowned configuration (as UIKit's
+                    // own secondary-click menu has) must stay empty, and the untagged
+                    // suggestions it was offered are replayed as ordinary commands.
+                    let (commands, delegate_count) = if ordinary {
+                        native::delegate(&capture, false).map_or((None, None), |(menu, suggestions)| (Some(suggestions), Some(menu.len())))
+                    } else if case() == "E3i" {
+                        (native::delegate(&capture, true).map(|(menu, _)| menu), None)
+                    } else {
+                        (Some(capture.commands.clone()), None)
+                    };
                     let count = commands.as_ref().map(|c| c.len());
                     let sent = commands.as_ref().map(|c| native::replay(c));
                     let _ = weak.update(cx, |this,_| {
-                        this.observation.record(serde_json::json!({"kind":"sh1-152-replay", "case":case(), "stage":this.menu_qa.stage,"ordinary":ordinary,"count":count,"sent":sent}));
+                        this.observation.record(serde_json::json!({"kind":"sh1-152-replay", "case":case(), "stage":this.menu_qa.stage,"ordinary":ordinary,"count":count,"delegate_count":delegate_count,"sent":sent}));
                         crate::qa_ax::count("sh152_replay");
                     });
                 }).detach();
