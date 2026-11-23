@@ -185,8 +185,9 @@ not applicable. UIKit also presents the interaction's menu by itself, with an
 unrelated configuration, on a pointer's secondary click anywhere over the window
 (L61: Paste over the sidebar's AGENTS rows). Since the SDK returns an empty menu
 for every unrelated configuration while the app publishes its availability, the
-menu appears only where the app presents it: a secondary click or long press on
-the terminal's content area. E3i replays the two ordinary suggested commands
+menu appears only where the app presents it: a secondary click (or, as iPadOS
+reads it, a Control-click with no other modifier) or a long press on the
+terminal's content area. E3i replays the two ordinary suggested commands
 itself; `sh1_152_targets.py` checks the sidebar, rail, tab row and status bar.
 Simulator tests and [device acceptance](device-check.md#sh1-152) remain
 separate evidence.

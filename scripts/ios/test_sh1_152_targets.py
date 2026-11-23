@@ -11,7 +11,8 @@ spec.loader.exec_module(targets)
 def log(overrides=None, passed=True):
     lines = []
     for name in (*targets.PASTE, *targets.NO_MENU, *targets.LONG_PRESS):
-        record = {"name": name, "x": 1, "y": 2, "paste": name in targets.PASTE, "items": []}
+        record = {"name": name, "x": 1, "y": 2, "paste": name in targets.PASTE, "items": [],
+                  "secondary": 1 if name in targets.PASTE else 0, "presented": 1 if name in targets.PASTE else 0}
         if name == "host-row-long-press":
             record["row_menu"] = True
         record.update((overrides or {}).get(name, {}))
@@ -36,6 +37,12 @@ class TargetsTests(unittest.TestCase):
     def test_a_missing_terminal_menu_fails(self):
         with self.assertRaisesRegex(ValueError, "terminal: Paste shown False, expected True"):
             targets.validate(log({"terminal": {"paste": False}}))
+
+    def test_the_app_receipts_name_a_missing_or_extra_presentation(self):
+        with self.assertRaisesRegex(ValueError, r"terminal: the app presented no menu \(secondary clicks it saw: 0\)"):
+            targets.validate(log({"terminal": {"presented": 0, "secondary": 0}}))
+        with self.assertRaisesRegex(ValueError, "agents-row: the app presented its menu outside the terminal"):
+            targets.validate(log({"agents-row": {"presented": 1}}))
 
     def test_a_closed_long_press_menu_fails(self):
         with self.assertRaisesRegex(ValueError, "the row's long-press menu did not open"):

@@ -48,6 +48,11 @@ def validate(log):
                 f"Paste shown {record.get('paste')}, expected {want}, items {record.get('items')}"]
             if name == "host-row-long-press" and record.get("row_menu") is not True:
                 problems.append("the row's long-press menu did not open")
+            # The app's own receipts say where a missing or extra menu came from.
+            if name in PASTE and record.get("presented", 0) < 1:
+                problems.append(f"the app presented no menu (secondary clicks it saw: {record.get('secondary')})")
+            if name in NO_MENU and record.get("presented", 0) > 0:
+                problems.append("the app presented its menu outside the terminal")
         verdict[name] = "fail" if problems else "pass"
         failures += [f"{name}: {problem}" for problem in problems]
     if f"{TEST}]' passed" not in log:

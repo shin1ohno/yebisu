@@ -103,11 +103,16 @@ final class EditMenuTargetsQA: XCTestCase {
     }
 
     private func secondaryClick(_ target: Target) throws {
+        // What the app saw: `menu_secondary` counts secondary (or Control-) clicks that reached the
+        // terminal's listener, `menu_presented` the edit menus the app itself presented.
+        let before = qa.read()
         coordinate(target.point).rightClick()
         let shown = app.menuItems["Paste"].waitForExistence(timeout: target.paste ? 5 : 2)
         let items = app.menuItems.allElementsBoundByIndex.map(\.label)
+        let after = qa.read()
+        let delta = { (key: String) -> Int in (after?.count(key) ?? 0) - (before?.count(key) ?? 0) }
         report(["name": target.name, "x": target.point.x, "y": target.point.y, "paste": shown, "expected": target.paste,
-                "items": items])
+                "items": items, "secondary": delta("menu_secondary"), "presented": delta("menu_presented")])
         save("l61-\(target.name)")
         XCTAssertEqual(shown, target.paste, "L61 \(target.name): Paste shown \(shown), expected \(target.paste), items \(items)")
         if shown {
