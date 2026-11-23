@@ -25,10 +25,29 @@ extension SmokeQA {
         app.coordinate(withNormalizedOffset: .zero).withOffset(at)
     }
 
-    /// The fixture's state once link `name` has a window point.
+    /// The frame `url_targets` was read from: (surface revision, boot).
+    private func targetFrame(_ state: QAState) -> String {
+        "\((state.raw["url_targets"] as? [String: Any])?["surface"] ?? "nil")"
+    }
+
+    /// The fixture's state once link `name` has a window point, and the frame it was read from,
+    /// that held for two seconds: back from Safari, a Herdr 2 session reconnects (a new boot) and
+    /// its first frames are 80 x 24 until the resize, so rows can move after the first frame.
     private func fixture(_ qa: QAAx, _ name: String) throws -> (QAState, CGVector) {
-        let state = try qa.waitState("url_targets has \(name)", timeout: 30) { urlTarget($0, name) != nil }
-        return (state, try XCTUnwrap(urlTarget(state, name)))
+        var last: (CGVector, String)?
+        let start = Date()
+        while true {
+            let state = try qa.waitState("url_targets has \(name)", timeout: 30) { urlTarget($0, name) != nil }
+            let point = try XCTUnwrap(urlTarget(state, name))
+            let frame = targetFrame(state)
+            if let last, last.0 == point, last.1 == frame { return (state, point) }
+            if Date().timeIntervalSince(start) > 45 {
+                XCTFail("\(name): its point and frame never held for two seconds (last \(point) \(frame))")
+                return (state, point)
+            }
+            last = (point, frame)
+            sleep(2)
+        }
     }
 
     private func commandTap(_ app: XCUIApplication, _ at: CGVector) {
@@ -43,6 +62,7 @@ extension SmokeQA {
                        want: (String) -> Bool) throws {
         let (before, at) = try fixture(qa, name)
         print("URL \(name): Command + tap at \(at), url_open=\(before.count("url_open")) inputs=\(before.peerInputs)")
+        print("URL \(name): targets \(before.raw["url_targets"] ?? "nil") surface=\(before.raw["surface"] ?? "nil")")
         commandTap(app, at)
         // UIKit opened the browser: Safari comes to the front, and yebisu's qa.state is out of
         // reach until yebisu is back.
@@ -56,6 +76,7 @@ extension SmokeQA {
         }
         let url = try XCTUnwrap(openedURL(after), "\(what): no url_open_last in \(after)")
         print("URL \(name): the app asked UIKit to open \(url)")
+        print("URL \(name): the press read \(after.raw["url_press"] ?? "nil"), targets now \(after.raw["url_targets"] ?? "nil")")
         XCTAssertTrue(want(url), "\(what): opened \(url)")
         XCTAssertEqual(after.peerInputs, before.peerInputs, "\(what): Command + tap sent the terminal input")
     }

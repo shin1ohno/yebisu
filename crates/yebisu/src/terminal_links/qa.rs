@@ -223,10 +223,14 @@ impl Smoke {
             .iter()
             .find(|(name, _)| name.ends_with("wrapped"))
             .map(|&(_, cell)| point(cell));
-        let targets: serde_json::Map<String, serde_json::Value> = found
+        let mut targets: serde_json::Map<String, serde_json::Value> = found
             .into_iter()
             .map(|(name, cell)| (name.to_owned(), serde_json::json!(point(cell))))
             .collect();
+        targets.insert(
+            "surface".into(),
+            serde_json::json!([surface.surface_revision, surface.boot_id]),
+        );
         crate::qa_ax::report("url_targets", || serde_json::Value::Object(targets));
         if forced_hover()
             && let Some([x, y]) = rest

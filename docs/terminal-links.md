@@ -16,6 +16,10 @@ This works on Herdr 1 and Herdr 2 panes.
 | An OSC 8 hyperlink with no readable target | Nothing; `Not opened: the link names no web address` |
 | Anything else | The press is an ordinary tap or click |
 
+The reason is the terminal status, which the status bar shows in its
+detail, behind the ▸ after the connection state, where other terminal
+status such as `Paste queued` appears.
+
 A tap or click without Command is unchanged: it focuses the terminal, starts a
 selection or asks for the keyboard as before. A press with Command over text
 that is no link is an ordinary press too. A press that opens or refuses a link
@@ -98,4 +102,15 @@ its own pane's target.
   `YEBISU_URL_TAP_QA=hover`, which takes the pointer to rest on the wrapped
   address with Command held, and saves a screenshot of the underline; XCTest
   cannot hover a pointer on iPad. None of them is in the CI job selection.
-- Screenshots: `docs/screenshots/w6-open-url/`.
+- Screenshots (`docs/screenshots/w6-open-url/`, iPadOS 26.5 Simulator,
+  landscape): `herdr1-fixture.png` and `herdr2-fixture.png` (the fixtures),
+  `plain-safari.png`, `wrapped-safari.png`, `osc8-safari.png`,
+  `core-osc8-safari.png`, `core-wrapped-safari.png` (Safari in front after
+  each Command + tap), `mailto-refused.png` and `path-refused.png` (yebisu
+  still in front after a refused press), `command-underline.png` (the
+  Command underline on both rows of the wrapped address) and
+  `artboard-open-url.png` (the design record).
+- Back from Safari, a Herdr 2 session reconnects with a new boot and its
+  first frames are 80 x 24 until the resize, so the test presses a link only
+  once its point and frame (`url_targets.surface`) held for two seconds, and
+  `qa.state` `url_press` records the cell and row text each press read.

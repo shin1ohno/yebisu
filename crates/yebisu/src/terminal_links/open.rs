@@ -39,6 +39,21 @@ impl Smoke {
     pub(crate) fn link_target_at(&self, position: Point<Pixels>) -> Option<Target> {
         let (_, surface) = self.terminal.coherent_frame()?;
         let (column, row) = self.terminal.geometry.cell_at(&surface, position, None)?;
+        // QA: where the press read, against which frame.
+        crate::qa_ax::report("url_press", || {
+            serde_json::json!({
+                "point": [f32::from(position.x), f32::from(position.y)],
+                "cell": [column, row],
+                "surface": surface.surface_revision,
+                "projection": surface.projection_revision,
+                "boot": surface.boot_id,
+                "text": surface.frame.cells.iter()
+                    .skip(usize::from(row) * usize::from(surface.frame.width))
+                    .take(usize::from(surface.frame.width))
+                    .map(|cell| cell.symbol.as_str())
+                    .collect::<String>(),
+            })
+        });
         match pane_link_at(&surface, column, row) {
             Some(link) => Some(link.target),
             // An explicit hyperlink whose target is not in the frame's table.
