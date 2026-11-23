@@ -105,14 +105,26 @@ final class EditMenuTargetsQA: XCTestCase {
     private func secondaryClick(_ target: Target) throws {
         // What the app saw: `menu_secondary` counts secondary (or Control-) clicks that reached the
         // terminal's listener, `menu_presented` the edit menus the app itself presented.
+        // The first pointer event after launch can be lost before GPUI sees it (PR 132 run
+        // 45142793709: secondary 0 on the first terminal click, 1 on the second). On the terminal
+        // the app's receipt tells a lost click apart, so it is clicked once more; the attempts are
+        // reported.
         let before = qa.read()
-        coordinate(target.point).rightClick()
-        let shown = app.menuItems["Paste"].waitForExistence(timeout: target.paste ? 5 : 2)
+        var attempts = 0
+        var shown = false
+        var after: QAState?
+        repeat {
+            attempts += 1
+            coordinate(target.point).rightClick()
+            shown = app.menuItems["Paste"].waitForExistence(timeout: target.paste ? 5 : 2)
+            after = qa.read()
+        } while target.paste && !shown && attempts < 2
+            && (after?.count("menu_secondary") ?? 0) == (before?.count("menu_secondary") ?? 0)
         let items = app.menuItems.allElementsBoundByIndex.map(\.label)
-        let after = qa.read()
         let delta = { (key: String) -> Int in (after?.count(key) ?? 0) - (before?.count(key) ?? 0) }
         report(["name": target.name, "x": target.point.x, "y": target.point.y, "paste": shown, "expected": target.paste,
-                "items": items, "secondary": delta("menu_secondary"), "presented": delta("menu_presented")])
+                "items": items, "secondary": delta("menu_secondary"), "presented": delta("menu_presented"),
+                "attempts": attempts])
         save("l61-\(target.name)")
         XCTAssertEqual(shown, target.paste, "L61 \(target.name): Paste shown \(shown), expected \(target.paste), items \(items)")
         if shown {
