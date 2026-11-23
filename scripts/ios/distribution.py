@@ -438,7 +438,8 @@ def main():
             if not (app / "Info.plist").is_file():
                 raise ValueError("unsigned bundle output is missing")
             stamp_sdk_metadata(app, metadata)
-            load_helper("icons.py").compile_icons(app)
+            # bundle.sh compiled the app icon (assets/app-icon) before it stopped short of signing.
+            load_helper("icons.py").check_bundle(app)
             print(app)
         elif args.stage == "package":
             package(args)

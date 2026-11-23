@@ -138,8 +138,8 @@ if ((${#manifest_args[@]} > 0)); then
 fi
 
 case "$target" in
-  aarch64-apple-ios-sim) platform=iPhoneSimulator ;;
-  aarch64-apple-ios) platform=iPhoneOS ;;
+  aarch64-apple-ios-sim) platform=iPhoneSimulator actool_platform=iphonesimulator ;;
+  aarch64-apple-ios) platform=iPhoneOS actool_platform=iphoneos ;;
   *)
     echo "error: unsupported target $target (aarch64-apple-ios-sim or aarch64-apple-ios)" >&2
     exit 2
@@ -350,6 +350,12 @@ if [[ $package == yebisu && $kind == bin && $name == yebisu ]]; then
   cp assets/licenses/NOTICE.md assets/licenses/Rodio-MIT.txt assets/licenses/Symphonia-MPL-2.0.txt "$app/Licenses/"
   cp LICENSE "$app/Licenses/Apache-2.0.txt"
   plutil -replace UIAppFonts -json '["Fonts/SauceCodeProNerdFontMono-Regular.ttf","Fonts/SauceCodeProNerdFontMono-Bold.ttf","Fonts/SauceCodeProNerdFontMono-Italic.ttf","Fonts/SauceCodeProNerdFontMono-BoldItalic.ttf"]' "$plist"
+  # The app icon (assets/app-icon) in light, dark and tinted, compiled by actool into
+  # Assets.car before signing, for development and distribution bundles alike.
+  python3 -I -B scripts/ios/icons.py --app "$app" --platform "$actool_platform" --scratch "$work" >&2
+else
+  # Platform examples have no icon catalog, so they do not name one.
+  plutil -remove 'CFBundleIcons~ipad' "$plist"
 fi
 plutil -lint "$plist" >&2
 if grep -q '\$(' "$plist"; then

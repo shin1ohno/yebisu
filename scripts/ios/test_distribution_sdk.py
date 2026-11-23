@@ -58,10 +58,10 @@ class SdkMetadataTests(unittest.TestCase):
         (self.app / "Info.plist").write_bytes(plistlib.dumps(template))
 
     def build(self, tools):
-        """Run the build stage; icons record the Info.plist they were handed."""
+        """Run the build stage; the icon check records the Info.plist it was handed."""
         seen = []
         icons = Mock()
-        icons.compile_icons.side_effect = lambda app: seen.append(
+        icons.check_bundle.side_effect = lambda app: seen.append(
             plistlib.loads((app / "Info.plist").read_bytes()))
         stderr = io.StringIO()
         with patch.dict(os.environ, {"CARGO_TARGET_DIR": str(self.root)}), \
@@ -80,7 +80,7 @@ class SdkMetadataTests(unittest.TestCase):
         tools = Tools(self.app)
         code, seen, stderr = self.build(tools)
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(len(seen), 1, "icons compile once, after stamping")
+        self.assertEqual(len(seen), 1, "the icon is checked once, after stamping")
         self.assertEqual({key: seen[0].get(key) for key in SDK_INFO}, SDK_INFO)
         self.assertEqual(plistlib.loads((self.app / "Info.plist").read_bytes())["DTXcode"], "2720")
         bundle = next(index for index, argv in enumerate(tools.calls) if argv[:2] == BUNDLE_SH)
