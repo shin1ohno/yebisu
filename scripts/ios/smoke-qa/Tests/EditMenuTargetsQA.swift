@@ -54,14 +54,23 @@ final class EditMenuTargetsQA: XCTestCase {
 
         // The rail: Command-B collapses the sidebar to it.
         app.typeKey("b", modifierFlags: .command)
-        guard let railState = try? qa.waitState("the rail is shown", timeout: 10, { $0.windowFrame(QAIds.railSettings) != nil }),
-              let rail = railState.windowFrame(QAIds.railSettings) else {
+        guard (try? qa.waitState("the rail is shown", timeout: 10, { $0.windowFrame(QAIds.railSettings) != nil })) != nil else {
             save("l61-rail-missing")
             XCTFail("L61 the rail did not appear after Command-B")
             return
         }
+        // The software keyboard can come up here and move the rail's footer (PR 132 run 45148358822:
+        // a point from the frame read before it landed on the keyboard's "~" key). Read the frame
+        // again once the keyboard has settled.
+        _ = try? qa.settledKeyboard("after Command-B")
+        guard let rail = qa.read()?.windowFrame(QAIds.railSettings) else {
+            save("l61-rail-missing")
+            XCTFail("L61 no rail frame after the keyboard settled")
+            return
+        }
         print("L61 FRAMES rail-settings=\(rail)")
-        try secondaryClick(Target(name: "rail", point: CGPoint(x: rail.midX, y: rail.minY - 160), paste: false))
+        // The empty rail above the footer's Hosts and Settings buttons.
+        try secondaryClick(Target(name: "rail", point: CGPoint(x: rail.midX, y: rail.minY - 60), paste: false))
         try secondaryClick(Target(name: "rail-item", point: CGPoint(x: rail.midX, y: host.midY), paste: false))
         coordinate(CGPoint(x: rail.midX, y: host.midY)).press(forDuration: 1.2)
         let railPaste = app.menuItems["Paste"].waitForExistence(timeout: 1)
