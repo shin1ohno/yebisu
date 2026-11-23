@@ -18,8 +18,11 @@ the contention clears. A focus change or native identity mismatch is not
 re-armed. Neither terminal taps nor GPUI key events can release this
 P13 fence. No input is buffered or replayed for recovery.
 
-The SDK is pinned to the herdr-uikit PR 14 merge commit
-99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main). It contains
+The SDK was pinned to the herdr-uikit PR 14 merge commit
+99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main); L61 moved it
+to the PR 18 merge commit af7c496099dd6d308055be1818ddf971a321e4f8, which adds
+PR 17 (test-support held-press) and PR 18 (empty edit menu for unpresented
+configurations) and keeps the same helper. 99d7928 contains
 the earlier fe3a0da query helper, main's 3ec67ca, and a test-support-only
 Cut/first-query helper whose production-path hooks are all
 `cfg(feature = "test-support")`. Only the opt-in `p13-native-probe` feature
