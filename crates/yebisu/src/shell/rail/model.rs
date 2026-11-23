@@ -1,6 +1,10 @@
 //! The rail's rows as plain data: hosts and their spaces, with the counts of
 //! agents that need the user. No GPUI type, so the rules are tested directly.
-use crate::shell::{HerdrKind, sidebar::AgentIdentity, sidebar_status::SidebarStatus};
+use crate::shell::{
+    HerdrKind,
+    sidebar::{AgentIdentity, agent_icon::AgentIcon},
+    sidebar_status::SidebarStatus,
+};
 use crate::{setup::Setup, shell::rail_badges::badge_accessibility};
 
 /// One space of a host, as the rail needs it.
@@ -73,6 +77,8 @@ pub(crate) struct RailItem {
     pub(crate) boot: String,
     pub(crate) generation: u64,
     pub(crate) target: RailTarget,
+    /// An agent row's kind, drawn before its name; `None` for hosts and spaces.
+    pub(crate) icon: Option<AgentIcon>,
 }
 
 fn herdr_text(kind: HerdrKind) -> &'static str {
@@ -150,6 +156,7 @@ pub(crate) fn rail_items(hosts: &[RailHost], setup: &Setup) -> Vec<RailItem> {
             boot: host.boot.clone(),
             generation: host.generation,
             target: RailTarget::Host(host.name.clone()),
+            icon: None,
         });
         for host in connections.iter().filter(|host| host.connected) {
             for space in &host.spaces {
@@ -181,6 +188,7 @@ pub(crate) fn rail_items(hosts: &[RailHost], setup: &Setup) -> Vec<RailItem> {
                         boot: host.boot.clone(),
                         generation: host.generation,
                     },
+                    icon: None,
                 });
             }
         }

@@ -15,6 +15,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
+pub(crate) mod agent_icon;
 pub(crate) mod icons;
 pub(crate) mod long_press;
 pub(crate) mod model;
@@ -207,6 +208,8 @@ pub(crate) struct AgentRow {
     pub(crate) tab: u64,
     pub(crate) status: SidebarStatus,
     pub(crate) received: u64,
+    /// The agent's kind, drawn before its name.
+    pub(crate) icon: agent_icon::AgentIcon,
 }
 
 /// AGENTS order: status (Q5), then newest received first; a first batch

@@ -1,6 +1,7 @@
 yebisu
 
-This product includes adapted iOS build scripts and fonts from Sheprd.
+This product includes adapted iOS build scripts and fonts from Sheprd, and its
+sidebar agent icons (assets/icons/agent-*.svg; sources in assets/icons/README.md).
 Copied files and immutable source revisions are listed in PROVENANCE.tsv.
 The following upstream notice is retained for attribution in its original form.
 
@@ -34,6 +35,12 @@ revision 8ac9542757292f7a8d42a2d532bc6a8a33c7ffce: src/config/{model,sound,theme
 src/app/{state,mod}.rs, and src/client/shell.rs. Adaptations include native RGB
 palette projection, bounded parsing, conflict-aware atomic persistence, and
 GPUI indicator rendering. No upstream NOTICE file was present at that revision.
+
+The agent-name aliases and their normalization that resolve a Herdr 2
+Status.app value to an agent icon in crates/yebisu/src/shell/sidebar/agent_icon.rs
+are adapted from Herdr (https://github.com/herdrdev/herdr), Apache-2.0,
+revision e8d7d9705a7a2c89cef4dd42079379f05685af87: src/detect/mod.rs
+(lookup_agent, normalized_agent_lookup_name, path_basename).
 
 The notification policy and bundled audio assets adapted or copied from Herdr
 are attributed in crates/sheprd-gpui/SOUND-NOTICE.md (Apache-2.0).

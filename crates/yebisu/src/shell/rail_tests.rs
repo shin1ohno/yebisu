@@ -4,6 +4,8 @@ use crate::shell::{HerdrKind, sidebar_status::SidebarStatus};
 
 #[path = "rail_tests/a11y.rs"]
 mod a11y;
+#[path = "rail_tests/agent_icon.rs"]
+mod agent_icon;
 #[path = "rail_tests/canvas.rs"]
 mod canvas;
 #[path = "rail_tests/collapse.rs"]

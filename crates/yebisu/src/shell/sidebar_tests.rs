@@ -34,6 +34,7 @@ fn row(host: &str, pane: &str, name: &str, status: SidebarStatus, received: u64)
         tab: 1,
         status,
         received,
+        icon: agent_icon::AgentIcon::Generic,
     }
 }
 

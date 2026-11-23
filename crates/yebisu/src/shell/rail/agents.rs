@@ -82,6 +82,7 @@ impl Smoke {
                     error: 0,
                     boot: host.boot.clone(),
                     generation: host.generation,
+                    icon: Some(line.row.icon),
                     target: RailTarget::Agent {
                         id,
                         workspace_id,

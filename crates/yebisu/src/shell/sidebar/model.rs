@@ -1,7 +1,8 @@
 //! L3: host, space and AGENTS rows built from daemon snapshots. Pure data;
 //! the view draws it. Owner: L3.
 use super::{
-    AgentIdentity, AgentRow, Observed, SidebarState, agent_order, agent_order_in, display_name,
+    AgentIdentity, AgentRow, Observed, SidebarState, agent_icon::AgentIcon, agent_order,
+    agent_order_in, display_name,
 };
 use crate::{
     board::snapshot,
@@ -128,6 +129,9 @@ pub(crate) struct SpaceEntry {
     pub(crate) needs_you: bool,
     pub(crate) error_tag: bool,
     pub(crate) detail: String,
+    /// The icon of the agent the second line names; none for No agent
+    /// (canvas v27 SidebarMixed).
+    pub(crate) icon: Option<AgentIcon>,
     pub(crate) current: bool,
 }
 
@@ -174,6 +178,7 @@ fn space_entry_with_reason(
             .filter(|b| !b.trim().is_empty() && !b.starts_with('~')),
         HerdrKind::Herdr2 => None,
     };
+    let icon = agents.first().map(|lead| lead.icon);
     let (dot, detail) = match agents.first() {
         None => (SidebarStatus::NoStatus, "No agent".to_owned()),
         Some(lead) => {
@@ -197,6 +202,7 @@ fn space_entry_with_reason(
         needs_you: agents.iter().any(|a| a.status == SidebarStatus::NeedsYou),
         error_tag: agents.iter().any(|a| a.status == SidebarStatus::Error),
         detail,
+        icon,
         current: input.current,
     }
 }
@@ -417,6 +423,7 @@ pub(crate) fn snapshot_content(
             name: agent_name(agent, snapshot),
             tab: tab_number(&agent.tab_id),
             status: from_agent_status(agent.agent_status),
+            icon: AgentIcon::of_agent(agent),
         }
     };
     let mut spaces = Vec::new();
