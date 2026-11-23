@@ -73,6 +73,17 @@ impl Default for ControlsClearance {
     }
 }
 
+impl ControlsReach {
+    /// The clearance the shell chrome keeps for this reach (`clearance`),
+    /// for a surface drawn over the shell, such as the Settings sheet.
+    pub fn clearance(self) -> ControlsClearance {
+        clearance(&Insets {
+            window_controls: self,
+            ..Insets::default()
+        })
+    }
+}
+
 /// The clearance for the controls' reach in `insets`: nothing for all zero
 /// (no controls), nor for a corner allowance alone.
 pub(super) fn clearance(insets: &Insets) -> ControlsClearance {

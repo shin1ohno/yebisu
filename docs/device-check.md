@@ -779,8 +779,9 @@ terminal input while the sheet or confirmation is open. Simulator is not this pr
 
 Compare both installed apps' signed entitlement groups. Record the old exact
 public blob before intentionally replacing the yebisu key. Cancel once, then
-confirm once, wait for worker termination, explicitly read/initialize current
-key, and install that exact new blob on an authorized disposable host. Confirm a
+confirm once, wait for worker termination, reopen the Hosts and keys page (it
+reads/initializes the current key when it opens, as Add host does; Read is the
+retry), and install that exact new blob on an authorized disposable host. Confirm a
 fresh connection, back up and remove only the recorded old blob, confirm another
 fresh connection, and verify other app/device keys still work. No worker may
 perform these trust/keychain mutations. Record device/iPadOS, head and receipts.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- D1a, dark appearance: the same shapes and colors as the light icon without its
+       background, so the system-provided dark background shows through. -->
+  <path d="M462 900 L462 400 A172 172 0 0 1 806 400 L806 452" fill="none" stroke="#ebcb8b" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M806 452 L806 716" fill="none" stroke="#d8dee9" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="270" cy="560" r="72" fill="#88c0d0"/>
+  <circle cx="158" cy="742" r="72" fill="#a3be8c"/>
+  <circle cx="326" cy="786" r="72" fill="#d8dee9"/>
+  <circle cx="806" cy="772" r="56" fill="#bf616a"/>
+</svg>
