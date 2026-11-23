@@ -92,6 +92,11 @@ impl Smoke {
         if let Some(reason) = self.find_keyboard_status() {
             return reason.into();
         }
+        if let Some(status) = &self.actions.key_status
+            && status.current(&self.terminal, self.board.selection)
+        {
+            return status.text.clone();
+        }
         if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             if let Some(reason) = self.retirement.reason {
                 return reason.into();
@@ -280,6 +285,9 @@ impl Smoke {
             self.actions.host_keys.clear_press();
             return;
         }
+        if !event.is_held {
+            self.actions.key_status = None;
+        }
         // Escape closes the Shortcuts popover, never reaching the host (S1).
         if self.shell.shortcuts.open && event.keystroke.key == "escape" {
             self.shell.shortcuts.open = false;
@@ -340,12 +348,7 @@ impl Smoke {
             cx.notify();
             return;
         }
-        let prefix_context = self.actions.herdr_prefix
-            && self.terminal.live.connected
-            && !self.terminal.reconnect.suspended
-            && !self.actions.palette
-            && self.terminal.navigating.is_none()
-            && crate::actions::catalog_context_available(&self.terminal);
+        let prefix_context = self.herdr_prefix_context();
         if prefix_context {
             self.poll_host_keys(cx);
         }
@@ -395,33 +398,12 @@ impl Smoke {
             return;
         }
         if let Some(command) = command {
-            if command == sheprd_commands::Command::Keybinds {
-                if !event.is_held {
-                    self.toggle_shortcuts(window, cx);
-                }
+            let herdr = matches!(route, Route::Consume(_));
+            if self.run_key_command(command, herdr, event.is_held, window, cx) {
                 self.actions.consumed.insert(event.keystroke.key.clone());
-                cx.stop_propagation();
-                window.prevent_default();
-                return;
             }
-            if command == sheprd_commands::Command::Find {
-                if !event.is_held {
-                    self.open_find(window, cx);
-                }
-                cx.stop_propagation();
-                window.prevent_default();
-                return;
-            }
-            if !event.is_held
-                && let Err(e) = self.run_catalog_command(command, None, window.is_window_active())
-            {
-                self.terminal.live.status = e.to_string();
-            }
-            self.actions.consumed.insert(event.keystroke.key.clone());
             cx.stop_propagation();
             window.prevent_default();
-            window.notify_text_input_changed(&self.terminal_focus);
-            cx.notify();
             return;
         }
         self.refresh_terminal_input();
@@ -452,6 +434,118 @@ impl Smoke {
             cx.notify();
         }
     }
+    fn herdr_prefix_context(&self) -> bool {
+        self.actions.herdr_prefix
+            && self.terminal.live.connected
+            && !self.terminal.reconnect.suspended
+            && !self.actions.palette
+            && self.terminal.navigating.is_none()
+            && crate::actions::catalog_context_available(&self.terminal)
+    }
+
+    /// Run a shortcut's command. Returns whether its press stays the app's
+    /// until the release. `herdr` is a Herdr prefix style key binding.
+    fn run_key_command(
+        &mut self,
+        command: sheprd_commands::Command,
+        herdr: bool,
+        held: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use sheprd_commands::Command;
+        match command {
+            Command::Keybinds => {
+                if !held {
+                    self.toggle_shortcuts(window, cx);
+                }
+                true
+            }
+            Command::Find => {
+                if !held {
+                    self.open_find(window, cx);
+                }
+                false
+            }
+            _ => {
+                if !held {
+                    // A live update replaces the live status at once, so
+                    // the reason stays visible until the next key (L57).
+                    let failure = self.run_shortcut(command, herdr, window).err();
+                    self.actions.key_status = failure.map(|error| {
+                        crate::actions::KeyStatus::new(
+                            format!("{}: {error}", command_name(command)),
+                            &self.terminal,
+                            self.board.selection,
+                        )
+                    });
+                }
+                window.notify_text_input_changed(&self.terminal_focus);
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    /// A Herdr binding is not an iPad ⌘ shortcut. Terminal priority with
+    /// Command as Control gives ⌘ keys to the terminal, so the OS menu rows
+    /// are unavailable then (native_menus.rs `catalog_rows`); that must not
+    /// refuse a Herdr chord, which holds no ⌘ (L57: ctrl+a c swallowed c and
+    /// created no tab). The focus requirement still applies.
+    fn run_shortcut(
+        &mut self,
+        command: sheprd_commands::Command,
+        herdr: bool,
+        window: &Window,
+    ) -> crate::Result<()> {
+        if !herdr {
+            return self.run_catalog_command(command, None, window.is_window_active());
+        }
+        if !window.is_window_active() {
+            return Err(crate::Error::NativeMenu("inactive terminal focus"));
+        }
+        self.run_action(command)
+    }
+
+    /// The prefix route of `terminal_key_down` for a key without a KeyDown
+    /// of its own: the key band's keys and the text UIKit types, from the
+    /// software keyboard or through an IME. Returns whether the app took the
+    /// key; a replayed prefix and every other key are the caller's to send.
+    pub(crate) fn route_generated_key(
+        &mut self,
+        keystroke: Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.terminal_focus.is_focused(window) {
+            return false;
+        }
+        self.actions.key_status = None;
+        let prefix_context = self.herdr_prefix_context();
+        if prefix_context {
+            self.poll_host_keys(cx);
+        }
+        let event = KeyDownEvent {
+            keystroke,
+            is_held: false,
+            prefer_character_input: false,
+        };
+        match self.actions.host_keys.route(
+            &self.terminal,
+            self.board.selection,
+            prefix_context,
+            self.actions.use_server_keybindings,
+            &event,
+        ) {
+            Route::Consume(None) => true,
+            Route::Consume(Some(command)) => {
+                self.run_key_command(command, true, false, window, cx);
+                true
+            }
+            Route::Native | Route::Terminal | Route::Replay => false,
+        }
+    }
+
     pub(crate) fn terminal_key_up(
         &mut self,
         event: &KeyUpEvent,
@@ -670,3 +764,10 @@ impl Smoke {
 #[cfg(test)]
 #[path = "terminal_controls_tests.rs"]
 mod tests;
+
+fn command_name(command: sheprd_commands::Command) -> String {
+    sheprd_commands::COMMANDS
+        .iter()
+        .find(|info| info.command == command)
+        .map_or_else(|| format!("{command:?}"), crate::i18n::command)
+}

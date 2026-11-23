@@ -186,19 +186,25 @@ impl EntityInputHandler for Smoke {
             if self.handoff.blocks_input() {
                 return;
             }
+            // Typing ends an earlier key binding's failure reason (L57).
+            self.actions.key_status = None;
             self.refresh_terminal_input();
             let composing = self.terminal.input.composition.marked.is_some();
             if let Some(event) = self.terminal.input.replace(range, text) {
-                if composing || !self.key_band_can_apply(window) {
-                    self.send_terminal(event);
-                } else {
-                    let events = crate::shell::key_band::apply_latch(
-                        &mut self.shell.frame.key_band,
-                        event,
-                        self.terminal.input.report_all,
-                    );
-                    for event in events.into_iter().flatten() {
+                let latched = !composing && self.key_band_can_apply(window);
+                // A Herdr prefix can take the commit as a key.
+                if composing || !self.route_typed(&event, latched, window, cx) {
+                    if !latched {
                         self.send_terminal(event);
+                    } else {
+                        let events = crate::shell::key_band::apply_latch(
+                            &mut self.shell.frame.key_band,
+                            event,
+                            self.terminal.input.report_all,
+                        );
+                        for event in events.into_iter().flatten() {
+                            self.send_terminal(event);
+                        }
                     }
                 }
             } else if !text.is_empty() {
@@ -248,6 +254,7 @@ impl EntityInputHandler for Smoke {
                 cx.notify();
                 return;
             }
+            self.actions.key_status = None;
             self.refresh_terminal_input();
             self.terminal.input.mark(text, selected);
             window.notify_text_input_changed(self.active_focus());

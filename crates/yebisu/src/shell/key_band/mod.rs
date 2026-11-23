@@ -175,6 +175,14 @@ impl State {
             }
     }
 
+    fn latched(&self, destination: &Destination) -> Modifiers {
+        if self.destination.as_ref() == Some(destination) {
+            self.modifiers
+        } else {
+            Modifiers::default()
+        }
+    }
+
     fn take(&mut self, destination: &Destination) -> Modifiers {
         let previous = std::mem::take(self);
         if previous.destination.as_ref() == Some(destination) {
@@ -420,8 +428,87 @@ pub(crate) fn apply_latch(
     ]
 }
 
+/// The key a hardware press of one committed scalar reports (herdr-uikit
+/// keymap.rs), with the band's `latch`: a capital is its letter with Shift,
+/// and a C0 control letter, as from Control-A, is Control and the letter.
+/// None for text that no single key types.
+fn typed_keystroke(text: &str, latch: Modifiers) -> Option<Keystroke> {
+    let mut chars = text.chars();
+    let (Some(ch), None) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    let mut modifiers = latch;
+    let key = match ch {
+        ' ' => "space".into(),
+        '\n' | '\r' => "enter".into(),
+        '\t' => "tab".into(),
+        '\u{1b}' => "escape".into(),
+        _ if control_letter(ch) => {
+            modifiers.control = true;
+            char::from_u32(u32::from(ch) + 0x60)?.to_string()
+        }
+        _ if ch.is_control() => return None,
+        _ if ch.is_ascii_uppercase() => {
+            modifiers.shift = true;
+            ch.to_ascii_lowercase().to_string()
+        }
+        _ => ch.to_string(),
+    };
+    Some(Keystroke {
+        key,
+        modifiers,
+        key_char: None,
+    })
+}
+
+/// U+0001 to U+001A without the ones with keys of their own (Backspace,
+/// Tab, Return).
+fn control_letter(ch: char) -> bool {
+    matches!(ch, '\u{1}'..='\u{1a}') && !matches!(ch, '\u{8}' | '\t' | '\n' | '\r')
+}
+
 impl Smoke {
+    /// Herdr prefix style for a commit without a KeyDown of its own (the
+    /// software keyboard, an IME, the band's text keys). A commit is a key
+    /// under the band's latch, as a control letter, or after an armed
+    /// prefix; other text stays typing, because a hardware press took the
+    /// prefix route before UIKit typed it. Returns whether the app took the
+    /// commit; the latch is then spent.
+    pub(crate) fn route_typed(
+        &mut self,
+        input: &GeneratedInput,
+        latched: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use sheprd_client::protocol::ClientPaneInputEvent::TextCommit;
+        let TextCommit(text) = &input.event else {
+            return false;
+        };
+        let latch = if latched {
+            self.shell.frame.key_band.latched(&input.destination)
+        } else {
+            Modifiers::default()
+        };
+        let armed = self.actions.host_keys.armed();
+        if !(armed || latch.control || latch.alt || text.chars().all(control_letter)) {
+            return false;
+        }
+        let Some(keystroke) = typed_keystroke(text, latch) else {
+            // A commit ends a pending prefix as any hardware key would.
+            self.actions.host_keys.clear_press();
+            return false;
+        };
+        if !self.route_generated_key(keystroke, window, cx) {
+            return false;
+        }
+        self.shell.frame.key_band.clear();
+        true
+    }
+
     fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        // Any band key ends an earlier key binding's failure reason (L57).
+        self.actions.key_status = None;
         if action == Action::Hide {
             self.shell.frame.key_band.clear();
             let dismiss = Window::dismiss_virtual_keyboard;
@@ -461,23 +548,34 @@ impl Smoke {
                         && let Some(input) = app.terminal.input.commit(text)
                     {
                         app.handoff.resume_typing();
-                        let events = apply_latch(
-                            &mut app.shell.frame.key_band,
-                            input,
-                            app.terminal.input.report_all,
-                        );
-                        for event in events.into_iter().flatten() {
-                            app.send_terminal(event);
+                        if !app.route_typed(&input, true, window, cx) {
+                            let events = apply_latch(
+                                &mut app.shell.frame.key_band,
+                                input,
+                                app.terminal.input.report_all,
+                            );
+                            for event in events.into_iter().flatten() {
+                                app.send_terminal(event);
+                            }
                         }
                     }
                 }
                 Action::Key(key) => {
                     let modifiers = app.shell.frame.key_band.take(&destination);
+                    let keystroke = Keystroke {
+                        key: key.into(),
+                        modifiers,
+                        key_char: None,
+                    };
+                    let routed =
+                        (modifiers.control || modifiers.alt || app.actions.host_keys.armed())
+                            && app.route_generated_key(keystroke, window, cx);
                     let report_all = app.terminal.input.report_all;
-                    if let Some(press) = app
-                        .terminal
-                        .input
-                        .key_down(&stroke(key, modifiers), report_all)
+                    if !routed
+                        && let Some(press) = app
+                            .terminal
+                            .input
+                            .key_down(&stroke(key, modifiers), report_all)
                     {
                         app.handoff.resume_typing();
                         app.send_terminal(press);
