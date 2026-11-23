@@ -198,6 +198,11 @@ impl HostKeys {
         self.press_owner = None;
     }
 
+    /// A prefix waits for its second key.
+    pub(crate) fn armed(&self) -> bool {
+        self.prefix.armed.is_some()
+    }
+
     pub(crate) fn route(
         &mut self,
         terminal: &TerminalView,

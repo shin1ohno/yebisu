@@ -303,7 +303,7 @@ impl Smoke {
             let focus = input_entity.read(cx).terminal_focus.clone();
             window.handle_input(
                 &focus,
-                gpui::ElementInputHandler::new(bounds, input_entity),
+                crate::actions::herdr_keys::TerminalInputHandler::new(bounds, input_entity),
                 cx,
             );
         }

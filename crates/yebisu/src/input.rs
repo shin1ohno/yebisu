@@ -189,16 +189,20 @@ impl EntityInputHandler for Smoke {
             self.refresh_terminal_input();
             let composing = self.terminal.input.composition.marked.is_some();
             if let Some(event) = self.terminal.input.replace(range, text) {
-                if composing || !self.key_band_can_apply(window) {
-                    self.send_terminal(event);
-                } else {
-                    let events = crate::shell::key_band::apply_latch(
-                        &mut self.shell.frame.key_band,
-                        event,
-                        self.terminal.input.report_all,
-                    );
-                    for event in events.into_iter().flatten() {
+                let latched = !composing && self.key_band_can_apply(window);
+                // A Herdr prefix can take the commit as a key.
+                if composing || !self.route_typed(&event, latched, window, cx) {
+                    if !latched {
                         self.send_terminal(event);
+                    } else {
+                        let events = crate::shell::key_band::apply_latch(
+                            &mut self.shell.frame.key_band,
+                            event,
+                            self.terminal.input.report_all,
+                        );
+                        for event in events.into_iter().flatten() {
+                            self.send_terminal(event);
+                        }
                     }
                 }
             } else if !text.is_empty() {

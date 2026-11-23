@@ -1,10 +1,12 @@
 //! Herdr [keys] bindings resolved to the existing iPad action catalog.
 mod host;
+mod ime;
 use gpui::{Keystroke, Modifiers};
 use sheprd_commands::Command;
 use std::sync::LazyLock;
 
 pub(crate) use host::HostKeys;
+pub(crate) use ime::TerminalInputHandler;
 
 const DEFAULT_PREFIX: &str = "ctrl+b";
 const MAX_BYTES: usize = 64 * 1024;
@@ -370,5 +372,7 @@ impl Prefix {
     }
 }
 
+#[cfg(test)]
+mod input_paths;
 #[cfg(test)]
 mod tests;

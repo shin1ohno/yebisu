@@ -340,12 +340,7 @@ impl Smoke {
             cx.notify();
             return;
         }
-        let prefix_context = self.actions.herdr_prefix
-            && self.terminal.live.connected
-            && !self.terminal.reconnect.suspended
-            && !self.actions.palette
-            && self.terminal.navigating.is_none()
-            && crate::actions::catalog_context_available(&self.terminal);
+        let prefix_context = self.herdr_prefix_context();
         if prefix_context {
             self.poll_host_keys(cx);
         }
@@ -395,33 +390,11 @@ impl Smoke {
             return;
         }
         if let Some(command) = command {
-            if command == sheprd_commands::Command::Keybinds {
-                if !event.is_held {
-                    self.toggle_shortcuts(window, cx);
-                }
+            if self.run_key_command(command, event.is_held, window, cx) {
                 self.actions.consumed.insert(event.keystroke.key.clone());
-                cx.stop_propagation();
-                window.prevent_default();
-                return;
             }
-            if command == sheprd_commands::Command::Find {
-                if !event.is_held {
-                    self.open_find(window, cx);
-                }
-                cx.stop_propagation();
-                window.prevent_default();
-                return;
-            }
-            if !event.is_held
-                && let Err(e) = self.run_catalog_command(command, None, window.is_window_active())
-            {
-                self.terminal.live.status = e.to_string();
-            }
-            self.actions.consumed.insert(event.keystroke.key.clone());
             cx.stop_propagation();
             window.prevent_default();
-            window.notify_text_input_changed(&self.terminal_focus);
-            cx.notify();
             return;
         }
         self.refresh_terminal_input();
@@ -452,6 +425,90 @@ impl Smoke {
             cx.notify();
         }
     }
+    fn herdr_prefix_context(&self) -> bool {
+        self.actions.herdr_prefix
+            && self.terminal.live.connected
+            && !self.terminal.reconnect.suspended
+            && !self.actions.palette
+            && self.terminal.navigating.is_none()
+            && crate::actions::catalog_context_available(&self.terminal)
+    }
+
+    /// Run a shortcut's command. Returns whether its press stays the app's
+    /// until the release.
+    fn run_key_command(
+        &mut self,
+        command: sheprd_commands::Command,
+        held: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use sheprd_commands::Command;
+        match command {
+            Command::Keybinds => {
+                if !held {
+                    self.toggle_shortcuts(window, cx);
+                }
+                true
+            }
+            Command::Find => {
+                if !held {
+                    self.open_find(window, cx);
+                }
+                false
+            }
+            _ => {
+                if !held
+                    && let Err(e) =
+                        self.run_catalog_command(command, None, window.is_window_active())
+                {
+                    self.terminal.live.status = e.to_string();
+                }
+                window.notify_text_input_changed(&self.terminal_focus);
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    /// The prefix route of `terminal_key_down` for a key without a KeyDown
+    /// of its own: the key band's keys and the text UIKit types, from the
+    /// software keyboard or through an IME. Returns whether the app took the
+    /// key; a replayed prefix and every other key are the caller's to send.
+    pub(crate) fn route_generated_key(
+        &mut self,
+        keystroke: Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.terminal_focus.is_focused(window) {
+            return false;
+        }
+        let prefix_context = self.herdr_prefix_context();
+        if prefix_context {
+            self.poll_host_keys(cx);
+        }
+        let event = KeyDownEvent {
+            keystroke,
+            is_held: false,
+            prefer_character_input: false,
+        };
+        match self.actions.host_keys.route(
+            &self.terminal,
+            self.board.selection,
+            prefix_context,
+            self.actions.use_server_keybindings,
+            &event,
+        ) {
+            Route::Consume(None) => true,
+            Route::Consume(Some(command)) => {
+                self.run_key_command(command, false, window, cx);
+                true
+            }
+            Route::Native | Route::Terminal | Route::Replay => false,
+        }
+    }
+
     pub(crate) fn terminal_key_up(
         &mut self,
         event: &KeyUpEvent,
