@@ -37,6 +37,8 @@ pub(crate) struct TerminalView {
     pub needs_focus: bool,
     pub reconnect_pending: bool,
     pub navigating: Option<crate::board::Navigation>,
+    /// L66: the pointer's rest over the terminal, for the Command underline.
+    pub(crate) link_hover: crate::terminal_links::Hover,
 }
 impl TerminalView {
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
@@ -291,6 +293,7 @@ impl Smoke {
                             .unwrap_or_default();
                         highlights.extend(search_highlights);
                         terminal.paint_surface((snapshot, surface), &panes, &highlights, &face, window, cx);
+                        terminal.paint_link_hover(surface, &panes, window);
                         this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"select_mode":this.handoff.select_mode,"selection_blocks_input":this.handoff.blocks_input(),"text_input_paused":terminal.input.requires_gesture(),"input_ready":terminal.input.ready,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                         #[cfg(all(target_os = "ios", target_abi = "sim"))]
                         this.sh1_152_advance_e1_text(window, cx);
@@ -356,6 +359,10 @@ impl Smoke {
             .track_focus(&self.terminal_focus)
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
+            // L66: on the focused terminal, where a hardware Command arrives.
+            .on_modifiers_changed(
+                cx.listener(|this, event, _, cx| this.link_hover_modifiers(event, cx)),
+            )
             .when(legacy.toolbar, |view| {
                 view.child(
                     div()
@@ -507,7 +514,15 @@ impl Smoke {
                             }
                         }),
                     )
-                    .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))
+                    .on_mouse_move(cx.listener(|this, event, _, cx| {
+                        this.link_hover_move(event, cx);
+                        this.selection_move(event, cx)
+                    }))
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        if !hovered {
+                            this.link_hover_left(cx);
+                        }
+                    }))
                     .on_mouse_up(
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, window, cx| this.selection_up(window, cx)),

@@ -25,6 +25,17 @@ byte for the terminal.
 The status line names only the host of an opened address (`Opening example.com
 in the browser`), since a path or query may hold a token.
 
+## The Command underline
+
+While Command is held and the pointer rests on a web address that would
+open, the address is underlined: one point, solid, in each cell's text
+colour, two points above the row's bottom, on every row it covers, wrapped
+rows included. That is where an explicit hyperlink's dashes sit at rest
+(4 points on, 3 off), so on an OSC 8 link the line replaces the dashes. It is
+the fork's hovered-link line, `TerminalPainter::paint_link`. Links that open
+nothing, a drag, and a finger (which has no hover) show no underline. The
+owner delegated this design (2026-11-24); the artboard `OpenUrl` records it.
+
 ## Safety
 
 Terminal content is untrusted (AGENTS.md):
@@ -83,5 +94,8 @@ its own pane's target.
   launch with `YEBISU_URL_TAP_QA`, press each fixture link with the
   Simulator's hardware Command held, and check the app's own open receipt in
   `qa.state` (`url_open`, `url_open_last`), Safari in front, and the peer's
-  input count. They are not part of the CI job selection.
+  input count. `SmokeQA/testUrlCommandUnderlineShot` launches with
+  `YEBISU_URL_TAP_QA=hover`, which takes the pointer to rest on the wrapped
+  address with Command held, and saves a screenshot of the underline; XCTest
+  cannot hover a pointer on iPad. None of them is in the CI job selection.
 - Screenshots: `docs/screenshots/w6-open-url/`.

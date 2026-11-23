@@ -14,6 +14,13 @@ pub(crate) fn enabled() -> bool {
     cfg!(any(test, all(target_os = "ios", target_abi = "sim"))) && std::env::var_os(ENV).is_some()
 }
 
+/// `YEBISU_URL_TAP_QA=hover`: the pointer is taken to rest on the wrapped
+/// address with Command held, so a Simulator screenshot shows the Command
+/// underline, which XCTest cannot hover a pointer to show.
+pub(crate) fn forced_hover() -> bool {
+    enabled() && std::env::var(ENV).is_ok_and(|value| value == "hover")
+}
+
 /// The plain address on the Herdr 1 peer, followed by a full stop.
 pub(crate) const PLAIN: &str = "https://example.com/l66?q=plain";
 /// The address the Herdr 1 peer wraps from the right edge into the next row.
@@ -61,25 +68,49 @@ fn put(frame: &mut FrameData, row: u16, column: u16, text: &str, hyperlink: Opti
     }
 }
 
-/// Rows 15 to 20 of the Herdr 1 peer's 80-column frame: a plain address
+/// Rows 12 to 17 of the Herdr 1 peer's frame: a plain address
 /// after wide characters, with a full stop after it, one wrapped from the
 /// right edge into the next row's first column, an explicit hyperlink,
 /// another scheme and a path.
 pub(crate) fn herdr1_fixture(frame: &mut FrameData) {
+    // Rows 12 to 17 stay above a 19-row terminal (the software keyboard up)
+    // and below the peer's own lines; a resized frame is written afresh.
+    let width = usize::from(frame.width);
+    for row in 12..18 {
+        let start = row * width;
+        for cell in frame.cells.iter_mut().skip(start).take(width) {
+            *cell = CellData {
+                symbol: " ".into(),
+                fg: 0,
+                bg: 0,
+                modifier: 0,
+                skip: false,
+                hyperlink: None,
+            };
+        }
+    }
     // Wide characters before it shift each later cell's text by bytes.
-    put(frame, 15, 1, &format!("見て {PLAIN}. then text"), None);
+    put(frame, 12, 1, &format!("見て {PLAIN}. then text"), None);
     // The address starts `WRAPPED_TOP` before the right edge and goes on in
     // the next row's first column, as a terminal wraps it.
     let (top, rest) = WRAPPED.split_at(WRAPPED_TOP.len());
-    let start = usize::from(frame.width).saturating_sub(top.len());
-    put(frame, 16, 1, "wrap", None);
-    put(frame, 16, u16::try_from(start).unwrap_or(0), top, None);
-    put(frame, 17, 0, &format!("{rest} after"), None);
-    let index = u32::try_from(frame.hyperlinks.len()).unwrap_or(u32::MAX);
-    frame.hyperlinks.push(OSC8.into());
-    put(frame, 18, 1, OSC8_TEXT, Some(index));
-    put(frame, 19, 1, &format!("mail {MAILTO} here"), None);
-    put(frame, 20, 1, &format!("path {PATH} here"), None);
+    let start = width.saturating_sub(top.len());
+    put(frame, 13, 1, "wrap", None);
+    put(frame, 13, u16::try_from(start).unwrap_or(0), top, None);
+    put(frame, 14, 0, &format!("{rest} after"), None);
+    let index = match frame.hyperlinks.iter().position(|link| link == OSC8) {
+        Some(index) => index,
+        None => {
+            frame.hyperlinks.push(OSC8.into());
+            frame.hyperlinks.len() - 1
+        }
+    };
+    put(frame, 15, 1, OSC8_TEXT, u32::try_from(index).ok());
+    put(frame, 16, 1, &format!("mail {MAILTO} here"), None);
+    put(frame, 17, 1, &format!("path {PATH} here"), None);
+    if let Some(cursor) = frame.cursor.as_mut() {
+        cursor.y = cursor.y.max(18).min(frame.height.saturating_sub(1));
+    }
 }
 
 /// What the Herdr 2 core peer prints after its banner in a pane `cols`
@@ -163,7 +194,7 @@ pub(crate) fn targets(surface: &PaneSurfaceFrame) -> Vec<(&'static str, (u16, u1
 impl Smoke {
     /// Publishes `url_targets` in `qa.state`: each fixture link's window
     /// point, the centre of the cell to press.
-    pub(crate) fn publish_link_targets(&self) {
+    pub(crate) fn publish_link_targets(&mut self) {
         if !enabled() {
             return;
         }
@@ -187,10 +218,22 @@ impl Smoke {
             let y = f32::from(origin.y) + (f32::from(row - rect_y) + 0.5) * geometry.cell_height;
             [x.round(), y.round()]
         };
-        let targets: serde_json::Map<String, serde_json::Value> = targets(&surface)
+        let found = targets(&surface);
+        let rest = found
+            .iter()
+            .find(|(name, _)| name.ends_with("wrapped"))
+            .map(|&(_, cell)| point(cell));
+        let targets: serde_json::Map<String, serde_json::Value> = found
             .into_iter()
             .map(|(name, cell)| (name.to_owned(), serde_json::json!(point(cell))))
             .collect();
         crate::qa_ax::report("url_targets", || serde_json::Value::Object(targets));
+        if forced_hover()
+            && let Some([x, y]) = rest
+        {
+            self.terminal
+                .link_hover
+                .rest_at(gpui::point(gpui::px(x), gpui::px(y)));
+        }
     }
 }

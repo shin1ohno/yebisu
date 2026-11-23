@@ -21,7 +21,7 @@ use std::{
 
 const END: &str = "L66-tap-end";
 
-fn command() -> Modifiers {
+pub(super) fn command() -> Modifiers {
     Modifiers {
         platform: true,
         ..Modifiers::default()
@@ -29,7 +29,7 @@ fn command() -> Modifiers {
 }
 
 /// A connected Herdr 1 terminal whose frame shows the link fixture.
-fn connected(
+pub(super) fn connected(
     cx: &mut TestAppContext,
 ) -> (
     Entity<Smoke>,
@@ -70,7 +70,7 @@ fn connected(
 }
 
 /// The window point at the centre of fixture link `name`'s press cell.
-fn target(
+pub(super) fn target(
     view: &Entity<Smoke>,
     cx: &mut VisualTestContext,
     name: &str,

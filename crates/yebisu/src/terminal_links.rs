@@ -15,6 +15,7 @@ use crate::terminal::{HIDDEN, in_rect};
 use sheprd_client::protocol::{CellData, FrameData, PaneSurfaceFrame};
 use std::ops::Range;
 
+mod hover;
 mod open;
 mod plain;
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
@@ -22,6 +23,7 @@ pub(crate) mod qa;
 mod wrap;
 
 use crate::handoff::cells::continuations;
+pub(crate) use hover::Hover;
 
 /// The most bytes of text read around a press, as in the fork.
 const MAX_ROW_BYTES: usize = 32768;

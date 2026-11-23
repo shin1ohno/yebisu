@@ -356,6 +356,11 @@ fn serve(
                         old.cells[usize::from(y) * usize::from(old.width) + usize::from(x)].clone();
                 }
             }
+            // L66: the link fixture again at the new size, so its wrapped
+            // address still reaches the right edge.
+            if crate::terminal_links::qa::enabled() {
+                crate::terminal_links::qa::herdr1_fixture(&mut frame.frame);
+            }
             write_message(
                 &mut server,
                 &ServerMessage::PaneSurface(frame),

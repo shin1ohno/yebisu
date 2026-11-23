@@ -7,6 +7,8 @@ use sheprd_client::protocol::{
 };
 use unicode_width::UnicodeWidthChar;
 
+#[path = "terminal_links_tests/hover.rs"]
+mod hover;
 #[path = "terminal_links_tests/tap.rs"]
 mod tap;
 

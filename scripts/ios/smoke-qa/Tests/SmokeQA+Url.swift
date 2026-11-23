@@ -44,18 +44,20 @@ extension SmokeQA {
         let (before, at) = try fixture(qa, name)
         print("URL \(name): Command + tap at \(at), url_open=\(before.count("url_open")) inputs=\(before.peerInputs)")
         commandTap(app, at)
-        let after = try qa.waitState("\(what): the app's open request", timeout: 15) {
+        // UIKit opened the browser: Safari comes to the front, and yebisu's qa.state is out of
+        // reach until yebisu is back.
+        let safari = XCUIApplication(bundleIdentifier: Self.safari)
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 30), "\(what): Safari did not come to the front")
+        save("url-\(name)-safari")
+        app.activate()
+        try requireState(app, [.runningForeground], "back to yebisu after \(name)")
+        let after = try qa.waitState("\(what): the app's open request", timeout: 30) {
             $0.count("url_open") == before.count("url_open") + 1
         }
         let url = try XCTUnwrap(openedURL(after), "\(what): no url_open_last in \(after)")
         print("URL \(name): the app asked UIKit to open \(url)")
         XCTAssertTrue(want(url), "\(what): opened \(url)")
         XCTAssertEqual(after.peerInputs, before.peerInputs, "\(what): Command + tap sent the terminal input")
-        let safari = XCUIApplication(bundleIdentifier: Self.safari)
-        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 30), "\(what): Safari did not come to the front")
-        save("url-\(name)-safari")
-        app.activate()
-        try requireState(app, [.runningForeground], "back to yebisu after \(name)")
     }
 
     /// Command + taps link `name`, which must open nothing: one refusal receipt starting with
@@ -75,12 +77,12 @@ extension SmokeQA {
         save("url-\(name)-refused")
     }
 
-    private func launchFixture(_ app: XCUIApplication, core: Bool) {
+    private func launchFixture(_ app: XCUIApplication, core: Bool, mode: String = "1") {
         app.terminate()
         var environment = [
             "YEBISU_SMOKE_OBSERVE": "1",
             "YEBISU_QA_AX": "1",
-            "YEBISU_URL_TAP_QA": "1",
+            "YEBISU_URL_TAP_QA": mode,
         ]
         environment[core ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment = environment
@@ -126,5 +128,18 @@ extension SmokeQA {
         try opens(app, qa, "core_wrapped", "Herdr 2 address the terminal wrapped") {
             $0.hasPrefix("https://example.com/l66/core-wrapped/xxxxxxxxxx") && $0.hasSuffix("x")
         }
+    }
+
+    /// The Command underline as the app paints it: `YEBISU_URL_TAP_QA=hover` takes the pointer to
+    /// rest on the wrapped address with Command held (XCTest cannot hover a pointer on iPad).
+    func testUrlCommandUnderlineShot() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app)
+        launchFixture(app, core: false, mode: "hover")
+        _ = try fixture(qa, "wrapped")
+        sleep(1)
+        save("url-command-underline")
+        XCTAssertEqual(app.state, .runningForeground)
     }
 }
