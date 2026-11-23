@@ -18,7 +18,7 @@ use crate::{
             BADGE_MIN_WIDTH, BUTTON_WIDTH, BadgeTexts, DOT_SIZE, RailBadges, badge_spans,
             badge_texts, rail_badges,
         },
-        sidebar::icons::Icon as SidebarIcon,
+        sidebar::{agent_icon, icons::Icon as SidebarIcon},
         sidebar_status::from_agent_status,
         style::{color, metric, radius, weight},
     },
@@ -413,17 +413,30 @@ fn rail_item(
         })
         .child(
             div()
-                .debug_selector(move || format!("rail-label-{index}"))
                 .w(px(BUTTON_WIDTH - 2. * ROW_CONTENT_GAP))
-                .text_size(px(metrics.label_pt))
-                .text_center()
-                .truncate()
-                .text_color(rgb(if item.kind == RailItemKind::Host && !item.connected {
-                    color::MUTED
-                } else {
-                    color::TEXT
-                }))
-                .child(item.name.clone()),
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(agent_icon::RAIL.gap))
+                .children(
+                    item.icon
+                        .map(|icon| icon.draw(&format!("rail-item-{index}"), agent_icon::RAIL)),
+                )
+                .child(
+                    div()
+                        .debug_selector(move || format!("rail-label-{index}"))
+                        .when(item.icon.is_none(), |label| label.w_full())
+                        .min_w_0()
+                        .text_size(px(metrics.label_pt))
+                        .text_center()
+                        .truncate()
+                        .text_color(rgb(if item.kind == RailItemKind::Host && !item.connected {
+                            color::MUTED
+                        } else {
+                            color::TEXT
+                        }))
+                        .child(item.name.clone()),
+                ),
         )
         .children(
             texts

@@ -24,6 +24,7 @@ pub(super) fn agent(host: &str, name: &str, pane: &str) -> AgentRow {
         tab: 1,
         status: SidebarStatus::Idle,
         received: 0,
+        icon: crate::shell::sidebar::agent_icon::AgentIcon::Generic,
     }
 }
 

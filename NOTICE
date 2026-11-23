@@ -1,6 +1,7 @@
 yebisu
 
-This product includes adapted iOS build scripts and fonts from Sheprd.
+This product includes adapted iOS build scripts and fonts from Sheprd, and its
+sidebar agent icons (assets/icons/agent-*.svg; sources in assets/icons/README.md).
 Copied files and immutable source revisions are listed in PROVENANCE.tsv.
 The following upstream notice is retained for attribution in its original form.
 

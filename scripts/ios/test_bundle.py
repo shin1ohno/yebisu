@@ -253,15 +253,18 @@ class BundleTests(unittest.TestCase):
                          (REPOSITORY / "assets/fonts/SauceCodePro/LICENSE.txt").read_bytes())
         self.assertTrue((app / "Fonts/PROVENANCE.md").is_file())
         self.assertTrue((app / "Fonts/NERD-FONTS-LICENSE.txt").is_file())
-        # The Apache-2.0 sounds, Rodio/CPAL and the MPL-2.0 Symphonia decoder are
-        # linked into this binary, so their license texts must travel with it.
+        # The Apache-2.0 sounds, the MIT agent icons, Rodio/CPAL and the MPL-2.0
+        # Symphonia decoder are linked into this binary, so their license texts
+        # must travel with it.
         licenses = REPOSITORY / "assets/licenses"
         self.assertEqual((app / "Licenses/Apache-2.0.txt").read_bytes(),
                          (REPOSITORY / "LICENSE").read_bytes())
-        for name in ["NOTICE.md", "Rodio-MIT.txt", "Symphonia-MPL-2.0.txt"]:
+        for name in ["NOTICE.md", "Rodio-MIT.txt", "Symphonia-MPL-2.0.txt", "LobeIcons-MIT.txt"]:
             self.assertEqual((app / "Licenses" / name).read_bytes(), (licenses / name).read_bytes())
         self.assertIn("Mozilla Public License Version 2.0",
                       (app / "Licenses/Symphonia-MPL-2.0.txt").read_text())
+        self.assertIn("Copyright (c) 2023 LobeHub",
+                      (app / "Licenses/LobeIcons-MIT.txt").read_text())
         for call in self.calls():
             self.assertNotIn("com.apple.developer.user-fonts", call.get("entitlements", {}))
 

@@ -1,6 +1,7 @@
 //! L3: draws the sidebar list and routes its taps. Owner: L3.
 use super::{
     AGENT_ROW_HEIGHT, HOST_ROW_HEIGHT, SPACE_ROW_HEIGHT, SidebarState, accessibility_name,
+    agent_icon,
     icons::{self, Icon},
     long_press::{AgentMenu, PressedRow, agent_press_layer, long_press_layer},
     model::{
@@ -496,6 +497,8 @@ impl Smoke {
             HerdrKind::Herdr2 => "sidebar-core-space",
         };
         let id = format!("{prefix}-{host}-{}", space.id);
+        let icon_row = id.clone();
+        let detail_id = format!("{id}-detail");
         div()
             .id(gpui::ElementId::Name(id.clone().into()))
             .debug_selector(move || id.clone())
@@ -546,7 +549,24 @@ impl Smoke {
                     )
                     .children(tags),
             )
-            .child(second_line(space.detail.clone()).pl(px(metric::DETAIL_INDENT)))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(agent_icon::SPACE.gap))
+                    .min_w_0()
+                    .pl(px(metric::DETAIL_INDENT))
+                    .children(
+                        space
+                            .icon
+                            .map(|icon| icon.draw(&icon_row, agent_icon::SPACE)),
+                    )
+                    .child(
+                        second_line(space.detail.clone())
+                            .debug_selector(move || detail_id)
+                            .flex_1(),
+                    ),
+            )
             .when(kind == HerdrKind::Herdr1, |row| {
                 row.child(long_press_layer(press, cx))
             })
@@ -582,6 +602,8 @@ impl Smoke {
             HerdrKind::Herdr2 => "sidebar-core-agent",
         };
         let row_id = format!("{prefix}-{}-{}", id.host, id.pane.escape_default());
+        let icon_row = row_id.clone();
+        let name_id = format!("{row_id}-name");
         let boot = host.boot.clone();
         let generation = host.generation;
         div()
@@ -632,8 +654,18 @@ impl Smoke {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
-                                    .child(line.shown.clone()),
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(agent_icon::AGENTS.gap))
+                                    .child(line.row.icon.draw(&icon_row, agent_icon::AGENTS))
+                                    .child(
+                                        div()
+                                            .debug_selector(move || name_id)
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .child(line.shown.clone()),
+                                    ),
                             )
                             .child(
                                 div()
