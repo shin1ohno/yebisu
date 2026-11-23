@@ -68,6 +68,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--label', required=True)
+    parser.add_argument('--command-control', action='store_true',
+                        help='also save Terminal priority and Command as Control (L57 device result)')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
@@ -87,9 +89,11 @@ def main():
     settings = container / 'Library/Application Support/herdr/gpui/yebisu-settings.json'
     settings.parent.mkdir(parents=True, exist_ok=True)
     # A partial document is refused ("invalid settings: invalid compact") and the defaults apply.
-    settings.write_text(json.dumps({'version': 1, 'language': 'en-US', 'compact': False, 'terminal_priority': False,
-                                    'board_hidden': False, 'drag_select': True,
-                                    'shortcut_style': 'herdr-prefix'}) + '\n')
+    document = {'version': 1, 'language': 'en-US', 'compact': False, 'terminal_priority': False,
+                'board_hidden': False, 'drag_select': True, 'shortcut_style': 'herdr-prefix'}
+    if args.command_control:
+        document.update(terminal_priority=True, command_key='ctrl')
+    settings.write_text(json.dumps(document) + '\n')
     spec = root / 'scripts/ios/smoke-qa'
     run('xcodegen', 'generate', '--spec', str(spec / 'project.yml'), '--project', str(spec))
     result = out / 'result.xcresult'
@@ -127,7 +131,8 @@ def main():
             for attachment in case['attachments']:
                 name = attachment['suggestedHumanReadableName'].split('_0_')[0]
                 shutil.copyfile(export / attachment['exportedFileName'], out / (name + '.png'))
-    summary = {'label': args.label, 'xcodebuild_exit': test.returncode, 'records': len(records),
+    summary = {'label': args.label, 'command_control': args.command_control,
+               'xcodebuild_exit': test.returncode, 'records': len(records),
                'inputs': flat, 'steps': steps}
     (out / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     for name, items in steps.items():

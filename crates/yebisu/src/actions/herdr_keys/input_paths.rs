@@ -366,3 +366,181 @@ fn herdr2_creates_a_tab_from_the_key_band_and_typed_letters(cx: &mut TestAppCont
     typed(&view, cx, "c");
     wait_for_tabs(&view, cx, 3);
 }
+
+fn terminal_priority_with_command_as_control(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    view.update(cx, |this, _| {
+        this.actions.terminal_priority = true;
+        this.terminal.input.options.command_control = true;
+    });
+}
+
+/// L57 device result: c was taken and no tab appeared. Terminal priority with
+/// Command as Control makes the OS menu rows unavailable, and the chord used
+/// that menu gate.
+#[gpui::test]
+fn terminal_priority_with_command_as_control_keeps_herdr_chords(cx: &mut TestAppContext) {
+    let (view, cx, receipts) = herdr1(cx, true);
+    terminal_priority_with_command_as_control(&view, cx);
+    press(&view, cx, "ctrl-a");
+    press(&view, cx, "c");
+    assert_eq!(receive(&receipts, QUIET), new_tab(), "hardware keyboard");
+    wait_until(&view, cx, "the first tab.create did not finish", |this| {
+        this.terminal.navigating.is_none()
+    });
+    tap(cx, "key-band-ctrl");
+    typed(&view, cx, "a");
+    typed(&view, cx, "c");
+    assert_eq!(
+        receive(&receipts, QUIET),
+        new_tab(),
+        "key band and software keyboard"
+    );
+}
+
+/// A real Herdr 1 server in a private directory: cleared environment, its own
+/// HOME, XDG and socket paths. Drop kills and reaps only this child.
+struct Herdr1 {
+    dir: std::path::PathBuf,
+    child: Option<std::process::Child>,
+}
+
+impl Herdr1 {
+    fn start(binary: &std::ffi::OsStr, config: &str) -> Self {
+        let parent =
+            std::env::var_os("YEBISU_HERDR1_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
+        let dir = parent.join(format!("y{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap_or_else(|error| panic!("sandbox: {error}"));
+        std::fs::write(dir.join("config.toml"), config).unwrap_or_else(|error| panic!("{error}"));
+        let log =
+            std::fs::File::create(dir.join("daemon.log")).unwrap_or_else(|error| panic!("{error}"));
+        let err = log.try_clone().unwrap_or_else(|error| panic!("{error}"));
+        let child = std::process::Command::new(binary)
+            .arg("server")
+            .env_clear()
+            .env("HOME", &dir)
+            .env("XDG_CONFIG_HOME", dir.join("config"))
+            .env("XDG_STATE_HOME", dir.join("state"))
+            .env("XDG_DATA_HOME", dir.join("data"))
+            .env("XDG_CACHE_HOME", dir.join("cache"))
+            .env("XDG_RUNTIME_DIR", &dir)
+            .env("TMPDIR", &dir)
+            .env("HERDR_CONFIG_PATH", dir.join("config.toml"))
+            .env("HERDR_SOCKET_PATH", dir.join("a.sock"))
+            .env("HERDR_CLIENT_SOCKET_PATH", dir.join("a-client.sock"))
+            .env("SHELL", "/bin/sh")
+            .env("TERM", "xterm-256color")
+            .env("PATH", "/usr/bin:/bin")
+            .current_dir(&dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(log)
+            .stderr(err)
+            .spawn()
+            .unwrap_or_else(|error| panic!("herdr server: {error}"));
+        let server = Self {
+            dir,
+            child: Some(child),
+        };
+        let until = Instant::now() + Duration::from_secs(20);
+        while !server.dir.join("a-client.sock").exists() {
+            assert!(
+                Instant::now() < until,
+                "Herdr 1 did not listen: {}",
+                std::fs::read_to_string(server.dir.join("daemon.log")).unwrap_or_default()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        server
+    }
+}
+
+impl Drop for Herdr1 {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn shown_tabs(this: &Smoke) -> Vec<String> {
+    crate::board::snapshot(&this.terminal.live)
+        .map(|s| s.tabs.iter().map(|tab| tab.tab_id.clone()).collect())
+        .unwrap_or_default()
+}
+
+/// L57 device result: on a real Herdr 1 the prefix took c but no tab appeared.
+/// Opt-in: YEBISU_HERDR1_BINARY names the Herdr 1 executable to sandbox, and
+/// YEBISU_HERDR1_CONFIG optionally a config.toml for the server and host keys.
+#[gpui::test]
+#[ignore = "needs YEBISU_HERDR1_BINARY; starts a private Herdr 1 server"]
+fn real_herdr1_creates_a_tab_from_prefix_c(cx: &mut TestAppContext) {
+    real_herdr1_prefix_c(cx, false);
+}
+
+/// The same with Terminal priority and Command as Control, the settings under
+/// which the device result reproduced.
+#[gpui::test]
+#[ignore = "needs YEBISU_HERDR1_BINARY; starts a private Herdr 1 server"]
+fn real_herdr1_creates_a_tab_from_prefix_c_with_command_as_control(cx: &mut TestAppContext) {
+    real_herdr1_prefix_c(cx, true);
+}
+
+fn real_herdr1_prefix_c(cx: &mut TestAppContext, command_as_control: bool) {
+    let binary =
+        std::env::var_os("YEBISU_HERDR1_BINARY").unwrap_or_else(|| panic!("YEBISU_HERDR1_BINARY"));
+    let config = std::env::var("YEBISU_HERDR1_CONFIG").map_or_else(
+        |_| "onboarding = false\n[keys]\nprefix = \"ctrl+a\"\n[terminal]\ndefault_shell = \"/bin/sh\"\nshell_mode = \"non_login\"\n".to_owned(),
+        |path| std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{error}")),
+    );
+    let server = Herdr1::start(&binary, &config);
+    let client = sheprd_client::connect(
+        sheprd_client::ConnectTarget::Socket(server.dir.join("a-client.sock")),
+        sheprd_client::ConnectOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("connect: {error}"));
+    let (view, cx) = window(cx);
+    view.update(cx, |this, _| {
+        this.select_host("sandbox");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+        this.terminal.open = true;
+    });
+    wait_until(&view, cx, "Herdr 1 terminal did not connect", |this| {
+        this.terminal.live.connected && this.terminal.live.surface.is_some()
+    });
+    focus(&view, cx, true);
+    // The host keys come from the same config the server reads.
+    view.update(cx, |this, _| {
+        let terminal = &this.terminal;
+        this.actions.host_keys.set_test_config(terminal, &config);
+    });
+    if command_as_control {
+        terminal_priority_with_command_as_control(&view, cx);
+    }
+    let before = view.update(cx, |this, _| shown_tabs(this));
+    eprintln!("L57 before: tabs={before:?}");
+    press(&view, cx, "ctrl-a");
+    press(&view, cx, "c");
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (tabs, status, navigating) = view.update(cx, |this, cx| {
+            this.poll_terminal(cx);
+            (
+                shown_tabs(this),
+                this.terminal.live.status.clone(),
+                this.terminal.navigating.is_some(),
+            )
+        });
+        if tabs.len() > before.len() {
+            eprintln!("L57 after: tabs={tabs:?}");
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "no tab: tabs={tabs:?} status={status:?} navigating={navigating}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+}
