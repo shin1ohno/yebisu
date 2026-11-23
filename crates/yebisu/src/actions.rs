@@ -20,6 +20,9 @@ pub(crate) struct Actions {
     pub herdr_prefix: bool,
     pub use_server_keybindings: bool,
     pub host_keys: herdr_keys::HostKeys,
+    /// Why the last key binding's command did not run. Kept apart from the
+    /// live status, which each live update replaces (L57).
+    pub key_status: Option<String>,
 }
 impl Default for Actions {
     fn default() -> Self {
@@ -31,6 +34,7 @@ impl Default for Actions {
             herdr_prefix: false,
             use_server_keybindings: true,
             host_keys: herdr_keys::HostKeys::default(),
+            key_status: None,
         }
     }
 }

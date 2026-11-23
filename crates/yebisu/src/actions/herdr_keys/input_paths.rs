@@ -395,6 +395,49 @@ fn terminal_priority_with_command_as_control_keeps_herdr_chords(cx: &mut TestApp
         new_tab(),
         "key band and software keyboard"
     );
+    // What Shortcut priority = Terminal is for: a ⌘ chord still reaches
+    // the terminal, as Control with Command key = Ctrl.
+    wait_until(&view, cx, "the second tab.create did not finish", |this| {
+        this.terminal.navigating.is_none() && this.terminal.input.ready
+    });
+    press(&view, cx, "cmd-t");
+    assert_eq!(
+        receive(&receipts, QUIET),
+        Received {
+            keys: vec![(ClientKeyCode::Char('t'), 2)],
+            ..Received::default()
+        },
+        "cmd-t goes to the terminal"
+    );
+}
+
+/// L57: the chord's error was written to the live status, which the next
+/// live update replaced, so a failed chord looked like nothing happened.
+#[gpui::test]
+fn a_failed_herdr_chord_keeps_its_reason_visible(cx: &mut TestAppContext) {
+    let (view, cx, receipts) = herdr1(cx, true);
+    cx.deactivate_window();
+    press(&view, cx, "ctrl-a");
+    press(&view, cx, "c");
+    assert_eq!(receive(&receipts, QUIET), Received::default());
+    let live_update = |view: &Entity<Smoke>, cx: &mut VisualTestContext| {
+        view.update(cx, |this, cx| {
+            if let Ok(mut live) = this.terminal.link.inbox.lock() {
+                live.dirty = true;
+            }
+            this.poll_terminal(cx);
+            this.terminal_status()
+        })
+    };
+    let status = live_update(&view, cx);
+    assert!(status.contains("inactive terminal focus"), "{status}");
+    cx.update(|window, _| window.activate_window());
+    press(&view, cx, "x");
+    assert_eq!(
+        live_update(&view, cx),
+        "Connected",
+        "the next key clears it"
+    );
 }
 
 /// A real Herdr 1 server in a private directory: cleared environment, its own

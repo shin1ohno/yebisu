@@ -92,6 +92,9 @@ impl Smoke {
         if let Some(reason) = self.find_keyboard_status() {
             return reason.into();
         }
+        if let Some(status) = &self.actions.key_status {
+            return status.clone();
+        }
         if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             if let Some(reason) = self.retirement.reason {
                 return reason.into();
@@ -280,6 +283,9 @@ impl Smoke {
             self.actions.host_keys.clear_press();
             return;
         }
+        if !event.is_held {
+            self.actions.key_status = None;
+        }
         // Escape closes the Shortcuts popover, never reaching the host (S1).
         if self.shell.shortcuts.open && event.keystroke.key == "escape" {
             self.shell.shortcuts.open = false;
@@ -460,8 +466,13 @@ impl Smoke {
                 false
             }
             _ => {
-                if !held && let Err(e) = self.run_shortcut(command, herdr, window) {
-                    self.terminal.live.status = e.to_string();
+                if !held {
+                    // A live update replaces the live status at once, so
+                    // the reason stays visible until the next key (L57).
+                    self.actions.key_status = self
+                        .run_shortcut(command, herdr, window)
+                        .err()
+                        .map(|error| format!("{}: {error}", command_name(command)));
                 }
                 window.notify_text_input_changed(&self.terminal_focus);
                 cx.notify();
@@ -503,6 +514,7 @@ impl Smoke {
         if !self.terminal_focus.is_focused(window) {
             return false;
         }
+        self.actions.key_status = None;
         let prefix_context = self.herdr_prefix_context();
         if prefix_context {
             self.poll_host_keys(cx);
@@ -746,3 +758,10 @@ impl Smoke {
 #[cfg(test)]
 #[path = "terminal_controls_tests.rs"]
 mod tests;
+
+fn command_name(command: sheprd_commands::Command) -> String {
+    sheprd_commands::COMMANDS
+        .iter()
+        .find(|info| info.command == command)
+        .map_or_else(|| format!("{command:?}"), crate::i18n::command)
+}
