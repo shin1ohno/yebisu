@@ -189,6 +189,11 @@ menu appears only where the app presents it: a secondary click (or, as iPadOS
 reads it, a Control-click with no other modifier) or a long press on the
 terminal's content area. E3i replays the two ordinary suggested commands
 itself; `sh1_152_targets.py` checks the sidebar, rail, tab row and status bar.
+UIKit's own menu is a card whose Paste is a button, not a menu item, so the
+XCTest looks for both (and skips the keyboard shortcut bar's Paste); on
+origin/main db1788f it found the card after secondary clicks on every one of
+those places across three runs (the status bar and the AGENTS row in one or two
+of them).
 Simulator tests and [device acceptance](device-check.md#sh1-152) remain
 separate evidence.
 

@@ -43,7 +43,7 @@ final class EditMenuTargetsQA: XCTestCase {
         // A long press on a sidebar row keeps opening that row's menu, without an edit menu.
         coordinate(CGPoint(x: host.midX, y: host.midY)).press(forDuration: 1.2)
         let opened = (try? qa.waitState("the host row's long-press menu", timeout: 5) { $0.string("row_menu") == "host" }) != nil
-        let longPressPaste = app.menuItems["Paste"].waitForExistence(timeout: 1)
+        let longPressPaste = pasteMenu.waitForExistence(timeout: 1)
         report(["name": "host-row-long-press", "x": host.midX, "y": host.midY, "row_menu": opened, "paste": longPressPaste])
         save("l61-host-row-long-press")
         XCTAssertTrue(opened, "L61 the host row's long-press menu did not open")
@@ -59,21 +59,30 @@ final class EditMenuTargetsQA: XCTestCase {
             XCTFail("L61 the rail did not appear after Command-B")
             return
         }
-        // The software keyboard can come up here and move the rail's footer (PR 132 run 45148358822:
-        // a point from the frame read before it landed on the keyboard's "~" key). Read the frame
-        // again once the keyboard has settled.
+        // Command-B can take the software keyboard down for a moment and bring it back, and a frame
+        // read in between puts the point on the keyboard (PR 132 run 45148358822 hit its "~" key; a
+        // mini run on 2026-11-24 read the rail's footer at 1208 pt while it was painted at 871 pt).
+        // Wait for the keyboard height the app launched with, then read the rail and the terminal
+        // from the same state.
+        _ = try? qa.waitState("the keyboard is back at \(state.keyboard) pt", timeout: 10) { $0.keyboard == state.keyboard }
         _ = try? qa.settledKeyboard("after Command-B")
-        guard let rail = qa.read()?.windowFrame(QAIds.railSettings) else {
+        guard let settled = qa.read(), let rail = settled.windowFrame(QAIds.railSettings),
+              let content = settled.windowFrame(QAIds.terminalInput) else {
             save("l61-rail-missing")
             XCTFail("L61 no rail frame after the keyboard settled")
             return
         }
-        print("L61 FRAMES rail-settings=\(rail)")
+        print("L61 FRAMES rail-settings=\(rail) terminal=\(content) keyboard=\(settled.keyboard)")
+        guard rail.minY - 60 > content.minY, rail.minY - 60 < content.maxY else {
+            save("l61-rail-off")
+            XCTFail("L61 the rail point \(rail.minY - 60) is outside the content rows \(content.minY)...\(content.maxY)")
+            return
+        }
         // The empty rail above the footer's Hosts and Settings buttons.
         try secondaryClick(Target(name: "rail", point: CGPoint(x: rail.midX, y: rail.minY - 60), paste: false))
         try secondaryClick(Target(name: "rail-item", point: CGPoint(x: rail.midX, y: host.midY), paste: false))
         coordinate(CGPoint(x: rail.midX, y: host.midY)).press(forDuration: 1.2)
-        let railPaste = app.menuItems["Paste"].waitForExistence(timeout: 1)
+        let railPaste = pasteMenu.waitForExistence(timeout: 1)
         report(["name": "rail-item-long-press", "x": rail.midX, "y": host.midY, "paste": railPaste])
         save("l61-rail-item-long-press")
         XCTAssertFalse(railPaste, "L61 a long press on a rail item showed the edit menu")
@@ -125,25 +134,43 @@ final class EditMenuTargetsQA: XCTestCase {
         repeat {
             attempts += 1
             coordinate(target.point).rightClick()
-            shown = app.menuItems["Paste"].waitForExistence(timeout: target.paste ? 5 : 2)
+            shown = pasteMenu.waitForExistence(timeout: target.paste ? 5 : 2)
             after = qa.read()
         } while target.paste && !shown && attempts < 2
             && (after?.count("menu_secondary") ?? 0) == (before?.count("menu_secondary") ?? 0)
         let items = app.menuItems.allElementsBoundByIndex.map(\.label)
+        let cards = pasteQuery(.button).count
         let delta = { (key: String) -> Int in (after?.count(key) ?? 0) - (before?.count(key) ?? 0) }
         report(["name": target.name, "x": target.point.x, "y": target.point.y, "paste": shown, "expected": target.paste,
-                "items": items, "secondary": delta("menu_secondary"), "presented": delta("menu_presented"),
+                "items": items, "cards": cards, "secondary": delta("menu_secondary"), "presented": delta("menu_presented"),
                 "attempts": attempts])
         save("l61-\(target.name)")
         XCTAssertEqual(shown, target.paste, "L61 \(target.name): Paste shown \(shown), expected \(target.paste), items \(items)")
         if shown {
             // Close the menu without touching the terminal or a row.
             app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-            if !app.menuItems["Paste"].waitForNonExistence(timeout: 3) {
+            if !pasteMenu.waitForNonExistence(timeout: 3) {
                 coordinate(CGPoint(x: target.point.x, y: 4)).tap()
-                _ = app.menuItems["Paste"].waitForNonExistence(timeout: 3)
+                _ = pasteMenu.waitForNonExistence(timeout: 3)
             }
         }
+    }
+
+    /// Paste in an edit menu, in either form: a MenuItem in the menu the app presents itself, or a
+    /// Button in the card UIKit presents by itself on a secondary click (214 x 68 pt; the form the
+    /// owner saw, and the one a mini run of this test on origin/main db1788f captured over every
+    /// sidebar, tab row and status bar click while `menuItems` alone saw none). The software
+    /// keyboard's shortcut bar keeps its own Paste button, which is not an edit menu.
+    private var pasteMenu: XCUIElement {
+        pasteQuery(.menuItem, .button).firstMatch
+    }
+
+    private func pasteQuery(_ types: XCUIElement.ElementType...) -> XCUIElementQuery {
+        let type = NSCompoundPredicate(orPredicateWithSubpredicates: types.map {
+            NSPredicate(format: "elementType == %d", Int($0.rawValue))
+        })
+        let paste = NSPredicate(format: "label == %@ AND identifier != %@", "Paste", "assistantPaste:forEvent:")
+        return app.descendants(matching: .any).matching(NSCompoundPredicate(andPredicateWithSubpredicates: [type, paste]))
     }
 
     private func report(_ fields: [String: Any]) {
