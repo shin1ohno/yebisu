@@ -167,3 +167,7 @@ mod wave_one_tests;
 #[cfg(test)]
 #[path = "settings_sheet/tests/key_on_open.rs"]
 mod key_on_open_tests;
+
+#[cfg(test)]
+#[path = "settings_sheet/tests/window_controls.rs"]
+mod window_controls_tests;
