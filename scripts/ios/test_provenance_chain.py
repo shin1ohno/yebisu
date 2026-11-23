@@ -111,6 +111,13 @@ elif tool=='xcrun':
   if json.loads((directory/'binding.json').read_text())['phases'][-1]!='preinstall': raise RuntimeError('preinstall missing')
   shutil.copytree(a[-1],root/'installed.app')
  elif a[0:2]==['simctl','get_app_container']: print(root/'installed.app')
+ elif a[0]=='actool':
+  # The app icon step of bundle.sh: a stub catalog, one icon file and the partial plist.
+  app=P(option('--compile')); name=option('--app-icon')
+  (app/'Assets.car').write_bytes(b'fixture catalog, not compiled')
+  (app/(name+'76x76@2x~ipad.png')).write_bytes(b'fixture icon, not rendered')
+  P(option('--output-partial-info-plist')).write_bytes(plistlib.dumps({'CFBundleIcons~ipad': {'CFBundlePrimaryIcon': {
+   'CFBundleIconName': name, 'CFBundleIconFiles': [name+'76x76']}}}))
  else: raise RuntimeError(a)
 else: raise RuntimeError(tool)
 '''
@@ -125,8 +132,10 @@ class Chain(unittest.TestCase):
             path.mkdir()
         scripts = self.source / 'scripts/ios'; scripts.mkdir(parents=True)
         for name in ('compiler_inputs.py', 'provenance_session.py', 'bundle-provenance.py', 'bundle.sh',
-                     'macho_identity.py', 'lib.sh', 'Info.plist'):
+                     'macho_identity.py', 'lib.sh', 'Info.plist', 'icons.py'):
             shutil.copy2(HERE / name, scripts / name)
+        # bundle.sh compiles the app icon into every yebisu bundle (fake actool above).
+        shutil.copytree(HERE.resolve().parents[1] / 'assets/app-icon', self.source / 'assets/app-icon')
         font = self.source / 'assets/fonts/SauceCodePro'; font.mkdir(parents=True)
         for name in ('Regular', 'Bold', 'Italic', 'BoldItalic'):
             (font / ('SauceCodeProNerdFontMono-' + name + '.ttf')).write_text('font fixture')

@@ -1,0 +1,24 @@
+{
+  "size": 1024,
+  "renderer": "Google Chrome for Testing 158.0.8127.18",
+  "images": {
+    "light": {
+      "svg": "AppIcon-light.svg",
+      "svg_sha256": "a113f73ac15a258af1cc7957e0021b6050ce886ec502c2cade0827fd3d00df90",
+      "png": "AppIcon-light.png",
+      "png_sha256": "2fd8ffbdb93ecab81e1978c829a6dd515090b14fe718197383cf4d81343784b8"
+    },
+    "dark": {
+      "svg": "AppIcon-dark.svg",
+      "svg_sha256": "f9ce4eed09af3bbdb593833ec0a8c44761e3929f88105110aaee74d91e7a3d12",
+      "png": "AppIcon-dark.png",
+      "png_sha256": "6e6fb03c7f52868b815b1354466400733c1a09563a55ebe95ec47ec4c149886c"
+    },
+    "tinted": {
+      "svg": "AppIcon-tinted.svg",
+      "svg_sha256": "6e37a37b5224ad2475eea30c36094acd86f9d3f7f02755742d2e4cda9b9b0c75",
+      "png": "AppIcon-tinted.png",
+      "png_sha256": "d5640de5691f07671b18fd2f3ba21c2be000a02a2cdbdfe255260bcef9df0843"
+    }
+  }
+}

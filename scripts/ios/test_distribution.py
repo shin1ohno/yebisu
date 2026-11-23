@@ -74,7 +74,7 @@ class DistributionTests(unittest.TestCase):
                     patch.object(subprocess, "run", side_effect=tools) as runner, \
                     patch.object(d, "load_helper") as icons:
                 self.assertEqual(d.main(), 0)
-                icons.return_value.compile_icons.assert_called_once_with(app)
+                icons.return_value.check_bundle.assert_called_once_with(app)
                 command = runner.call_args.args[0]
                 self.assertEqual(command, ["bash", "scripts/ios/bundle.sh", "--package", "yebisu",
                     "--bin", "yebisu", "--target", "aarch64-apple-ios", "--release",

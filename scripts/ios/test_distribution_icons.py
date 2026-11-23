@@ -1,14 +1,12 @@
-"""Artwork contracts and actual macOS actool integration, without signing."""
+"""Actual macOS actool integration, without signing (artwork contracts: test_icons.py)."""
 import importlib.util
 import json
 from pathlib import Path
 import plistlib
-import struct
 import sys
 import tempfile
 import unittest
 import zipfile
-import zlib
 
 SPEC = importlib.util.spec_from_file_location('distribution', Path(__file__).with_name('distribution.py'))
 d = importlib.util.module_from_spec(SPEC)
@@ -17,29 +15,6 @@ icons = d.load_helper('icons.py')
 
 
 class IconTests(unittest.TestCase):
-    def test_catalog_has_opaque_marketing_and_ipad_icons(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            catalog = icons.catalog(Path(temporary))
-            directory = catalog / 'AppIcon.appiconset'
-            images = json.loads((directory / 'Contents.json').read_text())['images']
-            self.assertTrue(any(i['idiom'] == 'ios-marketing' and i['size'] == '1024x1024' for i in images))
-            self.assertTrue(any(i['size'] == '83.5x83.5' and i['scale'] == '2x' for i in images))
-            for image in images:
-                data = (directory / image['filename']).read_bytes()
-                self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
-                size = int(float(image['size'].split('x')[0]) * int(image['scale'][0]))
-                self.assertEqual(struct.unpack('>IIBB', data[16:26]), (size, size, 8, 2))
-                offset, compressed = 8, b''
-                while offset < len(data):
-                    length = struct.unpack('>I', data[offset:offset+4])[0]
-                    kind = data[offset+4:offset+8]
-                    payload = data[offset+8:offset+8+length]
-                    self.assertEqual(zlib.crc32(kind + payload), struct.unpack('>I', data[offset+8+length:offset+12+length])[0])
-                    if kind == b'IDAT':
-                        compressed += payload
-                    offset += length + 12
-                self.assertEqual(len(zlib.decompress(compressed)), size * (1 + size * 3))
-
     @unittest.skipUnless(sys.platform == 'darwin', 'requires actual Apple actool')
     def test_real_actool_bundle_and_ipa_with_missing_icon_negatives(self):
         with tempfile.TemporaryDirectory() as temporary:
