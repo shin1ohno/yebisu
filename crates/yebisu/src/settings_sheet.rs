@@ -93,10 +93,20 @@ impl Smoke {
     /// The page with the iPad's SSH public key reads it when it opens, as
     /// Add host does (shell/hosts_sheet/actions.rs): on the device-key
     /// worker, never this thread, with the page's usual failure line. The
-    /// page's Read button stays as the retry.
+    /// page's Read button stays as the retry. A read still running for an
+    /// earlier opening cannot show its key here (key_ops.rs drops it), so
+    /// this opening reads as soon as that one ends.
     pub(crate) fn read_key_on_page_open(&mut self, cx: &mut Context<Self>) {
-        if self.settings_page == crate::settings_pages::Page::DeviceKey {
+        if self.settings_page != crate::settings_pages::Page::DeviceKey {
+            return;
+        }
+        let earlier = self.settings.as_ref().is_some_and(|host| host.keys.busy());
+        if !earlier {
             self.read_device_key(cx);
+        } else if self.key_provider_preflight("read")
+            && let Some(host) = &mut self.settings
+        {
+            host.keys.read_after_earlier_view();
         }
     }
 

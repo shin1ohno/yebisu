@@ -238,3 +238,67 @@ fn a_failed_read_on_open_shows_the_same_failure_as_the_read_button(cx: &mut Test
     assert_eq!(pressed, on_open);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A window whose first read is held until the returned sender releases it.
+fn held(name: &str) -> (Arc<Held>, SyncSender<()>, PathBuf) {
+    let (release, hold) = sync_channel(1);
+    let provider = Arc::new(Held {
+        reads: AtomicUsize::new(0),
+        fail: false,
+        hold: Mutex::new(Some(hold)),
+    });
+    (provider, release, directory(name))
+}
+
+#[gpui::test]
+fn reopening_the_sheet_during_a_read_still_shows_the_key(cx: &mut TestAppContext) {
+    let (provider, release, root) = held("reopen-in-flight");
+    let (view, cx, _records) = window(cx, &root, provider.clone());
+    press(cx, "open-settings");
+    press(cx, "settings-page-ipad-key");
+    assert!(busy(&view, cx));
+    // Closing and reopening the sheet starts a new key view while the first
+    // read is still on the worker.
+    press(cx, "settings-close");
+    press(cx, "open-settings");
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    until_idle(&view, cx);
+    // The first read belonged to the closed view and is dropped; the page
+    // the user reopened reads again and shows the key without a press.
+    assert_eq!(provider.reads.load(Ordering::SeqCst), 2);
+    assert_eq!(key_line(&view, cx).as_deref(), Some(LINE));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[gpui::test]
+fn reselecting_the_key_page_during_a_read_still_shows_the_key(cx: &mut TestAppContext) {
+    let (provider, release, root) = held("reselect-in-flight");
+    let (view, cx, _records) = window(cx, &root, provider.clone());
+    press(cx, "open-settings");
+    press(cx, "settings-page-ipad-key");
+    press(cx, "settings-page-fonts");
+    press(cx, "settings-page-ipad-key");
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    until_idle(&view, cx);
+    assert_eq!(provider.reads.load(Ordering::SeqCst), 2);
+    assert_eq!(key_line(&view, cx).as_deref(), Some(LINE));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[gpui::test]
+fn leaving_the_key_page_again_drops_the_waiting_read(cx: &mut TestAppContext) {
+    let (provider, release, root) = held("leave-in-flight");
+    let (view, cx, _records) = window(cx, &root, provider.clone());
+    press(cx, "open-settings");
+    press(cx, "settings-page-ipad-key");
+    press(cx, "settings-close");
+    press(cx, "open-settings");
+    // The reopened page is left before the first read ends: nothing is
+    // shown on it any more, so no second read starts.
+    press(cx, "settings-page-fonts");
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    until_idle(&view, cx);
+    assert_eq!(provider.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(key_line(&view, cx), None);
+    let _ = std::fs::remove_dir_all(root);
+}
