@@ -154,6 +154,21 @@ impl Smoke {
             ("font_size", json!(self.terminal_font_metrics(window).0)),
             ("theme", json!(self.local_theme.key())),
             ("host", json!(self.terminal.reconnect.target)),
+            // L61: the sidebar row whose long-press menu is open, so the
+            // edit-menu target test sees that menu still opens.
+            (
+                "row_menu",
+                self.shell
+                    .sidebar
+                    .long_press
+                    .as_ref()
+                    .map_or(Value::Null, |menu| {
+                        json!(match menu.row {
+                            crate::shell::sidebar::long_press::PressedRow::Host(_) => "host",
+                            crate::shell::sidebar::long_press::PressedRow::Space { .. } => "space",
+                        })
+                    }),
+            ),
         ]
     }
 

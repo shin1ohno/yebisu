@@ -108,7 +108,12 @@ pub(crate) fn replay(commands: &NSArray<UIMenuElement>) -> Vec<bool> {
     }
 }
 
-pub(crate) fn delegate(capture: &Capture, owned: bool) -> Option<Retained<NSArray<UIMenuElement>>> {
+/// Menu elements UIKit hands over or a delegate returns.
+pub(crate) type Elements = Retained<NSArray<UIMenuElement>>;
+
+/// The real delegate's menu for the owned (or an unowned, system-style)
+/// configuration, and the untagged suggestions it was offered.
+pub(crate) fn delegate(capture: &Capture, owned: bool) -> Option<(Elements, Elements)> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
         let copy = UICommand::commandWithTitle_image_action_propertyList(
@@ -141,7 +146,7 @@ pub(crate) fn delegate(capture: &Capture, owned: bool) -> Option<Retained<NSArra
         };
         let delegate: Retained<AnyObject> = msg_send![&*capture.interaction, delegate];
         let menu: Retained<UIMenu> = msg_send![&*delegate, editMenuInteraction:&*capture.interaction, menuForConfiguration:configuration, suggestedActions:&*suggestions];
-        Some(menu.children())
+        Some((menu.children(), suggestions))
     }
 }
 

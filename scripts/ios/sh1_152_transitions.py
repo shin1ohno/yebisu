@@ -75,7 +75,10 @@ def validate(records, messages, wire, log):
         if case == "E3i":
             ordinary = one(rows, "sh1-152-replay", 1)
             if not ordinary["ordinary"] or ordinary["count"] != 2:
-                raise ValueError("unowned delegate did not preserve two ordinary suggestions")
+                raise ValueError("two ordinary suggestions were not replayed")
+            # UIKit's own secondary-click menu uses an unowned configuration: empty (L61).
+            if ordinary.get("delegate_count") != 0:
+                raise ValueError("unowned delegate menu was not empty")
             ordinary_end = one(rows, "sh1-152-result", 1)
             ordinary_start = one([r for r in rows if r.get("edge") == "start"], "sh1-152-marker", 1)
             if any(r["kind"] == "edit-menu-exec" for r in rows if ordinary_start["time"] < r["time"] < ordinary_end["time"]):

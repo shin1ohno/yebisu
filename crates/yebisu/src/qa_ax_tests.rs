@@ -81,6 +81,7 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
             "font_size",
             "theme",
             "host",
+            "row_menu",
         ]
     );
     assert_eq!(fields[0].1, "p0");

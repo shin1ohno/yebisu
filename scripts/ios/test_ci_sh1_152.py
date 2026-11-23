@@ -35,6 +35,8 @@ class JobTests(unittest.TestCase):
         names = re.findall(r'"([a-z0-9_-]+-check\.py)"', driver)
         self.assertEqual(names, ["sh1-152-check.py", "sh1-153-check.py", "p8-native-check.py", "selection-settings-check.py",
                                  "sh1-156-check.py"])
+        # L61's secondary-click targets run on the same Simulator, right after SH1-152.
+        self.assertIn('["sh1-152-check.py", "sh1_152_targets.py", "sh1-153-check.py"', driver)
 
 
 def filter_script():

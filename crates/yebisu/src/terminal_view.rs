@@ -481,6 +481,14 @@ impl Smoke {
                             if this.find.is_some() {
                                 return;
                             }
+                            // iPadOS treats a Control-click as a secondary click.
+                            if crate::edit_menu_gestures::secondary_press(
+                                event.button,
+                                &event.modifiers,
+                            ) {
+                                this.secondary_click(event, window, cx);
+                                return;
+                            }
                             if !this.front_layers.covers(event.position, window) {
                                 this.selection_down(event, window, cx);
                             }
@@ -489,15 +497,7 @@ impl Smoke {
                     .on_mouse_down(
                         gpui::MouseButton::Right,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                            if this.find.is_none()
-                                && !window.default_prevented()
-                                && this.terminal.geometry.contains(event.position)
-                                && !this.front_layers.covers(event.position, window)
-                            {
-                                this.present_edit_menu(event.position, window, cx);
-                                window.prevent_default();
-                                cx.stop_propagation();
-                            }
+                            this.secondary_click(event, window, cx);
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event, _, cx| this.selection_move(event, cx)))

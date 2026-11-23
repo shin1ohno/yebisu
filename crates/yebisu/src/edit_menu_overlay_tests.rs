@@ -155,3 +155,43 @@ fn h4_secondary_click_over_front_layer_never_presents(cx: &mut TestAppContext) {
     cx.simulate_mouse_down(outside, MouseButton::Right, Modifiers::default());
     assert_eq!(calls.borrow().presented.len(), 1);
 }
+
+#[test]
+fn l61_secondary_press_is_the_secondary_button_or_control_click_alone() {
+    use crate::edit_menu_gestures::secondary_press;
+    let control = Modifiers {
+        control: true,
+        ..Modifiers::default()
+    };
+    assert!(secondary_press(MouseButton::Right, &Modifiers::default()));
+    assert!(secondary_press(MouseButton::Left, &control));
+    assert!(!secondary_press(MouseButton::Left, &Modifiers::default()));
+    assert!(!secondary_press(
+        MouseButton::Left,
+        &Modifiers {
+            shift: true,
+            ..control
+        }
+    ));
+    assert!(!secondary_press(MouseButton::Middle, &control));
+}
+
+#[gpui::test]
+fn l61_control_click_opens_the_terminal_menu_without_a_selection(cx: &mut TestAppContext) {
+    let (view, cx, calls) = fixture(cx);
+    let at = position(&view, cx);
+    let control = Modifiers {
+        control: true,
+        ..Modifiers::default()
+    };
+    cx.simulate_mouse_down(at, MouseButton::Left, control);
+    cx.simulate_mouse_move(at + point(px(60.), px(0.)), MouseButton::Left, control);
+    cx.simulate_mouse_up(at + point(px(60.), px(0.)), MouseButton::Left, control);
+    assert_eq!(calls.borrow().presented.len(), 1);
+    assert!(view.read_with(cx, |this, _| {
+        this.handoff
+            .selection
+            .as_ref()
+            .is_none_or(|s| s.anchor == s.end)
+    }));
+}
