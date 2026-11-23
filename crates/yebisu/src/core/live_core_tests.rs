@@ -119,6 +119,20 @@ impl Sandbox {
         }
     }
 
+    /// Types `exit` into terminal `address` from the host side, as another
+    /// client (`hc send`) would, so its shell ends while yebisu does not show it.
+    fn exit_from_host(&self, address: &str) {
+        let output = Self::command(&self.binary, &self.vars)
+            .args(["send", address, "exit"])
+            .output()
+            .unwrap_or_else(|e| panic!("hc send: {e}"));
+        assert!(
+            output.status.success(),
+            "hc send: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     /// A second, independent client: what `hc ls` would show.
     fn list(&self) -> Vec<sheprd_core_client::wire::Terminal> {
         let endpoint = sheprd_core_client::Endpoint::resolve(|name| {
@@ -524,6 +538,57 @@ fn live_core_link_lost_after_the_last_pane_ended_disconnects(cx: &mut TestAppCon
             "the loss has its reason: {}",
             this.terminal.live.status
         );
+        this.terminal.core.take();
+    });
+}
+
+#[gpui::test]
+#[ignore = "needs YEBISU_HERDR_CORE_TEST_BINARY"]
+fn live_core_pane_ended_in_a_hidden_tab_goes_on_return(cx: &mut TestAppContext) {
+    let mut sandbox = Sandbox::start();
+    let (view, cx) = split_session(&mut sandbox, cx);
+    let split = tabs(&view, cx)
+        .first()
+        .unwrap_or_else(|| panic!("tab not listed"))
+        .clone();
+    assert_eq!(split.panes.len(), 2, "the split's two panes are listed");
+    let (kept, gone) = (split.panes[0].clone(), split.panes[1].clone());
+    // Hide the split behind a new tab.
+    command(&view, cx, Command::NewTab);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while tabs(&view, cx).len() != 2 {
+        view.update(cx, |this, cx| this.poll_terminal(cx));
+        assert!(Instant::now() < deadline, "second tab: {}", seen(&view, cx));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The hidden pane's shell ends while nothing in yebisu is attached to it.
+    sandbox.exit_from_host(&gone);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while sandbox
+        .list()
+        .iter()
+        .any(|t| t.address == gone && t.state == sheprd_core_client::wire::TerminalState::Live)
+    {
+        assert!(Instant::now() < deadline, "{gone} did not finish");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Back to the split: herdr-core refuses to attach the finished terminal
+    // ("finished"); only that pane goes and the session stays connected.
+    command(&view, cx, Command::SelectTab(split.id.clone()));
+    wait_tab(&view, cx, &split.id);
+    wait(&view, cx, "the split's other pane, alone", |live| {
+        live.connected && panes(live) == 1 && !live.status.contains("ended")
+    });
+    let shown = tabs(&view, cx);
+    let back = shown
+        .iter()
+        .find(|tab| tab.id == split.id)
+        .unwrap_or_else(|| panic!("split tab gone"));
+    assert_eq!(back.panes, vec![kept], "only the finished pane went");
+    assert_eq!(shown.len(), 2, "the other tab stays");
+    view.update(cx, |this, _| assert!(this.terminal.core.is_some()));
+    survivor_runs(&view, cx);
+    view.update(cx, |this, _| {
         this.terminal.core.take();
     });
 }

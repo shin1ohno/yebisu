@@ -296,6 +296,39 @@ fn pane_exit_in_a_split_closes_it_and_keeps_other_pane_live(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn last_pane_exit_keeps_the_session_connected(cx: &mut TestAppContext) {
+    // The tab's only pane ends: it keeps its final screen and refuses input,
+    // but the session is still connected (other tabs, New Tab, Close Tab).
+    let view = cx.new(Smoke::new);
+    let cx = cx.add_empty_window();
+    let wire = start(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.terminal_focus.focus(window, cx);
+            this.refresh_terminal_input();
+            this.terminal.input.fresh_gesture();
+            this.replace_text_in_range(None, "exit\r", window, cx);
+        })
+    });
+    assert_eq!(receive(&view, cx, &wire), (1, b"exit\r".to_vec()));
+    wait_frame(&view, cx, |live| {
+        live.status.contains("ended: 1") && text(live).contains("pane exited")
+    });
+    view.update(cx, |this, _| {
+        assert!(
+            this.terminal.live.connected,
+            "the session disconnected when its last pane ended"
+        );
+        assert!(
+            crate::terminal_input::destination(&this.terminal.live, this.terminal.link.generation)
+                .is_none(),
+            "ended pane accepts input"
+        );
+        this.terminal.core.take();
+    });
+}
+
+#[gpui::test]
 fn herdr1_mismatch_before_core_does_not_block_background_return(cx: &mut TestAppContext) {
     core_return_after_old_mismatch(cx, false);
 }

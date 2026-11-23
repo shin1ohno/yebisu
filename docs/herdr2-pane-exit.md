@@ -19,13 +19,23 @@ ended marked the whole session disconnected (`live.connected` counted only
 panes still running), and re-attaching a finished terminal ended the worker
 (`herdr-core refused terminal.attach: t2 has finished`).
 
+What the screen shows changes in two places only: a pane that ended in a
+split disappears and its neighbour fills the tab, and the last pane of a tab
+keeps its final screen with `ended: 1` in the status line instead of the
+host turning disconnected. Colours, wording and other layout are unchanged.
+
 ## Real-core tests
 
 `crates/yebisu/src/core/live_core_tests.rs` runs each case against a real
 herdr-core started in a private `HOME`, `XDG_*` and `HC_SOCKET`, reached
 through `hc connect` as the iPad reaches it over SSH. Each test stops only its
 own core (`server stop` on its private socket) and the children it started.
-They are opt-in:
+The hidden-tab case (`live_core_pane_ended_in_a_hidden_tab_goes_on_return`)
+ends a shell with `hc send <terminal> exit` while its tab is not shown, so
+returning to the tab meets herdr-core's `finished` refusal. The always-run
+fake-peer tests `pane_exit_in_a_split_closes_it_and_keeps_other_pane_live` and
+`last_pane_exit_keeps_the_session_connected` guard the split and last-pane
+cases in CI. The real-core tests are opt-in:
 
 ```sh
 YEBISU_HERDR_CORE_TEST_BINARY=/path/to/herdr-core \
