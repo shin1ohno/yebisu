@@ -124,6 +124,8 @@ UNRELATED = {
     "reconnect": "outside the checks: reconnect policy, called from terminal_view.rs",
     "settings_spike": "referenced only by settings_pages/INTEGRATION.md",
     "setup": "outside the checks: pairing setup, called from app.rs",
+    "terminal_links": "L66 Command + press on a link; it returns at once unless Command is held, which no edit-menu "
+                      "check does. Its hook is in terminal_view.rs, which the pattern matches",
     "upstream": "referenced only by settings_pages/INTEGRATION.md",
 }
 
