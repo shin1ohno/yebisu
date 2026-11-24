@@ -68,6 +68,18 @@ MAC_GATES = {
     "embedded-profile": (lambda t: ("--app", str(t.make_app(
                              t.root / "given" / "yebisu.app", devices=[mac_tests.OTHER_DEVICE]))),
                          "bundle-check", 1, lambda t, result: bool(t.opened("ipa"))),
+    # A wrapper of another bundle identifier sits beside ours; without the filter
+    # it is handed to Finder too (the owner cancels, so the refusal is the same).
+    "wrapper-bundle-id": (lambda t: t.wrapper("other.app", bundle_id="com.example.other") and
+                          t.wrapper("yebisu.app") and t.env.update(MAC_TEST_TRASH="cancel") or (),
+                          "install", 3,
+                          lambda t, result: any(c["args"][-1].endswith("other.app") for c in t.calls("osascript"))),
+    # Finder exits non-zero though the wrapper is gone (cancel after the move).
+    "trash-status": (lambda t: t.wrapper("yebisu.app") and t.env.update(MAC_TEST_TRASH="moved-then-error") or (),
+                     "install", 3, lambda t, result: bool(t.opened("ipa"))),
+    # Finder exits 0 and the wrapper is still there.
+    "trash-gone": (lambda t: t.wrapper("yebisu.app") and t.env.update(MAC_TEST_TRASH="ignore") or (),
+                   "install", 3, lambda t, result: result.returncode != 3),
 }
 
 
@@ -104,6 +116,15 @@ class MacGateMutationTests(mac_tests.Harness, unittest.TestCase):
 
     def test_embedded_profile_gate(self):
         self.check("embedded-profile")
+
+    def test_wrapper_bundle_id_gate(self):
+        self.check("wrapper-bundle-id")
+
+    def test_trash_status_gate(self):
+        self.check("trash-status")
+
+    def test_trash_gone_gate(self):
+        self.check("trash-gone")
 
     def test_every_gate_marker_in_mac_sh_has_a_mutation(self):
         text = (HERE / "mac.sh").read_text()

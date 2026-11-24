@@ -18,10 +18,17 @@ registers a device; `just mac-register` is the owner's one-time step for that.
    it. It builds nothing. An agent must not run it.
 3. Run `just mac`. When this Mac is not registered yet, it stops with status 3
    and names `just mac-register`.
-4. Before each later `just mac`, quit yebisu and move every installed
-   `/Applications/yebisu*.app` to the Trash in Finder (it asks for an
-   administrator password). Until then `just mac` stops at step install and
-   names each wrapper; it never deletes one and stops no running copy then.
+4. `just mac` moves every earlier `/Applications/*.app` wrapper of
+   com.shin1ohno.yebisu to the Trash itself, by asking Finder, so you do not
+   trash anything by hand. macOS shows two dialogs, both yours to answer:
+   - Automation, the first time only: "… wants to control Finder". Allow it
+     (System Settings > Privacy & Security > Automation if you declined).
+   - Authentication, each time: the root-owned wrapper needs Touch ID or your
+     password. This is the only step you do.
+   If you cancel the authentication, or Finder fails, `just mac` stops at step
+   install with status 3, names the wrapper and installs nothing; run it again.
+   Other apps are never listed or touched, and `just mac` never uses `rm` or
+   `sudo` on `/Applications`.
 
 ## Steps and exit statuses
 
@@ -35,12 +42,14 @@ Every failure ends with `error: just mac failed at step STEP: REASON`.
 | profile-check | the profile's ProvisionedDevices lists this Mac's UDID (ProvisionsAllDevices does not count) |
 | build | `scripts/ios/bundle.sh` builds and signs with that profile |
 | bundle-check | Info.plist and the signed application-identifier name com.shin1ohno.yebisu; the embedded profile lists this Mac; the signature verifies |
-| install | no com.shin1ohno.yebisu wrapper is installed and /Applications/yebisu.app is free (checked first); then the bundle is wrapped as an .ipa and opened, and must land as /Applications/yebisu.app |
-| terminate | before the .ipa is opened, stops only processes running an installed com.shin1ohno.yebisu bundle's executable |
+| install | /Applications/yebisu.app is not another app (checked first); after terminate, each com.shin1ohno.yebisu wrapper goes to the Trash through Finder (`osascript`) and must be gone (status 3 otherwise); then the bundle is wrapped as an .ipa and opened, and must land as /Applications/yebisu.app |
+| terminate | before the wrappers are trashed, stops only processes running an installed com.shin1ohno.yebisu bundle's executable |
 | launch | opens `/Applications/yebisu.app` by path and finds the process running this build's executable |
 | running | after the wait the process still runs, with launchd (pid 1) as its parent |
 
-Status 2 is an invalid option or a refused identifier, 3 an unregistered Mac,
+Status 2 is an invalid option or a refused identifier, 3 an unregistered Mac or
+an earlier wrapper that Finder did not move to the Trash (canceled
+authentication or a Finder failure),
 4 an app that exited within the wait, and 1 any other failure. Once installed,
 the summary (app, bundle id, device, state, log) is printed whatever the
 outcome.

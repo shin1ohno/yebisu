@@ -4,8 +4,10 @@
 # after a wait, and a copy of the app's log file from its data container.
 #
 # Never uninstalls other apps, deletes data, or changes system settings. The
-# only process it terminates is an earlier copy of com.shin1ohno.yebisu, before
-# installing. It never registers this Mac with the team unless asked to with
+# only process it terminates is an earlier copy of com.shin1ohno.yebisu, and the
+# only things it removes are earlier com.shin1ohno.yebisu wrappers in
+# /Applications, which it asks Finder to move to the Trash (the owner
+# authenticates), before installing. It never registers this Mac with the team unless asked to with
 # --register-device (just mac-register, the owner's one-time step).
 #
 # Tests point YEBISU_MAC_APPLICATIONS (default /Applications) at a scratch
@@ -31,7 +33,8 @@ Options:
   -h, --help         Show this help
 
 Exits with status 2 for invalid options or a refused bundle identifier, 3 when
-this Mac is not registered with the team (run just mac-register once), 4 when
+this Mac is not registered with the team (run just mac-register once) or the
+owner did not authenticate Finder's move of an earlier wrapper to the Trash, 4 when
 the app is no longer running after --wait, and 1 on any other failure. Every
 failure ends with "error: just mac failed at step STEP: REASON".
 EOF
@@ -185,36 +188,43 @@ fi
 # gate:embedded-profile end
 codesign --verify --strict "$app" >&2 || fail bundle-check 1 "the bundle's signature does not verify"
 
-# "PID PPID EXECUTABLE" for processes running an installed com.shin1ohno.yebisu
-# bundle's own executable; never a process matched by its name alone.
-app_processes() {
-  ps -axww -o pid=,ppid=,comm= | "${mac_py[@]}" processes --bundle-id "$bundle_id" "$@"
-}
 # The signed .app does not run as it is ("incorrect executable format"). A zip
 # whose root is Payload/yebisu.app is an .ipa; opening one has macOS install it
 # as the wrapper $applications/yebisu.app/Wrapper/yebisu.app. macOS installs
 # every opened .ipa as new: with a wrapper already there it adds a numbered one
 # ("yebisu 2.app") rather than updating it, and only Xcode's own install
-# service can install elsewhere. So an earlier wrapper must go first, and only
-# the owner removes it; mac.sh never deletes one.
+# service can install elsewhere. So every earlier wrapper goes to the Trash
+# first, through Finder: it asks the owner to authenticate, and that dialog is
+# the owner's only step. mac.sh never removes anything from /Applications itself.
 wrappers() { # the installed wrappers of this bundle identifier, one per line
-  local wrapper
+  local wrapper info
   for wrapper in "$applications"/*.app; do
-    if [[ -d $wrapper/Wrapper && $(plutil -extract CFBundleIdentifier raw -o - \
-      "$wrapper/Wrapper/yebisu.app/Info.plist" 2>/dev/null) == "$bundle_id" ]]; then
+    [[ -d $wrapper/Wrapper ]] || continue
+    for info in "$wrapper"/Wrapper/*.app/Info.plist; do
+      [[ -f $info ]] || continue
+      # gate:wrapper-bundle-id begin
+      [[ $(plutil -extract CFBundleIdentifier raw -o - "$info" 2>/dev/null) == "$bundle_id" ]] || continue
+      # gate:wrapper-bundle-id end
       printf '%s\n' "$wrapper"
-    fi
+      break
+    done
   done
+}
+# The path is an argument of the script, never part of its text, so spaces and
+# quotes in it cannot change what Finder is asked to delete.
+trash_wrapper() { # trash_wrapper PATH: one Finder delete; the owner authenticates
+  # gate:trash-status begin
+  osascript -e 'on run argv' \
+    -e 'tell application "Finder" to delete (POSIX file (item 1 of argv))' \
+    -e 'end run' "$1" >&2 || return 1
+  # gate:trash-status end
+  return 0
 }
 installed=$applications/yebisu.app
 installed_app=$installed/Wrapper/yebisu.app
+earlier_wrappers=$(wrappers)
 # Checked before anything is stopped, so a refused run leaves a running copy alone.
-existing=$(wrappers | paste -sd , - | sed 's/,/, /g')
-if [[ -n $existing ]]; then
-  fail install 1 "$bundle_id is already installed as $existing; move each to the Trash in" \
-    "Finder (it asks for an administrator password), then run 'just mac' again"
-fi
-if [[ -e $installed || -L $installed ]]; then
+if [[ ( -e $installed || -L $installed ) && $earlier_wrappers != *"$installed"* ]]; then
   existing=$(plutil -extract CFBundleIdentifier raw -o - "$installed/Contents/Info.plist" 2>/dev/null ||
     plutil -extract CFBundleIdentifier raw -o - "$installed_app/Info.plist" 2>/dev/null ||
     echo "not a wrapped iPad app")
@@ -246,6 +256,19 @@ mac_terminate() {
   return 1
 }
 mac_terminate || fail terminate 1 "could not stop the running $bundle_id"
+
+while IFS= read -r wrapper; do
+  [[ -n $wrapper ]] || continue
+  echo "Moving $wrapper to the Trash; macOS asks you to authenticate" >&2
+  trash_wrapper "$wrapper" ||
+    fail install 3 "Finder did not move $wrapper to the Trash (authentication canceled or" \
+      "Finder failed); nothing was installed, run 'just mac' again"
+  # gate:trash-gone begin
+  if [[ -e $wrapper || -L $wrapper ]]; then
+    fail install 3 "$wrapper is still installed after Finder reported success; nothing was installed"
+  fi
+  # gate:trash-gone end
+done <<<"$earlier_wrappers"
 
 mac_install() {
   local found= wrapper= second
