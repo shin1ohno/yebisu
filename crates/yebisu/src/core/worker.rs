@@ -745,5 +745,5 @@ fn session_info(
 fn publish_sessions(list: &SessionList, epoch: u64, sessions: &[SessionInfo]) {
     list.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .current = Some((epoch, sessions.to_vec()));
+        .publish(epoch, sessions.to_vec());
 }
