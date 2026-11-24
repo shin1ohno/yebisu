@@ -326,8 +326,10 @@ def validate_menu_retries(records, ui):
                              f"{sorted({r.get('receipt') for r in reached})} before it")
 
 
-# Negative controls that must fail by name without a resend, with the words the failure must say.
-EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "pick tap reached the app"}
+# Negative controls that must fail by name without a resend, with the words the failure must say. A tap
+# beside the item never reaches the app: SpringBoard's open menu takes it and closes, so offset-pick fails
+# as A2 (issue #142 stage 3; receipts in PR-3's text). `pick tap reached the app` stays as an A2 stage.
+EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "tap lost (class A2)"}
 # Negative controls on a choose() case; drop-tap names a fixture step instead.
 CASE_FAULTS = ("skip-swipe", "drop-pick", "drop-open", *EXPECTED_FAILURES)
 

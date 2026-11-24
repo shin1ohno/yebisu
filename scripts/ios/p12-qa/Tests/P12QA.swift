@@ -23,7 +23,8 @@ final class P12QA: XCTestCase {
     /// the retry it forces must be logged and accepted by the oracle. Two more must fail by
     /// name without a resend (p12-check.py then reports the expected failure):
     /// `drop-pick-twice:<case>` skips the pick tap and its resend, and `offset-pick:<case>`
-    /// taps a point inside the app window instead of the item, so the app receives it.
+    /// taps the app's empty strip instead of the item; the open menu takes that tap and closes,
+    /// so the case fails as A2 with no pick-retry.
     private var faults = Set((ProcessInfo.processInfo.environment["P12_QA_FAULT"] ?? "").split(separator: ",").map(String.init))
     /// How long a fixture press gets to reach its control (`presses`) before it is pressed once
     /// more, and then to show its setup step in `p12.setup`.

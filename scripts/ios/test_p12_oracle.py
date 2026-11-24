@@ -680,7 +680,7 @@ class P12RetryTests(unittest.TestCase):
         self.assertIsNone(p12.expected_failure(""))
         self.assertIsNone(p12.expected_failure("drop-pick:sidebar"))
         self.assertEqual(p12.expected_failure("drop-pick-twice:sidebar"), ("pick lost twice", "sidebar"))
-        self.assertEqual(p12.expected_failure("offset-pick:palette"), ("pick tap reached the app", "palette"))
+        self.assertEqual(p12.expected_failure("offset-pick:palette"), ("tap lost (class A2)", "palette"))
         with self.assertRaisesRegex(ValueError, "runs alone"):
             p12.expected_failure("offset-pick:palette,drop-tap:remote")
         twice = "P12QA.swift:280: error: ... : failed - pick lost twice in case sidebar: the OS menu is still open"
@@ -689,12 +689,14 @@ class P12RetryTests(unittest.TestCase):
         self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", twice, []), "the resend must have been tried once")
         self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", twice.replace("sidebar", "palette"), retry))
         self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", "Native menu disappeared in case sidebar", retry))
-        reached = "tap lost (class A2) in case palette: pick tap reached the app (1 touch began, last at 1.0, 2.0), not the menu item"
-        self.assertTrue(p12.failed_as_expected("offset-pick:palette", reached, []))
-        self.assertFalse(p12.failed_as_expected("offset-pick:palette", reached,
+        # The observed run (iOS 26.5): the oracle's A2 failure for the case, no pick-retry.
+        observed = "tap lost (class A2) in case palette: no menu-perform; no p12-menu-build within 1.0 s"
+        self.assertTrue(p12.failed_as_expected("offset-pick:palette", observed, []))
+        self.assertFalse(p12.failed_as_expected("offset-pick:palette", observed,
                                                 [dict(kind="pick-retry", case="palette", reason="r", injected=False, time=1)]),
                          "offset-pick must fail without a resend")
-        self.assertFalse(p12.failed_as_expected("offset-pick:palette", "tap lost (class A2) in case palette: no menu-perform", []))
+        self.assertFalse(p12.failed_as_expected("offset-pick:palette", observed.replace("palette", "sidebar"), []))
+        self.assertFalse(p12.failed_as_expected("offset-pick:palette", "Native menu disappeared in case palette", []))
 
     def test_a_pick_tap_that_reached_the_app_is_named(self):
         def edit(r, m, u, s):

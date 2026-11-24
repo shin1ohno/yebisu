@@ -526,5 +526,6 @@ the UI test redesign S5 and S6.)
   controls must fail by name without a resend and run alone:
   `drop-pick-twice:<case>` (skips the pick and its resend: `pick lost twice in
   case <case>`) and `offset-pick:<case>` (taps the app's empty strip instead of
-  the item: `pick tap reached the app`); `p12-check.py` reports
+  the item; SpringBoard's open menu takes the tap and closes, the app receives no
+  touch, so the case fails as `tap lost (class A2) in case <case>`); `p12-check.py` reports
   `"negative_control": "failed as expected"` and exits 0 only then.
