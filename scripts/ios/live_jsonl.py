@@ -46,3 +46,37 @@ def count_lines(path):
     """Number of complete lines in path, 0 if it does not exist; the offset for read_records."""
     path = Path(path)
     return len(complete_lines(path.read_bytes())) if path.exists() else 0
+
+
+def heartbeat_gaps(records, interval=2.0, factor=2.5):
+    """Where the app's main thread wrote no heartbeat for more than interval * factor seconds.
+
+    The app writes `{"kind": "heartbeat"}` every `interval` seconds from GPUI's foreground
+    thread (crates/yebisu/src/qa_ax_input.rs), so a stalled main thread leaves a gap. Records
+    after a `launch` record belong to its `pid`; heartbeats are compared within one launch, and
+    the time from a launch's last heartbeat to its last record is checked too (`trailing`).
+    Returns [{"from", "to", "seconds", "pid"}]; reported by the checks, not judged."""
+    limit = interval * factor
+    launches = {}
+    pid = None
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("kind") == "launch":
+            pid = record.get("pid")
+        time = record.get("time")
+        if not isinstance(time, (int, float)):
+            continue
+        beats, last = launches.setdefault(pid, ([], [time]))
+        last[0] = max(last[0], time)
+        if record.get("kind") == "heartbeat":
+            beats.append(time)
+    gaps = []
+    for pid, (beats, last) in launches.items():
+        beats.sort()
+        for start, end in zip(beats, beats[1:]):
+            if end - start > limit:
+                gaps.append({"from": start, "to": end, "seconds": round(end - start, 2), "pid": pid})
+        if beats and last[0] - beats[-1] > limit:
+            gaps.append({"from": beats[-1], "to": last[0], "seconds": round(last[0] - beats[-1], 2), "pid": pid, "trailing": True})
+    return gaps

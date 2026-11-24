@@ -18,6 +18,11 @@ Options:
   --bundle-id ID      Bundle identifier the profile must cover
   --device UDID       Hardware UDID the profile must list
                       (xcrun devicectl list devices shows the device)
+  --destination DEST  xcodebuild destination for the throwaway app
+                      (default: generic/platform=iOS)
+  --register-device   Let Xcode register the destination device with the
+                      team (-allowProvisioningDeviceRegistration); needs
+                      a --destination naming one device by id=
   --profiles-dir DIR  Where to look; repeatable (default: Xcode's
                       ~/Library/Developer/Xcode/UserData/Provisioning Profiles
                       and ~/Library/MobileDevice/Provisioning Profiles)
@@ -35,6 +40,8 @@ bundle_id=
 device=
 create=true
 profile_dirs=()
+destination=generic/platform=iOS
+register_args=()
 
 while (($# > 0)); do
   case "$1" in
@@ -50,6 +57,16 @@ while (($# > 0)); do
       device=${2:?"--device needs a UDID"}
       shift 2
       ;;
+    --destination)
+      destination=${2:?"--destination needs an xcodebuild destination"}
+      shift 2
+      ;;
+    # gate:register-device begin
+    --register-device)
+      register_args=(-allowProvisioningDeviceRegistration)
+      shift
+      ;;
+    # gate:register-device end
     --profiles-dir)
       profile_dirs+=("${2:?"--profiles-dir needs a directory"}")
       shift 2
@@ -76,6 +93,10 @@ if [[ ! $team =~ ^[A-Z0-9]{10}$ ]]; then
 fi
 if [[ ! $bundle_id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
   echo "error: '$bundle_id' is not a valid bundle identifier" >&2
+  exit 2
+fi
+if ((${#register_args[@]} > 0)) && [[ $create != true || $destination != *id=* ]]; then
+  echo "error: --register-device needs a --destination with id= and no --no-create" >&2
   exit 2
 fi
 if ((${#profile_dirs[@]} == 0)); then
@@ -164,8 +185,8 @@ echo "No installed profile covers $team.$bundle_id; asking Xcode to register" \
 xcodegen generate --no-env --quiet --spec "$stub/project.yml" --project "$stub" >&2
 build_log=$work/xcodebuild.log
 if ! xcodebuild -project "$stub/HerdrProvisioning.xcodeproj" -scheme HerdrProvisioning \
-  -destination generic/platform=iOS -derivedDataPath "$work/DerivedData" \
-  -allowProvisioningUpdates build >"$build_log" 2>&1; then
+  -destination "$destination" -derivedDataPath "$work/DerivedData" \
+  -allowProvisioningUpdates ${register_args[@]+"${register_args[@]}"} build >"$build_log" 2>&1; then
   grep -E 'error:' "$build_log" | tail -n 20 >&2 || tail -n 20 "$build_log" >&2
   echo "error: Xcode could not provision $team.$bundle_id. Sign in to Xcode" \
     "(Settings > Accounts) with an account in team $team, and register the" \
