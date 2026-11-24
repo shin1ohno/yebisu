@@ -190,8 +190,44 @@ codesign --verify --strict "$app" >&2 || fail bundle-check 1 "the bundle's signa
 app_processes() {
   ps -axww -o pid=,ppid=,comm= | "${mac_py[@]}" processes --bundle-id "$bundle_id" "$@"
 }
-# Before installing: the installer ends a running copy itself
-# (installcoordinationd), so mac.sh stops this bundle's own processes first.
+# The signed .app does not run as it is ("incorrect executable format"). A zip
+# whose root is Payload/yebisu.app is an .ipa; opening one has macOS install it
+# as the wrapper $applications/yebisu.app/Wrapper/yebisu.app. macOS installs
+# every opened .ipa as new: with a wrapper already there it adds a numbered one
+# ("yebisu 2.app") rather than updating it, and only Xcode's own install
+# service can install elsewhere. So an earlier wrapper must go first, and only
+# the owner removes it; mac.sh never deletes one.
+wrappers() { # the installed wrappers of this bundle identifier, one per line
+  local wrapper
+  for wrapper in "$applications"/*.app; do
+    if [[ -d $wrapper/Wrapper && $(plutil -extract CFBundleIdentifier raw -o - \
+      "$wrapper/Wrapper/yebisu.app/Info.plist" 2>/dev/null) == "$bundle_id" ]]; then
+      printf '%s\n' "$wrapper"
+    fi
+  done
+}
+installed=$applications/yebisu.app
+installed_app=$installed/Wrapper/yebisu.app
+# Checked before anything is stopped, so a refused run leaves a running copy alone.
+existing=$(wrappers | paste -sd , - | sed 's/,/, /g')
+if [[ -n $existing ]]; then
+  fail install 1 "$bundle_id is already installed as $existing; move each to the Trash in" \
+    "Finder (it asks for an administrator password), then run 'just mac' again"
+fi
+if [[ -e $installed || -L $installed ]]; then
+  existing=$(plutil -extract CFBundleIdentifier raw -o - "$installed/Contents/Info.plist" 2>/dev/null ||
+    plutil -extract CFBundleIdentifier raw -o - "$installed_app/Info.plist" 2>/dev/null ||
+    echo "not a wrapped iPad app")
+  fail install 1 "$installed is another app ($existing); not replacing it"
+fi
+
+# "PID PPID EXECUTABLE" for processes running an installed com.shin1ohno.yebisu
+# bundle's own executable; never a process matched by its name alone.
+app_processes() {
+  ps -axww -o pid=,ppid=,comm= | "${mac_py[@]}" processes --bundle-id "$bundle_id" "$@"
+}
+# A copy can still run with its wrapper already in the Trash, and the installer
+# would end it itself (installcoordinationd), so mac.sh stops it first.
 mac_terminate() {
   local earlier old_pid tick
   earlier=$(app_processes) || return 1
@@ -211,42 +247,15 @@ mac_terminate() {
 }
 mac_terminate || fail terminate 1 "could not stop the running $bundle_id"
 
-# The signed .app does not run as it is ("incorrect executable format"). A zip
-# whose root is Payload/yebisu.app is an .ipa; opening one has macOS install it
-# as a wrapper, $applications/yebisu.app/Wrapper/yebisu.app on a first install.
-wrappers() { # the installed wrappers of this bundle identifier, one per line
-  local wrapper
-  for wrapper in "$applications"/*.app; do
-    if [[ -d $wrapper/Wrapper && $(plutil -extract CFBundleIdentifier raw -o - \
-      "$wrapper/Wrapper/yebisu.app/Info.plist" 2>/dev/null) == "$bundle_id" ]]; then
-      printf '%s\n' "$wrapper"
-    fi
-  done
-}
-installed=
-installed_app=
 mac_install() {
-  local named=$applications/yebisu.app existing= before= found= wrapper= second
-  if [[ -e $named || -L $named ]]; then
-    existing=$(plutil -extract CFBundleIdentifier raw -o - "$named/Wrapper/yebisu.app/Info.plist" 2>/dev/null) ||
-      existing=
-    if [[ $existing != "$bundle_id" ]]; then
-      existing=${existing:-$(plutil -extract CFBundleIdentifier raw -o - "$named/Contents/Info.plist" \
-        2>/dev/null || echo "not a wrapped iPad app")}
-      echo "error: $named is another app ($existing); not replacing it" >&2
-      return 1
-    fi
-  fi
-  before=$(wrappers)
+  local found= wrapper= second
   mkdir -p "$work/ipa/Payload"
   ditto "$app" "$work/ipa/Payload/yebisu.app" && codesign --verify --strict "$work/ipa/Payload/yebisu.app" &&
     rm -f "$out/yebisu.ipa" &&
     ditto -c -k --sequesterRsrc --keepParent "$work/ipa/Payload" "$out/yebisu.ipa" &&
     open "$out/yebisu.ipa" || return 1
-  # The installer finishes after open returns. bundle.sh signs every build
-  # anew (the signature carries its time), so a built executable matches an
-  # installed one only once this install is done; an --app bundle installed
-  # before may match at once, which leaves the same content installed.
+  # The installer finishes after open returns; the wrapper whose executable
+  # is this build's is the one it wrote.
   for ((second = 0; second < timeout_seconds; second++)); do
     while IFS= read -r wrapper; do
       if [[ -n $wrapper ]] && cmp -s "$app/yebisu" "$wrapper/Wrapper/yebisu.app/yebisu"; then
@@ -261,28 +270,19 @@ mac_install() {
     echo "error: no installed wrapper became this build within ${timeout_seconds}s" >&2
     return 1
   fi
-  # A numbered copy beside the existing wrapper is never used (the owner,
-  # 2026-11-24); mac.sh never removes a wrapper either.
-  if [[ -n $before ]] && ! grep -qxF -- "$found" <<<"$before"; then
-    echo "error: macOS installed this build as a new wrapper, $found, instead of" \
-      "updating $(paste -sd , - <<<"$before"); numbered wrappers are not used" >&2
+  if [[ $found != "$installed" ]]; then
+    echo "error: macOS installed this build as $found, not $installed;" \
+      "numbered wrappers are not used" >&2
     return 1
   fi
-  installed=$found
-  installed_app=$found/Wrapper/yebisu.app
 }
 mac_install || fail install 1 "could not install $app on this Mac"
 echo "Installed $bundle_id as $installed_app" >&2
-while IFS= read -r wrapper; do
-  if [[ -n $wrapper && $wrapper != "$installed" ]]; then
-    echo "note: another $bundle_id wrapper is installed, for the owner to remove: $wrapper" >&2
-  fi
-done <<<"$(wrappers)"
 
 mac_launch() {
   local tick
-  # Opening the wrapper starts this copy even when LaunchServices knows several
-  # com.shin1ohno.yebisu bundles, where open -b could pick any. LaunchServices
+  # Opening the wrapper starts this copy even when LaunchServices still knows
+  # other com.shin1ohno.yebisu bundles, where open -b could pick any. LaunchServices
   # starts it, so launchd (pid 1) is its parent and it does not end with this
   # terminal or the guard's process group.
   open "$installed" || return 1

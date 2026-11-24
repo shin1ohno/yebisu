@@ -103,9 +103,9 @@ FAKES = {
         print(f"Executable={args[-1]}/yebisu", file=sys.stderr)
         sys.stdout.buffer.write(plistlib.dumps({"application-identifier": env("MAC_TEST_SIGNED_APP_ID")}))
     ''',
-    # Opening an .ipa updates the existing wrapper in place (MAC_TEST_INSTALL=yes)
-    # or, as macOS did on 2026-11-24, adds a numbered one (numbered); opening a
-    # wrapper starts it from a translocated copy under launchd.
+    # Opening an .ipa installs Applications/yebisu.app (MAC_TEST_INSTALL=yes) or
+    # a numbered wrapper (numbered), as macOS did on 2026-11-24 beside an
+    # existing one; opening a wrapper starts it from a translocated copy.
     "open": r'''
         log("open")
         applications = pathlib.Path(env("YEBISU_MAC_APPLICATIONS"))
@@ -121,12 +121,7 @@ FAKES = {
             mode = env("MAC_TEST_INSTALL", "yes")
             if mode == "fail":
                 sys.exit(1)
-            existing = sorted(w for w in applications.glob("*.app") if (w / "Wrapper/yebisu.app").is_dir())
-            target = applications / "yebisu.app"
-            if mode == "yes" and existing:
-                target = existing[0]
-            elif mode == "numbered" and target.exists():
-                target = applications / "yebisu 2.app"
+            target = applications / ("yebisu 2.app" if mode == "numbered" else "yebisu.app")
             if mode in ("yes", "numbered"):
                 scratch = tempfile.mkdtemp()
                 subprocess.run(["ditto", "-x", "-k", args[0], scratch], check=True)
@@ -476,6 +471,7 @@ class MacScriptTests(Harness, unittest.TestCase):
             with self.subTest(variable=variable, mode=mode):
                 self.env.pop("MAC_TEST_INSTALL", None)
                 self.env.pop("MAC_TEST_LAUNCH", None)
+                shutil.rmtree(self.applications / "yebisu.app", ignore_errors=True)  # the scratch install
                 self.env[variable] = mode
                 result = self.run_mac()
                 self.assert_refused(result, step, 1)
@@ -519,25 +515,29 @@ class MacScriptTests(Harness, unittest.TestCase):
         self.assertIn(f"did not stop: {stubborn} ", result.stderr)
         self.assertFalse(self.opened("ipa"))
 
-    def test_existing_wrapper_is_updated_in_place_and_opened_by_path(self):
-        numbered, named = self.wrapper("yebisu 2.app"), self.wrapper("yebisu.app")
+    def test_existing_wrappers_stop_the_install_and_are_named(self):
+        named = self.wrapper("yebisu.app")
+        running = self.running(("Applications", "yebisu 2.app", "Wrapper", "yebisu.app"))
+        numbered = self.applications / "yebisu 2.app"
         result = self.run_mac()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"app:        {numbered}/Wrapper/yebisu.app", result.stdout)
-        self.assertEqual([c["args"] for c in self.opened("app")], [[str(numbered)]])
-        self.assertIn(f"note: another {BUNDLE} wrapper is installed, for the owner to remove: {named}",
-                      result.stderr)
+        self.assert_refused(result, "install", 1)
+        self.assertEqual(result.stderr.splitlines()[-1],
+                         f"error: just mac failed at step install: {BUNDLE} is already installed as "
+                         f"{numbered}, {named}; move each to the Trash in Finder (it asks for an "
+                         "administrator password), then run 'just mac' again")
+        self.assertTrue(alive(running), "a refused run must not stop the running copy")
+        self.assertNotIn("Terminating", result.stderr)
         self.assertEqual((named / "Wrapper/yebisu.app/yebisu").read_bytes(), b"an earlier build")
+        self.assertTrue((numbered / "Wrapper/yebisu.app/Info.plist").exists())
+        self.assertFalse(self.calls("open"))
 
     def test_new_numbered_wrapper_is_refused_and_nothing_is_removed(self):
-        named = self.wrapper("yebisu.app")
         self.env["MAC_TEST_INSTALL"] = "numbered"
         result = self.run_mac()
         self.assert_refused(result, "install", 1)
-        self.assertIn(f"as a new wrapper, {self.applications / 'yebisu 2.app'}, instead of updating {named};"
+        self.assertIn(f"as {self.applications / 'yebisu 2.app'}, not {self.applications / 'yebisu.app'};"
                       " numbered wrappers are not used", result.stderr)
-        self.assertEqual((named / "Wrapper/yebisu.app/yebisu").read_bytes(), b"an earlier build")
-        self.assertTrue((self.applications / "yebisu 2.app").exists())
+        self.assertTrue((self.applications / "yebisu 2.app/Wrapper/yebisu.app/yebisu").exists())
         self.assertFalse(self.opened("app"))
 
     def test_app_under_another_parent_fails_the_running_check(self):

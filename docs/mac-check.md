@@ -18,6 +18,10 @@ registers a device; `just mac-register` is the owner's one-time step for that.
    it. It builds nothing. An agent must not run it.
 3. Run `just mac`. When this Mac is not registered yet, it stops with status 3
    and names `just mac-register`.
+4. Before each later `just mac`, quit yebisu and move every installed
+   `/Applications/yebisu*.app` to the Trash in Finder (it asks for an
+   administrator password). Until then `just mac` stops at step install and
+   names each wrapper; it never deletes one and stops no running copy then.
 
 ## Steps and exit statuses
 
@@ -31,8 +35,9 @@ Every failure ends with `error: just mac failed at step STEP: REASON`.
 | profile-check | the profile's ProvisionedDevices lists this Mac's UDID (ProvisionsAllDevices does not count) |
 | build | `scripts/ios/bundle.sh` builds and signs with that profile |
 | bundle-check | Info.plist and the signed application-identifier name com.shin1ohno.yebisu; the embedded profile lists this Mac; the signature verifies |
-| install | the bundle is wrapped as an .ipa and opened; never replaces another app at /Applications/yebisu.app |
-| launch | terminates only an earlier process running the installed com.shin1ohno.yebisu bundle's executable, then `open -b com.shin1ohno.yebisu` |
+| install | no com.shin1ohno.yebisu wrapper is installed and /Applications/yebisu.app is free (checked first); then the bundle is wrapped as an .ipa and opened, and must land as /Applications/yebisu.app |
+| terminate | before the .ipa is opened, stops only processes running an installed com.shin1ohno.yebisu bundle's executable |
+| launch | opens `/Applications/yebisu.app` by path and finds the process running this build's executable |
 | running | after the wait the process still runs, with launchd (pid 1) as its parent |
 
 Status 2 is an invalid option or a refused identifier, 3 an unregistered Mac,
@@ -56,9 +61,17 @@ Verified on 2026-11-24 on a Mac17,9 with macOS 26.7.3 and Xcode 27.2:
 - A zip whose root is `Payload/yebisu.app`, named `.ipa` and opened with
   `open`, installs `/Applications/yebisu.app`; the bundle itself is
   `/Applications/yebisu.app/Wrapper/yebisu.app`.
-- `open -b com.shin1ohno.yebisu` starts it under launchd, from a translocated
-  copy whose path ends in `Wrapper/yebisu.app/yebisu`. Its parent is pid 1, so
-  it keeps running when the launching terminal closes.
+- Opening that wrapper (`open /Applications/yebisu.app`, or `open -b
+  com.shin1ohno.yebisu` while it is the only copy) starts it under launchd, from
+  a translocated copy whose path ends in `Wrapper/yebisu.app/yebisu`. Its
+  parent is pid 1, so it keeps running when the launching terminal closes.
+- macOS installs every opened .ipa as new, running or not: with a wrapper
+  already there it adds `/Applications/yebisu 2.app` instead of updating it
+  (MobileInstallation logs "Install (New)"). Numbered wrappers are not used.
+- Xcode's own Designed-for-iPad runs install through its IDEInstallService,
+  which holds private Apple entitlements; a hand-made wrapper under `target/`
+  is refused by Launch Services (error -10670), so there is no install-free
+  path for a script.
 - The app's log is `Library/Application Support/yebisu/logs/yebisu.jsonl`
   inside the data container in `~/Library/Containers/` whose metadata names
   com.shin1ohno.yebisu. A healthy start logs startup, window_opened,
