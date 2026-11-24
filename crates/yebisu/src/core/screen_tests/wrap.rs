@@ -107,7 +107,6 @@ fn a_pane_not_yet_its_width_is_unmarked() -> crate::Result<()> {
     Ok(())
 }
 
-
 /// The pinned emulator marks its own wraps: the Herdr 2 fixture's address,
 /// longer than the row, reads whole through composition. This fails if the
 /// fork pin moves to a commit whose frames carry no mark (#141).
