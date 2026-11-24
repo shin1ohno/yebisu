@@ -22,7 +22,9 @@ The SDK was pinned to the herdr-uikit PR 14 merge commit
 99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main); L61 moved it
 to the PR 18 merge commit af7c496099dd6d308055be1818ddf971a321e4f8, which adds
 PR 17 (test-support held-press) and PR 18 (empty edit menu for unpresented
-configurations) and keeps the same helper. 99d7928 contains
+configurations) and keeps the same helper. It now sits at the PR 25 merge
+commit 1fab654acee82bda7cc43f8703826c151c6acc34 (Mac title bar), whose
+`src/window/text_input/probe/` is unchanged from af7c496. 99d7928 contains
 the earlier fe3a0da query helper, main's 3ec67ca, and a test-support-only
 Cut/first-query helper whose production-path hooks are all
 `cfg(feature = "test-support")`. Only the opt-in `p13-native-probe` feature
