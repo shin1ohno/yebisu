@@ -64,8 +64,13 @@ class ReceiptGates(unittest.TestCase):
 
     def test_the_receipt_target_is_accepted_only_behind_the_launch_flag(self):
         text = (SRC / "diagnostics.rs").read_text()
-        self.assertIn('const RECEIPTS: &str = "herdr_uikit::qa_input";', text)
-        self.assertIn("target == TARGET || (receipts && target == RECEIPTS)", text)
+        lines = code_lines(text)
+        constant = lines.index('const RECEIPTS: &str = "herdr_uikit::qa_input";')
+        self.assertEqual(lines[constant - 1], SIMULATOR_OR_TEST, "a device build must not carry the receipt target")
+        self.assertIn("target == TARGET || (receipts && is_receipt(target))", text)
+        device = '#[cfg(not(any(all(target_os = "ios", target_abi = "sim"), test)))]\nfn is_receipt(_: &str) -> bool {\n    false\n}'
+        self.assertIn(device, text)
+        self.assertIn("if is_receipt(event.metadata().target()) {", body(text, "fn event("))
         self.assertIn("accepts(metadata.target(), self.receipts)", body(text, "fn enabled("))
         self.assertIn("receipts: receipts_wanted(),", body(text, "pub(crate) fn init("))
         device = text[text.index('#[cfg(all(target_os = "ios", not(target_abi = "sim")))]'):]

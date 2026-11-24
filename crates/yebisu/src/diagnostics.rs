@@ -11,7 +11,9 @@ use tracing::{Metadata, Subscriber, field::Visit, span};
 pub(crate) const LOG_LOCATION: &str = include_str!("log-location.txt");
 const TARGET: &str = "yebisu::diagnostics";
 /// herdr-uikit's Simulator input receipts (`qa_ax_input.rs`): accepted only
-/// by a Simulator QA launch, and never written to the diagnostics log.
+/// by a Simulator QA launch, and never written to the diagnostics log. A
+/// device build does not even carry the name.
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 const RECEIPTS: &str = "herdr_uikit::qa_input";
 const QUEUE: usize = 256;
 const MAX_BYTES: u64 = 128 * 1024;
@@ -91,7 +93,16 @@ fn receipts_wanted() -> bool {
 /// The event targets the subscriber takes: its own codes, and the receipts
 /// only when `receipts` is set.
 fn accepts(target: &str, receipts: bool) -> bool {
-    target == TARGET || (receipts && target == RECEIPTS)
+    target == TARGET || (receipts && is_receipt(target))
+}
+
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+fn is_receipt(target: &str) -> bool {
+    target == RECEIPTS
+}
+#[cfg(not(any(all(target_os = "ios", target_abi = "sim"), test)))]
+fn is_receipt(_: &str) -> bool {
+    false
 }
 
 struct Capture {
@@ -122,7 +133,7 @@ impl Subscriber for Capture {
         if !self.enabled(event.metadata()) {
             return;
         }
-        if event.metadata().target() == RECEIPTS {
+        if is_receipt(event.metadata().target()) {
             #[cfg(all(target_os = "ios", target_abi = "sim"))]
             crate::qa_ax::input::capture(event);
             return;
