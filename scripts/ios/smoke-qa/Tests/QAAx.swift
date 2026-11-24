@@ -58,6 +58,19 @@ struct QAState: CustomStringConvertible {
     /// messages, and the last pasted texts (markers and clipboard texts).
     var peerInputs: Int { (raw["peer"] as? [String: Any])?["inputs"] as? Int ?? 0 }
     var peerPastes: [String] { (raw["peer"] as? [String: Any])?["pastes"] as? [String] ?? [] }
+    /// herdr-uikit's input receipts as the app counted them (issue #142 stage 2,
+    /// crates/yebisu/src/qa_ax_input.rs): nil when this launch publishes none.
+    var input: [String: Any]? { raw["input"] as? [String: Any] }
+    /// One `input` counter (`touch_began`, `menu_perform`, ...), 0 when absent.
+    func inputCount(_ key: String) -> Int { input?[key] as? Int ?? 0 }
+    /// The last touch that reached the app's drawing view, in window points.
+    var lastTouch: (stage: String, kind: String, x: Double, y: Double)? {
+        guard let touch = input?["last_touch"] as? [String: Any],
+              let stage = touch["stage"] as? String, let kind = touch["kind"] as? String,
+              let x = (touch["x"] as? NSNumber)?.doubleValue, let y = (touch["y"] as? NSNumber)?.doubleValue
+        else { return nil }
+        return (stage, kind, x, y)
+    }
 
     /// The root fields that say what is on screen and what covers it; a press that changes one
     /// of them was taken by the app, or by the system when `active` went false (S4: Control
