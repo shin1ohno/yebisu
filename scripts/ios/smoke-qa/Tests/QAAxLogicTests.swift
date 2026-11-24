@@ -89,6 +89,21 @@ final class QAAxLogicTests: XCTestCase {
                        .arrivedNotCounted(lastTouch: "began direct (516.0, 559.5)"))
     }
 
+    /// CI run 45388075978 (sh1-152 E3f-key, E3g-text): UIKit cancelled the touch 0.2 s after it began, so
+    /// GPUI got no tap; such a press is proven lost and sent once more. A touch that ended is not.
+    func testVerdictTouchThatUIKitCancelledIsProvenLost() throws {
+        let before = try counted(["touch_began": 5, "touch_ended": 5])
+        let cancelled = try counted(["touch_began": 6, "touch_ended": 5, "touch_cancelled": 1])
+        XCTAssertEqual(PressVerdict.of(before: before, after: cancelled, id: "qa.sh1-152.end"),
+                       .cancelled(lastTouch: "ended direct (934.0, 117.5)"))
+        let ended = try counted(["touch_began": 6, "touch_ended": 6])
+        XCTAssertEqual(PressVerdict.of(before: before, after: ended, id: "qa.sh1-152.end"),
+                       .arrivedNotCounted(lastTouch: "ended direct (934.0, 117.5)"))
+        let both = try counted(["touch_began": 7, "touch_ended": 6, "touch_cancelled": 1])
+        XCTAssertEqual(PressVerdict.of(before: before, after: both, id: "qa.sh1-152.end"),
+                       .arrivedNotCounted(lastTouch: "ended direct (934.0, 117.5)"), "one touch completed: not lost")
+    }
+
     func testVerdictOrderRelaunchedThenElsewhereThenReceipts() throws {
         let before = try state(receipts(base, began: 3))
         // A changed screen field wins over a grown touch count: something else took it.

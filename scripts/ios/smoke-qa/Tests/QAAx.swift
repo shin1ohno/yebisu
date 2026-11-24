@@ -109,6 +109,10 @@ enum PressVerdict: Equatable {
     case takenElsewhere([String])
     /// No touch reached the app and nothing on screen moved: proven lost; press once more.
     case lostProven
+    /// Every touch that reached the app was cancelled by UIKit before it ended (touchesCancelled), so
+    /// GPUI got no tap and nothing happened: proven lost too; press once more (CI run 45388075978,
+    /// sh1-152 E3f-key and E3g-text).
+    case cancelled(lastTouch: String)
     /// A touch reached the app's drawing view but `presses[id]` did not grow: it is still being
     /// handled, or it landed elsewhere. Never pressed again (class F2: a late press that was
     /// resent ran its setup twice).
@@ -123,6 +127,9 @@ enum PressVerdict: Equatable {
         if !moved.isEmpty { return .takenElsewhere(moved) }
         guard after.input != nil else { return .unproven("qa.state has no input receipts") }
         if after.inputCount("touch_began") > before.inputCount("touch_began") {
+            let ended = after.inputCount("touch_ended") - before.inputCount("touch_ended")
+            let cancelled = after.inputCount("touch_cancelled") - before.inputCount("touch_cancelled")
+            if ended == 0 && cancelled > 0 { return .cancelled(lastTouch: after.lastTouchText) }
             return .arrivedNotCounted(lastTouch: after.lastTouchText)
         }
         return .lostProven
@@ -426,7 +433,8 @@ struct QAAx {
             } catch QAAxError.timeout {
                 // Issue #142 stage 3: decide on the state the app settled in, with its input receipts.
                 let (after, unsettled) = settledOrReason("after the press on \(id)")
-                switch PressVerdict.of(before: before, after: after, id: id) {
+                let verdict = PressVerdict.of(before: before, after: after, id: id)
+                switch verdict {
                 case .relaunched:
                     throw QAAxError.relaunched(id: id, before: before.text, after: after?.text ?? "nil")
                 case let .takenElsewhere(moved):
@@ -445,14 +453,17 @@ struct QAAx {
                     } catch QAAxError.timeout(_, _, _, let last) {
                         throw QAAxError.pressArrivedElsewhere(id: id, lastTouch: lastTouch, before: before.text, after: last)
                     }
-                case .lostProven:
+                case .lostProven, .cancelled:
                     break
                 }
                 if attempt == 2 {
-                    throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "proven lost twice: no touch receipt, qa.state did not move",
+                    throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "proven lost twice: no completed touch, qa.state did not move",
                                                       before: before.text, after: after?.text ?? "nil")
                 }
-                let reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, timeout)
+                var reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, timeout)
+                if case let .cancelled(lastTouch) = verdict {
+                    reason = String(format: "the touch on %@ was cancelled by UIKit before it ended (last_touch %@) and nothing moved within %.0f s", id, lastTouch, timeout)
+                }
                 session.retries.append("\(id): \(reason)")
                 print("QAAX press \(id) lost (\(reason)); pressing once more")
             }

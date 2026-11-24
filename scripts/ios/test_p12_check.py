@@ -250,13 +250,13 @@ class P12QASourceTests(unittest.TestCase):
         press = body(qaax, "func press(")
         settled = press.index('settledOrReason("after the press on \\(id)")')
         self.assertLess(settled, press.index("PressVerdict.of(before: before, after: after, id: id)"))
-        arrived = press[press.index("case let .arrivedNotCounted(lastTouch):"):press.index("case .lostProven:")]
+        arrived = press[press.index("case let .arrivedNotCounted(lastTouch):"):press.index("case .lostProven, .cancelled:")]
         self.assertIn("throw QAAxError.pressArrivedElsewhere(", arrived)
         self.assertNotIn("break", arrived)
         self.assertNotIn(".tap()", arrived)
         unproven = press[press.index("case let .unproven(reason):"):press.index("case let .arrivedNotCounted(lastTouch):")]
         self.assertIn("throw QAAxError.pressNotDelivered(", unproven)
-        self.assertLess(press.index("case .lostProven:"), press.index('session.retries.append("\\(id): \\(reason)")'))
+        self.assertLess(press.index("case .lostProven, .cancelled:"), press.index('session.retries.append("\\(id): \\(reason)")'))
 
     def test_failure_text_says_tap_not_click(self):
         self.assertNotIn("click of '", SWIFT)

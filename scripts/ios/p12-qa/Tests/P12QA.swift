@@ -619,7 +619,8 @@ final class P12QA: XCTestCase {
             // Issue #142 stage 3: decide on the state the app settled in, with its input receipts,
             // as QAAx.press does (read every 250 ms here too).
             let (settled, unsettled) = qa.settledOrReason("after the held press on \(id)", interval: Self.heldReadInterval)
-            switch PressVerdict.of(before: before, after: settled, id: id) {
+            let verdict = PressVerdict.of(before: before, after: settled, id: id)
+            switch verdict {
             case .relaunched:
                 throw QAAxError.relaunched(id: id, before: before.text, after: settled?.text ?? "nil")
             case let .takenElsewhere(moved):
@@ -641,14 +642,17 @@ final class P12QA: XCTestCase {
                     usleep(Self.heldReadInterval)
                 }
                 throw QAAxError.pressArrivedElsewhere(id: id, lastTouch: lastTouch, before: before.text, after: latest?.text ?? "nil")
-            case .lostProven:
+            case .lostProven, .cancelled:
                 break
             }
             if attempt == 2 {
                 throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "proven lost twice: no touch receipt, qa.state did not move",
                                                   before: before.text, after: settled?.text ?? "nil")
             }
-            let reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, Self.receiptTimeout)
+            var reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, Self.receiptTimeout)
+            if case let .cancelled(lastTouch) = verdict {
+                reason = String(format: "the touch on %@ was cancelled by UIKit before it ended (last_touch %@) and nothing moved within %.0f s", id, lastTouch, Self.receiptTimeout)
+            }
             qa.session.retries.append("\(id): \(reason)")
             print("P12 held press \(id) lost (\(reason)); pressing once more")
         }
