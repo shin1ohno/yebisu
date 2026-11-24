@@ -131,11 +131,11 @@ its own pane's target.
   cannot hover a pointer on iPad. None of them is in the CI job selection.
 - Screenshots (`docs/screenshots/w6-open-url/`, iPadOS 26.5 Simulator,
   landscape): `herdr1-fixture.png` and `herdr2-fixture.png` (the fixtures),
-  `plain-safari.png`, `wrapped-safari.png`, `osc8-safari.png`,
-  `core-osc8-safari.png`, `core-wrapped-safari.png` (Safari in front after
-  each Command + tap), `mailto-refused.png` and `path-refused.png` (yebisu
-  still in front after a refused press), `command-underline.png` (the
-  Command underline on the plain address) and
+  `plain-safari.png`, `edge-safari.png`, `wrapped-safari.png`,
+  `osc8-safari.png`, `core-osc8-safari.png` (Safari in front after each
+  Command + tap), `mailto-refused.png`, `path-refused.png` and
+  `core-wrapped-refused.png` (yebisu still in front after a refused press),
+  `command-underline.png` (the Command underline on the plain address) and
   `artboard-open-url.png` (the design record).
 - Back from Safari, a Herdr 2 session reconnects with a new boot and its
   first frames are 80 x 24 until the resize, so the test presses a link only
