@@ -4,6 +4,7 @@ use sheprd_client::{
     protocol::{endpoint::*, *},
 };
 use std::time::Duration;
+pub(crate) mod split;
 pub(crate) const SNAPSHOT: &str = include_str!("../fixtures/endpoint-snapshot-v1.json");
 const WELCOME: &str = include_str!("../fixtures/endpoint-welcome-v1.json");
 pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
@@ -374,6 +375,10 @@ fn serve(
             let mut frame = focused_surface(&board_snapshot, &mut serial);
             frame.surface_revision = serial;
             resize_frame(&mut frame.frame, surface_size.cols, surface_size.rows);
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os(split::ENV).is_some() {
+                frame.panes = split::herdr1_frame(&mut frame.frame);
+            }
             size = Some((surface_size.cols, surface_size.rows));
             // L66: the link fixture again at the new size, so its wrapped
             // address still reaches the right edge.
