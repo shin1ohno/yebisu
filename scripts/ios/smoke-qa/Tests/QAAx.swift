@@ -71,6 +71,10 @@ struct QAState: CustomStringConvertible {
         else { return nil }
         return (stage, kind, x, y)
     }
+    /// `lastTouch` for a failure message: "began direct (516.0, 559.5)", or "none".
+    var lastTouchText: String {
+        lastTouch.map { String(format: "%@ %@ (%.1f, %.1f)", $0.stage, $0.kind, $0.x, $0.y) } ?? "none"
+    }
 
     /// The root fields that say what is on screen and what covers it; a press that changes one
     /// of them was taken by the app, or by the system when `active` went false (S4: Control
@@ -94,21 +98,80 @@ struct QAState: CustomStringConvertible {
 }
 
 /// What a press whose `presses[id]` did not grow ran into, from the state before it and the
-/// state read after the wait (nil when it could not be read). Pure, so QAAxLogicTests checks
-/// each branch without an app (review SF3).
+/// settled state read after the wait (nil when it could not be read). Pure, so QAAxLogicTests
+/// checks each branch without an app (review SF3). Issue #142 stage 3: a timeout only says the
+/// press has not arrived yet, so it counts as lost only when the app's input receipts (`input`,
+/// crates/yebisu/src/qa_ax_input.rs) show no touch reached the drawing view either.
 enum PressVerdict: Equatable {
     /// `launch` changed: the app restarted and its counts began again.
     case relaunched
     /// A screen field changed or another control's presses grew: something else took it.
     case takenElsewhere([String])
-    /// Nothing that says what is on screen moved: the touch was lost; press once more.
-    case lost
+    /// No touch reached the app and nothing on screen moved: proven lost; press once more.
+    case lostProven
+    /// A touch reached the app's drawing view but `presses[id]` did not grow: it is still being
+    /// handled, or it landed elsewhere. Never pressed again (class F2: a late press that was
+    /// resent ran its setup twice).
+    case arrivedNotCounted(lastTouch: String)
+    /// The state cannot prove the press was lost (unreadable, or no receipts): fail, no resend.
+    case unproven(String)
 
     static func of(before: QAState, after: QAState?, id: String) -> PressVerdict {
-        guard let after else { return .lost }
+        guard let after else { return .unproven("qa.state unreadable") }
         if after.launch != before.launch { return .relaunched }
         let moved = before.takenElsewhere(after, by: id)
-        return moved.isEmpty ? .lost : .takenElsewhere(moved)
+        if !moved.isEmpty { return .takenElsewhere(moved) }
+        guard after.input != nil else { return .unproven("qa.state has no input receipts") }
+        if after.inputCount("touch_began") > before.inputCount("touch_began") {
+            return .arrivedNotCounted(lastTouch: after.lastTouchText)
+        }
+        return .lostProven
+    }
+}
+
+/// What P12 does when an OS menu input shows no result (issue #142 stage 3, its decision table).
+/// `before` is qa.state read before the menu was revealed (no app query runs while the menu is
+/// open unless an input is missing), `after` the settled state read once the input showed nothing.
+/// Pure, and mirrored by p12-oracle.py's `pick_decision` and `open_decision`, so QAAxLogicTests and
+/// test_p12_oracle.py reproduce each row. A pick whose menu closed is judged by the oracle from the
+/// app's receipts (a callback, or the stage where it stopped, class A2); here only a menu that
+/// stayed open is decided.
+enum MenuInputDecision: Equatable {
+    /// Proven lost before it reached the app (A1 for a pick, M for the open tap): send it once more.
+    case resend
+    /// Not proven lost, or the app or SDK took it and dropped it: fail by name, no resend.
+    case fail(String)
+
+    /// The receipts of `before` and `after` that say the input reached the app, or why they cannot
+    /// prove anything. nil when the input reached nothing and nothing on screen moved.
+    private static func reached(before: QAState?, after: QAState?) -> String? {
+        guard let before, let after else { return "qa.state unreadable" }
+        guard before.input != nil, after.input != nil else { return "qa.state has no input receipts" }
+        if after.launch != before.launch { return "the app relaunched" }
+        let dropped = ["menu_dropped", "menu_global"].filter { after.inputCount($0) > before.inputCount($0) }
+        if !dropped.isEmpty {
+            return "the command reached the app and stopped there (\(dropped.joined(separator: ", ")) grew): an SDK or app defect"
+        }
+        let touches = after.inputCount("touch_began") - before.inputCount("touch_began")
+        if touches > 0 { return "tap reached the app (touch_began +\(touches), last_touch \(after.lastTouchText))" }
+        if after.inputCount("menu_perform") > before.inputCount("menu_perform") { return "the app received menu-perform" }
+        let moved = before.takenElsewhere(after, by: "")
+        if !moved.isEmpty { return "the screen changed (\(moved.joined(separator: ", ")))" }
+        return nil
+    }
+
+    /// The menu is still open 5 s after the pick tap and the same item is `itemEnabled` (row 2):
+    /// resend only when no touch, no menu-perform and no screen change reached the app (A1).
+    static func pick(itemEnabled: Bool, before: QAState?, after: QAState?) -> MenuInputDecision {
+        if let why = reached(before: before, after: after) { return .fail(why.hasPrefix("tap reached") ? "pick " + why : why) }
+        return itemEnabled ? .resend : .fail("the item is no longer enabled")
+    }
+
+    /// The menu item never appeared after the open tap (row 5): resend the open tap only when no
+    /// touch and no screen change reached the app (class M).
+    static func open(before: QAState?, after: QAState?) -> MenuInputDecision {
+        if let why = reached(before: before, after: after) { return .fail(why.hasPrefix("tap reached") ? "open " + why : why) }
+        return .resend
     }
 }
 
@@ -118,7 +181,8 @@ enum QAAxError: Error, CustomStringConvertible {
     case notExposed(id: String, seconds: Double, state: String)
     case duplicate(id: String, state: String)
     case timeout(what: String, seconds: Double, reads: Int, last: String)
-    case pressNotDelivered(id: String, attempts: Int, before: String, after: String)
+    case pressNotDelivered(id: String, attempts: Int, reason: String, before: String, after: String)
+    case pressArrivedElsewhere(id: String, lastTouch: String, before: String, after: String)
     case pressTakenElsewhere(id: String, moved: [String], before: String, after: String)
     case relaunched(id: String, before: String, after: String)
     case pressWithoutEffect(id: String, what: String, seconds: Double, last: String)
@@ -131,8 +195,11 @@ enum QAAxError: Error, CustomStringConvertible {
             return "QA id \(id) is marked more than once; qa.state=\(state)"
         case let .timeout(what, seconds, reads, last):
             return String(format: "qa.state wait '%@' timed out after %.2f s (%ld reads); last qa.state=%@", what, seconds, reads, last)
-        case let .pressNotDelivered(id, attempts, before, after):
-            return "press on \(id) never reached it (\(attempts) attempts, qa.state did not move); before=\(before) after=\(after)"
+        case let .pressNotDelivered(id, attempts, reason, before, after):
+            return "press on \(id) never reached it (\(attempts) attempts, \(reason)); before=\(before) after=\(after)"
+        case let .pressArrivedElsewhere(id, lastTouch, before, after):
+            return "press on \(id): a touch reached the app (last_touch \(lastTouch)) but presses[\(id)] did not grow, also after "
+                + "waiting once more; it was not pressed again (a resend would repeat its effect, class F2); before=\(before) after=\(after)"
         case let .pressTakenElsewhere(id, moved, before, after):
             return "press on \(id) was taken by something else (\(moved.joined(separator: ", ")) moved, presses[\(id)] did not); before=\(before) after=\(after)"
         case let .relaunched(id, before, after):
@@ -223,6 +290,43 @@ struct QAAx {
         }
     }
 
+    /// Reads `qa.state` until `seq` has not moved for `quiet` seconds, so the app has drawn what the
+    /// last input caused (issue #142 stage 3), and returns that state. Throws `.timeout` when it does
+    /// not hold still, or cannot be read, within `timeout`. `interval` is the pause between reads
+    /// (P12's presses while a request is held read every 250 ms).
+    @discardableResult
+    func settled(_ what: String, quiet: TimeInterval = 0.5, timeout: TimeInterval = 5,
+                 interval: useconds_t = QAAx.readInterval) throws -> QAState {
+        let start = Date()
+        var reads = 0
+        var last: QAState?
+        var still = Date()
+        while true {
+            reads += 1
+            if let state = read() {
+                if state.seq != last?.seq { still = Date() }
+                last = state
+                if Date().timeIntervalSince(still) >= quiet {
+                    print(String(format: "QAAX settled '%@' after %.3f s (%ld reads) seq=%ld", what, QAAx.since(start), reads, state.seq))
+                    return state
+                }
+            }
+            if QAAx.since(start) >= timeout {
+                throw QAAxError.timeout(what: "qa.state settles (\(what))", seconds: QAAx.since(start), reads: reads, last: last?.text ?? "nil")
+            }
+            usleep(interval)
+        }
+    }
+
+    /// `settled`, or nil with the reason when it could not be read or did not hold still.
+    func settledOrReason(_ what: String, interval: useconds_t = QAAx.readInterval) -> (state: QAState?, reason: String) {
+        do {
+            return (try settled(what, interval: interval), "")
+        } catch {
+            return (nil, "\(error)")
+        }
+    }
+
     /// The element `id`, once it exists, and only if exactly one control carries `id`. One
     /// `exists` query comes first: `waitForExistence` took 1.08-1.17 s even for an element that
     /// was already there (S0 and the first S1 runs), a plain query about 30 ms.
@@ -291,6 +395,20 @@ struct QAAx {
         let before = try waitState("qa.state before pressing \(id)", timeout: timeout) { _ in true }
         let element = try find(id, timeout: timeout)
         let start = Date()
+        /// The press arrived (`arrived`); waits for `until`, if any.
+        func confirm(_ arrived: QAState, attempt: Int) throws -> QAState {
+            guard let until else {
+                print(String(format: "QAAX press %@ confirmed after %.3f s (attempt %ld)", id, QAAx.since(start), attempt))
+                return arrived
+            }
+            do {
+                let done = try waitState(what, timeout: effect ?? timeout, until)
+                print(String(format: "QAAX press %@ confirmed with '%@' after %.3f s (attempt %ld)", id, what, QAAx.since(start), attempt))
+                return done
+            } catch QAAxError.timeout(_, let seconds, _, let last) {
+                throw QAAxError.pressWithoutEffect(id: id, what: what, seconds: seconds, last: last)
+            }
+        }
         for attempt in 1...2 {
             let centre = try coordinate(element, id: id, at: offset)
             if attempt == 1 && session.dropFirstPress.remove(id) != nil {
@@ -304,36 +422,42 @@ struct QAAx {
                 let arrived = try waitState("presses[\(id)] > \(before.presses(id))", timeout: timeout) {
                     $0.presses(id) > before.presses(id)
                 }
-                guard let until else {
-                    print(String(format: "QAAX press %@ confirmed after %.3f s (attempt %ld)", id, QAAx.since(start), attempt))
-                    return arrived
-                }
-                do {
-                    let done = try waitState(what, timeout: effect ?? timeout, until)
-                    print(String(format: "QAAX press %@ confirmed with '%@' after %.3f s (attempt %ld)", id, what, QAAx.since(start), attempt))
-                    return done
-                } catch QAAxError.timeout(_, let seconds, _, let last) {
-                    throw QAAxError.pressWithoutEffect(id: id, what: what, seconds: seconds, last: last)
-                }
+                return try confirm(arrived, attempt: attempt)
             } catch QAAxError.timeout {
-                let after = read()
+                // Issue #142 stage 3: decide on the state the app settled in, with its input receipts.
+                let (after, unsettled) = settledOrReason("after the press on \(id)")
                 switch PressVerdict.of(before: before, after: after, id: id) {
                 case .relaunched:
                     throw QAAxError.relaunched(id: id, before: before.text, after: after?.text ?? "nil")
                 case let .takenElsewhere(moved):
                     throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: after?.text ?? "nil")
-                case .lost:
+                case let .unproven(reason):
+                    let why = unsettled.isEmpty ? reason : reason + ": " + unsettled
+                    throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "not proven lost, so not pressed again: " + why,
+                                                      before: before.text, after: after?.text ?? "nil")
+                case let .arrivedNotCounted(lastTouch):
+                    print("QAAX press \(id): a touch reached the app (last_touch \(lastTouch)); waiting once more, not pressing again")
+                    do {
+                        let arrived = try waitState("presses[\(id)] > \(before.presses(id)) after a touch reached the app", timeout: timeout) {
+                            $0.presses(id) > before.presses(id)
+                        }
+                        return try confirm(arrived, attempt: attempt)
+                    } catch QAAxError.timeout(_, _, _, let last) {
+                        throw QAAxError.pressArrivedElsewhere(id: id, lastTouch: lastTouch, before: before.text, after: last)
+                    }
+                case .lostProven:
                     break
                 }
                 if attempt == 2 {
-                    throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: after?.text ?? "nil")
+                    throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "proven lost twice: no touch receipt, qa.state did not move",
+                                                      before: before.text, after: after?.text ?? "nil")
                 }
-                let reason = String(format: "presses[%@] and the screen fields did not move within %.0f s of the press", id, timeout)
+                let reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, timeout)
                 session.retries.append("\(id): \(reason)")
                 print("QAAX press \(id) lost (\(reason)); pressing once more")
             }
         }
-        throw QAAxError.pressNotDelivered(id: id, attempts: 2, before: before.text, after: read()?.text ?? "nil")
+        throw QAAxError.pressNotDelivered(id: id, attempts: 2, reason: "proven lost twice", before: before.text, after: read()?.text ?? "nil")
     }
 
     /// Presses `id`, a marked empty space with no handler, until GPUI counts a press on it (at most
@@ -365,7 +489,8 @@ struct QAAx {
             }
             print("QAAX touch-ready \(what): press \(attempt) reached nothing (presses[\(id)] did not grow in 3 s)")
         }
-        throw QAAxError.pressNotDelivered(id: id, attempts: presses, before: "touch-ready \(what)", after: read()?.text ?? "nil")
+        throw QAAxError.pressNotDelivered(id: id, attempts: presses, reason: "touch-ready: presses[\(id)] did not grow",
+                                          before: "touch-ready \(what)", after: read()?.text ?? "nil")
     }
 
     /// QA_TOUCH_READY_DROP, spent by the first `touchReady` of the process.
