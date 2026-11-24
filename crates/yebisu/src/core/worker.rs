@@ -1,5 +1,8 @@
 use super::{
-    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo, ended,
+    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
+    doc_tabs::{self, DocTabs},
+    ended,
+    herdr_doc_sync::DocMailbox,
     screen::{self, Screen},
     sort_sessions,
     store::{self, Saved, Tab, Workspace},
@@ -26,7 +29,7 @@ pub(super) fn run(
     generation: u64,
     outputs: (&Arc<Mutex<Live>>, &SessionList),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
-    commands: Receiver<Queued>,
+    (commands, doc_mailbox): (Receiver<Queued>, Option<DocMailbox>),
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
     let SessionTarget {
@@ -63,6 +66,22 @@ pub(super) fn run(
     } else {
         reconcile(&mut workspace, &available);
     }
+    // #144 D2: the document decides what is drawn before anything attaches.
+    let mut doc = DocTabs::default();
+    let mut doc_seen = 0;
+    if let Some(snapshot) = doc_mailbox
+        .as_ref()
+        .and_then(|mailbox| first_read(mailbox, &mut doc_seen, stop))
+    {
+        doc.take(snapshot, &mut workspace);
+    }
+    if let Some(address) = &focus {
+        doc.reveal(address, &mut workspace);
+        // A terminal in no tab joins the iPad-only tabs.
+        if locate(&workspace, address).is_none() && doc.drawing_space() {
+            doc.select(None, &mut workspace);
+        }
+    }
     if let Some(address) = focus
         && !focus_address(&mut workspace, &address, &available)
     {
@@ -73,7 +92,7 @@ pub(super) fn run(
     let size = Size::new(80, 24)?;
     // Attaching first drops what finished while no client was attached.
     let mut active = Active::attach(&backend, &mut workspace, size, column.latest())?;
-    if workspace.tabs.is_empty() {
+    if workspace.tabs.is_empty() && !doc.drawing_space() {
         workspace.tabs.push(spawn_tab(&backend)?);
         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
     }
@@ -83,10 +102,13 @@ pub(super) fn run(
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
-    store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
+    store::save_workspace(root.as_deref(), &host, &name, &doc.saved(&workspace))?;
     let mut sessions = catalog_sessions(root.as_deref(), &host, Observations::new())?;
     sessions.retain(|row| row.name != name);
-    sessions.push(session_info(name.clone(), &workspace, true, Vec::new()));
+    sessions.push(current_info(name.clone(), &workspace, &doc));
+    if doc_mailbox.is_some() {
+        crate::qa_ax::core::doc(|| doc.qa_value(&workspace));
+    }
     sort_sessions(&mut sessions);
     drop(storage);
     let mut published_epoch = None;
@@ -101,6 +123,22 @@ pub(super) fn run(
         let mut changed = false;
         let mut persist = false;
         let mut command_error = None;
+        // A new document read: the rows always change, the panes may.
+        if let Some(snapshot) = doc_mailbox
+            .as_ref()
+            .and_then(|mailbox| mailbox.since(&mut doc_seen))
+        {
+            let (before, view) = (doc_tabs::drawn(&workspace), workspace.doc_view.clone());
+            if doc.take(snapshot, &mut workspace) {
+                if before != doc_tabs::drawn(&workspace) {
+                    active = Active::attach(&backend, &mut workspace, size, column.latest())?;
+                }
+                persist = view != workspace.doc_view;
+                refresh(&mut sessions, &name, &workspace, &doc);
+                epoch += 1;
+                changed = true;
+            }
+        }
         for command in commands.try_iter().take(256) {
             if stop.load(Ordering::Acquire) {
                 return Ok(());
@@ -194,6 +232,11 @@ pub(super) fn run(
                     size = next;
                     changed = true;
                 }
+                Command::NewTab | Command::Split | Command::SplitInDirection(_)
+                    if doc.drawing_space() =>
+                {
+                    command_error = Some(doc_tabs::NOT_YET.to_owned());
+                }
                 Command::NewTab => {
                     workspace.tabs.push(spawn_tab(&backend)?);
                     workspace.active = workspace.tabs.len() - 1;
@@ -207,11 +250,22 @@ pub(super) fn run(
                         && index != workspace.active
                     {
                         workspace.active = index;
+                        doc.note_tab(&mut workspace);
                         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                         persist = true;
                         changed = true;
                         epoch += 1;
                     }
+                }
+                Command::SelectDocSpace(space) => {
+                    let before = doc_tabs::drawn(&workspace);
+                    doc.select(space, &mut workspace);
+                    if before != doc_tabs::drawn(&workspace) {
+                        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
+                    }
+                    persist = true;
+                    changed = true;
+                    epoch += 1;
                 }
                 Command::CloseTab(id) => {
                     let Some(index) = workspace.tabs.iter().position(|tab| tab.id == id) else {
@@ -252,8 +306,9 @@ pub(super) fn run(
                     persist = true;
                 }
                 Command::FocusAddress(address) => {
+                    let switched = doc.reveal(&address, &mut workspace);
                     if let Some((tab, pane)) = locate(&workspace, &address) {
-                        if tab != workspace.active {
+                        if switched || tab != workspace.active {
                             workspace.active = tab;
                             workspace.tabs[tab].layout.active = pane;
                             active =
@@ -264,11 +319,16 @@ pub(super) fn run(
                         }
                     } else {
                         let available = backend.core().list(false)?.terminals;
+                        // A terminal in no tab joins the iPad-only tabs.
+                        if doc.drawing_space() {
+                            doc.select(None, &mut workspace);
+                        }
                         if !focus_address(&mut workspace, &address, &available) {
                             continue;
                         }
                         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     }
+                    doc.note_tab(&mut workspace);
                     persist = true;
                     changed = true;
                     epoch += 1;
@@ -320,7 +380,7 @@ pub(super) fn run(
         }
         let saving = (root.as_deref(), host.as_str(), name.as_str());
         if persist {
-            if !save(stop, saving, &workspace, &mut sessions)? {
+            if !save(stop, saving, (&workspace, &doc), &mut sessions)? {
                 return Ok(());
             }
             changed = true;
@@ -349,7 +409,7 @@ pub(super) fn run(
             active.resize(saved, size, column.latest())?;
             epoch += 1;
             changed = true;
-            if !save(stop, saving, &workspace, &mut sessions)? {
+            if !save(stop, saving, (&workspace, &doc), &mut sessions)? {
                 return Ok(());
             }
         }
@@ -405,6 +465,9 @@ pub(super) fn run(
             if let Ok(mut inbox) = inbox.lock() {
                 if published_epoch != Some(epoch) {
                     publish_sessions(session_list, epoch, &sessions);
+                    if doc_mailbox.is_some() {
+                        crate::qa_ax::core::doc(|| doc.qa_value(&workspace));
+                    }
                     published_epoch = Some(epoch);
                 }
                 *inbox = live;
@@ -527,7 +590,7 @@ impl Active {
 fn save(
     stop: &AtomicBool,
     (root, host, name): (Option<&Path>, &str, &str),
-    workspace: &Workspace,
+    (workspace, doc): (&Workspace, &DocTabs),
     sessions: &mut [SessionInfo],
 ) -> crate::Result<bool> {
     let _storage = store::LOCK
@@ -536,11 +599,55 @@ fn save(
     if stop.load(Ordering::Acquire) {
         return Ok(false);
     }
-    store::save_workspace(root, host, name, workspace)?;
-    if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
-        *entry = session_info(name.to_owned(), workspace, true, Vec::new());
-    }
+    store::save_workspace(root, host, name, &doc.saved(workspace))?;
+    refresh(sessions, name, workspace, doc);
     Ok(true)
+}
+
+/// The session's own catalog row, with the document's spaces (#144 D2).
+fn current_info(name: String, workspace: &Workspace, doc: &DocTabs) -> SessionInfo {
+    let mut info = session_info(name, workspace, true, Vec::new());
+    info.doc = doc.catalog(workspace);
+    if let Some(super::DocCatalog {
+        state: super::DocRows::Readable(spaces),
+        selected: Some(selected),
+        ..
+    }) = &info.doc
+        && let Some(space) = spaces.iter().find(|space| space.id == *selected)
+    {
+        for tab in &mut info.tabs {
+            tab.auto_name = space.tabs.iter().any(|t| t.id == tab.id && t.auto_name);
+        }
+    }
+    info
+}
+
+fn refresh(sessions: &mut [SessionInfo], name: &str, workspace: &Workspace, doc: &DocTabs) {
+    if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
+        *entry = current_info(name.to_owned(), workspace, doc);
+    }
+}
+
+/// How long a new connection waits for its first document read, so it
+/// draws the right space at once; herdr-core's own call timeout.
+const FIRST_READ: Duration = Duration::from_secs(10);
+
+/// The first read of the document, or `None` when the session stopped or
+/// the read took longer than `FIRST_READ` (the session then draws its
+/// iPad-only tabs and takes the read when it comes).
+fn first_read(
+    mailbox: &DocMailbox,
+    seen: &mut u64,
+    stop: &AtomicBool,
+) -> Option<super::herdr_doc_sync::DocSnapshot> {
+    let deadline = std::time::Instant::now() + FIRST_READ;
+    while !stop.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        if let Some(snapshot) = mailbox.since(seen) {
+            return Some(snapshot);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    None
 }
 
 fn active_layout(workspace: &Workspace) -> Option<&Saved> {
@@ -721,6 +828,7 @@ fn session_info(
         core_id: None,
         statuses,
         created: workspace.created,
+        doc: None,
         tabs: workspace
             .tabs
             .iter()
@@ -737,6 +845,7 @@ fn session_info(
                 active: index == workspace.active,
                 focused_pane: tab.layout.active,
                 vertical: tab.layout.vertical,
+                auto_name: false,
             })
             .collect(),
     }

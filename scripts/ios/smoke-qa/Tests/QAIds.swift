@@ -11,6 +11,7 @@ enum QAIds {
     static let menuPane1 = "qa.menu.pane-1"
     static let menuPane2 = "qa.menu.pane-2"
     static let menuDetach = "qa.menu.detach"
+    static let menuNewTab = "qa.menu.new-tab"
     static let bandMark = "qa.band.mark"
     static let bandDelete = "qa.band.delete"
     static let bandCommit = "qa.band.commit"

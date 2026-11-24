@@ -67,6 +67,33 @@ class ImageEvidenceTests(unittest.TestCase):
                 p9.validate_images(wire)
 
 
+class DocEvidenceTests(unittest.TestCase):
+    """#144: the mock core's doc.set receipts sit beside the input and put receipts."""
+
+    def receipt(self, version=1):
+        return {"method": "doc.set", "name": "herdr-app", "version": version, "bytes": 120, "result": "ok"}
+
+    def test_doc_receipts_pass_the_other_observers(self):
+        paints, wire = ImageEvidenceTests().fixture()
+        wire.insert(1, self.receipt())
+        p9.validate(paints, wire)
+        p9.validate_images(wire)
+
+    def test_a_read_only_run_writes_no_document(self):
+        _, wire = P9EvidenceTests().fixture()
+        p9.validate_doc(wire)
+        with self.assertRaisesRegex(ValueError, "expected 0 doc.set receipts, found 1"):
+            p9.validate_doc(wire + [self.receipt()])
+
+    def test_counts_and_schema(self):
+        p9.validate_doc([self.receipt(1), self.receipt(2)], expected=2)
+        with self.assertRaisesRegex(ValueError, "expected 1"):
+            p9.validate_doc([], expected=1)
+        for broken in ({"method": "doc.set", "bytes": 1}, {"method": "doc.set", "version": "1", "bytes": 1}):
+            with self.subTest(broken=broken), self.assertRaisesRegex(ValueError, "malformed"):
+                p9.validate_doc([broken], expected=1)
+
+
 class FailureEvidenceTests(unittest.TestCase):
     def test_raw_receipts_survive_failed_native_attachment_export(self):
         import subprocess

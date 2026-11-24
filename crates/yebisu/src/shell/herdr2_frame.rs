@@ -9,6 +9,7 @@ use super::{
 use crate::{app::Smoke, notifications::Context, terminal_view::TerminalView};
 use sheprd_core_client::wire::StatusState;
 
+pub(crate) mod names;
 mod new_space;
 pub(crate) mod panes;
 pub(crate) mod session;

@@ -16,6 +16,7 @@ pub(super) struct Saved {
     pub vertical: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct Tab {
     pub id: String,
     pub label: String,
@@ -27,6 +28,32 @@ pub(super) struct Workspace {
     pub created: u64,
     pub tabs: Vec<Tab>,
     pub active: usize,
+    pub doc_view: DocView,
+}
+
+/// The iPad's own view of the `herdr-app` document (#144 decision 11): the
+/// space drawn and each space's drawn tab. Never written to the document.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub(super) struct DocView {
+    pub space: Option<String>,
+    pub tabs: std::collections::BTreeMap<String, String>,
+}
+
+impl DocView {
+    /// `"doc_view"` of the file; a missing or malformed one is the default,
+    /// so a file written by an older build still loads.
+    fn read(value: &serde_json::Value) -> Self {
+        let view = &value["doc_view"];
+        Self {
+            space: view["space"].as_str().map(str::to_owned),
+            tabs: view["tabs"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(space, tab)| Some((space.clone(), tab.as_str()?.to_owned())))
+                .collect(),
+        }
+    }
 }
 
 fn hex(value: &str) -> String {
@@ -170,6 +197,7 @@ pub(super) fn load_workspace(
             created: legacy_created,
             tabs: tabs.into_iter().collect(),
             active: 0,
+            doc_view: DocView::default(),
         });
     }
     if value["version"] != 2 {
@@ -204,6 +232,7 @@ pub(super) fn load_workspace(
         created: value["created"].as_u64().unwrap_or(legacy_created),
         tabs,
         active,
+        doc_view: DocView::read(&value),
     })
 }
 
@@ -226,7 +255,8 @@ pub(super) fn save_workspace(
         session,
         serde_json::json!({
             "version": 2, "host": host, "session": session, "created": workspace.created,
-            "tabs": tabs.collect::<Vec<_>>(), "active": workspace.active
+            "tabs": tabs.collect::<Vec<_>>(), "active": workspace.active,
+            "doc_view": {"space": workspace.doc_view.space, "tabs": workspace.doc_view.tabs}
         }),
     )
 }
