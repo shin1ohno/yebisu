@@ -5,7 +5,7 @@
 use super::support::{cell, saved, screen, size, wrap_row};
 use crate::{
     core::screen::{Screen, publish_for},
-    terminal_links::{SOFT_WRAP, Target, UNMARKED, pane_link_at},
+    terminal_links::{SOFT_WRAP, Target, UNMARKED, pane_link_at, qa},
 };
 use sheprd_client::protocol::{PaneSurfaceFrame, SurfaceRect};
 
@@ -104,5 +104,37 @@ fn a_pane_not_yet_its_width_is_unmarked() -> crate::Result<()> {
     // The other pane, of its rect's width, is read with its marks.
     let right = surface.panes[1].inner_rect;
     assert_eq!(unmarked(&surface, right), vec![false; 10]);
+    Ok(())
+}
+
+
+/// The pinned emulator marks its own wraps: the Herdr 2 fixture's address,
+/// longer than the row, reads whole through composition. This fails if the
+/// fork pin moves to a commit whose frames carry no mark (#141).
+#[test]
+fn the_pinned_emulator_marks_its_wraps() -> crate::Result<()> {
+    assert_eq!(sheprd_terminal::SOFT_WRAP, SOFT_WRAP);
+    let mut emulator = sheprd_terminal::Emulator::new(size(40, 10)?, 100);
+    emulator.feed(qa::herdr2_output(40).as_bytes());
+    let screens = vec![Screen {
+        frame: Some(emulator.frame()),
+        ..Screen::default()
+    }];
+    let live = publish_for(&screens, &saved(0, false)?, size(40, 10)?, (1, 1, 0), None);
+    let Some(surface) = live.surface.as_ref() else {
+        panic!("published a surface");
+    };
+    let Some(&(_, (column, row))) = qa::targets(surface)
+        .iter()
+        .find(|(name, _)| *name == "core_wrapped")
+    else {
+        panic!("the wrapped address is not on the frame");
+    };
+    let Some(link) = pane_link_at(surface, column, row, true) else {
+        panic!("no link read");
+    };
+    let whole = format!("{}{}", qa::CORE_WRAPPED, "x".repeat(80));
+    assert_eq!(link.target, Target::Web(whole));
+    assert!(!link.unproven, "the emulator's marks prove the wrap");
     Ok(())
 }
