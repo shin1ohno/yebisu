@@ -179,11 +179,16 @@ impl Store {
     }
 
     /// Keeps the labels a `terminal.run` asked for.
+    /// A `terminal.run` with labels also leaves a receipt for p9-check
+    /// (#144 D4: a new document tab's terminal carries the official app's
+    /// `herdr.space`, `herdr.tab` and `herdr.seen`).
     pub(crate) fn record_labels(&self, address: &str, labels: &Value) {
         if labels.is_object() {
             self.lock()
                 .labels
                 .insert(address.to_owned(), labels.clone());
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            record(&json!({"method": "terminal.run", "terminal": address, "labels": labels}));
         }
     }
 
