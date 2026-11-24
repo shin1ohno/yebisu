@@ -40,6 +40,14 @@ ios-p2:
 ipad:
     python3 scripts/guarded.py env CARGO_INCREMENTAL=1 bash scripts/ios/device.sh --device M5 --bundle-id com.shin1ohno.yebisu --team AL9567565U
 
+# This Mac as an iPad app ("Designed for iPad"): provision, build, sign, launch.
+mac wait="5":
+    python3 scripts/guarded.py env CARGO_INCREMENTAL=1 bash scripts/ios/mac.sh --bundle-id com.shin1ohno.yebisu --team AL9567565U --wait {{wait}}
+
+# The owner's one-time registration of this Mac with team AL9567565U; no build.
+mac-register:
+    python3 scripts/guarded.py bash scripts/ios/mac.sh --bundle-id com.shin1ohno.yebisu --team AL9567565U --register-device --register-only
+
 graphs:
     mkdir -p target/graphs
     cargo tree --locked --target aarch64-apple-ios -e normal,build > target/graphs/device.txt

@@ -105,7 +105,6 @@ def menu_names_and_dirs():
 UNRELATED = {
     "action_view": "unreferenced",
     "app_setup": "unreferenced",
-    "diagnostics": "outside the checks: diagnostics sheet and log export, called from app.rs",
     "error": "crate error type; a break here fails the compile in the check job",
     "find": "P13 search; test_find_search_change_skips_it keeps search changes off edit-menu pull requests. Its closing-press "
             "check runs on every terminal KeyDown (terminal_controls.rs) but owns no key unless search was open; push to main runs edit-menu",
@@ -187,6 +186,8 @@ class PathFilterTests(unittest.TestCase):
             "crates/yebisu/src/input.rs", "crates/yebisu/src/input_geometry.rs",
             "crates/yebisu/src/mock_peer.rs", "crates/yebisu/src/core_mock.rs", "crates/yebisu/src/core_view.rs", "crates/yebisu/src/core_paste_view.rs",
             "crates/yebisu/src/observation.rs", "crates/yebisu/src/observation/tests.rs",
+            # Issue #142 stage 2: its subscriber feeds the input receipts every check reads through qa.state.
+            "crates/yebisu/src/diagnostics.rs",
             "crates/yebisu/src/handoff.rs", "crates/yebisu/src/handoff_view.rs",
             "crates/yebisu/src/settings.rs", "crates/yebisu/src/settings_view.rs", "crates/yebisu/src/settings/store.rs",
             "crates/yebisu/src/settings_sheet.rs", "crates/yebisu/src/settings_sheet/view.rs",
@@ -217,7 +218,7 @@ class PathFilterTests(unittest.TestCase):
 
     def test_the_qa_layer_runs_it(self):
         """UI test redesign S4: all five checks launch with YEBISU_QA_AX, press QA identifiers and wait on qa.state."""
-        for name in ("qa_ax", "qa_ax_core", "qa_ax_ids", "qa_ax_keys", "qa_ax_layer", "qa_ax_native", "qa_ax_peer", "qa_ax_root"):
+        for name in ("qa_ax", "qa_ax_core", "qa_ax_ids", "qa_ax_input", "qa_ax_keys", "qa_ax_layer", "qa_ax_native", "qa_ax_peer", "qa_ax_root"):
             with self.subTest(module=name):
                 self.assertTrue(self.edit_menu(f"crates/yebisu/src/{name}.rs"))
 
