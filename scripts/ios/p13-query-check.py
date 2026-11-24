@@ -13,8 +13,8 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-# Test-support Cut/first-query helper (herdr-uikit PR 14), at the pinned PR 18 merge commit.
-SDK = 'af7c496099dd6d308055be1818ddf971a321e4f8'
+# Test-support Cut/first-query helper (herdr-uikit PR 14), at the pinned PR 22 merge commit.
+SDK = '1144282c5fabc2f7b9aaab81cd177c36942d8e7e'
 FIELD = 'crates/yebisu/src/find/field.rs'
 QUERIES = 'crates/yebisu/src/find/native_queries.rs'
 LENGTH = '''    fn text_length_utf16(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<usize> {

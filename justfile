@@ -58,6 +58,10 @@ ios-p9:
 ios-p10:
     python3 scripts/guarded.py python3 scripts/ios/p10-check.py
 
+# Input mode indicator at the terminal cursor (#139); Simulator only, not IME proof.
+ios-input-mode:
+    python3 scripts/guarded.py python3 scripts/ios/input-mode-check.py
+
 # Validate this branch against the release changelog rules.
 check-commits:
     python3 scripts/release/check-commit-messages.py range origin/main..HEAD

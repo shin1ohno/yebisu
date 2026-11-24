@@ -1,3 +1,5 @@
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod input_mode_qa;
 mod pane_names;
 mod surface;
 
@@ -39,8 +41,19 @@ pub(crate) struct TerminalView {
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
     pub(crate) link_hover: crate::terminal_links::Hover,
+    /// #139: the cursor drawn last, to tell the SDK when it moved.
+    pub(crate) input_indicator: crate::input_indicator::CursorWatch,
 }
 impl TerminalView {
+    /// #139: the cursor cell moved since the last frame. GPUI then reports
+    /// the new caret to the platform (`update_ime_position`), where the
+    /// system's input mode indicator follows it; nothing else changes the
+    /// terminal's selection, which stays at 0..0. One count per report.
+    pub(crate) fn notify_cursor_moved(&mut self, window: &gpui::Window) {
+        self.input_indicator.reported();
+        window.invalidate_character_coordinates();
+    }
+
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
         if self.navigating.is_some() || self.size == Some(options) {
             return;
@@ -185,6 +198,10 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        // #139: UIKit showed or hid the input mode indicator, which draws
+        // no GPUI frame; ask for one so qa.state carries it (QA only).
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        input_mode_qa::poll(cx);
         // A qa.state counter or the mock peer moved: publish it (QA only).
         crate::qa_ax::refresh_if_wanted(cx);
         // L66: Herdr's answer to where a pressed address ends.
@@ -256,13 +273,15 @@ impl Smoke {
             // The canvas can extend past an ancestor's clip. Use the same
             // visible rectangle for the wire size, painting and input.
             let bounds = bounds.intersect(&window.content_mask().bounds);
-            let current = entity.update(cx,|this,cx| {
-                    if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
+            let (current, moved) = entity.update(cx,|this,cx| {
+                    if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return (false, false); }
                     let (font_size,line_height) = this.terminal_font_metrics(window);
                     let face = font(this.terminal.font.family.clone());
                     let search_highlights = this.find_highlights();
                     let search_highlight_count = search_highlights.len();
                     let search_receipt = this.find.as_ref().map(|bar|serde_json::json!({"query":bar.search.query,"state":format!("{:?}",bar.search.state),"result_revision":bar.search.result.as_ref().map(|r|r.content_revision),"current":bar.search.result.as_ref().and_then(|r|r.current),"pane":bar.search.scope.pane}));
+                    // #139: GPUI can report the caret only when bounds_for_range answers.
+                    let owns_text = !this.settings_modal && this.terminal_owns_text_input();
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::from_palette(this.local_theme));
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
@@ -290,6 +309,13 @@ impl Smoke {
                         }
                     }
                     terminal.input.sync(&terminal.live, generation, terminal.size);
+                    // A move while bounds_for_range cannot answer is not recorded, so
+                    // the next frame that can answer reports it.
+                    let moved = owns_text
+                        && terminal.input.destination.is_some()
+                        && terminal.input_indicator.moved(terminal.geometry.cursor(terminal.live.surface.as_deref()));
+                    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                    input_mode_qa::report(terminal, &face, window);
                     if let Some((snapshot, surface)) = shown.as_ref() {
                         let mut highlights = this.handoff.selection.as_ref()
                             .map(|selection| selection.surface_highlights(surface))
@@ -301,7 +327,7 @@ impl Smoke {
                         #[cfg(all(target_os = "ios", target_abi = "sim"))]
                         this.sh1_152_advance_e1_text(window, cx);
                     }
-                    true
+                    (true, moved)
                 });
             if !current {
                 return;
@@ -312,6 +338,9 @@ impl Smoke {
                 crate::actions::herdr_keys::TerminalInputHandler::new(bounds, input_entity),
                 cx,
             );
+            if moved {
+                entity.update(cx, |this, _| this.terminal.notify_cursor_moved(window));
+            }
         }
     }
     pub(crate) fn render_terminal(
