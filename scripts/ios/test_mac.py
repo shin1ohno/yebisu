@@ -149,6 +149,24 @@ FAKES = {
         else:
             sys.exit(64)
     ''',
+    # Finder's delete of the path given as the script's argument. MAC_TEST_TRASH:
+    # trash (default) moves it to ROOT/Trash; cancel is AppleScript error -128
+    # with nothing moved; ignore exits 0 and moves nothing; moved-then-error
+    # moves it, then exits 1.
+    "osascript": r'''
+        log("osascript")
+        mode = env("MAC_TEST_TRASH", "trash")
+        target = pathlib.Path(args[-1])
+        if mode in ("trash", "moved-then-error"):
+            trash = pathlib.Path(env("MAC_TEST_ROOT")) / "Trash"
+            trash.mkdir(exist_ok=True)
+            shutil.move(str(target), str(trash / target.name))
+        if mode == "cancel":
+            print("execution error: Finder got an error: User canceled. (-128)", file=sys.stderr)
+            sys.exit(1)
+        if mode == "moved-then-error":
+            sys.exit(1)
+    ''',
     "ps": r'''
         log("ps")
         entries = registry()
@@ -515,21 +533,70 @@ class MacScriptTests(Harness, unittest.TestCase):
         self.assertIn(f"did not stop: {stubborn} ", result.stderr)
         self.assertFalse(self.opened("ipa"))
 
-    def test_existing_wrappers_stop_the_install_and_are_named(self):
+    def test_every_earlier_wrapper_goes_to_the_trash_through_finder_then_installs(self):
+        first = self.wrapper("yebisu.app")
+        other = self.wrapper("other.app", bundle_id="com.example.other")
+        # Its executable is the one running; the wrapper is the one Finder trashes.
+        earlier = self.running(("Applications", "yebisu 2.app", "Wrapper", "yebisu.app"))
+        second = self.applications / "yebisu 2.app"
+        result = self.run_mac()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        trashed = [c["args"] for c in self.calls("osascript")]
+        self.assertEqual([a[-1] for a in trashed], [str(second), str(first)])
+        for args in trashed:
+            self.assertEqual(args[:-1], [
+                "-e", "on run argv",
+                "-e", 'tell application "Finder" to delete (POSIX file (item 1 of argv))',
+                "-e", "end run"])
+        self.assertTrue((self.root / "Trash" / "yebisu 2.app").exists())
+        self.assertTrue((self.root / "Trash" / "yebisu.app").exists())
+        self.assertTrue(other.exists(), "a wrapper of another bundle identifier is never touched")
+        self.assertFalse(alive(earlier))
+        calls = [c["tool"] if c["tool"] != "open" else c["args"][0].rsplit(".", 1)[-1] for c in self.calls()]
+        self.assertLess(calls.index("osascript"), calls.index("ipa"))
+        self.assertIn(f"Installed {BUNDLE} as {self.applications / 'yebisu.app/Wrapper/yebisu.app'}", result.stderr)
+
+    def test_a_path_with_quotes_reaches_finder_as_one_argument(self):
+        self.wrapper('odd "name" $x.app')
+        result = self.run_mac()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls("osascript")[0]["args"][-1], str(self.applications / 'odd "name" $x.app'))
+
+    def test_canceled_authentication_stops_at_install_with_status_3_and_installs_nothing(self):
+        named = self.wrapper("yebisu 2.app")
+        self.env["MAC_TEST_TRASH"] = "cancel"
+        result = self.run_mac()
+        self.assert_refused(result, "install", 3)
+        self.assertEqual(result.stderr.splitlines()[-1],
+                         f"error: just mac failed at step install: Finder did not move {named} to the Trash "
+                         "(authentication canceled or Finder failed); nothing was installed, run 'just mac' again")
+        self.assertIn("User canceled. (-128)", result.stderr)
+        self.assertTrue((named / "Wrapper/yebisu.app/Info.plist").exists())
+        self.assertFalse(self.calls("open"))
+
+    def test_any_nonzero_exit_from_finder_stops_even_when_the_wrapper_is_gone(self):
         named = self.wrapper("yebisu.app")
-        running = self.running(("Applications", "yebisu 2.app", "Wrapper", "yebisu.app"))
-        numbered = self.applications / "yebisu 2.app"
+        self.env["MAC_TEST_TRASH"] = "moved-then-error"
+        result = self.run_mac()
+        self.assert_refused(result, "install", 3)
+        self.assertIn(f"Finder did not move {named} to the Trash", result.stderr)
+        self.assertFalse(self.calls("open"))
+
+    def test_a_wrapper_still_present_after_finder_succeeds_stops_the_install(self):
+        named = self.wrapper("yebisu.app")
+        self.env["MAC_TEST_TRASH"] = "ignore"
+        result = self.run_mac()
+        self.assert_refused(result, "install", 3)
+        self.assertIn(f"{named} is still installed after Finder reported success", result.stderr)
+        self.assertFalse(self.calls("open"))
+
+    def test_a_wrapper_of_another_bundle_identifier_is_never_offered_to_finder(self):
+        other = self.wrapper("yebisu.app", bundle_id="com.example.other")
         result = self.run_mac()
         self.assert_refused(result, "install", 1)
-        self.assertEqual(result.stderr.splitlines()[-1],
-                         f"error: just mac failed at step install: {BUNDLE} is already installed as "
-                         f"{numbered}, {named}; move each to the Trash in Finder (it asks for an "
-                         "administrator password), then run 'just mac' again")
-        self.assertTrue(alive(running), "a refused run must not stop the running copy")
-        self.assertNotIn("Terminating", result.stderr)
-        self.assertEqual((named / "Wrapper/yebisu.app/yebisu").read_bytes(), b"an earlier build")
-        self.assertTrue((numbered / "Wrapper/yebisu.app/Info.plist").exists())
-        self.assertFalse(self.calls("open"))
+        self.assertIn("is another app (com.example.other)", result.stderr)
+        self.assertFalse(self.calls("osascript"))
+        self.assertTrue((other / "Wrapper/yebisu.app/Info.plist").exists())
 
     def test_new_numbered_wrapper_is_refused_and_nothing_is_removed(self):
         self.env["MAC_TEST_INSTALL"] = "numbered"
