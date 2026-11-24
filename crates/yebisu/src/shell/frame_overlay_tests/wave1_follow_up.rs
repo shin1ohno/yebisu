@@ -242,3 +242,52 @@ fn herdr2_chrome_dispatches_tab_actions_and_scrolls_above_the_keyboard(cx: &mut 
             .any(|tab| tab.panes.len() == 2 && !tab.vertical)
     });
 }
+
+/// The worker publishes the next catalog before the view takes the Live of
+/// the same epoch. A frame drawn in between keeps the tabs of the Live it
+/// shows: the strip neither disappears nor shows the newer selection.
+#[gpui::test]
+fn tab_strip_keeps_the_drawn_catalog_while_a_newer_one_is_published(cx: &mut TestAppContext) {
+    let (backend, _) =
+        crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("mock core: {e}"));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1210.), px(834.)));
+    view.update(cx, |this, cx| {
+        this.select_host("chrome-core");
+        this.connect_core_using(cx, move |_| Ok(backend));
+    });
+    wait_for_core(&view, cx, |this| {
+        this.terminal.live.connected && !this.row_tabs().is_empty()
+    });
+    tap(cx, "shell-new-tab");
+    wait_for_core(&view, cx, |this| this.row_tabs().len() == 2);
+    let active = |cx: &mut VisualTestContext| {
+        view.read_with(cx, |this, _| {
+            this.row_tabs().iter().map(|tab| tab.2).collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(active(cx), [false, true]);
+
+    tap(cx, "shell-tab-body-0");
+    // Without polling, wait until the worker has published the next epoch:
+    // its catalog goes out before the Live it puts in the inbox.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !view.read_with(cx, |this, _| {
+        let drawn = this.terminal.live.input_epoch;
+        this.terminal
+            .link
+            .inbox
+            .lock()
+            .is_ok_and(|published| published.input_epoch > drawn)
+    }) {
+        assert!(Instant::now() < deadline, "the worker did not publish");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    redraw(&view, cx);
+    assert!(cx.debug_bounds("shell-tab-0").is_some());
+    assert!(cx.debug_bounds("shell-tab-1").is_some());
+    assert_eq!(active(cx), [false, true]);
+
+    wait_for_core(&view, cx, |this| this.row_tabs()[0].2);
+    assert_eq!(active(cx), [true, false]);
+}

@@ -102,10 +102,42 @@ pub(crate) struct SessionTarget {
 
 type SessionList = Arc<Mutex<SessionLists>>;
 
+/// Publications a view may still be drawing. The worker publishes the catalog
+/// with the Live of the same epoch, but the view keeps drawing the Live it
+/// took last until its next poll (every 33 ms, app.rs), so it can be several
+/// publications behind. Each publication is one epoch change (a command or an
+/// ended pane), so 64 covers far more than any view lags between two polls.
+const PUBLICATION_BOUND: usize = 64;
+
 #[derive(Default)]
 struct SessionLists {
-    current: Option<(u64, Vec<SessionInfo>)>,
+    /// Oldest first; epochs only increase within one session.
+    published: std::collections::VecDeque<(u64, Vec<SessionInfo>)>,
     discovery: Discovery,
+}
+
+impl SessionLists {
+    fn latest(&self) -> Option<&[SessionInfo]> {
+        self.published.back().map(|(_, rows)| rows.as_slice())
+    }
+
+    fn publish(&mut self, epoch: u64, rows: Vec<SessionInfo>) {
+        if self.published.len() == PUBLICATION_BOUND {
+            self.published.pop_front();
+        }
+        self.published.push_back((epoch, rows));
+    }
+
+    /// The rows published with `viewed_epoch`. A view only takes a newer Live
+    /// after drawing this one, so older publications are dropped.
+    fn viewed(&mut self, viewed_epoch: u64) -> Option<&[SessionInfo]> {
+        let index = self
+            .published
+            .iter()
+            .position(|(epoch, _)| *epoch == viewed_epoch)?;
+        self.published.drain(..index);
+        self.published.front().map(|(_, rows)| rows.as_slice())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -212,7 +244,7 @@ impl Session {
         let host = target.host.clone();
         let name = target.name.clone();
         let sessions = Arc::new(Mutex::new(SessionLists {
-            current: None,
+            published: Default::default(),
             discovery,
         }));
         let worker_sessions = sessions.clone();
@@ -336,7 +368,7 @@ impl Session {
         // The old current session may have been saved after the last poll.
         if let Some(rows) = &mut discovery.rows
             && !rows.iter().any(|row| row.name == self.name)
-            && let Some((_, current)) = &lists.current
+            && let Some(current) = lists.latest()
             && let Some(row) = current.iter().find(|row| row.name == self.name)
         {
             let mut row = row.clone();
@@ -346,17 +378,15 @@ impl Session {
         discovery
     }
 
-    /// Match the catalog to the input epoch of the Live view the caller drew.
+    /// Match the catalog to the input epoch of the Live view the caller drew,
+    /// even after the worker has published newer ones: never a newer
+    /// catalog's rows with an older surface.
     pub(crate) fn sessions(&self, viewed_epoch: u64) -> Vec<SessionInfo> {
-        let lists = self
+        let mut lists = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some((_, rows)) = lists
-            .current
-            .as_ref()
-            .filter(|(epoch, _)| *epoch == viewed_epoch)
-        else {
+        let Some(rows) = lists.viewed(viewed_epoch).map(<[SessionInfo]>::to_vec) else {
             return Vec::new();
         };
         if let Some(external) = &lists.discovery.rows {
@@ -369,7 +399,7 @@ impl Session {
             sort_sessions(&mut merged);
             return merged;
         }
-        rows.clone()
+        rows
     }
 
     #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
