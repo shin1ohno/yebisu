@@ -33,10 +33,8 @@ struct State {
     /// Every `doc.set` received, accepted or not: its value and version.
     sets: Vec<(Value, u64)>,
     /// `doc.set`s still to find that another app wrote just before them.
-    #[cfg(test)]
     conflicts: usize,
     /// The other app's writes so far: the value of its `"external"` key.
-    #[cfg(test)]
     external: u64,
     events: Vec<Event>,
     labels: BTreeMap<String, Value>,
@@ -52,7 +50,9 @@ impl Store {
     }
 
     /// The store a Simulator QA run starts with: `YEBISU_CORE_DOC_QA`
-    /// names a fixture of `fixtures/herdr-app/`.
+    /// names a fixture of `fixtures/herdr-app/`, and
+    /// `YEBISU_CORE_DOC_QA_CONFLICTS=<n>` makes the first `n` writes find
+    /// that another app wrote first (`conflict_next`).
     pub(crate) fn qa() -> Self {
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         if let Some(value) = std::env::var("YEBISU_CORE_DOC_QA")
@@ -61,6 +61,8 @@ impl Store {
         {
             let store = Self::default();
             store.write(APP, value, false);
+            let conflicts = std::env::var("YEBISU_CORE_DOC_QA_CONFLICTS").ok();
+            store.conflict_next(conflicts.and_then(|n| n.parse().ok()).unwrap_or(0));
             return store;
         }
         Self::default()
@@ -94,7 +96,6 @@ impl Store {
     }
 
     fn set(&self, name: &str, value: Value, version: u64, bytes: usize) -> Result<Value, Value> {
-        #[cfg(test)]
         self.external(name);
         let mut state = self.lock();
         state.sets.push((value.clone(), version));
@@ -121,6 +122,30 @@ impl Store {
             });
         }
         version
+    }
+
+    /// The next `count` `doc.set`s find that another app wrote first: it
+    /// sets a top-level `"external"` key, so each is refused as stale.
+    pub(crate) fn conflict_next(&self, count: usize) {
+        self.lock().conflicts = count;
+    }
+
+    /// The other app's write before a `doc.set`, while `conflict_next` lasts.
+    fn external(&self, name: &str) {
+        let mut state = self.lock();
+        if state.conflicts == 0 {
+            return;
+        }
+        state.conflicts -= 1;
+        state.external += 1;
+        let external = state.external;
+        let (mut value, _) = state.docs.get(name).cloned().unwrap_or_default();
+        drop(state);
+        if !value.is_object() {
+            value = json!({});
+        }
+        value["external"] = json!(external);
+        self.write(name, value, true);
     }
 
     /// Events so far; a new subscription hears only the later ones.
@@ -183,30 +208,6 @@ impl Store {
     /// A write whose event never arrives (a stream that dropped it).
     pub(crate) fn set_silent(&self, value: Value) -> u64 {
         self.write(APP, value, false)
-    }
-
-    /// The next `count` `doc.set`s find that another app wrote first: it
-    /// sets a top-level `"external"` key, so each is refused as stale.
-    pub(crate) fn conflict_next(&self, count: usize) {
-        self.lock().conflicts = count;
-    }
-
-    /// The other app's write before a `doc.set`, while `conflict_next` lasts.
-    fn external(&self, name: &str) {
-        let mut state = self.lock();
-        if state.conflicts == 0 {
-            return;
-        }
-        state.conflicts -= 1;
-        state.external += 1;
-        let external = state.external;
-        let (mut value, _) = state.docs.get(name).cloned().unwrap_or_default();
-        drop(state);
-        if !value.is_object() {
-            value = json!({});
-        }
-        value["external"] = json!(external);
-        self.write(name, value, true);
     }
 
     /// The subscribed connections hear that events were dropped.
