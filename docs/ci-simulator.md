@@ -546,4 +546,3 @@ the SDK's state changed. The keys are XCUITest hardware keys: Shift puts the
 Simulator in the hardware keyboard state and Control-Space switches the
 input source. The result does not prove real IME or hardware keyboard
 behaviour; the owner's iPad checks D1-D7 (PR) do.
-
