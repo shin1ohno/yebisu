@@ -218,3 +218,75 @@ fn new_tab_button_follows_the_last_tab() {
     assert_eq!(tab_hit(134., &[90.], 600., 0.), None);
     assert_eq!(tab_hit(512., &[90.], 600., 0.), Some(TabHit::Split));
 }
+
+/// One finger pan step of `x`, `y` points over `at` (issue #137 PR 2).
+fn swipe(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>, x: f32, y: f32) {
+    cx.simulate_event(gpui::ScrollEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(px(x), px(y))),
+        modifiers: gpui::Modifiers::none(),
+        touch_phase: gpui::TouchPhase::Started,
+        source: gpui::ScrollSource::Touch,
+    });
+    cx.run_until_parked();
+}
+
+/// Issue #137 PR 2: the overflowing tab strip moves sideways under a
+/// sideways swipe only; a vertical swipe leaves it where it is.
+#[gpui::test]
+fn the_tab_strip_ignores_vertical_swipes(cx: &mut gpui::TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(gpui::size(px(1200.), px(1000.)));
+    let (client, _) =
+        crate::mock_peer::connect_quiet().unwrap_or_else(|error| panic!("peer: {error}"));
+    view.update(cx, |this, _| {
+        this.select_host("tab-strip");
+        let generation = this.terminal.link.reset();
+        this.terminal.link.install(generation, Ok(client));
+        this.terminal.open = true;
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !view.update(cx, |this, cx| {
+        this.poll_terminal(cx);
+        !this.row_tabs().is_empty()
+    }) {
+        assert!(std::time::Instant::now() < deadline, "no tabs");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Thirty more tabs overflow the strip.
+    view.update(cx, |this, cx| {
+        let Some(snapshot) = this.terminal.live.snapshot.as_mut() else {
+            panic!("snapshot");
+        };
+        let snapshot = std::sync::Arc::make_mut(snapshot);
+        let Some(first) = snapshot
+            .tabs
+            .iter()
+            .find(|tab| Some(&tab.workspace_id) == snapshot.focused_workspace_id.as_ref())
+            .cloned()
+        else {
+            panic!("a tab of the focused workspace");
+        };
+        for n in 0..30 {
+            let mut tab = first.clone();
+            tab.tab_id = format!("extra-{n}");
+            tab.focused = false;
+            snapshot.tabs.push(tab);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let first = |cx: &mut gpui::VisualTestContext| {
+        cx.debug_bounds("shell-tab-0")
+            .unwrap_or_else(|| panic!("first tab"))
+    };
+    let at = first(cx).center();
+    let start = first(cx).left();
+    swipe(cx, at, 0., -80.);
+    assert_eq!(first(cx).left(), start, "a vertical swipe moved the strip");
+    swipe(cx, at, -80., 0.);
+    assert!(
+        first(cx).left() < start,
+        "a sideways swipe must move the overflowing strip"
+    );
+}

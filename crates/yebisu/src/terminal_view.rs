@@ -206,6 +206,7 @@ impl Smoke {
             self.start_herdr1_connection(host, cx);
         }
         self.poll_hidden(cx);
+        self.poll_removed_space(cx);
         for hidden in self.board.hidden.values_mut() {
             hidden.report_surface_focus(false);
         }

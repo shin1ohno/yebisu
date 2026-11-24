@@ -263,6 +263,9 @@ impl Smoke {
             .min_w_0()
             .h_full()
             .overflow_x_scroll()
+            // A vertical swipe stays vertical: it reaches an outer list, not
+            // this strip as sideways motion.
+            .restrict_scroll_to_axis()
             .children(
                 tabs.into_iter()
                     .enumerate()
