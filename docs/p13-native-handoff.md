@@ -23,8 +23,10 @@ The SDK was pinned to the herdr-uikit PR 14 merge commit
 to the PR 18 merge commit af7c496099dd6d308055be1818ddf971a321e4f8, which adds
 PR 17 (test-support held-press) and PR 18 (empty edit menu for unpresented
 configurations) and keeps the same helper. The Mac control-letter fix then
-moved it to herdr-uikit PR 24 (6567e14c36dc8c7f763a74a0b538582d739e612a), on
-top of PRs 19 and 20, with the same helper. 99d7928 contains
+moved it to the herdr-uikit PR 24 merge commit
+bd0d13047de730475166ec95cc5416ef54372c14, which also brings PRs 19, 20 and 22.
+The helper is unchanged; PR 22 only adds a delegate-notification counter
+beside it (`retirement_probe::delegate_notifications`). 99d7928 contains
 the earlier fe3a0da query helper, main's 3ec67ca, and a test-support-only
 Cut/first-query helper whose production-path hooks are all
 `cfg(feature = "test-support")`. Only the opt-in `p13-native-probe` feature
