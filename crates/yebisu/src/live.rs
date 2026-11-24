@@ -41,6 +41,8 @@ pub(crate) struct Live {
     /// Reader-side history survives coalescing and focus moving on again.
     pub observed_navigation: Option<(String, u64)>,
     pub dirty: bool,
+    /// L66: the one `pane.link.resolve` in flight and Herdr's answer.
+    pub link_resolve: crate::terminal_links::resolve::Mailbox,
 }
 
 pub(crate) fn coherent(snapshot: &ClientShellSnapshot, surface: &PaneSurfaceFrame) -> bool {
@@ -91,6 +93,7 @@ impl Live {
                 response,
             } => {
                 crate::find::adapter::receive(self, &request_id, &response);
+                crate::terminal_links::resolve::receive(self, &request_id, &response);
                 if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
                     if let Some(error) = response.get("error") {
@@ -103,6 +106,7 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
+                crate::terminal_links::resolve::reject(self, request_id.as_deref());
                 if self
                     .search
                     .ticket

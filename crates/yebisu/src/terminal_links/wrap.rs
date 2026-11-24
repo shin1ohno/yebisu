@@ -1,12 +1,18 @@
-//! Text a terminal wrapped across rows. Modified from the fork's
-//! links/wrap.rs: the surface carries no soft-wrap flag, so a row is taken to
-//! go on in the row below only when its text reaches the pane's right edge
-//! and the row below has text in its first column, where a terminal goes on
-//! with a wrapped line. The fork also reads a program's own indented wrap,
-//! for paths only; web addresses never go on after an indent here either.
+//! Text a terminal may have wrapped across rows. Modified from the fork's
+//! links/wrap.rs. The surface carries no soft-wrap flag, so a row may go on
+//! in the row below only when its text reaches the pane's right edge, or
+//! stops one cell short because the next row starts with a wide glyph that
+//! did not fit (Herdr 1's and Herdr 2's terminals both leave a blank there),
+//! and the row below has text in its first column. Such a reading is only a
+//! candidate: a line that happened to end at the edge looks the same, so an
+//! address read across rows, or one that meets the edge, is opened only once
+//! Herdr says where it ends (`super::resolve`). The fork also reads a
+//! program's own indented wrap, for paths only; web addresses never go on
+//! after an indent here either.
 use super::{MAX_ROW_BYTES, continuations, shown};
 use sheprd_client::protocol::{CellData, FrameData};
 use std::ops::{Range, RangeInclusive};
+use unicode_width::UnicodeWidthStr;
 
 /// The most rows one wrapped address is read across, as in the fork, so a
 /// screen of unbroken text costs a bounded amount per press.
@@ -70,11 +76,37 @@ impl<'a> Area<'a> {
             .is_some_and(|cell| !blank(cell))
     }
 
-    /// Whether the text of row `above` goes on in the row below it.
+    /// Whether `row` ends in the blank a terminal leaves when the wide glyph
+    /// starting the row below did not fit in its last cell: text reaches the
+    /// cell before it, and the row below starts with a wide glyph.
+    fn spacer(&self, row: u16) -> bool {
+        let Some(cells) = self.cells(row) else {
+            return false;
+        };
+        let [.., before, last] = cells else {
+            return false;
+        };
+        let wide_below = row
+            .checked_add(1)
+            .and_then(|below| self.cells(below))
+            .and_then(<[CellData]>::first)
+            .is_some_and(|cell| shown(cell).width() > 1);
+        blank(last) && !blank(before) && wide_below
+    }
+
+    /// Whether the text of row `above` may go on in the row below it.
     fn continues(&self, above: u16) -> bool {
         above
             .checked_add(1)
-            .is_some_and(|below| self.fills(above) && self.starts(below))
+            .is_some_and(|below| (self.fills(above) || self.spacer(above)) && self.starts(below))
+    }
+
+    /// Whether text reaching the end of row `last` certainly ends there: the
+    /// row below is in the area and starts with a blank, where a wrapped
+    /// line would go on with its next character.
+    pub(super) fn ends_line(&self, last: u16) -> bool {
+        last.checked_add(1)
+            .is_some_and(|below| self.cells(below).is_some() && !self.starts(below))
     }
 
     /// The rows the word at cell `index` of `row` may span, read as one
@@ -88,10 +120,15 @@ impl<'a> Area<'a> {
             };
         };
         let continuing = continuations(cells);
+        // A wrapped wide glyph's blank at the row's end breaks no word.
+        let spacer = self.spacer(row);
         let breaks: Vec<bool> = cells
             .iter()
             .zip(&continuing)
-            .map(|(cell, &continuing)| !continuing && blank(cell))
+            .enumerate()
+            .map(|(index, (cell, &continuing))| {
+                !continuing && blank(cell) && !(spacer && index + 1 == cells.len())
+            })
             .collect();
         let starts_row = !breaks[..=index.min(breaks.len().saturating_sub(1))].contains(&true);
         let ends_row = !breaks.get(index..).unwrap_or_default().contains(&true);
@@ -133,10 +170,16 @@ impl<'a> Area<'a> {
         let continuing: Vec<_> = rows.iter().map(|cells| continuations(cells)).collect();
         let mut text = String::new();
         let mut starts = Vec::with_capacity(rows.iter().map(|cells| cells.len()).sum());
-        for (cells, continuing) in rows.iter().zip(&continuing) {
+        let spacers: Vec<bool> = (first..)
+            .take(rows.len())
+            .enumerate()
+            .map(|(index, row)| index + 1 < rows.len() && self.spacer(row))
+            .collect();
+        for ((cells, continuing), &spacer) in rows.iter().zip(&continuing).zip(&spacers) {
             for (index, cell) in cells.iter().enumerate() {
                 starts.push(text.len());
-                if continuing[index] {
+                // A wide glyph's blank left at a wrapped row's end is no text.
+                if continuing[index] || (spacer && index + 1 == cells.len()) {
                     continue;
                 }
                 let symbol = shown(cell);

@@ -14,7 +14,7 @@ pub(crate) fn enabled() -> bool {
     cfg!(any(test, all(target_os = "ios", target_abi = "sim"))) && std::env::var_os(ENV).is_some()
 }
 
-/// `YEBISU_URL_TAP_QA=hover`: the pointer is taken to rest on the wrapped
+/// `YEBISU_URL_TAP_QA=hover`: the pointer is taken to rest on the plain
 /// address with Command held, so a Simulator screenshot shows the Command
 /// underline, which XCTest cannot hover a pointer to show.
 pub(crate) fn forced_hover() -> bool {
@@ -31,6 +31,9 @@ pub(crate) const WRAPPED_TOP: &str = "https://example.com/l66/wrappe";
 pub(crate) const OSC8: &str = "https://example.com/l66/osc8";
 pub(crate) const OSC8_TEXT: &str = "OSC 8 docs link";
 pub(crate) const MAILTO: &str = "mailto:qa@example.com";
+/// An address that ends exactly at the right edge of row 18, where the line
+/// ends (the peer's terminal did not wrap it): `tail` on row 19 is a new line.
+pub(crate) const EDGE: &str = "https://example.com/l66/edge";
 pub(crate) const PATH: &str = "/etc/hosts";
 /// The Herdr 2 peer's plain address, explicit hyperlink and wrapped address.
 pub(crate) const CORE_PLAIN: &str = "https://example.com/l66/core-plain";
@@ -76,7 +79,7 @@ pub(crate) fn herdr1_fixture(frame: &mut FrameData) {
     // Rows 12 to 17 stay above a 19-row terminal (the software keyboard up)
     // and below the peer's own lines; a resized frame is written afresh.
     let width = usize::from(frame.width);
-    for row in 12..18 {
+    for row in 12..20 {
         let start = row * width;
         for cell in frame.cells.iter_mut().skip(start).take(width) {
             *cell = CellData {
@@ -108,8 +111,11 @@ pub(crate) fn herdr1_fixture(frame: &mut FrameData) {
     put(frame, 15, 1, OSC8_TEXT, u32::try_from(index).ok());
     put(frame, 16, 1, &format!("mail {MAILTO} here"), None);
     put(frame, 17, 1, &format!("path {PATH} here"), None);
+    let start = width.saturating_sub(EDGE.len());
+    put(frame, 18, u16::try_from(start).unwrap_or(0), EDGE, None);
+    put(frame, 19, 0, "tail on a new line", None);
     if let Some(cursor) = frame.cursor.as_mut() {
-        cursor.y = cursor.y.max(18).min(frame.height.saturating_sub(1));
+        cursor.y = cursor.y.max(20).min(frame.height.saturating_sub(1));
     }
 }
 
@@ -148,6 +154,7 @@ pub(crate) fn targets(surface: &PaneSurfaceFrame) -> Vec<(&'static str, (u16, u1
             ("plain", PLAIN, 5),
             ("mailto", MAILTO, 3),
             ("path", PATH, 3),
+            ("edge", EDGE, 5),
             ("core_plain", CORE_PLAIN, 5),
             ("wrapped", WRAPPED_TOP, 2),
             ("core_wrapped", CORE_WRAPPED, 2),
@@ -191,6 +198,39 @@ pub(crate) fn targets(surface: &PaneSurfaceFrame) -> Vec<(&'static str, (u16, u1
     found
 }
 
+/// The peer's answer to `pane.link.resolve` over its own `frame`, as a
+/// terminal that knows its wraps answers: every row of the fixture's wrapped
+/// address, only the pressed row of any other web address (the peer wrapped
+/// nothing else), and nothing elsewhere. Regions are pane cells, the last
+/// column included, as Herdr's are.
+pub(crate) fn mock_regions(
+    frame: &FrameData,
+    params: &serde_json::Value,
+) -> Vec<serde_json::Value> {
+    let number = |key: &str| {
+        params
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u16::try_from(value).ok())
+    };
+    let (Some(col), Some(row)) = (number("col"), number("viewport_row")) else {
+        return Vec::new();
+    };
+    let Some(link) = super::frame_link(frame, col, row, 0..frame.width, 0..frame.height) else {
+        return Vec::new();
+    };
+    let super::Target::Web(url) = &link.target else {
+        return Vec::new();
+    };
+    link.rows()
+        .filter(|(line, _)| url == WRAPPED || *line == row)
+        .map(|(line, columns)| {
+            serde_json::json!({"row": line, "start_col": columns.start,
+                "end_col": columns.end.saturating_sub(1)})
+        })
+        .collect()
+}
+
 impl Smoke {
     /// Publishes `url_targets` in `qa.state`: each fixture link's window
     /// point, the centre of the cell to press.
@@ -221,7 +261,7 @@ impl Smoke {
         let found = targets(&surface);
         let rest = found
             .iter()
-            .find(|(name, _)| name.ends_with("wrapped"))
+            .find(|(name, _)| *name == "plain")
             .map(|&(_, cell)| point(cell));
         let mut targets: serde_json::Map<String, serde_json::Value> = found
             .into_iter()

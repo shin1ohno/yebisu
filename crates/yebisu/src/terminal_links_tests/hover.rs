@@ -17,20 +17,27 @@ fn hover(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, modifiers: M
 }
 
 #[gpui::test]
-fn command_underlines_every_row_of_the_hovered_web_address(cx: &mut TestAppContext) {
+fn command_underlines_the_hovered_web_address_while_held(cx: &mut TestAppContext) {
     let (view, cx, _wire) = connected(cx);
-    let at = target(&view, cx, "wrapped");
+    let at = target(&view, cx, "plain");
     hover(cx, at, Modifiers::default());
     assert_eq!(underlined(&view, cx), [], "underlined without Command");
     // Command pressed while the pointer rests there.
     cx.simulate_modifiers_change(command());
     cx.run_until_parked();
-    let top = u16::try_from(qa::WRAPPED_TOP.len()).unwrap_or(0);
-    let rest = u16::try_from(qa::WRAPPED.len()).unwrap_or(0) - top;
-    assert_eq!(underlined(&view, cx), [(13, 80 - top..80), (14, 0..rest)]);
+    let shown = underlined(&view, cx);
+    let length = u16::try_from(qa::PLAIN.len()).unwrap_or(0);
+    assert!(
+        matches!(shown.as_slice(), [(12, columns)] if columns.len() == usize::from(length)),
+        "the plain address's one row: {shown:?}"
+    );
     cx.simulate_modifiers_change(Modifiers::default());
     cx.run_until_parked();
     assert_eq!(underlined(&view, cx), [], "Command released");
+    // An address Herdr must still resolve has no known extent: no line.
+    let wrapped = target(&view, cx, "wrapped");
+    hover(cx, wrapped, command());
+    assert_eq!(underlined(&view, cx), [], "an unproven address");
 }
 
 #[gpui::test]

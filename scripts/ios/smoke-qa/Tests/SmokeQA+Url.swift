@@ -128,6 +128,17 @@ extension SmokeQA {
         try refuses(app, qa, "mailto", "Not opened: mailto: link")
         try refuses(app, qa, "path", "Not opened: a file path")
         try opens(app, qa, "plain", "plain address after wide text") { $0 == "https://example.com/l66?q=plain" }
+        // Review F2: XCTest released Command while Safari was in front, so yebisu never heard
+        // the release; back in front, a plain tap must not open.
+        let (back, plainAgain) = try fixture(qa, "plain")
+        point(app, plainAgain).tap()
+        sleep(2)
+        let afterBack = try XCTUnwrap(qa.read())
+        XCTAssertEqual(afterBack.count("url_open"), back.count("url_open"), "a plain tap after Safari opened")
+        XCTAssertEqual(app.state, .runningForeground)
+        // An address at a row edge opens only as Herdr's pane.link.resolve answers (review F1):
+        // the wrapped one whole, the one ending at the edge (row 18) as shown.
+        try opens(app, qa, "edge", "address ending at the right edge") { $0 == "https://example.com/l66/edge" }
         try opens(app, qa, "wrapped", "address wrapped at the right edge") {
             $0 == "https://example.com/l66/wrapped/0123456789abcdef"
         }
@@ -146,9 +157,9 @@ extension SmokeQA {
         save("url-herdr2-fixture")
         try opens(app, qa, "core_plain", "Herdr 2 plain address") { $0 == "https://example.com/l66/core-plain" }
         try opens(app, qa, "core_osc8", "Herdr 2 OSC 8 hyperlink") { $0 == "https://example.com/l66/core-osc8" }
-        try opens(app, qa, "core_wrapped", "Herdr 2 address the terminal wrapped") {
-            $0.hasPrefix("https://example.com/l66/core-wrapped/xxxxxxxxxx") && $0.hasSuffix("x")
-        }
+        // Herdr 2 has no pane.link.resolve and its frames no soft-wrap flag: an address at a row
+        // edge opens nothing and says why (review F1).
+        try refuses(app, qa, "core_wrapped", "Not opened: the address meets the line edge")
     }
 
     /// The Command underline as the app paints it: `YEBISU_URL_TAP_QA=hover` takes the pointer to

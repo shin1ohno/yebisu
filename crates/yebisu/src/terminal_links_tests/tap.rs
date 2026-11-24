@@ -38,7 +38,7 @@ pub(super) fn connected(
 ) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(size(px(1200.), px(1000.)));
-    let (client, wire) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer: {e}"));
+    let (client, wire) = mock_peer::connect_links().unwrap_or_else(|e| panic!("peer: {e}"));
     view.update(cx, |this, _| {
         this.select_host("sandbox");
         let generation = this.terminal.link.reset();
@@ -97,7 +97,11 @@ pub(super) fn target(
 
 /// One press and release at `at`: a pointer click when `modifiers` carry
 /// Command, a finger tap (which GPUI dispatches without modifiers) when not.
-fn press(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, modifiers: Modifiers) {
+pub(super) fn press(
+    cx: &mut VisualTestContext,
+    at: gpui::Point<gpui::Pixels>,
+    modifiers: Modifiers,
+) {
     cx.simulate_mouse_move(at, None, modifiers);
     cx.simulate_mouse_down(at, MouseButton::Left, modifiers);
     cx.simulate_mouse_up(at, MouseButton::Left, modifiers);
@@ -105,7 +109,7 @@ fn press(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, modifiers: M
 }
 
 /// Every input event the terminal received before a sentinel paste sent now.
-fn received(
+pub(super) fn received(
     view: &Entity<Smoke>,
     cx: &mut VisualTestContext,
     wire: &mpsc::Receiver<ClientMessage>,
@@ -142,18 +146,44 @@ fn received(
     }
 }
 
-/// A Command click on fixture link `name` opens `url` and nothing else.
-fn command_click_opens(cx: &mut TestAppContext, name: &str, url: &str) {
+/// Polls the terminal, as the app's 33 ms timer does, until the platform
+/// was asked to open something or `seconds` passed: an address at a row
+/// edge opens only once the peer answered `pane.link.resolve`.
+pub(super) fn settle_open(view: &Entity<Smoke>, cx: &mut VisualTestContext, seconds: u64) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    while cx.opened_url().is_none() && Instant::now() < deadline {
+        view.update(cx, |this, cx| this.poll_terminal(cx));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A finger's tap at `at`: touches GPUI's gesture recognizer turns into a
+/// tap, which it dispatches without modifiers.
+pub(super) fn finger(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        cx.simulate_event(TouchEvent {
+            id: TouchId(66),
+            phase,
+            position: at,
+            predicted_position: None,
+            force: None,
+        });
+    }
+    cx.run_until_parked();
+}
+
+/// A Command click on fixture link `name` opens `url`, says `status`, and
+/// does nothing else.
+pub(super) fn command_click_opens(cx: &mut TestAppContext, name: &str, url: &str, status: &str) {
     let (view, cx, wire) = connected(cx);
     let at = target(&view, cx, name);
     press(cx, at, command());
-    assert_eq!(cx.opened_url().as_deref(), Some(url), "{name}");
+    settle_open(&view, cx, 5);
+    let said = view.update(cx, |this, _| this.terminal_status());
+    assert_eq!(cx.opened_url().as_deref(), Some(url), "{name}: {said}");
     view.update(cx, |this, _| {
-        assert_eq!(
-            this.terminal_status(),
-            "Opening example.com in the browser",
-            "{name}"
-        );
+        assert_eq!(this.terminal_status(), status, "{name}");
         assert!(this.handoff.selection.is_none(), "{name}: no selection");
         assert!(!this.handoff.passive_highlight, "{name}: no tap highlight");
     });
@@ -164,45 +194,29 @@ fn command_click_opens(cx: &mut TestAppContext, name: &str, url: &str) {
     );
 }
 
+const OPENING: &str = "Opening example.com in the browser";
+
 /// After wide characters, and without the full stop after it.
 #[gpui::test]
 fn command_click_opens_a_plain_address_as_shown(cx: &mut TestAppContext) {
-    command_click_opens(cx, "plain", qa::PLAIN);
-}
-
-#[gpui::test]
-fn command_click_opens_a_wrapped_address_whole(cx: &mut TestAppContext) {
-    command_click_opens(cx, "wrapped", qa::WRAPPED);
+    command_click_opens(cx, "plain", qa::PLAIN, OPENING);
 }
 
 #[gpui::test]
 fn command_click_opens_an_osc8_hyperlink_target(cx: &mut TestAppContext) {
-    command_click_opens(cx, "osc8", qa::OSC8);
+    command_click_opens(cx, "osc8", qa::OSC8, OPENING);
 }
 
 #[gpui::test]
 fn a_finger_tap_reads_command_held_on_the_keyboard(cx: &mut TestAppContext) {
     let (view, cx, wire) = connected(cx);
     let at = target(&view, cx, "plain");
-    // A finger's touches become a tap in GPUI's gesture recognizer, which
-    // dispatches it without modifiers; the hardware keyboard's Command
-    // arrives as ModifiersChanged (herdr-uikit text_input/keys.rs).
-    let finger = |cx: &mut VisualTestContext| {
-        for phase in [TouchPhase::Started, TouchPhase::Ended] {
-            cx.simulate_event(TouchEvent {
-                id: TouchId(66),
-                phase,
-                position: at,
-                predicted_position: None,
-                force: None,
-            });
-        }
-        cx.run_until_parked();
-    };
-    finger(cx);
+    // The hardware keyboard's Command arrives as ModifiersChanged
+    // (herdr-uikit text_input/keys.rs); the finger's tap carries none.
+    finger(cx, at);
     assert_eq!(cx.opened_url(), None, "a tap without Command opened");
     cx.simulate_modifiers_change(command());
-    finger(cx);
+    finger(cx, at);
     assert_eq!(cx.opened_url().as_deref(), Some(qa::PLAIN));
     cx.simulate_modifiers_change(Modifiers::default());
     assert_eq!(received(&view, cx, &wire), [], "Command + tap sent input");

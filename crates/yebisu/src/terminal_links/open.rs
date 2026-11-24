@@ -6,10 +6,16 @@
 //! A press it takes reaches nothing else: no focus change, no selection, no
 //! keyboard request and no byte for the terminal. A press it does not take
 //! (no Command, or no link under it) goes on as before.
-use super::{Refusal, Target, pane_hyperlink_at, pane_link_at, plain};
+use super::{Link, Refusal, Target, pane_hyperlink_at, pane_link_at, plain};
 use crate::{actions::KeyStatus, app::Smoke};
 use gpui::{Context, MouseDownEvent, Pixels, Point, Window};
 use sha2::{Digest, Sha256};
+use sheprd_client::protocol::PaneSurfaceFrame;
+use std::sync::Arc;
+
+/// The shown frame a press read, the frame cell under it, and the link
+/// there, if any.
+type Pressed = (Arc<PaneSurfaceFrame>, (u16, u16), Option<Link>);
 
 impl Smoke {
     /// Takes a press with Command held over a link in a pane: opens a web
@@ -21,22 +27,47 @@ impl Smoke {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !(event.modifiers.platform || window.modifiers().platform) {
+        // The window's Command counts only while the keyboard has spoken
+        // since the scene last became active (`Hover::trusts_keyboard`).
+        let keyboard = self.terminal.link_hover.trusts_keyboard() && window.modifiers().platform;
+        if !(event.modifiers.platform || keyboard) {
             return false;
         }
-        let Some(target) = self.link_target_at(event.position) else {
+        let Some((surface, cell, link)) = self.link_at(event.position) else {
             return false;
         };
-        match target {
-            Target::Web(url) => self.open_web_link(&url, cx),
-            Target::Refused(refusal) => self.refuse_link(&refusal),
+        match link {
+            Some(Link {
+                target: Target::Web(_),
+                unproven: true,
+                ..
+            }) => {
+                if self.resolve_link(&surface, cell) {
+                    self.link_status("Checking where the address ends…".into());
+                } else {
+                    self.refuse_link(&Refusal::Unproven);
+                }
+            }
+            Some(Link {
+                target: Target::Web(url),
+                ..
+            }) => self.open_web_link(&url, None, cx),
+            Some(Link {
+                target: Target::Refused(refusal),
+                ..
+            }) => self.refuse_link(&refusal),
+            // An explicit hyperlink whose target is not in the frame's table.
+            None if pane_hyperlink_at(&surface, cell.0, cell.1) => {
+                self.refuse_link(&Refusal::Malformed)
+            }
+            None => return false,
         }
         cx.notify();
         true
     }
 
-    /// What the link under `position` points at, in the shown frame.
-    pub(crate) fn link_target_at(&self, position: Point<Pixels>) -> Option<Target> {
+    /// The shown frame, the cell under `position`, and the link there.
+    pub(crate) fn link_at(&self, position: Point<Pixels>) -> Option<Pressed> {
         let (_, surface) = self.terminal.coherent_frame()?;
         let (column, row) = self.terminal.geometry.cell_at(&surface, position, None)?;
         // QA: where the press read, against which frame.
@@ -54,26 +85,32 @@ impl Smoke {
                     .collect::<String>(),
             })
         });
-        match pane_link_at(&surface, column, row) {
-            Some(link) => Some(link.target),
-            // An explicit hyperlink whose target is not in the frame's table.
-            None => pane_hyperlink_at(&surface, column, row)
-                .then_some(Target::Refused(Refusal::Malformed)),
-        }
+        let link = pane_link_at(&surface, column, row);
+        Some((surface, (column, row), link))
     }
 
     fn link_status(&mut self, text: String) {
         self.actions.key_status = Some(KeyStatus::new(text, &self.terminal, self.board.selection));
     }
 
-    fn open_web_link(&mut self, url: &str, cx: &mut Context<Self>) {
+    /// Opens `url`; `joined` is the whole address when Herdr proved that it
+    /// wraps, which the status line then shows, since no row shows it whole.
+    pub(super) fn open_web_link(
+        &mut self,
+        url: &str,
+        joined: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
         // GPUI's platform open: on iPadOS UIKit's
         // `openURL:options:completionHandler:` on the main thread (herdr-uikit
         // platform/system.rs), which returns at once; the system opens the
         // default browser. The address is passed as shown, never to a shell.
         cx.open_url(url);
         let host = plain::host(url).unwrap_or_default().to_owned();
-        self.link_status(format!("Opening {host} in the browser"));
+        self.link_status(match joined {
+            Some(whole) => format!("Opening {whole}"),
+            None => format!("Opening {host} in the browser"),
+        });
         let digest: String = Sha256::digest(url.as_bytes())
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -93,7 +130,7 @@ impl Smoke {
         }));
     }
 
-    fn refuse_link(&mut self, refusal: &Refusal) {
+    pub(super) fn refuse_link(&mut self, refusal: &Refusal) {
         let reason = refusal.reason();
         crate::qa_ax::count("url_refused");
         crate::qa_ax::report("url_refused_last", || serde_json::json!(reason));

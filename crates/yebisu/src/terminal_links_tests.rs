@@ -9,6 +9,8 @@ use unicode_width::UnicodeWidthChar;
 
 #[path = "terminal_links_tests/hover.rs"]
 mod hover;
+#[path = "terminal_links_tests/resolve.rs"]
+mod resolve;
 #[path = "terminal_links_tests/tap.rs"]
 mod tap;
 
@@ -157,10 +159,11 @@ fn punctuation_after_an_address_stays_out_of_it() {
 }
 
 #[test]
-fn an_address_wrapped_at_the_right_edge_reads_across_rows() {
+fn an_address_read_across_the_right_edge_is_only_an_unproven_candidate() {
     let url = "https://example.com/wrapped/path/to/a/long/page?q=1";
     let mut s = surface();
-    // The address starts at column 20 and goes on in row 2's first column.
+    // The address starts at column 20 and goes on in row 2's first column,
+    // as a terminal wraps; a line that ended at the edge looks the same.
     let (top, rest) = url.split_at(20);
     write(&mut s, 0, 1, "open");
     write(&mut s, 20, 1, top);
@@ -169,28 +172,89 @@ fn an_address_wrapped_at_the_right_edge_reads_across_rows() {
     for (column, row) in [(20, 1), (39, 1), (0, 2), (end - 1, 2)] {
         let link = at(&s, column, row).unwrap_or_else(|| panic!("({column}, {row})"));
         assert_eq!(link.target, web(url), "({column}, {row})");
+        assert!(link.unproven, "({column}, {row}): opened as read");
         assert_eq!(
             link.rows().collect::<Vec<_>>(),
             vec![(1, 20..40), (2, 0..end)],
             "({column}, {row})"
         );
     }
-    // An indented next row is not where a terminal goes on: the address
-    // reaches the edge with nothing after it, so it may go on and is not
-    // guessed.
+    // A next row that starts with a blank is a new line: a wrapped address
+    // would go on there with its next character. The row's address is whole.
     let mut s = surface();
     write(&mut s, 20, 1, top);
     write(&mut s, 2, 2, rest);
-    assert_eq!(at(&s, 25, 1), None);
+    let link = at(&s, 25, 1);
+    assert_eq!(link.as_ref().map(|l| &l.target), Some(&web(top)));
+    assert_eq!(link.map(|l| l.unproven), Some(false), "a certain line end");
     // Ending one short of the edge, it is complete.
     let mut s = surface();
     write(&mut s, 19, 1, &top[..20]);
     write(&mut s, 0, 2, "next line");
-    assert_eq!(at(&s, 25, 1).map(|l| l.target), Some(web(&top[..20])));
+    let link = at(&s, 25, 1);
+    assert_eq!(link.as_ref().map(|l| &l.target), Some(&web(&top[..20])));
+    assert_eq!(link.map(|l| l.unproven), Some(false));
+}
+
+/// F1 (review 5fa66328 of PR 135): an address that ends exactly at the right
+/// edge, followed by a new line whose first word starts in column 0, was
+/// opened joined with that word: an address the screen never shows.
+#[test]
+fn an_address_ending_at_the_edge_is_never_joined_with_the_next_line_as_read() {
+    let url = "https://example.com/ab";
+    let mut s = surface();
+    let start = WIDTH - u16::try_from(url.len()).unwrap_or(0);
+    write(&mut s, start, 0, url);
+    write(&mut s, 0, 1, "tail of another line");
+    let link = at(&s, start + 3, 0).unwrap_or_else(|| panic!("the address"));
+    assert!(
+        link.unproven,
+        "read as {:?} and opened as read",
+        link.target
+    );
+    // At the pane's last row, what follows is not shown at all.
+    let mut s = surface();
+    write(&mut s, start, HEIGHT - 1, url);
+    assert_eq!(
+        at(&s, start + 3, HEIGHT - 1).map(|l| l.unproven),
+        Some(true)
+    );
+}
+
+/// F3: a wide glyph that does not fit in a row's last cell goes to the next
+/// row, and both Herdr 1 (ghostty's spacer head) and Herdr 2 (alacritty's
+/// leading wide-char spacer) leave a blank in that last cell. The address
+/// there was read as complete and opened cut short.
+#[test]
+fn an_address_whose_wide_glyph_moved_to_the_next_row_is_unproven() {
+    let head = "https://example.com/";
+    let mut s = surface();
+    // The address fills up to the second-to-last column; the last stays blank.
+    let start = WIDTH - 1 - u16::try_from(head.len()).unwrap_or(0);
+    write(&mut s, start, 0, head);
+    write(&mut s, 0, 1, "日本 then");
+    let link = at(&s, start + 3, 0).unwrap_or_else(|| panic!("the address"));
+    assert_eq!(
+        link.target,
+        web("https://example.com/日本"),
+        "the spacer is no text"
+    );
+    assert!(link.unproven);
+    assert_eq!(
+        link.rows().collect::<Vec<_>>(),
+        vec![(0, start..WIDTH), (1, 0..4)],
+    );
+    // A narrow first character below is no such move: the row ended.
+    let mut s = surface();
+    write(&mut s, start, 0, head);
+    write(&mut s, 0, 1, "ab then");
+    let link = at(&s, start + 3, 0);
+    assert_eq!(link.as_ref().map(|l| &l.target), Some(&web(head)));
+    assert_eq!(link.map(|l| l.unproven), Some(false));
 }
 
 #[test]
-fn an_address_wrapped_past_the_row_limit_is_not_guessed() {
+fn an_address_read_past_the_row_limit_is_unproven() {
     let rows = MAX_WRAPPED_ROWS + 2;
     let mut s = surface();
     s.frame.height = rows;
@@ -204,8 +268,8 @@ fn an_address_wrapped_past_the_row_limit_is_not_guessed() {
         let from = usize::from(row) * usize::from(WIDTH);
         write(&mut s, 0, row, &url[from..from + usize::from(WIDTH)]);
     }
-    assert_eq!(at(&s, 3, 0), None, "from the top");
-    assert_eq!(at(&s, 3, rows - 1), None, "from the bottom");
+    assert_eq!(at(&s, 3, 0).map(|l| l.unproven), Some(true), "from the top");
+    assert_eq!(at(&s, 3, rows - 1), None, "from the bottom: no scheme read");
 }
 
 #[test]
@@ -324,9 +388,11 @@ fn a_link_never_leaves_its_pane_and_a_popup_hides_links() {
     write(&mut s, 0, 0, "https://example.co/a");
     write(&mut s, 21, 0, "zz");
     write(&mut s, 0, 1, "tail");
+    // The candidate joins the left pane's own next row, never the right
+    // pane, and is unproven: it opens only as Herdr resolves it (F1).
     assert_eq!(
-        at(&s, 3, 0).map(|l| (l.rows().collect::<Vec<_>>(), l.target)),
-        Some((vec![(0, 0..20), (1, 0..4)], web("https://example.co/atail")))
+        at(&s, 3, 0).map(|l| (l.rows().collect::<Vec<_>>(), l.unproven)),
+        Some((vec![(0, 0..20), (1, 0..4)], true))
     );
     assert_eq!(at(&s, 21, 0), None, "the right pane");
     assert_eq!(at(&s, 20, 0), None, "the line between panes");

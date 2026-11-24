@@ -102,12 +102,17 @@ fn serve(
 ) -> Result<(), Box<dyn std::error::Error>> {
     server.set_read_timeout(Some(Duration::from_secs(300)))?;
     let mut held = 0;
+    // The size the client last asked for, which its frames have.
+    let mut size: Option<(u16, u16)> = None;
+    // L66: frames show the link fixture (YEBISU_URL_TAP_QA, or the tests').
+    let links = crate::terminal_links::qa::enabled() || fault == "links";
     let _: ClientMessage = read_message(&mut server, MAX_FRAME_SIZE)?;
     let mut welcome: serde_json::Value = serde_json::from_str(WELCOME)?;
     welcome["server_version"] = sheprd_client::MIN_HERDR_VERSION.into();
     welcome["methods"] = serde_json::json!([
         "client_shell.surface.set",
         "pane.focus",
+        "pane.link.resolve",
         "workspace.focus",
         "tab.focus",
         "tab.create",
@@ -195,6 +200,32 @@ fn serve(
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
             let request: serde_json::Value = serde_json::from_str(request)?;
             let id = request["id"].as_str().unwrap_or_default().to_owned();
+            // L66: where a pressed address ends, as the peer's terminal knows.
+            if request["method"] == "pane.link.resolve" {
+                let mut probe = serial;
+                let mut frame = focused_surface(&board_snapshot, &mut probe).frame;
+                // The frame the client shows: the tests' stays at the peer's
+                // first size, with the fixture they add to it.
+                if let Some((cols, rows)) = size.filter(|_| fault != "links") {
+                    resize_frame(&mut frame, cols, rows);
+                }
+                if links {
+                    crate::terminal_links::qa::herdr1_fixture(&mut frame);
+                }
+                let regions = crate::terminal_links::qa::mock_regions(&frame, &request["params"]);
+                write_message(
+                    &mut server,
+                    &ServerMessage::ClientShellEndpointResponseChunk {
+                        boot_id: "boot-v1".into(),
+                        request_id: id.clone(),
+                        final_chunk: true,
+                        data: serde_json::to_vec(&serde_json::json!({"id": id,
+                            "result": {"type": "pane_link_resolved", "regions": regions}}))?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                continue;
+            }
             if fault != "response-first"
                 && let Some(gate) = &gate
             {
@@ -335,30 +366,12 @@ fn serve(
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
             serial += 1;
             let mut frame = focused_surface(&board_snapshot, &mut serial);
-            let old = frame.frame.clone();
             frame.surface_revision = serial;
-            frame.frame.width = surface_size.cols;
-            frame.frame.height = surface_size.rows;
-            let blank = CellData {
-                symbol: " ".into(),
-                fg: 0,
-                bg: 0,
-                modifier: 0,
-                skip: false,
-                hyperlink: None,
-            };
-            frame.frame.cells =
-                vec![blank; usize::from(surface_size.cols) * usize::from(surface_size.rows)];
-            for y in 0..old.height.min(surface_size.rows) {
-                for x in 0..old.width.min(surface_size.cols) {
-                    frame.frame.cells
-                        [usize::from(y) * usize::from(surface_size.cols) + usize::from(x)] =
-                        old.cells[usize::from(y) * usize::from(old.width) + usize::from(x)].clone();
-                }
-            }
+            resize_frame(&mut frame.frame, surface_size.cols, surface_size.rows);
+            size = Some((surface_size.cols, surface_size.rows));
             // L66: the link fixture again at the new size, so its wrapped
             // address still reaches the right edge.
-            if crate::terminal_links::qa::enabled() {
+            if links {
                 crate::terminal_links::qa::herdr1_fixture(&mut frame.frame);
             }
             write_message(
@@ -366,6 +379,27 @@ fn serve(
                 &ServerMessage::PaneSurface(frame),
                 MAX_FRAME_SIZE,
             )?;
+        }
+    }
+}
+/// The frame at `cols` x `rows`, its cells kept where they fit.
+fn resize_frame(frame: &mut FrameData, cols: u16, rows: u16) {
+    let old = frame.clone();
+    frame.width = cols;
+    frame.height = rows;
+    let blank = CellData {
+        symbol: " ".into(),
+        fg: 0,
+        bg: 0,
+        modifier: 0,
+        skip: false,
+        hyperlink: None,
+    };
+    frame.cells = vec![blank; usize::from(cols) * usize::from(rows)];
+    for y in 0..old.height.min(rows) {
+        for x in 0..old.width.min(cols) {
+            frame.cells[usize::from(y) * usize::from(cols) + usize::from(x)] =
+                old.cells[usize::from(y) * usize::from(old.width) + usize::from(x)].clone();
         }
     }
 }
@@ -384,6 +418,12 @@ pub(crate) fn connect_recorded(
     frames: u64,
 ) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(frames, false, "")
+}
+/// L66: a peer whose frames show the link fixture after a resize, as the
+/// Simulator's `YEBISU_URL_TAP_QA` peer does.
+#[cfg(test)]
+pub(crate) fn connect_links() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "links")
 }
 pub(crate) fn connect_board() -> crate::Result<Client> {
     connect_mode(1, true, "").map(|(client, _)| client)

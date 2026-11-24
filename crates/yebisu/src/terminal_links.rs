@@ -20,6 +20,7 @@ mod open;
 mod plain;
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 pub(crate) mod qa;
+pub(crate) mod resolve;
 mod wrap;
 
 use crate::handoff::cells::continuations;
@@ -46,6 +47,15 @@ pub(crate) enum Refusal {
     Path,
     /// An explicit hyperlink whose target is no address this client reads.
     Malformed,
+    /// A web address at a row edge that Herdr cannot say where it ends
+    /// (Herdr 2, or a daemon without `pane.link.resolve`).
+    Unproven,
+    /// Herdr did not answer where the address ends, or answered an error.
+    Unanswered,
+    /// The screen changed before Herdr's answer arrived.
+    Changed,
+    /// Herdr found no web address under the press.
+    NoAddress,
 }
 
 impl Refusal {
@@ -57,6 +67,12 @@ impl Refusal {
             }
             Self::Path => "Not opened: a file path is on the host · only web addresses open".into(),
             Self::Malformed => "Not opened: the link names no web address".into(),
+            Self::Unproven => {
+                "Not opened: the address meets the line edge and may go on · Herdr cannot say where it ends".into()
+            }
+            Self::Unanswered => "Not opened: Herdr did not say where the address ends".into(),
+            Self::Changed => "Not opened: the screen changed · press again".into(),
+            Self::NoAddress => "Not opened: Herdr found no web address there".into(),
         }
     }
 }
@@ -71,6 +87,12 @@ pub(crate) struct Link {
     /// The rows below `row` that a wrapped link goes on to, with the columns
     /// it covers on each; empty for a link on one row.
     pub(crate) continued: Vec<(u16, Range<u16>)>,
+    /// Whether this web address meets a row edge where the terminal may have
+    /// wrapped it: read across rows, or running into the right edge of a row
+    /// whose next row could go on with it. The surface carries no soft-wrap
+    /// flag, so such an address is only a candidate and opens only once
+    /// Herdr says where it ends (`resolve`), never as read here.
+    pub(crate) unproven: bool,
 }
 
 impl Link {
@@ -219,30 +241,32 @@ fn frame_link(
             row,
             columns: span(first..last + 1),
             continued: Vec::new(),
+            unproven: false,
         });
     }
     // Most rows end their line before the right edge and are read alone;
     // an address that runs into the edge, or starts a row under one that
-    // does, is read with the rows it may span, as one line.
+    // does, is read with the rows it may span, as one line: a candidate.
     let area = wrap::Area::new(frame, columns, rows);
     let lines = area.around(row, source);
     let run = area.read(lines.rows.clone())?;
     let found = plain::read(&run.text, run.start_of(row, source)?)?;
-    // Text past either end of what was read may go on with the address: at
-    // the right edge of a row the next row does not go on from, off the
-    // pane, or beyond the rows read. A destination is never guessed.
-    if matches!(found.target, Target::Web(_))
-        && (found.open || (found.range.start == 0 && lines.cut_above))
-    {
-        return None;
-    }
-    let mut segments = run.segments(&found.range).into_iter();
+    let segments = run.segments(&found.range);
+    // The address may go on past what was read: across a row edge the
+    // terminal may or may not have wrapped, to the right edge of a row whose
+    // next row is not certainly a new line, or above the rows read.
+    let unproven = matches!(found.target, Target::Web(_))
+        && (segments.len() > 1
+            || (found.open && !area.ends_line(*lines.rows.end()))
+            || (found.range.start == 0 && lines.cut_above));
+    let mut segments = segments.into_iter();
     let (row, columns) = segments.next()?;
     Some(Link {
         target: found.target,
         row,
         columns,
         continued: segments.collect(),
+        unproven,
     })
 }
 

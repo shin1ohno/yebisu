@@ -187,6 +187,8 @@ impl Smoke {
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
         // A qa.state counter or the mock peer moved: publish it (QA only).
         crate::qa_ax::refresh_if_wanted(cx);
+        // L66: Herdr's answer to where a pressed address ends.
+        self.poll_link_resolve(cx);
         let mut pending = self
             .board
             .hidden
@@ -348,6 +350,10 @@ impl Smoke {
             if compact { "Compact" } else { "Standard" }
         );
         let status = self.terminal_status();
+        // L66: after another app was in front, a held Command may be stale.
+        self.terminal
+            .link_hover
+            .observe_active(window.is_window_active());
         #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
         self.publish_link_targets();
         let body = div()

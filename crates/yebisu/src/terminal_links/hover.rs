@@ -12,11 +12,19 @@ use gpui::{Context, ModifiersChangedEvent, MouseMoveEvent, Pixels, Point, Window
 use sheprd_client::protocol::PaneSurfaceFrame;
 use std::ops::Range;
 
-/// Where the pointer rests over the terminal, and the rows last underlined.
+/// Where the pointer rests over the terminal, the rows last underlined, and
+/// whether the window's Command can be believed.
 #[derive(Default)]
 pub(crate) struct Hover {
     position: Option<Point<Pixels>>,
     shown: Vec<(u16, Range<u16>)>,
+    /// Whether the window was active at the last render.
+    active: Option<bool>,
+    /// Set when the scene became active again: a key released while
+    /// another app was in front (Safari, after an open) never reaches this
+    /// one, so the window may still believe Command is held. Cleared by the
+    /// next modifier change the keyboard sends.
+    stale: bool,
 }
 
 impl Hover {
@@ -30,6 +38,22 @@ impl Hover {
     #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
     pub(crate) fn rest_at(&mut self, position: Point<Pixels>) {
         self.position = Some(position);
+    }
+}
+
+impl Hover {
+    /// Notes the window's activity at a render; becoming active again
+    /// stops trusting the window's held modifiers.
+    pub(crate) fn observe_active(&mut self, active: bool) {
+        if self.active == Some(false) && active {
+            self.stale = true;
+        }
+        self.active = Some(active);
+    }
+
+    /// Whether the window's held Command reflects the keyboard.
+    pub(crate) fn trusts_keyboard(&self) -> bool {
+        !self.stale
     }
 }
 
@@ -47,9 +71,12 @@ impl TerminalView {
             return Vec::new();
         };
         match pane_link_at(&surface, column, row) {
+            // Only an address that opens as read: one Herdr must still
+            // resolve shows no line, as its extent is not known.
             Some(
                 link @ Link {
                     target: Target::Web(_),
+                    unproven: false,
                     ..
                 },
             ) => link.rows().collect(),
@@ -68,7 +95,8 @@ impl TerminalView {
         let forced = super::qa::forced_hover();
         #[cfg(not(any(test, all(target_os = "ios", target_abi = "sim"))))]
         let forced = false;
-        let rows = self.hovered_web_rows(window.modifiers().platform || forced);
+        let held = window.modifiers().platform && self.link_hover.trusts_keyboard();
+        let rows = self.hovered_web_rows(held || forced);
         let Some((row, columns)) = rows.first() else {
             return;
         };
@@ -104,6 +132,8 @@ impl Smoke {
         event: &ModifiersChangedEvent,
         cx: &mut Context<Self>,
     ) {
+        // The keyboard spoke: the window's modifiers are current again.
+        self.terminal.link_hover.stale = false;
         self.refresh_link_hover(event.modifiers.platform, cx);
     }
 
