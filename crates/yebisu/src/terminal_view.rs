@@ -202,6 +202,10 @@ impl Smoke {
         // no GPUI frame; ask for one so qa.state carries it (QA only).
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         input_mode_qa::poll(cx);
+        // herdr-uikit's input receipts (Simulator QA only), before the
+        // refresh so a moved counter is published by this poll.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        crate::qa_ax::input::drain(&self.observation);
         // A qa.state counter or the mock peer moved: publish it (QA only).
         crate::qa_ax::refresh_if_wanted(cx);
         // L66: Herdr's answer to where a pressed address ends.
