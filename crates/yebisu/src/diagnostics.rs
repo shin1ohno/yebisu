@@ -10,6 +10,9 @@ use tracing::{Metadata, Subscriber, field::Visit, span};
 
 pub(crate) const LOG_LOCATION: &str = include_str!("log-location.txt");
 const TARGET: &str = "yebisu::diagnostics";
+/// herdr-uikit's Simulator input receipts (`qa_ax_input.rs`): accepted only
+/// by a Simulator QA launch, and never written to the diagnostics log.
+const RECEIPTS: &str = "herdr_uikit::qa_input";
 const QUEUE: usize = 256;
 const MAX_BYTES: u64 = 128 * 1024;
 const CODES: &[&str] = &[
@@ -53,8 +56,11 @@ pub(crate) fn init() -> crate::Result<()> {
             }
         })
         .map_err(crate::Error::Storage)?;
-    tracing::subscriber::set_global_default(Capture(sender))
-        .map_err(|_| crate::Error::LogSubscriber)?;
+    let capture = Capture {
+        codes: sender,
+        receipts: receipts_wanted(),
+    };
+    tracing::subscriber::set_global_default(capture).map_err(|_| crate::Error::LogSubscriber)?;
     // Do not format the panic payload, which can contain host or input data.
     install_panic_hook();
     record("startup");
@@ -70,7 +76,30 @@ fn install_panic_hook() {
     }));
 }
 
-struct Capture(SyncSender<&'static str>);
+/// Whether this launch takes in herdr-uikit's input receipts: a Simulator
+/// QA launch only.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+fn receipts_wanted() -> bool {
+    crate::qa_ax::input::active()
+}
+/// A device build has no receipt module to call, and takes none.
+#[cfg(all(target_os = "ios", not(target_abi = "sim")))]
+fn receipts_wanted() -> bool {
+    false
+}
+
+/// The event targets the subscriber takes: its own codes, and the receipts
+/// only when `receipts` is set.
+fn accepts(target: &str, receipts: bool) -> bool {
+    target == TARGET || (receipts && target == RECEIPTS)
+}
+
+struct Capture {
+    codes: SyncSender<&'static str>,
+    /// Fixed before the subscriber is installed, so the callsite interest
+    /// tracing caches from `enabled` is right from the first event.
+    receipts: bool,
+}
 struct Code(Option<&'static str>);
 impl Visit for Code {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -82,7 +111,7 @@ impl Visit for Code {
 }
 impl Subscriber for Capture {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.is_event() && metadata.target() == TARGET
+        metadata.is_event() && accepts(metadata.target(), self.receipts)
     }
     fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
         span::Id::from_u64(1)
@@ -93,11 +122,16 @@ impl Subscriber for Capture {
         if !self.enabled(event.metadata()) {
             return;
         }
+        if event.metadata().target() == RECEIPTS {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            crate::qa_ax::input::capture(event);
+            return;
+        }
         let mut code = Code(None);
         event.record(&mut code);
         if let Some(code) = code.0 {
             // A full/disconnected queue drops diagnostics; never stalls the UI.
-            let _ = self.0.try_send(code);
+            let _ = self.codes.try_send(code);
         }
     }
     fn enter(&self, _: &span::Id) {}
