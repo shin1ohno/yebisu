@@ -2,7 +2,7 @@
 
 iPad terminal client for Herdr, on GPUI. P4 provides a full-screen Herdr 1 terminal with semantic keyboard input, Japanese composition, and manual reconnect on GPUI 0.3.12 / UIKit. Physical M1 acceptance remains an owner check.
 
-Use Rust 1.99.1, Xcode and `just`. Run `just check`, `just lint-ios`, `just test`; `just ios-sim` launches the smoke screen. `just ipad` builds and signs for the connected M5 using team AL9567565U. The login keychain must be unlocked interactively by its owner.
+Use Rust 1.99.1, Xcode and `just`. Run `just check`, `just lint-ios`, `just test`; `just ios-sim` launches the smoke screen. `just ipad` builds and signs for the connected M5 using team AL9567565U. The login keychain must be unlocked interactively by its owner. `just mac` runs it on this Apple silicon Mac as an iPad app (Designed for iPad); `just mac-register` is the owner's one-time registration (docs/mac-check.md).
 
 All fetch/build commands must pass the 6 GiB guard. Development builds omit debug symbols to bound disk use. The old app remains installed under its own bundle identifier.
 

@@ -12,7 +12,7 @@
 - Never mix boot IDs or projection revisions across metadata and surfaces.
 - Treat terminal content and daemon messages as untrusted data.
 - Use the pinned toolchain and GPUI version; avoid unrelated lock upgrades.
-- Run fetch/build through `just guarded`; stop below 6 GiB. One build at a time.
+- Run fetch/build through `just guarded`; stop below 6 GiB. One build at a time on the 8 GiB Mac mini; hosts with 64 GB or more may run guarded builds concurrently (owner, 2026-11-24).
 - Keep bundle identifier com.shin1ohno.yebisu constant and Keychain access isolated.
 - Simulator checks do not prove real IME or hardware keyboard behavior.
 - In XCUITest, press controls by QA identifier and confirm by qa.state; keep queries in held requests few (docs/ci-simulator.md).

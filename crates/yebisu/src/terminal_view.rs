@@ -185,6 +185,10 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        // herdr-uikit's input receipts (Simulator QA only), before the
+        // refresh so a moved counter is published by this poll.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        crate::qa_ax::input::drain(&self.observation);
         // A qa.state counter or the mock peer moved: publish it (QA only).
         crate::qa_ax::refresh_if_wanted(cx);
         // L66: Herdr's answer to where a pressed address ends.
@@ -206,6 +210,7 @@ impl Smoke {
             self.start_herdr1_connection(host, cx);
         }
         self.poll_hidden(cx);
+        self.poll_removed_space(cx);
         for hidden in self.board.hidden.values_mut() {
             hidden.report_surface_focus(false);
         }

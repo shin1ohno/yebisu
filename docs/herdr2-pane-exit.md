@@ -11,7 +11,7 @@ desktop client, the herdr-gpui fork:
 | A pane in a split ends | The pane closes; its neighbour (left or above, else the first) takes the whole tab and the keyboard | fork `core_terminals/tabs.rs` `poll_core_panes` closes an ended pane in a split; herdr-app `src/window.rs` `terminal_ended` removes it |
 | The last pane of a tab ends | The pane keeps its final screen and refuses input; the status shows `ended: 1`; the session stays connected, so other tabs, New Tab and Close Tab still work | fork `sheprd-session/src/panes.rs` "The last pane stays: a tab always shows one" |
 | A tab is opened again (tab switch, reconnect) and one of its terminals finished meanwhile | herdr-core refuses the attach with `finished`; the pane goes, and a tab left without panes closes. A session left without tabs gets a new shell tab on connect | herdr-app `src/terminal.rs` "It ended between being listed and being attached: its pane goes" |
-| The last tab is closed (Close Tab) | `Herdr 2 · No tabs`; the session stays connected and New Tab works | unchanged |
+| The last tab is closed (Close Tab) | `Herdr 2 · No tabs`; the session stays connected and New Tab works. Only in the `default` space, or while another terminal still runs there: any other space whose last tab closes is removed with its server ([herdr2-empty-space.md](herdr2-empty-space.md)) | unchanged |
 | The core stops or the link drops | The session is reported disconnected with the link's error, also when every pane has already ended | `Core::is_lost` checked each worker turn |
 
 Before 2026-11-24 an ended pane stayed in its split, a tab whose only pane

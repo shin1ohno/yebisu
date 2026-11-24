@@ -5,6 +5,8 @@ mod cancel;
 mod chrome;
 #[path = "edit_bar_tests/fit.rs"]
 mod fit;
+#[path = "edit_bar_tests/scroll.rs"]
+mod scroll;
 #[path = "edit_bar_tests/status.rs"]
 mod status;
 #[path = "edit_bar_tests/support.rs"]

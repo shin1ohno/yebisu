@@ -1,4 +1,4 @@
-"""Read terminal.list on existing POSIX herdr-core sockets."""
+"""Read terminal.list on existing POSIX herdr-core sockets (never starts one)."""
 import json
 import os
 import socket
@@ -31,21 +31,27 @@ def rpc(connection, replies, method, params):
 
 
 def list_terminals(endpoint):
+    """[core id, terminals, pid]; None when no server is there (no socket, or
+    nothing listens); "unknown" when one may be there but did not answer."""
     try:
         with socket.socket(socket.AF_UNIX) as connection:
             connection.settimeout(0.6)
-            connection.connect(endpoint)
+            try:
+                connection.connect(endpoint)
+            except (FileNotFoundError, ConnectionRefusedError):
+                return None
             with connection.makefile("rb") as replies:
                 core_id = rpc(connection, replies, "hello", {})["core"]["id"]
                 terminals = rpc(connection, replies, "terminal.list", {"all": False})["terminals"]
+                pid = rpc(connection, replies, "server.status", {}).get("pid")
         rows = []
         for terminal in terminals:
             row = {k: terminal[k] for k in ("address", "state", "name", "title", "status") if k in terminal}
             row["argv"] = terminal.get("argv", [])[:1]
             rows.append(row)
-        return [core_id, rows]
+        return [core_id, rows, pid]
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return None
+        return "unknown"
 
 
 def sessions():
@@ -77,7 +83,7 @@ remaining = 48000
 for name, rows in sessions():
     line = json.dumps([name, rows], ensure_ascii=True)
     if len(line) + 1 > remaining:
-        line = json.dumps([name, None], ensure_ascii=True)
+        line = json.dumps([name, "unknown"], ensure_ascii=True)
     if len(line) + 1 > remaining:
         break
     sys.stdout.write(line + "\n")

@@ -416,3 +416,41 @@ fn hide_over_sheet(
         assert!(!app.shell.frame.key_band.is_armed());
     });
 }
+
+/// One finger pan step of `x`, `y` points over `at` (issue #137 PR 2).
+fn swipe(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, x: f32, y: f32) {
+    cx.simulate_event(gpui::ScrollEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(point(px(x), px(y))),
+        modifiers: Modifiers::none(),
+        touch_phase: gpui::TouchPhase::Started,
+        source: gpui::ScrollSource::Touch,
+    });
+    cx.run_until_parked();
+}
+
+/// Issue #137 PR 2: the overflowing key band moves sideways under a
+/// sideways swipe only; a vertical swipe leaves it where it is.
+#[gpui::test]
+fn the_key_band_ignores_vertical_swipes(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(320.), px(834.)));
+    let (client, _) = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
+    view.update(cx, |app, _| install(app, client));
+    wait_for_terminal(&view, cx);
+    set_insets(&view, cx, 320., false);
+    wait_for_terminal(&view, cx);
+    let esc = |cx: &mut VisualTestContext| {
+        cx.debug_bounds("key-band-esc")
+            .unwrap_or_else(|| panic!("esc key"))
+    };
+    let at = esc(cx).center();
+    let start = esc(cx).left();
+    swipe(cx, at, 0., -80.);
+    assert_eq!(esc(cx).left(), start, "a vertical swipe moved the band");
+    swipe(cx, at, -80., 0.);
+    assert!(
+        esc(cx).left() < start,
+        "a sideways swipe must move the overflowing band"
+    );
+}

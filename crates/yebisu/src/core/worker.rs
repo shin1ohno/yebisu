@@ -3,6 +3,7 @@ use super::{
     screen::{self, Screen},
     sort_sessions,
     store::{self, Saved, Tab, Workspace},
+    vacate::{self, Removal},
 };
 use crate::{live::Live, shell::single_pane::Mailbox};
 use sheprd_backend::{Backend as _, Role, Size, Spawn, SurfaceUpdate, Terminal as _};
@@ -17,14 +18,14 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::Receiver,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub(super) fn run(
     backend: CoreBackend,
     target: SessionTarget,
     generation: u64,
-    outputs: (&Arc<Mutex<Live>>, &SessionList),
+    outputs: (&Arc<Mutex<Live>>, &SessionList, &Mutex<Option<Removal>>),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
     commands: Receiver<Queued>,
     root: Option<PathBuf>,
@@ -35,7 +36,9 @@ pub(super) fn run(
         focus,
         expected_core_id,
     } = target;
-    let (inbox, session_list) = outputs;
+    let (inbox, session_list, removal) = outputs;
+    // The server has run at least this long when this connection is made.
+    let connected_at = Instant::now();
     let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
@@ -90,6 +93,8 @@ pub(super) fn run(
     sort_sessions(&mut sessions);
     drop(storage);
     let mut published_epoch = None;
+    let stopper = vacate::stopper(&host);
+    let mut watch = vacate::Watch::default();
     #[cfg(test)]
     let mut publication_probe: Option<Box<super::publication_probe::AfterCompare>> = None;
     while !stop.load(Ordering::Acquire) {
@@ -106,6 +111,10 @@ pub(super) fn run(
                 return Ok(());
             }
             let queued_epoch = command.input_epoch;
+            // The user acts: a failed stop's notice has been seen.
+            if !matches!(command.command, Command::Resize(_)) {
+                clear_notice(session_list);
+            }
             match command.command {
                 Command::Input(destination, event) => {
                     let Some(saved) = active_layout(&workspace) else {
@@ -353,6 +362,31 @@ pub(super) fn run(
                 return Ok(());
             }
         }
+        // The last tab of a named space is gone, closed or its program
+        // ended: the space goes with it unless a terminal still runs there.
+        let gone = workspace.tabs.is_empty()
+            || (workspace.tabs.len() == 1
+                && !active.screens.is_empty()
+                && active.screens.iter().all(|screen| screen.ended));
+        if !vacate::protected(&name) && watch.due(gone, Instant::now()) {
+            match vacate_space(&backend, &stopper, &name, connected_at)? {
+                Vacated::Busy => watch.busy(Instant::now()),
+                Vacated::Failed(message) => {
+                    // Kept over every screen until the user acts.
+                    set_notice(session_list, &message);
+                    command_error = Some(message);
+                }
+                Vacated::Removed => {
+                    forget_space(
+                        (root.as_deref(), &host, &name),
+                        (inbox, session_list, removal),
+                        &mut sessions,
+                        epoch + 1,
+                    );
+                    return Ok(());
+                }
+            }
+        }
         if let Some(saved) = active_layout(&workspace) {
             let current = screen::publish(
                 &active.screens,
@@ -402,6 +436,9 @@ pub(super) fn run(
             if let Some(error) = command_error {
                 live.status = error;
             }
+            if let Some(notice) = notice(session_list) {
+                live.status = notice;
+            }
             if let Ok(mut inbox) = inbox.lock() {
                 if published_epoch != Some(epoch) {
                     publish_sessions(session_list, epoch, &sessions);
@@ -417,6 +454,116 @@ pub(super) fn run(
         }
     }
     Ok(())
+}
+
+enum Vacated {
+    /// A terminal still runs in the space: it stays.
+    Busy,
+    /// The server could not be stopped: the space stays, with this error.
+    Failed(String),
+    /// The server is stopped.
+    Removed,
+}
+
+/// Stops the space's server when, in a list taken just now, no terminal has a
+/// state other than finished. Only a lost connection is an error here.
+fn vacate_space(
+    backend: &CoreBackend,
+    stopper: &vacate::Stopper,
+    name: &str,
+    connected_at: Instant,
+) -> crate::Result<Vacated> {
+    let list = backend.core().list(false)?;
+    if !vacate::vacant(0, &list.terminals) {
+        return Ok(Vacated::Busy);
+    }
+    // The stop asks the server again, in the connection it stops through, for
+    // its id, its age (a server that restarted since this connection was made
+    // is younger) and its live terminals.
+    let age = u64::try_from(connected_at.elapsed().as_millis())
+        .unwrap_or(u64::MAX)
+        .saturating_sub(1000);
+    let expect = vacate::Expect {
+        core_id: backend.core().hello().core.id.clone(),
+        pid: None,
+        min_uptime_ms: Some(age),
+    };
+    Ok(match stopper(name, &expect) {
+        Ok(vacate::Stopped::Done) => Vacated::Removed,
+        Ok(vacate::Stopped::Busy) => Vacated::Busy,
+        Err(error) => {
+            tracing::warn!(%error, %name, "Herdr 2 space did not stop");
+            Vacated::Failed(format!("Could not remove Herdr 2 space {name}: {error}"))
+        }
+    })
+}
+
+fn notice(lists: &SessionList) -> Option<String> {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice
+        .clone()
+}
+
+fn set_notice(lists: &SessionList, message: &str) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = Some(message.to_owned());
+}
+
+fn clear_notice(lists: &SessionList) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = None;
+}
+
+/// The space's server is stopped: its saved layout and rows go, the view is
+/// told (`Session::removal`), and the worker ends.
+fn forget_space(
+    (root, host, name): (Option<&Path>, &str, &str),
+    (inbox, session_list, removal): (&Arc<Mutex<Live>>, &SessionList, &Mutex<Option<Removal>>),
+    sessions: &mut Vec<SessionInfo>,
+    epoch: u64,
+) {
+    {
+        let _storage = store::LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(error) = store::remove_workspace(root, host, name) {
+            tracing::warn!(%error, %name, "Forget a removed Herdr 2 space");
+        }
+    }
+    let next = {
+        let mut lists = session_list
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next = vacate::next_space(&super::merged_sessions(&lists, name, sessions), name);
+        lists.discovery.vacancies.done(name);
+        lists.discovery.removed.insert(name.to_owned(), None);
+        lists.notice = None;
+        if let Some(rows) = &mut lists.discovery.rows {
+            rows.retain(|row| row.name != name);
+        }
+        next
+    };
+    sessions.retain(|row| row.name != name);
+    *removal
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Removal {
+        name: name.to_owned(),
+        next,
+    });
+    let mut live = Live::default();
+    live.status = format!("Herdr 2 · space {name} removed");
+    live.input_epoch = epoch;
+    live.dirty = true;
+    if let Ok(mut inbox) = inbox.lock() {
+        publish_sessions(session_list, epoch, sessions);
+        *inbox = live;
+    }
 }
 
 #[derive(Default)]
