@@ -41,6 +41,8 @@ pub(crate) struct TerminalView {
     pub(crate) link_hover: crate::terminal_links::Hover,
     /// Wheel and trackpad motion not yet a whole line (issue #137).
     pub(crate) wheel: crate::upstream::wheel::WheelAccumulator,
+    /// The surface shown and the wheel scrolling drawn between its rows.
+    pub(crate) presentation: crate::upstream::presentation::Presentation,
 }
 impl TerminalView {
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
@@ -270,6 +272,7 @@ impl Smoke {
                     terminal.geometry = crate::input_geometry::InputGeometry::from_canvas(bounds, cell_width, line_height);
                     terminal.canvas_bounds = Some(bounds);
                     let shown = terminal.coherent_frame();
+                    terminal.presentation.present(shown.as_ref().map(|(_, surface)| surface));
                     let panes = shown.as_ref().map_or_else(Vec::new, |(_, surface)| {
                         terminal.geometry.framed_panes(surface)
                     });

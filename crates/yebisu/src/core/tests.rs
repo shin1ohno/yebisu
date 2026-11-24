@@ -152,6 +152,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                     ),
                     cell_width: 8.,
                     cell_height: 20.,
+                    slide: None,
                 };
                 let bounds = this
                     .bounds_for_range(1..3, this.terminal.geometry.grid, window, cx)

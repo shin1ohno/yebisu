@@ -2,7 +2,7 @@ use super::{TerminalView, pane_names};
 use crate::{
     input_geometry::{InputGeometry, PanePlacement},
     live,
-    terminal_painter::{Ground, Highlight, ImageTarget, PlacedImages},
+    terminal_painter::{Ground, Highlight, ImageTarget, PlacedImages, Sliding, SlidingFrame, Span},
 };
 use gpui::{App, Bounds, ContentMask, Font, Pixels, Size, Window};
 use sheprd_client::{
@@ -185,9 +185,40 @@ impl TerminalView {
             &[]
         };
         let bounds = self.column_bounds();
+        // Issue #137 PR 4: a pane drawn between rows after a wheel scroll.
+        let slide = self.presentation.slide(std::time::Instant::now());
         let painter = &mut self.painter;
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            if panes.is_empty() {
+            if panes.is_empty()
+                && let Some(slide) = slide.as_ref().filter(|slide| {
+                    surface
+                        .panes
+                        .iter()
+                        .any(|pane| pane.pane_id == slide.pane_id && pane.inner_rect == slide.rect)
+                })
+            {
+                let area = (0..surface.frame.height)
+                    .map(|row| Span {
+                        row,
+                        columns: 0..surface.frame.width,
+                    })
+                    .collect::<Vec<_>>();
+                painter.paint_sliding(
+                    SlidingFrame {
+                        frame: &surface.frame,
+                        origin: grid.origin,
+                        available: Some(grid.size),
+                        area: &area,
+                        highlights: main_highlights,
+                        panes: &surface.panes,
+                    },
+                    &Sliding::new(slide, &area),
+                    geometry.cell_width,
+                    font,
+                    window,
+                    cx,
+                );
+            } else if panes.is_empty() {
                 painter.paint_frame(
                     &surface.frame,
                     grid.origin,
@@ -217,6 +248,10 @@ impl TerminalView {
                         font,
                         main_highlights,
                         assets,
+                        slide.as_ref().filter(|slide| {
+                            slide.pane_id == placement.pane.pane_id
+                                && slide.rect == placement.pane.inner_rect
+                        }),
                         window,
                         cx,
                     );
@@ -251,5 +286,10 @@ impl TerminalView {
                 window,
             );
         });
+        // Hit testing follows the drawing until the slide comes to rest.
+        self.geometry.slide = slide.as_ref().map(|slide| (slide.rect, slide.offset));
+        if slide.is_some() {
+            window.request_animation_frame();
+        }
     }
 }

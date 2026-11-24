@@ -229,6 +229,7 @@ fn mid_clause_rotation_keyboard_resize_share_paint_hit_and_candidate_geometry(
                         grid: Bounds::new(point(px(20.), px(80.)), size(px(width), px(height))),
                         cell_width,
                         cell_height: 20.,
+                        slide: None,
                     };
                     let mut surface = mock_peer::surface(7);
                     let col = (width / cell_width).floor() as u16 - 1;
@@ -461,6 +462,7 @@ fn popup_paint_and_candidate_use_the_same_center_and_cursor() {
         grid: Bounds::new(point(px(20.), px(80.)), size(px(800.), px(480.))),
         cell_width: 10.,
         cell_height: 20.,
+        slide: None,
     };
     let area = geometry.area(Some(&surface));
     assert_eq!(

@@ -18,6 +18,8 @@ use std::{
 
 #[path = "terminal_wheel_tests/herdr2.rs"]
 mod herdr2;
+#[path = "terminal_wheel_tests/smooth.rs"]
+mod smooth;
 
 const END: &str = "issue-137-end";
 const FOCUSED: &str = "w1:p1";

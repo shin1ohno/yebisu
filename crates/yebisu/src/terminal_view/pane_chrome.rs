@@ -18,6 +18,7 @@ impl TerminalPainter {
         font: &Font,
         highlights: &[Highlight],
         assets: &sheprd_client::SurfaceImages,
+        slide: Option<&crate::upstream::smooth_scroll::Slide>,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -57,6 +58,25 @@ impl TerminalPainter {
                 bounds: placement.body,
             }),
             |window| {
+                // Issue #137 PR 4: the pane's content drawn between rows.
+                if let Some(slide) = slide {
+                    self.paint_sliding(
+                        SlidingFrame {
+                            frame: &surface.frame,
+                            origin: placement.frame_origin,
+                            available: None,
+                            area: &area,
+                            highlights,
+                            panes: std::slice::from_ref(pane),
+                        },
+                        &Sliding::new(slide, &area),
+                        cell_width,
+                        font,
+                        window,
+                        cx,
+                    );
+                    return;
+                }
                 self.paint_frame_area(
                     &surface.frame,
                     placement.frame_origin,
