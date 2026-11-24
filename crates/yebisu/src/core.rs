@@ -166,7 +166,16 @@ impl SessionLists {
         self.published.back().map(|(_, rows)| rows.as_slice())
     }
 
+    /// Rows for a new epoch, or new rows for the epoch already published:
+    /// a document read that changes no drawn pane keeps its epoch (#144), so
+    /// input aimed at that surface is not dropped as stale.
     fn publish(&mut self, epoch: u64, rows: Vec<SessionInfo>) {
+        if let Some((latest, current)) = self.published.back_mut()
+            && *latest == epoch
+        {
+            *current = rows;
+            return;
+        }
         if self.published.len() == PUBLICATION_BOUND {
             self.published.pop_front();
         }

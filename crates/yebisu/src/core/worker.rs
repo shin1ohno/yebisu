@@ -123,7 +123,10 @@ pub(super) fn run(
         let mut changed = false;
         let mut persist = false;
         let mut command_error = None;
-        // A new document read: the rows always change, the panes may.
+        // A new document read: the rows always change, the panes may. Only
+        // a change of the drawn panes is a new epoch; input aimed at the
+        // surface drawn now must not become stale for a change elsewhere.
+        let mut rows_changed = false;
         if let Some(snapshot) = doc_mailbox
             .as_ref()
             .and_then(|mailbox| mailbox.since(&mut doc_seen))
@@ -132,11 +135,12 @@ pub(super) fn run(
             if doc.take(snapshot, &mut workspace) {
                 if before != doc_tabs::drawn(&workspace) {
                     active = Active::attach(&backend, &mut workspace, size, column.latest())?;
+                    epoch += 1;
+                    changed = true;
                 }
                 persist = view != workspace.doc_view;
                 refresh(&mut sessions, &name, &workspace, &doc);
-                epoch += 1;
-                changed = true;
+                rows_changed = true;
             }
         }
         for command in commands.try_iter().take(256) {
@@ -476,6 +480,15 @@ pub(super) fn run(
             && let Ok(mut inbox) = inbox.lock()
         {
             inbox.status = error;
+            inbox.dirty = true;
+        }
+        // New rows for the epoch already published (see `rows_changed`).
+        if rows_changed
+            && published_epoch == Some(epoch)
+            && let Ok(mut inbox) = inbox.lock()
+        {
+            publish_sessions(session_list, epoch, &sessions);
+            crate::qa_ax::core::doc(|| doc.qa_value(&workspace));
             inbox.dirty = true;
         }
     }

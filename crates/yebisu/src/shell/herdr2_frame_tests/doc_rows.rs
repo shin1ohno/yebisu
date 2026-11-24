@@ -356,3 +356,61 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
     });
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[gpui::test]
+fn a_document_change_elsewhere_keeps_the_input_epoch(cx: &mut TestAppContext) {
+    // Input is aimed at the publication's epoch (terminal_input::destination):
+    // a space added on the Mac must update the rows without making it stale.
+    let root = std::env::temp_dir().join(format!("yebisu-doc-epoch-{}", std::process::id()));
+    let host = Host::default();
+    let mut doc: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
+            .unwrap_or_else(|e| panic!("fixture: {e}"));
+    host.doc().set_silent(doc.clone());
+    let (backend, _) = host.recorded(false).unwrap_or_else(|e| panic!("mock: {e}"));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.select_host("pro-dev");
+        let generation = this.terminal.link.reset_for_core();
+        this.terminal.core_mode = true;
+        this.terminal.live = crate::live::Live::default();
+        this.terminal.core = Some(
+            Session::start_doc(
+                "pro-dev".into(),
+                generation,
+                this.terminal.link.inbox.clone(),
+                move || Ok(backend),
+                Some(root.clone()),
+                Mailbox::detached(),
+                herdr_doc_sync::DocPlan {
+                    source: herdr_doc_sync::DocSource::Core,
+                    period: Duration::from_millis(200),
+                },
+            )
+            .unwrap_or_else(|e| panic!("start: {e}")),
+        );
+    });
+    let spaces = |this: &Smoke| {
+        herdr2_hosts(&this.shell.sidebar, &this.terminal, &this.board.hidden)
+            .first()
+            .map_or(0, |row| row.spaces.len())
+    };
+    wait_for(&view, cx, "the document is drawn", |this| {
+        tab_labels(this) == ["1", "logs"] && spaces(this) == 2 && this.terminal.live.connected
+    });
+    let epoch = view.update(cx, |this, _| this.terminal.live.input_epoch);
+    if let Some(spaces) = doc["spaces"].as_array_mut() {
+        spaces.push(serde_json::json!({"id": "spcc", "name": "Third", "tabs": []}));
+    }
+    host.doc().set_external(doc);
+    wait_for(&view, cx, "the third space's row", |this| spaces(this) == 3);
+    view.update(cx, |this, _| {
+        assert_eq!(
+            this.terminal.live.input_epoch, epoch,
+            "the drawn panes did not change"
+        );
+        assert_eq!(tab_labels(this), ["1", "logs"]);
+        this.terminal.core.take();
+    });
+    let _ = std::fs::remove_dir_all(root);
+}
