@@ -231,6 +231,22 @@ pub(super) fn save_workspace(
     )
 }
 
+/// Forgets a space whose server was stopped: without its saved layout the
+/// sidebar no longer lists it. A layout that is already gone is not an error.
+pub(super) fn remove_workspace(
+    root: Option<&Path>,
+    host: &str,
+    session: &str,
+) -> crate::Result<()> {
+    let Some(root) = root else {
+        return Ok(());
+    };
+    match std::fs::remove_file(path(root, host, session)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
 fn save_value(
     root: Option<&Path>,
     host: &str,
