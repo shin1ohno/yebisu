@@ -58,6 +58,10 @@ ios-p9:
 ios-p10:
     python3 scripts/guarded.py python3 scripts/ios/p10-check.py
 
+# Sidebar native search: panel, gate, filter, result taps, terminal restore.
+ios-search:
+    python3 scripts/guarded.py python3 scripts/ios/search-check.py --out target/ios-search --label local
+
 # Validate this branch against the release changelog rules.
 check-commits:
     python3 scripts/release/check-commit-messages.py range origin/main..HEAD
