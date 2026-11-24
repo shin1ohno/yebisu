@@ -43,8 +43,12 @@ extension SmokeQA {
         scrollMarker(app, "s")
         save("scroll-s")
 
-        // t: a fast swipe up scrolls back down and keeps going after the lift.
-        terminal.swipeUp()
+        // t: a fast fling up by 300 pt, lifted while still moving, scrolls back down and keeps
+        // going after the lift. XCUITest's swipeUp() lifts without a fling GPUI recognizes (its
+        // events stopped within 133 ms, scroll-check run 1).
+        let low = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        low.press(forDuration: 0.05, thenDragTo: low.withOffset(CGVector(dx: 0, dy: -300)),
+                  withVelocity: .fast, thenHoldForDuration: 0)
         scrollMarker(app, "t")
         save("scroll-t")
 
