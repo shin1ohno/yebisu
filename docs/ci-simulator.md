@@ -486,6 +486,39 @@ and P15 (`p15-check.py`). Each runs on a leased Mac mini against a disposable Si
 (`HERDR_IOS_SIMULATOR=<udid>`); see their docs (`p11-status.md`, `p14-native-qa.md`,
 `p15-readonly-model/INTEGRATED-CANDIDATE.md`).
 
+### Sidebar search (`just ios-search`)
+
+`scripts/ios/search-check.py` (#138) builds the Simulator app with `test-support` (herdr-uikit's
+`native_search_state` and the `search-state` records of `shell/search_qa.rs`; this build swaps
+`native_edit_qa` for `native_observer_qa`, `main.rs`), runs `SmokeQA/testSidebarSearch` and
+`SmokeQA/testSidebarSearchCompact`, and judges every step afterwards from `Documents/p0-smoke.jsonl`
+and `Documents/p4-peer.jsonl`, copied once the app was terminated.
+
+- The magnifier and the controls behind the panel are pressed by QA identifier
+  (`qa.sidebar.search`, `qa.sidebar.filter-clear`, `qa.band.mark`). While the panel is up,
+  XCUITest element queries do not answer (herdr-uikit `NativeSearch.swift:5-7`), so the test acts
+  there on a fixed schedule at points of the panel's layout (`window/native_modal/panel.rs`, its
+  identifiers `native-search-field`, `native-search-cancel`, `native-search-clear`,
+  `native-search-results`) and reads nothing; this is the exception to "confirm by `qa.state`"
+  the owner approved for #138 (Q1). The verdicts come from the records after the run: the test
+  prints `SEARCH_STEP <name> <unix time>`, which splits the records by step, and types a marker
+  letter into the terminal after each close, which splits the peer log.
+- Steps: T-S1 popover (style 7), field first responder, GPUI views not; T-S2 typing reaches the
+  field and the filter, nothing the peer; T-S3 Return closes it, the filter and the "Filtered by"
+  row stay, the marker arrives once; T-S4 Cancel and an outside tap keep the filter; T-S5
+  Command-V into the field, Command-B and Command-F change nothing; T-S6 a result row opens and
+  the panel closes for it; T-S7 a terminal composition at open is not sent; T-S8 background,
+  foreground and the hide key keep the field first responder; T-S9 `YEBISU_QA_SEARCH_COMPACT=1`
+  makes it a page sheet (style 1).
+- `YEBISU_QA_SEARCH_COMPACT` (`1` sheet, `0` popover) is read only in a test-support Simulator
+  build: the Simulator has no window below 352 pt, so a real narrow window is an owner check.
+- Not shown here: real IME, a hardware keyboard, Universal Clipboard, dictation, Escape (it never
+  reaches the field from XCUITest) and an abandoned sheet swipe (herdr-uikit
+  `docs/native-search.md` "Not shown here"); the owner's iPad table in `device-check.md`
+  ("Sidebar search (#138)") covers them.
+- CI matches these files in the `edit-menu` path filter but does not run the check (owner
+  decision Q2); `just ios-search` runs it locally.
+
 ### P12 receipts, retries and negative controls
 
 (2026-11-18: P12 reliability PR; jobs 134018333353, 134059155142 and 134160368350. Updated for

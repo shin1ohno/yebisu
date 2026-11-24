@@ -604,10 +604,9 @@ goes away at the end of Wave 3.
   and its footer stay without a list (main d3755cf). Stream W owns
   `frame_layout` and the sidebar header filter slot; H owns the Herdr 2 arm of
   `render_sidebar_column`. In PR 77 the filter field takes no keyboard focus
-  (owner decision 2026-11-19, after review rounds G1, H1, SF1/S1 and F1): it
-  reads `Filter · not available yet`, and terminal input is what it was before
-  W; TODO.md tracks rebuilding it as a UIKit text-input target with IME
-  support.
+  (owner decision 2026-11-19, after review rounds G1, H1, SF1/S1 and F1); since
+  #138 the magnifier opens herdr-uikit's native search panel (`shell/search.rs`),
+  whose UIKit field owns keys and composition while it is up.
 
 ## 9. Design fidelity plan, Wave 1 (2026-11-20)
 

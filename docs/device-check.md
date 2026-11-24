@@ -874,14 +874,11 @@ then start the next. Record device model, iPadOS version and the main SHA.
    footer (Hosts, Settings, New space); the status bar shows the connection
    name and `Shortcuts`. Rotate once and use narrow Split View; the sidebar
    becomes a rail and the terminal keeps at least 8 rows on the 13-inch screen.
-3. Filter field: in every state (no hardware keyboard, after a hardware key,
-   Herdr 1 and Herdr 2) the sidebar header reads `Filter · not available yet`.
-   Tap it, then type with the hardware keyboard (a letter, Option-E then E,
-   Control-C during `sleep 30`, an arrow, Tab, Return, ⌘-Return) and with the
-   software keyboard (a letter, Return), and with a Japanese input source
-   (compose and commit one word): each reaches the terminal exactly as it does
-   without the tap, the field never highlights, and the sidebar list is never
-   narrowed (PR 77 owner decision: the field takes no input yet).
+3. Search: in every state (no hardware keyboard, after a hardware key,
+   Herdr 1 and Herdr 2) the sidebar header has the magnifier (`Search spaces
+   and agents`). Tapping it opens the native search panel (issue #138; the
+   steps are in "Sidebar search (#138)" below); the magnifier itself never
+   takes keys, and keys typed into the panel never reach the terminal.
 4. Terminal input after the tap: the terminal does not stay at `Text input
    paused · tap terminal to type`, and ⌘B, hiding the sidebar and narrow
    Split View change nothing about where keys go.
@@ -896,9 +893,9 @@ then start the next. Record device model, iPadOS version and the main SHA.
    narrow one.
 8. Herdr 2 host: within about one second of connecting, the sidebar shows
    `HOSTS`, the host row (`SSH · Herdr 2`), the session row `default`, and under
-   `AGENTS` only terminals that report a status (shells are absent). The filter
-   field reads `Filter · not available yet` and tapping it leaves keys with the
-   terminal.
+   `AGENTS` only terminals that report a status (shells are absent). The
+   magnifier opens the search panel, and its rows include the Herdr 2 session
+   and agents.
 9. Herdr 2 frame: the tab row shows `1 · default`; Split (2 panes), Pane 1,
    Pane 2, Toggle split direction and Detach are in the `…` menu; two panes
    have a one-cell divider with the focused half highlighted. With the software
@@ -909,3 +906,30 @@ then start the next. Record device model, iPadOS version and the main SHA.
 11. Long press in the terminal with the software keyboard down: record whether
     the edit menu stays open (the Simulator check E1 raises the keyboard first,
     so only the device sees this path).
+
+## Sidebar search (#138) — owner, physical iPad
+
+Install with `just ipad`. Japanese input is accepted only by D1, D2, D3, D12
+and D13 here; the Simulator check (`just ios-search`) is evidence of the input
+source and the paths, not of real IME behavior.
+
+| # | Action | Expected |
+|---|---|---|
+| D1 | Magic Keyboard, Japanese romaji: type ぷろ, convert, commit | The committed text is in the field; nothing reaches the terminal |
+| D2 | During D1's conversion press Return, then Return again | The first only commits; the second closes and keeps the filter |
+| D3 | During a conversion press Escape, then Escape again | The first only cancels the conversion; the second closes and clears the filter |
+| D4 | Type with the software keyboard (kana), then the search key | Closes and keeps the filter; no key band while open |
+| D5 | The software keyboard's hide key | Only the keyboard hides; a tap on the field brings it back |
+| D6 | Type with a floating or split keyboard | Into the field; nothing reaches the terminal |
+| D7 | Hold Return while closing, release after 1 s; then hold another key and Return, tap Cancel, release one at a time | No Return reaches the terminal; a new Return after the release arrives once |
+| D8 | Tap a space result (Herdr 1 and Herdr 2) | It opens, the panel closes, the filter and the magnifier's color stay |
+| D9 | Tap an agent result on another host | The pane opens; the old host's terminal receives nothing |
+| D10 | Paste a word copied on the Mac into the field (⌘V and the edit menu, Universal Clipboard) | Into the field; nothing reaches the terminal |
+| D11 | Dictate into the field | Into the field; nothing reaches the terminal |
+| D12 | Convert with a Korean or Chinese input source | Into the field; nothing reaches the terminal |
+| D13 | Tap the magnifier while composing Japanese in the terminal | That text is not sent; the next input after closing arrives once |
+| D14 | Leave for another app and return; with Stage Manager open two windows and search in one | The field stays first responder; the other window's terminal types normally |
+| D15 | ⌘B, ⌘F, ⌘W while open | Nothing happens; ⌘A, ⌘C, ⌘V work in the field |
+| D16 | Open in Slide Over or a 1/3 split (below 352 pt) | A sheet; the field stays visible with the keyboard up; swipe down closes it |
+| D17 | Disconnect a host, then tap its result | The panel stays and shows "This space is no longer available." |
+
