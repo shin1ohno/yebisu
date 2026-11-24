@@ -5,7 +5,8 @@ use crate::{mock_peer, terminal};
 const CELL_WIDTH: f32 = 8.4;
 const CELL_HEIGHT: f32 = 20.;
 
-/// The owner's iPad split of 2026-11-25: a 1240 × 1046 pt pane area.
+/// About the owner's iPad split of 2026-11-25: a 1240 pt wide pane area (its
+/// 1048 pt height puts the row count on a rounding edge, so 1046).
 fn ipad(width: f32) -> InputGeometry {
     InputGeometry::from_canvas(
         Bounds::new(
