@@ -243,6 +243,21 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("app touches during the swipe: began=", reveal)
         self.assertIn("+ swipeTouches)", body(code(SWIFT), "private func choose("))
 
+    def test_a_press_whose_touch_arrived_is_never_sent_again(self):
+        """Issue #142 stage 3 (class F2): QAAx.press decides on the settled state; a touch that reached the
+        app is waited for once more and then fails with last_touch, never pressed again."""
+        qaax = code((HERE / "smoke-qa/Tests/QAAx.swift").read_text())
+        press = body(qaax, "func press(")
+        settled = press.index('settledOrReason("after the press on \\(id)")')
+        self.assertLess(settled, press.index("PressVerdict.of(before: before, after: after, id: id)"))
+        arrived = press[press.index("case let .arrivedNotCounted(lastTouch):"):press.index("case .lostProven:")]
+        self.assertIn("throw QAAxError.pressArrivedElsewhere(", arrived)
+        self.assertNotIn("break", arrived)
+        self.assertNotIn(".tap()", arrived)
+        unproven = press[press.index("case let .unproven(reason):"):press.index("case let .arrivedNotCounted(lastTouch):")]
+        self.assertIn("throw QAAxError.pressNotDelivered(", unproven)
+        self.assertLess(press.index("case .lostProven:"), press.index('session.retries.append("\\(id): \\(reason)")'))
+
     def test_failure_text_says_tap_not_click(self):
         self.assertNotIn("click of '", SWIFT)
         self.assertNotIn("the click was lost", SWIFT)
