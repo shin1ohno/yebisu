@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 /// The longest answer read, like discovery's bound.
 #[cfg(all(target_os = "ios", not(test)))]
-const MAX_OUTPUT: usize = 16_384;
+const MAX_OUTPUT: u64 = 16_384;
 
 /// The ssh command that names `folders`.
 pub(crate) fn command(folders: &[String]) -> String {
@@ -40,9 +40,9 @@ pub(crate) fn parse(output: &[u8]) -> BTreeMap<String, String> {
     if rest.last().is_some_and(|last| last.is_empty()) {
         rest.pop();
     }
-    for pair in rest.chunks_exact(2) {
-        let folder = String::from_utf8_lossy(pair[0]).into_owned();
-        let top = String::from_utf8_lossy(pair[1]);
+    for [folder, top] in rest.as_chunks::<2>().0 {
+        let folder = String::from_utf8_lossy(folder).into_owned();
+        let top = String::from_utf8_lossy(top);
         let name = if !home.is_empty() && top == home {
             "~".to_owned()
         } else {
