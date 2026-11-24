@@ -279,16 +279,6 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
         serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
             .unwrap_or_else(|e| panic!("fixture: {e}")),
     );
-    // The second space's terminal is live too, so both spaces draw a tab.
-    let (extra, _) = host.recorded(false).unwrap_or_else(|e| panic!("peer: {e}"));
-    let third = extra
-        .core()
-        .run(&sheprd_core_client::wire::Run {
-            keep: true,
-            ..Default::default()
-        })
-        .unwrap_or_else(|e| panic!("run: {e}"));
-    assert_eq!(third.address, "t3");
     let (backend, _) = host.recorded(false).unwrap_or_else(|e| panic!("mock: {e}"));
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     view.update(cx, |this, _| {
@@ -336,8 +326,13 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
         )
         .unwrap_or_else(|e| panic!("open: {e}"));
     });
+    // The second space's only terminal (`t30`) is not live: no tab draws,
+    // and its row is the current one.
     wait_for(&view, cx, "the second document space", |this| {
-        tab_labels(this) == ["1"] && this.terminal.live.connected
+        let current = herdr2_hosts(&this.shell.sidebar, &this.terminal, &this.board.hidden)
+            .first()
+            .and_then(|row| row.spaces.get(1).map(|space| space.current));
+        tab_labels(this).is_empty() && current == Some(true) && this.terminal.live.connected
     });
     // New tab waits for the write path (owner answer D2-1 (1)).
     view.update(cx, |this, _| {
