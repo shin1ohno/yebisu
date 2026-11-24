@@ -124,7 +124,7 @@ extension SmokeQA {
         // T-IM-S8: no system caret over the cursor cell; four screenshots, as a caret blinks.
         inputModeCase("s8") {
             _ = try? qa.waitState("no indicator before s8", timeout: 6) { !self.shown($0) }
-            observe(app, "s8-cursor", qa.read())
+            observeUntil(app, qa, "s8-cursor", timeout: 6) { self.active($0) && !self.shown($0) }
             for n in 1...4 {
                 save("input-mode-s8-\(n)")
                 usleep(300_000)
@@ -167,22 +167,28 @@ extension SmokeQA {
                 observeUntil(app, qa, "\(step)-closed", timeout: 10) { self.active($0) }
             }
         }
+        // The ... menu's "Command palette" row opens the Shortcuts popover (shell/shortcuts.rs);
+        // an outside press closes it (XCUITest's Escape did not), here on the terminal, which may
+        // count the press or not. Find is not run: its row did not run with this Herdr 1 peer,
+        // and AC5 does not list it (owner check D6 covers it).
         inputModeCase("s5-palette") {
-            try menuItem(qa, QIds.palette, what: "the command palette is open") { _ in true }
+            try menuItem(qa, QIds.palette, what: "the Shortcuts popover is open") { _ in true }
             observeUntil(app, qa, "s5-palette-open", timeout: 5) { self.inactive($0) }
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            _ = try? qa.press(QAIds.terminalInput)
+            if !(qa.read().map { self.active($0) } ?? false) {
+                _ = try? qa.press(QAIds.terminalInput)
+            }
             observeUntil(app, qa, "s5-palette-closed", timeout: 10) { self.active($0) }
-        }
-        inputModeCase("s5-find") {
-            try menuItem(qa, QIds.find, what: "Find is open") { _ in true }
-            observeUntil(app, qa, "s5-find-open", timeout: 5) { _ in true }
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            observeUntil(app, qa, "s5-find-closed", timeout: 10) { self.active($0) }
         }
 
         // T-IM-S6: the band's ctrl latch and a letter change nothing; the band's Hide switches the
-        // interaction off.
+        // interaction off. A fresh launch, so an overlay a T-IM-S5 step left open cannot take
+        // the press.
         inputModeCase("s6") {
+            app.terminate()
+            app.launchEnvironment = Self.inputModeEnvironment
+            app.launch()
+            try waitTerminal(qa, "the wire-peer terminal is connected again")
             try qa.press(QAIds.terminalInput, effect: 10, what: "the software keyboard is up") { $0.keyboardUp }
             let keyboard = try qa.settledKeyboard("s6 keyboard up").keyboard
             observe(app, "s6-keyboard", qa.read())
@@ -205,8 +211,8 @@ extension SmokeQA {
             observeUntil(app, qa, "s3-foreground", timeout: 15) { self.active($0) }
         }
 
-        // T-IM-S2 (Herdr 2) and T-IM-S4: the core's shell echoes typed text, which moves the
-        // cursor; a composition survives output that a background job prints while composing.
+        // T-IM-S2 (Herdr 2) and T-IM-S4: the core mock echoes typed text, which moves the
+        // cursor; a composition survives output that the mock prints while composing.
         inputModeCase("s2-h2") {
             app.terminate()
             app.launchEnvironment = Self.coreEnvironment
@@ -223,15 +229,33 @@ extension SmokeQA {
                 (self.inputMode($0)?["caret_rect"] as? [Double]) != h2Caret
             }
         }
+        // Output arrives while the composition is open: under YEBISU_CORE_QA the typed line
+        // yebisu-139-tick makes the core mock print a dot every 2 s (core_mock.rs QaTicks).
+        // typeText inserts text without the IME, so the composition is typed key by key:
+        // switch until a typed n composes.
         inputModeCase("s4") {
-            app.typeText("\n(sleep 4; echo tick-139) &\n")
+            app.typeText("\nyebisu-139-tick\n")
             sleep(1)
-            // To Japanese (en_US -> ja_JP: up to three switches), then compose without committing.
-            for n in 1...3 { switchSource(app, qa, "s4-switch-\(n)") }
-            app.typeText("nihon")
+            for n in 1...4 {
+                switchSource(app, qa, "s4-switch-\(n)")
+                app.typeKey("n", modifierFlags: [])
+                usleep(800_000)
+                let marked = self.inputMode(qa.read())?["marked"] as? String ?? ""
+                print("INPUT_MODE s4 switch \(n): marked \(marked)")
+                if !marked.isEmpty { break }
+                app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+                usleep(600_000)
+            }
+            for key in ["i", "h", "o", "n"] {
+                app.typeKey(key, modifierFlags: [])
+                usleep(400_000)
+            }
             observe(app, "s4-composing", qa.read())
-            sleep(6)
-            observe(app, "s4-after-output", qa.read())
+            // The next dot moves the cursor within about 2 s.
+            let composing = inputMode(qa.read())?["cursor"] as? [Double]
+            observeUntil(app, qa, "s4-after-output", timeout: 30) {
+                (self.inputMode($0)?["cursor"] as? [Double]) != composing
+            }
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         }
         XCTAssertEqual(app.state, .runningForeground)
@@ -244,5 +268,4 @@ private enum QIds {
     static let shortcuts = "qa.settings.page.shortcuts"
     static let hosts = "qa.settings.page.hosts-and-keys"
     static let palette = "qa.menu.command-palette"
-    static let find = "qa.menu.find"
 }

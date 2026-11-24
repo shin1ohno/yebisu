@@ -53,10 +53,9 @@ class CaseTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("precondition", reason)
 
-    def test_s5_wants_off_while_a_sheet_is_open_and_on_in_find(self):
+    def test_s5_wants_off_while_a_sheet_is_open_and_on_after(self):
         rows = [line(f"{row}-open", activated=False) for row in check.OFF_WHILE_OPEN]
         rows += [line(f"{row}-closed") for row in check.OFF_WHILE_OPEN]
-        rows += [line("s5-find-open"), line("s5-find-closed")]
         self.assertTrue(check.judge_s5(obs(*rows))[0])
         rows[0] = line("s5-settings-open")
         ok, reason = check.judge_s5(obs(*rows))
@@ -64,10 +63,15 @@ class CaseTests(unittest.TestCase):
         self.assertIn("s5-settings: on while open", reason)
 
     def test_s4_wants_the_same_marked_text_after_output(self):
-        self.assertTrue(check.judge_s4(obs(line("s4-composing", marked="にほん"),
-                                            line("s4-after-output", marked="にほん")))[0])
-        self.assertFalse(check.judge_s4(obs(line("s4-composing", marked="にほん"),
-                                             line("s4-after-output", marked="")))[0])
+        before, after = [10, 40, 9, 18], [10, 58, 9, 18]
+        self.assertTrue(check.judge_s4(obs(line("s4-composing", marked="にほん", cursor=before),
+                                            line("s4-after-output", marked="にほん", cursor=after)))[0])
+        self.assertFalse(check.judge_s4(obs(line("s4-composing", marked="にほん", cursor=before),
+                                             line("s4-after-output", marked="", cursor=after)))[0])
+        ok, reason = check.judge_s4(obs(line("s4-composing", marked="にほん", cursor=before),
+                                        line("s4-after-output", marked="にほん", cursor=before)))
+        self.assertFalse(ok)
+        self.assertIn("no output", reason)
         ok, reason = check.judge_s4(obs(line("s4-composing", marked=""), line("s4-after-output", marked="")))
         self.assertFalse(ok)
         self.assertIn("not observable", reason)

@@ -21,8 +21,9 @@ import sys
 
 KEYBOARDS = ['en_US@sw=QWERTY;hw=Automatic', 'ja_JP-Romaji@sw=QWERTY-Japanese;hw=Automatic']
 CASES = ('T-IM-S1', 'T-IM-S2', 'T-IM-S3', 'T-IM-S4', 'T-IM-S5', 'T-IM-S6', 'T-IM-S7', 'T-IM-S8')
-# The rows a sheet or panel switches the interaction off for (AC5), and where it stays on:
-# Find's field is drawn by GPUI, so the text view stays first responder (issue Design 5).
+# The rows a sheet or popover switches the interaction off for (AC5): Settings, its Shortcuts
+# and Hosts & keys pages, and the Shortcuts popover (the ... menu's "Command palette" row).
+# Find is not run here (AC5 does not list it; owner check D6 covers it).
 OFF_WHILE_OPEN = ('s5-settings', 's5-shortcuts', 's5-hosts', 's5-palette')
 
 
@@ -126,9 +127,11 @@ def judge_s4(obs):
     after = mode(obs, 's4-after-output').get('marked')
     if not isinstance(composing, str) or not composing:
         return False, 'no composition: the Japanese input source did not compose (not observable)'
+    if rect(mode(obs, 's4-composing').get('cursor')) == rect(mode(obs, 's4-after-output').get('cursor')):
+        return False, 'no output moved the cursor while composing'
     if after != composing:
         return False, f'marked text {composing!r} became {after!r} after output'
-    return True, f'marked text {composing!r} survived the output'
+    return True, f'marked text {composing!r} survived output that moved the cursor'
 
 
 def judge_s5(obs):
@@ -138,10 +141,6 @@ def judge_s5(obs):
             reasons.append(f'{row}: on while open')
         if not active(obs, f'{row}-closed'):
             reasons.append(f'{row}: off after close')
-    if not active(obs, 's5-find-open'):
-        reasons.append('s5-find: off while its GPUI field is open')
-    if not active(obs, 's5-find-closed'):
-        reasons.append('s5-find: off after close')
     return not reasons, '; '.join(reasons) or 'off while Settings, Shortcuts, Hosts & keys, palette open; on after'
 
 
