@@ -190,9 +190,12 @@ fn unknown_values_give_no_receipt_and_are_counted() {
         tracing::info!(target: "herdr_uikit::qa_input", receipt = "secret-receipt");
         // A required field is missing.
         tracing::info!(target: "herdr_uikit::qa_input", receipt = "touch", stage = "began", kind = "direct");
+        // An unknown value in a listed field this receipt does not use still rejects it.
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "menu-perform",
+            outcome = "no_tag", current = 1_i64, stage = "secret-stage");
     });
     assert!(taken.is_empty(), "{taken:?}");
-    assert_eq!(unknown, 7);
+    assert_eq!(unknown, 8);
 }
 
 #[test]
