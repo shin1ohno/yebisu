@@ -157,6 +157,8 @@ mod p11_observer;
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 mod qa_stderr;
 #[cfg(any(target_os = "ios", test))]
+mod terminal_jump;
+#[cfg(any(target_os = "ios", test))]
 mod terminal_wheel;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]

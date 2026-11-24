@@ -127,40 +127,57 @@ impl Smoke {
 
     /// Starting a composition while the focused pane shows its scrollback
     /// returns it to the bottom first, so the composition and its candidate
-    /// window sit at the input position (owner decision 6). Herdr 1 only:
-    /// yebisu cannot see a Herdr 2 pane's position yet.
+    /// window sit at the input position (owner decision 6).
     pub(crate) fn compose_started_at_bottom(&mut self, window: &mut Window) {
-        if self.terminal.core.is_some() {
+        let Some(InputTarget::Pane(id)) = self
+            .terminal
+            .input
+            .destination
+            .as_ref()
+            .map(|destination| destination.target.clone())
+        else {
             return;
+        };
+        if self.scroll_to_bottom(&id) {
+            // UIKit asks for the candidate rectangle again once the bottom lands.
+            window.invalidate_character_coordinates();
+        }
+    }
+
+    /// Asks Herdr 1 to show `pane_id`'s bottom when the pane shows its
+    /// scrollback: with `pane.scroll`, or with the wheel when Herdr lacks that
+    /// method and the pane reads neither the mouse nor the alternate screen.
+    /// Herdr 1 only: yebisu cannot see a Herdr 2 pane's position yet. Returns
+    /// whether a request was made.
+    pub(crate) fn scroll_to_bottom(&mut self, pane_id: &str) -> bool {
+        if self.terminal.core.is_some() {
+            return false;
         }
         let Some(destination) = self.terminal.input.destination.clone() else {
-            return;
-        };
-        let InputTarget::Pane(id) = &destination.target else {
-            return;
+            return false;
         };
         let Some(surface) = self.terminal.live.surface.clone() else {
-            return;
+            return false;
         };
-        let Some(pane) = surface.panes.iter().find(|pane| &pane.pane_id == id) else {
-            return;
+        let Some(pane) = surface.panes.iter().find(|pane| pane.pane_id == pane_id) else {
+            return false;
         };
         let Some(offset) = pane
             .scroll
             .map(|scroll| scroll.offset_from_bottom)
             .filter(|offset| *offset > 0)
         else {
-            return;
+            return false;
         };
         let result = if Method::PaneScroll.advertised_in(&self.terminal.live.methods) {
             let Some(handle) = &self.terminal.link.handle else {
-                return;
+                return false;
             };
             handle
                 .request(
                     &destination.boot,
                     Method::PaneScroll,
-                    serde_json::json!({"pane_id": id, "offset_from_bottom": 0}),
+                    serde_json::json!({"pane_id": pane_id, "offset_from_bottom": 0}),
                 )
                 .map(drop)
                 .map_err(|error| crate::Error::Ssh(error.to_string()))
@@ -174,17 +191,18 @@ impl Smoke {
                 modifiers: 0,
                 lines: u16::try_from(offset).unwrap_or(u16::MAX),
             };
-            self.terminal
-                .link
-                .send_wheel(&destination, &destination.target, vec![event])
+            self.terminal.link.send_wheel(
+                &destination,
+                &InputTarget::Pane(pane_id.to_owned()),
+                vec![event],
+            )
         } else {
-            return;
+            return false;
         };
         if let Err(error) = result {
             self.terminal.live.status = error.to_string();
         }
-        // UIKit asks for the candidate rectangle again once the bottom lands.
-        window.invalidate_character_coordinates();
+        true
     }
 }
 

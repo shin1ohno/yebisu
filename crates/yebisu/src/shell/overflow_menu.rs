@@ -266,6 +266,7 @@ impl Smoke {
                         .debug_selector(|| "shell-overflow-menu".into())
                         .min_h_0()
                         .overflow_y_scroll()
+                        .track_scroll(self.shell.indicators.overflow_menu.handle())
                         .occlude()
                         // A press outside the terminal column (the sidebar) closes it.
                         .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -279,7 +280,8 @@ impl Smoke {
                         .shadow(vec![shadow::POPOVER.box_shadow()])
                         .bg(rgb(color::RAISED))
                         .text_color(rgb(color::TEXT))
-                        .children(rows),
+                        .children(rows)
+                        .child(self.shell.indicators.overflow_menu.thumb()),
                 )
                 .into_any_element(),
         )

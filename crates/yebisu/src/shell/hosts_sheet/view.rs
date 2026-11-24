@@ -219,7 +219,9 @@ impl Smoke {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .child(list),
+                    .track_scroll(self.shell.indicators.first_run.handle())
+                    .child(list)
+                    .child(self.shell.indicators.first_run.thumb()),
             )
             .child(
                 div()
@@ -528,6 +530,7 @@ impl Smoke {
                     .id("hosts-list-body")
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(self.shell.indicators.hosts_list.handle())
                     .p(px(metric::SIDE))
                     .flex()
                     .flex_col()
@@ -540,7 +543,8 @@ impl Smoke {
                             .text_color(rgb(color::MUTED))
                             .child(self.setup.status.clone()),
                     )
-                    .child(developer),
+                    .child(developer)
+                    .child(self.shell.indicators.hosts_list.thumb()),
             )
             .into_any_element()
     }
@@ -761,6 +765,7 @@ impl Smoke {
                     .id("add-host-body")
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(self.shell.indicators.add_host.handle())
                     .pt(px(BODY_TOP_PADDING))
                     .px(px(BODY_SIDE_PADDING))
                     .pb(px(BODY_SIDE_PADDING))
@@ -787,7 +792,8 @@ impl Smoke {
                             .when(!host_done, |step| step.opacity(UPCOMING_STEP_OPACITY))
                             .child(step_title(3, false, host_done, "Sign in and open Herdr"))
                             .child(sign_in),
-                    ),
+                    )
+                    .child(self.shell.indicators.add_host.thumb()),
             )
             .into_any_element()
     }

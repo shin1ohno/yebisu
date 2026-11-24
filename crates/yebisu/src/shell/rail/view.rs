@@ -165,6 +165,7 @@ impl Smoke {
             .min_h_0()
             .w_full()
             .overflow_y_scroll()
+            .track_scroll(self.shell.indicators.rail.handle())
             .children(items.iter().enumerate().flat_map(|(index, item)| {
                 let divider =
                     (index > 0 && item.kind == RailItemKind::Host).then(|| host_divider(index));
@@ -181,7 +182,8 @@ impl Smoke {
                     .children(agents.iter().enumerate().map(|(index, item)| {
                         rail_item(items.len() + index + 1, item, &metrics, &measure, cx)
                     }))
-            });
+            })
+            .child(self.shell.indicators.rail.thumb());
         let expand_reason =
             super::expand_unavailable(self.sidebar_user_mode(), self.shell.frame.sidebar_collapsed);
         let header_control = rail_button("rail-new-space", "New space", RailIcon::NewSpace, true)

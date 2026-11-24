@@ -61,7 +61,9 @@ impl Smoke {
                             .flex_1()
                             .min_h_0()
                             .overflow_y_scroll()
+                            .track_scroll(self.shell.indicators.compact_sidebar.handle())
                             .child(list)
+                            .child(self.shell.indicators.compact_sidebar.thumb())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let request =
                                     this.terminal.navigating.as_ref().map(|nav| &nav.request);
@@ -176,7 +178,9 @@ impl Smoke {
                     .bg(rgb(color::RAISED))
                     .occlude()
                     .overflow_y_scroll()
-                    .children(rows),
+                    .track_scroll(self.shell.indicators.compact_tabs.handle())
+                    .children(rows)
+                    .child(self.shell.indicators.compact_tabs.thumb()),
             )
             .into_any_element()
     }

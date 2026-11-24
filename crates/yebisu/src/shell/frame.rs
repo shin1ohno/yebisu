@@ -329,7 +329,9 @@ impl Smoke {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .child(list),
+                        .track_scroll(self.shell.indicators.sidebar.handle())
+                        .child(list)
+                        .child(self.shell.indicators.sidebar.thumb()),
                 )
                 .children(self.render_sidebar_footer(cx))
                 .into_any_element(),

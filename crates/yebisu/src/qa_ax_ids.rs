@@ -104,6 +104,9 @@ pub(crate) const SETTINGS_DENSITY_COMPACT: &str = "qa.settings.density.compact";
 /// The terminal's input area (terminal_view.rs, `terminal-input`): a tap
 /// there gives the terminal the keyboard.
 pub(crate) const TERMINAL_INPUT: &str = "qa.terminal.input";
+/// A pane's Jump to bottom button (terminal_jump.rs), shown while it
+/// shows its scrollback (issue #137 PR 5).
+pub(crate) const TERMINAL_JUMP_BOTTOM: &str = "qa.terminal.jump_bottom";
 /// SH1-152's QA controls (edit_menu_qa_sh1_152.rs, `YEBISU_SH1_152_CASE`),
 /// one per command; Begin keeps its identifier when it reads "Begun". The
 /// second E5 scene's controls ("152 Two ...") have their own identifiers.

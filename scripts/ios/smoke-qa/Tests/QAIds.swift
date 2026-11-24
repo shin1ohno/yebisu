@@ -24,6 +24,7 @@ enum QAIds {
     static let densityCompact = "qa.settings.density.compact"
     static let densityRegular = "qa.settings.density.regular"
     static let terminalInput = "qa.terminal.input"
+    static let terminalJumpBottom = "qa.terminal.jump_bottom"
     static let menuSelectText = "qa.menu.select-text"
     static let settingsPageInput = "qa.settings.page.input"
     static let startDoubleTap = "qa.settings.start-selection.double-tap"
