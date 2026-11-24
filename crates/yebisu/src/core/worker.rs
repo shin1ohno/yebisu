@@ -134,6 +134,36 @@ pub(super) fn run(
                         active.terminals[saved.active].input(&event)?;
                     }
                 }
+                Command::Wheel {
+                    destination,
+                    pane,
+                    event,
+                } => {
+                    let Some(saved) = active_layout(&workspace) else {
+                        continue;
+                    };
+                    let current = screen::publish(
+                        &active.screens,
+                        saved,
+                        size,
+                        generation,
+                        revision,
+                        epoch,
+                        column.latest(),
+                    );
+                    if queued_epoch == input_epoch.load(Ordering::Acquire)
+                        && crate::terminal_input::destination(&current, generation).as_ref()
+                            == Some(&destination)
+                        && let Some(index) = saved.ids.iter().position(|id| id.as_str() == pane)
+                        && active
+                            .screens
+                            .get(index)
+                            .is_some_and(|screen| !screen.ended)
+                        && let Some(terminal) = active.terminals.get_mut(index)
+                    {
+                        terminal.input(&event)?;
+                    }
+                }
                 #[cfg(test)]
                 Command::PauseInput(gate) => gate.wait()?,
                 #[cfg(test)]

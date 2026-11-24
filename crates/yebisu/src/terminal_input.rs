@@ -138,6 +138,10 @@ impl TerminalInput {
     /// L9: while `hold` is true the window is too small for one pane (Q1,
     /// D2), so no input reaches the terminal. Entering the hold drops what
     /// is queued, so nothing typed into a too-small window leaves later.
+    /// Whether the window is too small for one pane, so nothing is sent.
+    pub fn holds_size(&self) -> bool {
+        self.size_hold
+    }
     pub fn hold_for_size(&mut self, hold: bool) {
         if hold && !self.size_hold {
             self.pending = None;

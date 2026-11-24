@@ -39,6 +39,8 @@ pub(crate) struct TerminalView {
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
     pub(crate) link_hover: crate::terminal_links::Hover,
+    /// Wheel and trackpad motion not yet a whole line (issue #137).
+    pub(crate) wheel: crate::upstream::wheel::WheelAccumulator,
 }
 impl TerminalView {
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
@@ -538,6 +540,7 @@ impl Smoke {
                         cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
                     .child(self.edit_menu_canvas(cx))
+                    .child(self.terminal_wheel_canvas(cx))
                     // Last, so no other child's hitbox lies over it.
                     .children(crate::qa_ax::mark(
                         crate::qa_ax::ids::TERMINAL_INPUT,

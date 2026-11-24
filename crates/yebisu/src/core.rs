@@ -31,6 +31,13 @@ use std::sync::{
 
 pub(crate) enum Command {
     Input(Destination, ClientPaneInputEvent),
+    /// Wheel input for `pane`, which need not be the focused pane; the
+    /// focused `destination` proves the layout it was aimed at is current.
+    Wheel {
+        destination: Destination,
+        pane: String,
+        event: ClientPaneInputEvent,
+    },
     PutImage {
         destination: Destination,
         ticket: crate::handoff_ticket::PasteTicket,

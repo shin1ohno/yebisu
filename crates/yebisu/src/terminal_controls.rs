@@ -158,7 +158,9 @@ impl Smoke {
             sheprd_client::protocol::ClientPaneInputEvent::Key { .. } => "Key",
             sheprd_client::protocol::ClientPaneInputEvent::TextCommit(_) => "TextCommit",
             sheprd_client::protocol::ClientPaneInputEvent::Mouse { .. } => "Mouse",
-        }, "terminal":match &event.destination.target { crate::terminal::InputTarget::Pane(id) | crate::terminal::InputTarget::Popup(id) => id }});
+        }, "terminal":match &event.destination.target { crate::terminal::InputTarget::Pane(id) | crate::terminal::InputTarget::Popup(id) => id },
+        "mouse_kind":match &event.event { sheprd_client::protocol::ClientPaneInputEvent::Mouse { kind, .. } => Some(format!("{kind:?}")), _ => None },
+        "lines":match &event.event { sheprd_client::protocol::ClientPaneInputEvent::Mouse { lines, .. } => Some(*lines), _ => None }});
         if !self.terminal.input.queue(event) {
             self.terminal.live.status = "Input refused: disconnected or queue full".into();
             return;

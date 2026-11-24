@@ -276,4 +276,66 @@ impl Link {
         }
         .map_err(|e| crate::Error::Ssh(e.to_string()))
     }
+
+    /// Wheel input for `pane`, which need not be the focused pane. The
+    /// focused `destination` proves the connection, boot and epoch exactly as
+    /// `send_verified` does; the pane must be in the same published surface.
+    pub(crate) fn send_wheel(
+        &self,
+        destination: &crate::terminal_input::Destination,
+        pane: &crate::terminal::InputTarget,
+        events: Vec<sheprd_client::protocol::ClientPaneInputEvent>,
+    ) -> crate::Result<()> {
+        let changed = || {
+            Err(crate::Error::Ssh(
+                "Input target changed; input discarded".into(),
+            ))
+        };
+        let _live = match self.inbox.try_lock() {
+            Ok(live) => {
+                if crate::terminal_input::destination(&live, self.generation).as_ref()
+                    != Some(destination)
+                {
+                    return changed();
+                }
+                let listed = match pane {
+                    crate::terminal::InputTarget::Pane(id) => live
+                        .surface
+                        .as_ref()
+                        .is_some_and(|surface| surface.panes.iter().any(|p| &p.pane_id == id)),
+                    crate::terminal::InputTarget::Popup(_) => pane == &destination.target,
+                };
+                if !listed {
+                    return changed();
+                }
+                Some(live)
+            }
+            Err(TryLockError::WouldBlock) => {
+                if destination.generation != self.generation
+                    || self.published_epoch.load(Ordering::Acquire) != destination.epoch
+                {
+                    return changed();
+                }
+                None
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(crate::Error::Ssh(
+                    "Input state busy; input discarded".into(),
+                ));
+            }
+        };
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| crate::Error::Ssh("Disconnected; input discarded".into()))?;
+        match pane {
+            crate::terminal::InputTarget::Pane(id) => {
+                handle.send_input(&destination.boot, id, events)
+            }
+            crate::terminal::InputTarget::Popup(id) => {
+                handle.send_popup_input(&destination.boot, id, events)
+            }
+        }
+        .map_err(|e| crate::Error::Ssh(e.to_string()))
+    }
 }

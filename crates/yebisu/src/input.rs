@@ -256,7 +256,11 @@ impl EntityInputHandler for Smoke {
             }
             self.actions.key_status = None;
             self.refresh_terminal_input();
+            let starting = self.terminal.input.composition.marked.is_none();
             self.terminal.input.mark(text, selected);
+            if starting && self.terminal.input.composition.marked.is_some() {
+                self.compose_started_at_bottom(window);
+            }
             window.notify_text_input_changed(self.active_focus());
             cx.notify();
             return;
