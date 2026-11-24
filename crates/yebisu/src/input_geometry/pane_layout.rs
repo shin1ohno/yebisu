@@ -6,6 +6,8 @@ const OUTER_TOP: f32 = 10.;
 const INNER_SIDE: f32 = 12.;
 const INNER_TOP: f32 = 14.;
 const HALF_GAP: f32 = metric::INLINE_GAP / 2.;
+/// A slot this close to the pane area's extent spans the whole axis.
+const SPAN_TOLERANCE: f32 = 0.5;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PanePlacement<'a> {
@@ -125,25 +127,63 @@ impl InputGeometry {
 
     /// Budget in cell space before sending a resize. Use the tightest pane in
     /// each axis and leave one cell for rounding at a daemon split boundary.
+    /// An axis no split divides has no such boundary: every pane's slot is
+    /// the whole axis at any size, so it needs no rounding cell.
+    ///
+    /// The slot spans the daemon's whole pane rectangle, border cells
+    /// included, but the outline replaces those cells and the body holds only
+    /// the cells inside them. Count them as body room, so the body does not
+    /// keep their width empty after its last column and row.
     pub(crate) fn viewport_size(&self, panes: &[PanePlacement<'_>]) -> Size<Pixels> {
         if panes.is_empty() {
             return self.grid.size;
         }
         let area = self.pane_area().size;
         let mut available = area;
+        let (mut split_x, mut split_y) = (false, false);
         for pane in panes {
+            split_x |= pane.slot.size.width < area.width - px(SPAN_TOLERANCE);
+            split_y |= pane.slot.size.height < area.height - px(SPAN_TOLERANCE);
+            let (columns, rows) = border_cells(pane.pane);
+            let width = pane.body.size.width + px(columns * self.cell_width);
+            let height = pane.body.size.height + px(rows * self.cell_height);
             available.width = available
                 .width
-                .min(area.width * (pane.body.size.width / pane.slot.size.width));
+                .min(area.width * (width / pane.slot.size.width));
             available.height = available
                 .height
-                .min(area.height * (pane.body.size.height / pane.slot.size.height));
+                .min(area.height * (height / pane.slot.size.height));
         }
+        let reserve = |split: bool, cell: f32| px(if split { cell } else { 0. });
         size(
-            (available.width - px(self.cell_width)).max(px(0.)),
-            (available.height - px(self.cell_height)).max(px(0.)),
+            (available.width - reserve(split_x, self.cell_width)).max(px(0.)),
+            (available.height - reserve(split_y, self.cell_height)).max(px(0.)),
         )
     }
+}
+
+/// Border columns and rows the daemon keeps around a pane's terminal. On the
+/// primary screen Herdr 1 also keeps the pane's last inner column for its
+/// scrollbar, blank while there is no scrollback; that column is painted, so
+/// it is not a border. Leaving it out keeps the count the same when a program
+/// enters or leaves the alternate screen. When the scrollbar is turned off in
+/// the daemon, this counts one column too few, which only leaves room.
+fn border_cells(pane: &PaneSurfacePane) -> (f32, f32) {
+    let (rect, inner) = (pane.rect, pane.inner_rect);
+    let end = |start: u16, extent: u16| start.saturating_add(extent);
+    let left = inner.x.saturating_sub(rect.x);
+    let top = inner.y.saturating_sub(rect.y);
+    let right = end(rect.x, rect.width).saturating_sub(end(inner.x, inner.width));
+    let right = if pane.alternate_screen_active {
+        right
+    } else {
+        right.saturating_sub(1)
+    };
+    let bottom = end(rect.y, rect.height).saturating_sub(end(inner.y, inner.height));
+    (
+        f32::from(left.saturating_add(right)),
+        f32::from(top.saturating_add(bottom)),
+    )
 }
 
 fn inside(inner: SurfaceRect, outer: SurfaceRect) -> bool {
@@ -201,3 +241,7 @@ impl Axis {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "pane_layout_tests.rs"]
+mod tests;
