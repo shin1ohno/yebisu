@@ -383,7 +383,9 @@ class P12OracleTests(unittest.TestCase):
         """Issue #142 stage 2-6: the A2 failure names where the command stopped, by the app's receipts."""
         performed = dict(receipt="menu-perform", outcome="performed", generation=3, index=1, current=3, keyed=False)
         cases = {
-            "no menu-perform": [dict(receipt="touch", stage="began", touch_kind="direct", x=1.0, y=2.0, touches=1)],
+            "no menu-perform": [dict(receipt="touch", stage="ended", touch_kind="direct", x=1.0, y=2.0, touches=1)],
+            r"pick tap reached the app \(1 touch began, last at 1\.0, 2\.0\), not the menu item":
+                [dict(receipt="touch", stage="began", touch_kind="direct", x=1.0, y=2.0, touches=1)],
             "menu-perform no_tag": [dict(receipt="menu-perform", outcome="no_tag", current=3)],
             "menu-deliver stale_generation": [performed, dict(receipt="menu-deliver", outcome="stale_generation",
                                                               generation=3, index=1, current=4)],
@@ -579,6 +581,164 @@ class P12RetryTests(unittest.TestCase):
         ui.append(dict(kind="reveal-retry", case="palette", reason="injected fault", injected=False, time=1))
         with self.assertRaisesRegex(ValueError, "skip-swipe:palette did not force"):
             p12.validate_faults("skip-swipe:palette", ui)
+
+    # Issue #142 stage 3: the decision table, one test per row (mirrors MenuInputDecision in QAAx.swift).
+    def test_row_1_a_closed_menu_with_a_callback_is_success(self):
+        self.assertEqual(p12.pick_decision(closed=True, entry=True, perform_grew=True, touch_grew=False, screen_moved=False,
+                                           receipts_bad=False), ("success", False))
+
+    def test_row_2_an_open_menu_that_received_nothing_is_a1_and_resent_once(self):
+        self.assertEqual(p12.pick_decision(closed=False, entry=False, perform_grew=False, touch_grew=False, screen_moved=False,
+                                           receipts_bad=False), ("A1", True))
+        for moved in (dict(perform_grew=True), dict(touch_grew=True), dict(screen_moved=True)):
+            with self.subTest(**moved):
+                args = dict(closed=False, entry=False, perform_grew=False, touch_grew=False, screen_moved=False, receipts_bad=False)
+                self.assertEqual(p12.pick_decision(**{**args, **moved}), ("not-lost", False))
+
+    def test_row_3_a_closed_menu_without_a_callback_is_a2_and_not_resent(self):
+        self.assertEqual(p12.pick_decision(closed=True, entry=False, perform_grew=False, touch_grew=False, screen_moved=False,
+                                           receipts_bad=False), ("A2", False))
+
+    def test_row_4_a_dropped_command_is_a_defect_either_way(self):
+        for closed in (True, False):
+            self.assertEqual(p12.pick_decision(closed=closed, entry=False, perform_grew=True, touch_grew=False, screen_moved=False,
+                                               receipts_bad=True), ("defect", False))
+
+    def test_row_5_a_menu_that_never_opened_is_m_and_the_open_tap_is_resent_once(self):
+        self.assertEqual(p12.open_decision(item_exists=False, touch_grew=False, screen_moved=False), ("M", True))
+        self.assertEqual(p12.open_decision(item_exists=False, touch_grew=True, screen_moved=False), ("not-lost", False))
+        self.assertEqual(p12.open_decision(item_exists=False, touch_grew=False, screen_moved=True), ("not-lost", False))
+        self.assertEqual(p12.open_decision(item_exists=True, touch_grew=False, screen_moved=False), ("opened", False))
+
+    def pick_window(self, ui, case):
+        return select(ui, "os-menu-pick", case)
+
+    def test_a_proven_pick_retry_passes_and_is_reported(self):
+        records, messages, ui, shots = fixture()
+        pick = self.pick_window(ui, "sidebar")
+        ui.append(dict(kind="pick-retry", case="sidebar", reason="OS menu still open 5 s after the pick tap; tapping once more",
+                       injected=False, time=pick["started"] + .05))
+        result = p12.validate(records, messages, ui, shots)
+        self.assertEqual(result["retries"]["pick"], [dict(case="sidebar", reason=ui[-1]["reason"], injected=False)])
+        self.assertEqual(result["retries"]["open"], [])
+
+    def test_a_pick_retry_after_the_app_received_the_command_is_rejected(self):
+        """An A2 or defect case (menu-perform, or a touch, before the retry) is never a proven loss."""
+        for receipt in (dict(receipt="menu-perform", outcome="performed", generation=1, index=1, current=1, keyed=False),
+                        dict(receipt="touch", stage="began", touch_kind="direct", x=1.0, y=2.0, touches=1)):
+            with self.subTest(receipt=receipt["receipt"]):
+                def edit(r, m, u, s, receipt=receipt):
+                    pick = self.pick_window(u, "sidebar")
+                    r.append(dict(kind="input-receipt", time=pick["started"] + .02, **receipt))
+                    u.append(dict(kind="pick-retry", case="sidebar", reason="r", injected=False, time=pick["started"] + .05))
+                self.rejected(edit, r"pick-retry in case sidebar was not proven lost: the app received")
+
+    def test_a_proven_open_retry_passes_and_a_received_one_is_rejected(self):
+        records, messages, ui, shots = fixture()
+        reveal = select(ui, "reveal-result", "remote")
+        ui.append(dict(kind="open-retry", case="remote", reason="no menu item; tapping once more", injected=False, time=reveal["time"] + .1))
+        self.assertEqual([r["case"] for r in p12.validate(records, messages, ui, shots)["retries"]["open"]], ["remote"])
+        records.append(dict(kind="input-receipt", receipt="touch", stage="began", touch_kind="direct", x=1.0, y=2.0, touches=1,
+                            time=reveal["time"] + .05))
+        with self.assertRaisesRegex(ValueError, "open-retry in case remote was not proven lost"):
+            p12.validate(records, messages, ui, shots)
+
+    def test_menu_retries_need_a_reason_and_at_most_one_per_case(self):
+        for kind in ("pick-retry", "open-retry"):
+            with self.subTest(kind=kind):
+                records, messages, ui, shots = fixture()
+                ui.append(dict(kind=kind, case="sidebar", reason="", injected=False, time=1))
+                with self.assertRaisesRegex(ValueError, f"{kind} without a logged reason"):
+                    p12.validate_retries(ui)
+                ui[-1]["reason"] = "r"
+                ui.append(dict(kind=kind, case="sidebar", reason="r", injected=False, time=2))
+                with self.assertRaisesRegex(ValueError, f"more than one {kind} for a case"):
+                    p12.validate_retries(ui)
+                ui[-1].update(case="nope")
+                with self.assertRaisesRegex(ValueError, f"{kind} record incomplete"):
+                    p12.validate_retries(ui)
+
+    def test_menu_fault_specs(self):
+        for good in ("drop-pick:sidebar", "drop-open:remote", "drop-pick-twice:sidebar", "offset-pick:palette", "drop-open:focus-current"):
+            self.assertTrue(p12.valid_fault(good), good)
+        for bad in ("drop-pick:nope", "drop-open:release", "offset-pick", "drop-pick-thrice:sidebar"):
+            self.assertFalse(p12.valid_fault(bad), bad)
+
+    def test_menu_negative_controls_need_exactly_one_injected_retry(self):
+        for fault, kind in (("drop-pick:sidebar", "pick-retry"), ("drop-open:sidebar", "open-retry")):
+            with self.subTest(fault=fault):
+                _, _, ui, _ = fixture()
+                with self.assertRaisesRegex(ValueError, f"{fault} did not force exactly one logged retry"):
+                    p12.validate_faults(fault, ui)
+                ui.append(dict(kind=kind, case="sidebar", reason="injected fault", injected=True, time=1))
+                p12.validate_faults(fault, ui)
+                ui.append(dict(kind=kind, case="sidebar", reason="injected fault", injected=True, time=2))
+                with self.assertRaisesRegex(ValueError, f"{fault} did not force exactly one logged retry"):
+                    p12.validate_faults(fault, ui)
+
+    def test_expected_failure_controls_pass_only_when_they_fail_by_name(self):
+        self.assertIsNone(p12.expected_failure(""))
+        self.assertIsNone(p12.expected_failure("drop-pick:sidebar"))
+        self.assertEqual(p12.expected_failure("drop-pick-twice:sidebar"), ("pick lost twice", "sidebar"))
+        self.assertEqual(p12.expected_failure("offset-pick:palette"), ("pick tap reached the app", "palette"))
+        with self.assertRaisesRegex(ValueError, "runs alone"):
+            p12.expected_failure("offset-pick:palette,drop-tap:remote")
+        twice = "P12QA.swift:280: error: ... : failed - pick lost twice in case sidebar: the OS menu is still open"
+        retry = [dict(kind="pick-retry", case="sidebar", reason="injected", injected=True, time=1)]
+        self.assertTrue(p12.failed_as_expected("drop-pick-twice:sidebar", twice, retry))
+        self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", twice, []), "the resend must have been tried once")
+        self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", twice.replace("sidebar", "palette"), retry))
+        self.assertFalse(p12.failed_as_expected("drop-pick-twice:sidebar", "Native menu disappeared in case sidebar", retry))
+        reached = "tap lost (class A2) in case palette: pick tap reached the app (1 touch began, last at 1.0, 2.0), not the menu item"
+        self.assertTrue(p12.failed_as_expected("offset-pick:palette", reached, []))
+        self.assertFalse(p12.failed_as_expected("offset-pick:palette", reached,
+                                                [dict(kind="pick-retry", case="palette", reason="r", injected=False, time=1)]),
+                         "offset-pick must fail without a resend")
+        self.assertFalse(p12.failed_as_expected("offset-pick:palette", "tap lost (class A2) in case palette: no menu-perform", []))
+
+    def test_a_pick_tap_that_reached_the_app_is_named(self):
+        def edit(r, m, u, s):
+            P12OracleTests.lose_tap(self, "palette")(r, m, u, s)
+            pick = self.pick_window(u, "palette")
+            r.append(dict(kind="input-receipt", receipt="touch", stage="began", touch_kind="direct", x=934.0, y=1100.0,
+                          touches=1, time=pick["started"] + .1))
+        self.rejected(edit, r"tap lost \(class A2\) in case palette: pick tap reached the app \(1 touch began, last at 934\.0, 1100\.0\)")
+
+    @staticmethod
+    def delay_setup(data, step, seconds):
+        """Moves everything after the start of `step`'s control window `seconds` later, so its setup press
+        reaches the app late inside one longer window (class F2's 5-9 s)."""
+        records, messages, ui, _ = data
+        control = next(r for r in ui if r.get("kind") == "fixture-control" and r["step"] == step)
+        start = control["started"]
+        for row in (*records, *messages, *ui):
+            for key in ("time", "started", "ended", "tapTime"):
+                if isinstance(row.get(key), (int, float)) and row[key] > start:
+                    row[key] += seconds
+        return control
+
+    def test_f2_a_late_setup_press_without_a_resend_passes(self):
+        """F2 replay: the press arrived 7 s after the tap; with no resend there is one begin and end per step."""
+        data = fixture()
+        control = self.delay_setup(data, "host", 7)
+        begin = next(r for r in data[0] if r.get("kind") == "p12-setup-begin" and r["step"] == "host")
+        self.assertGreater(begin["time"] - control["started"], 7)
+        p12.validate(*data)
+
+    def test_f2_the_old_resend_shape_is_rejected(self):
+        """The old timeout-only resend: a fixture-retry and a duplicated begin and end in the same window."""
+        data = fixture()
+        control = self.delay_setup(data, "host", 7)
+        records, _, ui, _ = data
+        for kind in ("p12-setup-begin", "p12-setup-end"):
+            copy_row = copy.deepcopy(next(r for r in records if r.get("kind") == kind and r["step"] == "host"))
+            copy_row["time"] = control["started"] + (.3 if kind == "p12-setup-begin" else .4)
+            records.append(copy_row)
+        records.sort(key=lambda r: r.get("time", 0))
+        ui.append(dict(kind="fixture-retry", step="host", reason="no p12-setup-end within 5 s", injected=False,
+                       time=control["started"] + 5.2))
+        with self.assertRaisesRegex(ValueError, "setup callbacks missing/duplicated"):
+            p12.validate(*data)
 
     def test_steps_match_the_fixture_run_order(self):
         records, messages, ui, shots = fixture()
