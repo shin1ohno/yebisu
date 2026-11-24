@@ -7,7 +7,7 @@
 //! here. The iPad file keeps the iPad-only tabs and the iPad's own choice of
 //! space and tab (`doc_view`, decision 11), never document tabs.
 use super::{
-    DocCatalog, DocRows, DocSpace, TabInfo,
+    DocCatalog, DocRows, DocSpace, SessionInfo, TabInfo,
     herdr_doc::{Drawable, SpaceView, View},
     herdr_doc_sync::{DocSnapshot, Read},
     store::{Saved, Tab, Workspace},
@@ -79,6 +79,46 @@ impl DocTabs {
     /// Whether a document space is drawn (`NewTab` and `Split` wait).
     pub(super) fn drawing_space(&self) -> bool {
         self.local.is_some()
+    }
+
+    /// Draws what holds `address` for a focus: its document space, or the
+    /// iPad-only tabs, which a terminal in no tab also joins. True when the
+    /// drawn tabs changed.
+    pub(super) fn focus(&mut self, address: &str, workspace: &mut Workspace) -> bool {
+        let before = drawn(workspace);
+        self.reveal(address, workspace);
+        let held = workspace
+            .tabs
+            .iter()
+            .any(|tab| tab.layout.ids.iter().any(|id| id.as_str() == address));
+        if !held && self.drawing_space() {
+            self.select(None, workspace);
+        }
+        before != drawn(workspace)
+    }
+
+    /// The session's catalog row gets the document's spaces, and the drawn
+    /// document tabs say which have no name of their own.
+    /// It also writes `qa.state.herdr_doc`, so the QA field changes with
+    /// the rows (a session that never read the document writes nothing).
+    pub(super) fn fill(&self, info: &mut SessionInfo, workspace: &Workspace) {
+        info.doc = self.catalog(workspace);
+        if self.taken.is_some() {
+            crate::qa_ax::core::doc(|| self.qa_value(workspace));
+        }
+        let Some(DocCatalog {
+            state: DocRows::Readable(spaces),
+            selected: Some(selected),
+            ..
+        }) = &info.doc
+        else {
+            return;
+        };
+        if let Some(space) = spaces.iter().find(|space| space.id == *selected) {
+            for tab in &mut info.tabs {
+                tab.auto_name = space.tabs.iter().any(|t| t.id == tab.id && t.auto_name);
+            }
+        }
     }
 
     /// Draws the space or the iPad-only tabs that hold `address`, if they

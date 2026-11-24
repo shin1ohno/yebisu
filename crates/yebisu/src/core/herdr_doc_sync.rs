@@ -28,6 +28,9 @@ use std::{
 pub(crate) const DOC_POLL: Duration = Duration::from_secs(5);
 /// How long one wait for events lasts before the stop flag is checked.
 const EVENT_WAIT: Duration = Duration::from_millis(250);
+/// How long a new connection waits for its first read: herdr-core's own
+/// call timeout.
+const FIRST_READ: Duration = Duration::from_secs(10);
 /// How often a thread without a stream checks that it should stop.
 const STOP_CHECK: Duration = Duration::from_millis(50);
 
@@ -66,6 +69,21 @@ impl DocMailbox {
         slot.0 += 1;
         slot.1 = Some(next);
         true
+    }
+
+    /// The first read, so a new connection draws the right space at once;
+    /// `None` when the session stopped or the read took longer than
+    /// `FIRST_READ` (the session then draws its iPad-only tabs and takes
+    /// the read when it comes).
+    pub(crate) fn first(&self, seen: &mut u64, stop: &AtomicBool) -> Option<DocSnapshot> {
+        let deadline = Instant::now() + FIRST_READ;
+        while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
+            if let Some(snapshot) = self.since(seen) {
+                return Some(snapshot);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        None
     }
 
     /// The snapshot published after `seen`, which moves past it.

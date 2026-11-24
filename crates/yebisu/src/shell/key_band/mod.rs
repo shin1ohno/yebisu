@@ -211,6 +211,8 @@ pub(crate) fn render_key_row(
         .gap(px(ROW_GAP))
         .px(px(ROW_GAP))
         .overflow_x_scroll()
+        // A vertical swipe does not move the band sideways.
+        .restrict_scroll_to_axis()
         .child(group(app, &LEFT, cx))
         .child(middle.unwrap_or_else(|| div().flex_1().min_w_0()))
         .child(group(app, &RIGHT, cx))
