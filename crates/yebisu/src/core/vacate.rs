@@ -14,7 +14,12 @@
 //! - a space found vacant by a poll rather than by its own last tab closing is
 //!   stopped only once two snapshots at least `GRACE` apart both found it
 //!   vacant, so another client's space, just created, is left alone;
-//! - the server is stopped only if it is still the one that was observed.
+//! - the stop itself, on the host, asks the server (its socket, never `hc
+//!   server status`, which starts a server) for its core id, its pid, its
+//!   uptime and its live terminals, in the one connection it stops through,
+//!   and refuses unless it is the server that was seen and runs nothing. A
+//!   core id never changes (herdr-core keeps it for good), so the pid, or the
+//!   age of the connection that saw the server, tells a restart.
 use super::SessionInfo;
 use sheprd_core_client::wire::{Terminal, TerminalState};
 use std::{
@@ -42,8 +47,39 @@ pub(super) fn vacant(tabs: usize, terminals: &[Terminal]) -> bool {
             .all(|terminal| terminal.state == TerminalState::Finished)
 }
 
-/// Stops the server of `session` if its core id is still the one given.
-pub(crate) type Stopper = Arc<dyn Fn(&str, &str) -> crate::Result<()> + Send + Sync>;
+/// The server a stop is for: what was seen of it, which the stop checks.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct Expect {
+    pub(crate) core_id: String,
+    /// The pid of the server that was seen (a poll saw it), if known.
+    pub(crate) pid: Option<u64>,
+    /// The server must have run at least this long (the connection that saw
+    /// it is that old), if known.
+    pub(crate) min_uptime_ms: Option<u64>,
+}
+
+impl Expect {
+    pub(super) fn seen(core_id: String, pid: Option<u64>) -> Self {
+        Self {
+            core_id,
+            pid,
+            min_uptime_ms: None,
+        }
+    }
+}
+
+/// What a stop did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Stopped {
+    /// The server is stopped, or there was none (nothing was started).
+    Done,
+    /// A terminal that is not finished runs in it: it was left running.
+    Busy,
+}
+
+/// Stops the server of `session` if it is the one `Expect` describes and no
+/// terminal runs in it.
+pub(crate) type Stopper = Arc<dyn Fn(&str, &Expect) -> crate::Result<Stopped> + Send + Sync>;
 
 /// The stopper for the host's spaces: SSH to the host on the iPad.
 pub(crate) fn stopper(host: &str) -> Stopper {
@@ -84,8 +120,8 @@ mod registry {
 #[cfg(target_os = "ios")]
 fn ssh_stopper(host: &str) -> Stopper {
     let host = host.to_owned();
-    Arc::new(move |session, core_id| {
-        let command = stop_command(session, core_id)?;
+    Arc::new(move |session, expect| {
+        let command = stop_command(session, expect)?;
         let (exit, output) =
             sheprd_client::run_ssh_command(&host, &command, Duration::from_secs(10), 4096, || {
                 false
@@ -93,22 +129,6 @@ fn ssh_stopper(host: &str) -> Stopper {
             .map_err(|error| crate::Error::Ssh(error.to_string()))?;
         stop_result(exit.code(), &output)
     })
-}
-
-/// What the exit status and output of `stop_command` mean.
-#[cfg_attr(not(any(target_os = "ios", test)), allow(dead_code))]
-pub(crate) fn stop_result(code: Option<i32>, output: &[u8]) -> crate::Result<()> {
-    match code {
-        Some(0) => Ok(()),
-        Some(STOPPED_ELSEWHERE) => Err(crate::Error::Ssh(
-            "Herdr 2 space is not the server that was seen; left running".into(),
-        )),
-        Some(127) => Err(crate::Error::Ssh("Herdr 2 is not installed".into())),
-        _ => Err(crate::Error::Ssh(format!(
-            "Herdr 2 server did not stop: {}",
-            crate::shell::herdr2_frame::session::one_line(&String::from_utf8_lossy(output))
-        ))),
-    }
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -120,42 +140,65 @@ fn ssh_stopper(_host: &str) -> Stopper {
     })
 }
 
-/// The exit status of `stop_command` when the server answering is not the one
-/// that was observed (restarted, or another server behind the same name).
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-const STOPPED_ELSEWHERE: i32 = 3;
-
-/// The remote POSIX command that stops one space's server. It looks for `hc`
-/// where `core_connect_command` does, and only stops the server whose
-/// `hc server status --json` names `core_id`. `hc server stop` is the CLI of
-/// the `server.stop` request.
+/// What the exit status and output of `stop_command` mean.
 #[cfg_attr(not(any(target_os = "ios", test)), allow(dead_code))]
-pub(crate) fn stop_command(session: &str, core_id: &str) -> crate::Result<String> {
+pub(crate) fn stop_result(code: Option<i32>, output: &[u8]) -> crate::Result<Stopped> {
+    let said = crate::shell::herdr2_frame::session::one_line(&String::from_utf8_lossy(output));
+    match code {
+        Some(0) => Ok(Stopped::Done),
+        Some(STILL_RUNNING) => Ok(Stopped::Busy),
+        Some(OTHER_SERVER) => Err(crate::Error::Ssh(format!(
+            "Herdr 2 space is not the server that was seen ({said}); left running"
+        ))),
+        Some(UNKNOWN) => Err(crate::Error::Ssh(
+            "Herdr 2 server did not answer; left running".into(),
+        )),
+        Some(NO_PYTHON) => Err(crate::Error::Ssh("python3 is needed on the host".into())),
+        _ => Err(crate::Error::Ssh(format!(
+            "Herdr 2 server did not stop: {said}"
+        ))),
+    }
+}
+
+/// Exit statuses of `stop.py` (see its header).
+const OTHER_SERVER: i32 = 3;
+const STILL_RUNNING: i32 = 4;
+const UNKNOWN: i32 = 5;
+const NO_PYTHON: i32 = 6;
+
+/// The remote POSIX command that stops one space's server: `stop.py` on the
+/// host's own Python, which asks the session's socket (never starting a server)
+/// for the core id, pid, uptime and live count and sends `server.stop` (the
+/// request `hc server stop` sends, herdr-core `api.rs` `server_stop`) in the
+/// same connection, only if it is the server in `expect` and nothing runs.
+#[cfg_attr(not(any(target_os = "ios", test)), allow(dead_code))]
+pub(crate) fn stop_command(session: &str, expect: &Expect) -> crate::Result<String> {
     // Validates the session name the way the connect command does.
     sheprd_client::core_connect_command(session).map_err(|e| crate::Error::Ssh(e.to_string()))?;
-    if core_id.is_empty()
-        || !core_id
+    if expect.core_id.is_empty()
+        || !expect
+            .core_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-')
     {
         return Err(crate::Error::Ssh("Herdr 2 core id is unusable".into()));
     }
-    let session = word(session);
-    let script = format!(
-        r#"for path in "$(command -v hc 2>/dev/null || true)" "$(command -v herdr-core 2>/dev/null || true)" "$HOME/.local/bin/hc" "$HOME/.local/bin/herdr-core" "$HOME/.cargo/bin/hc" "$HOME/.cargo/bin/herdr-core" "/opt/homebrew/bin/hc" "/opt/homebrew/bin/herdr-core" "/usr/local/bin/hc" "/usr/local/bin/herdr-core"; do
-    if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
-        HC_SESSION={session}
-        export HC_SESSION
-        if "$path" server status --json 2>/dev/null | grep -qF {core_id}; then
-            exec "$path" server stop
-        fi
-        exit {STOPPED_ELSEWHERE}
-    fi
-done
-exit 127"#,
-        core_id = word(core_id),
-    );
-    Ok(format!("/bin/sh -c {}", quote(&script)))
+    let number = |value: Option<u64>| value.map_or_else(|| "-".to_owned(), |n| n.to_string());
+    Ok(format!(
+        r#"if ! command -v python3 >/dev/null 2>&1; then
+    echo 'python3 is needed'
+    exit {NO_PYTHON}
+fi
+exec python3 -I - {session} {id} {pid} {uptime} <<'YEBISU_CORE_STOP'
+{script}
+YEBISU_CORE_STOP
+"#,
+        session = word(session),
+        id = word(&expect.core_id),
+        pid = number(expect.pid),
+        uptime = number(expect.min_uptime_ms),
+        script = include_str!("../shell/herdr2_frame/stop.py"),
+    ))
 }
 
 /// `text` as one shell word: bare when it is plain, else single-quoted.
@@ -178,28 +221,27 @@ fn quote(text: &str) -> String {
 /// Spaces a poll found vacant, with the server each had and since when.
 #[derive(Clone, Default)]
 pub(super) struct Vacancies {
-    seen: BTreeMap<String, (Instant, String)>,
+    seen: BTreeMap<String, (Instant, Expect)>,
     /// Spaces whose stop failed, by the server: not retried until it changes.
-    failed: BTreeSet<(String, String)>,
+    failed: BTreeSet<(String, Expect)>,
 }
 
 impl Vacancies {
-    /// Records one snapshot. `vacant` lists the `(space, core id)` pairs it
+    /// Records one snapshot. `vacant` lists the `(space, server)` pairs it
     /// found vacant; every other space is forgotten, and a space whose server
-    /// changed starts again.
-    pub(super) fn observe(&mut self, now: Instant, vacant: Vec<(String, String)>) {
+    /// changed (another id or pid) starts again.
+    pub(super) fn observe(&mut self, now: Instant, vacant: Vec<(String, Expect)>) {
         let names = vacant
             .iter()
             .map(|(name, _)| name.as_str())
             .collect::<BTreeSet<_>>();
         self.seen.retain(|name, _| names.contains(name.as_str()));
-        self.failed
-            .retain(|(name, id)| vacant.iter().any(|row| row == &(name.clone(), id.clone())));
-        for (name, id) in &vacant {
+        self.failed.retain(|row| vacant.contains(row));
+        for (name, expect) in &vacant {
             match self.seen.get(name) {
-                Some((_, seen_id)) if seen_id == id => {}
+                Some((_, seen)) if seen == expect => {}
                 _ => {
-                    self.seen.insert(name.clone(), (now, id.clone()));
+                    self.seen.insert(name.clone(), (now, expect.clone()));
                 }
             }
         }
@@ -207,14 +249,14 @@ impl Vacancies {
 
     /// The spaces vacant in the last snapshot and in one at least `GRACE`
     /// older, whose stop did not fail: they are due to be stopped at `now`.
-    pub(super) fn due(&self, now: Instant) -> Vec<(String, String)> {
+    pub(super) fn due(&self, now: Instant) -> Vec<(String, Expect)> {
         self.seen
             .iter()
-            .filter(|(name, (since, id))| {
+            .filter(|(name, (since, expect))| {
                 now.saturating_duration_since(*since) >= GRACE
-                    && !self.failed.contains(&((*name).clone(), id.clone()))
+                    && !self.failed.contains(&((*name).clone(), expect.clone()))
             })
-            .map(|(name, (_, id))| (name.clone(), id.clone()))
+            .map(|(name, (_, expect))| (name.clone(), expect.clone()))
             .collect()
     }
 
@@ -223,9 +265,9 @@ impl Vacancies {
         self.seen.remove(name);
     }
 
-    /// The stop failed: show the error once, retry when the server changes.
-    pub(super) fn failed(&mut self, name: &str, core_id: &str) {
-        self.failed.insert((name.to_owned(), core_id.to_owned()));
+    /// The stop failed: say so once, retry when the server changes.
+    pub(super) fn failed(&mut self, name: &str, expect: &Expect) {
+        self.failed.insert((name.to_owned(), expect.clone()));
     }
 }
 

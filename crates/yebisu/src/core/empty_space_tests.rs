@@ -9,7 +9,7 @@ use super::{
     live_core_tests::{command, control_d, panes, seen, tabs, wait},
     record_discovery_at, retire_vacant,
     space_fleet::Fleet,
-    vacate::{Stopper, set_test_stopper},
+    vacate::{Expect, Stopper, set_test_stopper},
 };
 use crate::app::Smoke;
 use gpui::{AppContext, Entity, TestAppContext, VisualTestContext};
@@ -311,13 +311,16 @@ fn empty_space_stop_refuses_a_server_other_than_the_one_seen() {
     let mut fleet = Fleet::start();
     fleet.add("s1");
     let stop = fleet.stopper();
-    let error = stop("s1", "00000000000000000000000000000000")
-        .err()
-        .unwrap_or_else(|| panic!("a wrong server id stopped the server"));
+    let error = stop(
+        "s1",
+        &Expect::seen("00000000000000000000000000000000".into(), None),
+    )
+    .err()
+    .unwrap_or_else(|| panic!("a wrong server id stopped the server"));
     assert!(error.to_string().contains("left running"), "{error}");
     assert!(fleet.alive("s1"));
     let id = fleet.core_id("s1");
-    stop("s1", &id).unwrap_or_else(|e| panic!("stop: {e}"));
+    stop("s1", &Expect::seen(id, None)).unwrap_or_else(|e| panic!("stop: {e}"));
     assert!(!fleet.alive("s1"));
 }
 

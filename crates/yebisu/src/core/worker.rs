@@ -37,6 +37,8 @@ pub(super) fn run(
         expected_core_id,
     } = target;
     let (inbox, session_list, removal) = outputs;
+    // The server has run at least this long when this connection is made.
+    let connected_at = Instant::now();
     let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
@@ -109,6 +111,10 @@ pub(super) fn run(
                 return Ok(());
             }
             let queued_epoch = command.input_epoch;
+            // The user acts: a failed stop's notice has been seen.
+            if !matches!(command.command, Command::Resize(_)) {
+                clear_notice(session_list);
+            }
             match command.command {
                 Command::Input(destination, event) => {
                     let Some(saved) = active_layout(&workspace) else {
@@ -363,9 +369,13 @@ pub(super) fn run(
                 && !active.screens.is_empty()
                 && active.screens.iter().all(|screen| screen.ended));
         if !vacate::protected(&name) && watch.due(gone, Instant::now()) {
-            match vacate_space(&backend, &stopper, &name)? {
+            match vacate_space(&backend, &stopper, &name, connected_at)? {
                 Vacated::Busy => watch.busy(Instant::now()),
-                Vacated::Failed(message) => command_error = Some(message),
+                Vacated::Failed(message) => {
+                    // Kept over every screen until the user acts.
+                    set_notice(session_list, &message);
+                    command_error = Some(message);
+                }
                 Vacated::Removed => {
                     forget_space(
                         (root.as_deref(), &host, &name),
@@ -426,6 +436,9 @@ pub(super) fn run(
             if let Some(error) = command_error {
                 live.status = error;
             }
+            if let Some(notice) = notice(session_list) {
+                live.status = notice;
+            }
             if let Ok(mut inbox) = inbox.lock() {
                 if published_epoch != Some(epoch) {
                     publish_sessions(session_list, epoch, &sessions);
@@ -458,19 +471,53 @@ fn vacate_space(
     backend: &CoreBackend,
     stopper: &vacate::Stopper,
     name: &str,
+    connected_at: Instant,
 ) -> crate::Result<Vacated> {
     let list = backend.core().list(false)?;
     if !vacate::vacant(0, &list.terminals) {
         return Ok(Vacated::Busy);
     }
-    let core_id = backend.core().hello().core.id.clone();
-    Ok(match stopper(name, &core_id) {
-        Ok(()) => Vacated::Removed,
+    // The stop asks the server again, in the connection it stops through, for
+    // its id, its age (a server that restarted since this connection was made
+    // is younger) and its live terminals.
+    let age = u64::try_from(connected_at.elapsed().as_millis())
+        .unwrap_or(u64::MAX)
+        .saturating_sub(1000);
+    let expect = vacate::Expect {
+        core_id: backend.core().hello().core.id.clone(),
+        pid: None,
+        min_uptime_ms: Some(age),
+    };
+    Ok(match stopper(name, &expect) {
+        Ok(vacate::Stopped::Done) => Vacated::Removed,
+        Ok(vacate::Stopped::Busy) => Vacated::Busy,
         Err(error) => {
             tracing::warn!(%error, %name, "Herdr 2 space did not stop");
             Vacated::Failed(format!("Could not remove Herdr 2 space {name}: {error}"))
         }
     })
+}
+
+fn notice(lists: &SessionList) -> Option<String> {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice
+        .clone()
+}
+
+fn set_notice(lists: &SessionList, message: &str) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = Some(message.to_owned());
+}
+
+fn clear_notice(lists: &SessionList) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = None;
 }
 
 /// The space's server is stopped: its saved layout and rows go, the view is
@@ -495,7 +542,8 @@ fn forget_space(
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let next = vacate::next_space(&super::merged_sessions(&lists, name, sessions), name);
         lists.discovery.vacancies.done(name);
-        lists.discovery.removed.insert(name.to_owned());
+        lists.discovery.removed.insert(name.to_owned(), None);
+        lists.notice = None;
         if let Some(rows) = &mut lists.discovery.rows {
             rows.retain(|row| row.name != name);
         }

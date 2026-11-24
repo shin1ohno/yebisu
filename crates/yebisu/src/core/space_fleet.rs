@@ -12,7 +12,7 @@ use sheprd_core_client::{
 use std::{
     ffi::OsString,
     io::Write as _,
-    os::unix::net::UnixStream,
+    os::unix::net::{UnixListener, UnixStream},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -27,6 +27,7 @@ pub(super) struct Fleet {
     cores: Vec<(String, Child)>,
     bridges: Vec<Child>,
     stops: Arc<Mutex<Vec<(String, String)>>>,
+    listeners: Vec<UnixListener>,
 }
 
 impl Fleet {
@@ -51,6 +52,7 @@ impl Fleet {
             cores: Vec::new(),
             bridges: Vec::new(),
             stops: Arc::default(),
+            listeners: Vec::new(),
         }
     }
 
@@ -239,12 +241,12 @@ impl Fleet {
             .filter(|(name, _)| *name != "HC_SESSION")
             .collect::<Vec<_>>();
         let stops = Arc::clone(&self.stops);
-        Arc::new(move |space, core_id| {
+        Arc::new(move |space, expect| {
             stops
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push((space.to_owned(), core_id.to_owned()));
-            let command = stop_command(space, core_id)?;
+                .push((space.to_owned(), expect.core_id.clone()));
+            let command = stop_command(space, expect)?;
             let output = Command::new("/bin/sh")
                 .arg("-c")
                 .arg(command)
@@ -254,6 +256,48 @@ impl Fleet {
                 .map_err(|e| crate::Error::Ssh(format!("sh: {e}")))?;
             stop_result(output.status.code(), &output.stdout)
         })
+    }
+
+    /// The pid of the space's server (`hc server status --json`).
+    pub(super) fn pid(&self, space: &str) -> u64 {
+        let output = self
+            .command(space)
+            .args(["server", "status", "--json"])
+            .output()
+            .unwrap_or_else(|e| panic!("hc server status: {e}"));
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .ok()
+            .and_then(|status| status["pid"].as_u64())
+            .unwrap_or_else(|| panic!("no pid for {space}"))
+    }
+
+    /// Ends the space's server and starts it again: the same core id (it is
+    /// kept in the state directory), another pid.
+    pub(super) fn restart(&mut self, space: &str) {
+        self.stop_space(space).unwrap_or_else(|e| panic!("{e}"));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while self.alive(space) {
+            assert!(Instant::now() < deadline, "{space} did not stop");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        for (name, child) in &mut self.cores {
+            if name == space {
+                let _ = child.wait();
+            }
+        }
+        self.cores.retain(|(name, _)| name != space);
+        self.add(space);
+    }
+
+    /// A socket where a server may be that never answers: a connection is
+    /// accepted by the kernel and nothing is read (a busy server, or a
+    /// machine that does not reply).
+    pub(super) fn silent_socket(&mut self, space: &str) {
+        let socket = self.socket(space);
+        std::fs::create_dir_all(socket.parent().unwrap_or(&self.dir))
+            .unwrap_or_else(|e| panic!("socket dir: {e}"));
+        self.listeners
+            .push(UnixListener::bind(&socket).unwrap_or_else(|e| panic!("bind {space}: {e}")));
     }
 
     /// `hc server stop` on one space's private session.

@@ -1,6 +1,9 @@
 use super::{
     SessionInfo,
-    vacate::{GRACE, Vacancies, Watch, next_space, protected, stop_command, vacant},
+    vacate::{
+        Expect, GRACE, Stopped, Vacancies, Watch, next_space, protected, stop_command, stop_result,
+        vacant,
+    },
 };
 use sheprd_core_client::wire::Terminal;
 use std::time::{Duration, Instant};
@@ -21,8 +24,8 @@ fn row(name: &str, confirmed: bool) -> SessionInfo {
     }
 }
 
-fn pair(name: &str, id: &str) -> (String, String) {
-    (name.into(), id.into())
+fn pair(name: &str, id: &str) -> (String, Expect) {
+    (name.into(), Expect::seen(id.into(), Some(7)))
 }
 
 #[test]
@@ -93,7 +96,7 @@ fn a_failed_stop_is_not_retried_until_the_server_changes() {
     let t1 = t0 + Duration::from_secs(6);
     seen.observe(t1, vec![pair("space-1", "a")]);
     assert_eq!(seen.due(t1).len(), 1);
-    seen.failed("space-1", "a");
+    seen.failed("space-1", &pair("space-1", "a").1);
     let t2 = t1 + Duration::from_secs(6);
     seen.observe(t2, vec![pair("space-1", "a")]);
     assert!(seen.due(t2).is_empty());
@@ -145,23 +148,64 @@ fn selection_takes_the_next_confirmed_space_else_the_last() {
 }
 
 #[test]
-fn the_stop_command_checks_the_server_before_stopping_it() {
-    let command = stop_command("space-1795252668300", "0123abcd-ef")
-        .unwrap_or_else(|e| panic!("command: {e}"));
-    assert!(command.starts_with("/bin/sh -c '"), "{command}");
-    // The same candidates as the connect command, the session by environment.
-    assert!(command.contains(r#"command -v hc"#));
-    assert!(command.contains("HC_SESSION=space-1795252668300"));
-    // Stops only the server that was seen.
-    assert!(command.contains(r#"server status --json 2>/dev/null | grep -qF 0123abcd-ef"#));
-    assert!(command.contains(r#"exec "$path" server stop"#));
-    assert!(command.contains("exit 3"), "another server: left running");
-    assert!(command.ends_with("exit 127'"), "{command}");
+fn the_stop_command_asks_the_socket_and_never_starts_a_server() {
+    let expect = Expect {
+        core_id: "0123abcd-ef".into(),
+        pid: Some(4242),
+        min_uptime_ms: Some(900),
+    };
+    let command =
+        stop_command("space-1795252668300", &expect).unwrap_or_else(|e| panic!("command: {e}"));
+    // Python on the host, the script on stdin, the arguments after it.
+    assert!(
+        command.contains(
+            "exec python3 -I - space-1795252668300 0123abcd-ef 4242 900 <<'YEBISU_CORE_STOP'"
+        ),
+        "{command}"
+    );
+    assert!(command.contains(include_str!("../shell/herdr2_frame/stop.py")));
+    // `hc server status` starts a server on Unix: no `hc` runs, and the
+    // script starts no process.
+    let script = include_str!("../shell/herdr2_frame/stop.py");
+    let wrapper = command.replace(script, "");
+    assert!(
+        !wrapper.contains("hc ") && !wrapper.contains("status"),
+        "{wrapper}"
+    );
+    assert!(!script.contains("subprocess") && !script.contains("os.exec"));
+    // The script asks `server.status` for pid, uptime and live, and stops in
+    // the same connection.
+    assert!(script.contains("\"server.status\"") && script.contains("\"server.stop\""));
+    assert!(script.contains("FileNotFoundError, ConnectionRefusedError"));
+    // Unknown values are `-`.
+    let any = Expect::seen("abc".into(), None);
+    let command = stop_command("space-1", &any).unwrap_or_else(|e| panic!("command: {e}"));
+    assert!(
+        command.contains("space-1 abc - - <<'YEBISU_CORE_STOP'"),
+        "{command}"
+    );
 }
 
 #[test]
 fn the_stop_command_refuses_a_bad_session_or_core_id() {
-    assert!(stop_command("a/b", "id").is_err(), "a path is no session");
-    assert!(stop_command("space-1", "").is_err());
-    assert!(stop_command("space-1", "x'; reboot; '").is_err());
+    let id = |id: &str| Expect::seen(id.into(), None);
+    assert!(
+        stop_command("a/b", &id("id")).is_err(),
+        "a path is no session"
+    );
+    assert!(stop_command("space-1", &id("")).is_err());
+    assert!(stop_command("space-1", &id("x'; reboot; '")).is_err());
+}
+
+#[test]
+fn the_stop_status_tells_stopped_busy_and_another_server() {
+    assert_eq!(stop_result(Some(0), b"stopped").ok(), Some(Stopped::Done));
+    assert_eq!(
+        stop_result(Some(4), b"a terminal is running").ok(),
+        Some(Stopped::Busy)
+    );
+    for code in [3, 5, 6, 127, 1] {
+        assert!(stop_result(Some(code), b"x").is_err(), "{code}");
+    }
+    assert!(stop_result(None, b"").is_err());
 }
