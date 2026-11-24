@@ -54,6 +54,10 @@ decision 12):
 | `two-spaces.json` | Two spaces, one named and one automatic, for the Simulator QA (`YEBISU_CORE_DOC_QA=two-spaces`) |
 | `unreadable-*.json` | Shapes the official app cannot read: `spaces` not an array, a root without `type`, a child that is not an object, a top level that is not an object |
 
+A Simulator QA run names its starting document with `YEBISU_CORE_DOC_QA=<fixture>`.
+`YEBISU_CORE_DOC_QA_CONFLICTS=<n>` makes the mock core refuse the first `n` writes as stale,
+as if another app wrote first.
+
 The tests list the directory, so a new fixture is checked without a code
 change. Each fixture must read and write back byte for byte. Each readable
 fixture must accept every intent, and the result must pass the pre-write
