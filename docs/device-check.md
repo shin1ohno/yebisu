@@ -930,6 +930,6 @@ source and the paths, not of real IME behavior.
 | D13 | Tap the magnifier while composing Japanese in the terminal | That text is not sent; the next input after closing arrives once |
 | D14 | Leave for another app and return; with Stage Manager open two windows and search in one | The field stays first responder; the other window's terminal types normally |
 | D15 | ⌘B, ⌘F, ⌘W while open | Nothing happens; ⌘A, ⌘C, ⌘V work in the field |
-| D16 | Open in Slide Over or a 1/3 split (below 352 pt) | A sheet; the field stays visible with the keyboard up; swipe down closes it |
+| D16 | Open in Slide Over or a 1/3 split (below 352 pt); swipe it down, then open it again and let a swipe go halfway | A sheet; the field stays visible with the keyboard up; swipe down closes it and keeps the filter; the abandoned swipe leaves it up |
 | D17 | Disconnect a host, then tap its result | The panel stays and shows "This space is no longer available." |
 
