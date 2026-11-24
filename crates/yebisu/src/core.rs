@@ -1,6 +1,8 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
 mod discovery_tests;
+#[cfg(all(test, unix))]
+mod empty_space_tests;
 mod ended;
 #[cfg(test)]
 mod image_tests;
@@ -14,11 +16,18 @@ pub(crate) mod paste_test_support;
 pub(crate) mod publication_probe;
 #[cfg(test)]
 mod regression_tests;
+#[cfg(all(test, unix))]
+mod saved_space_tests;
 mod screen;
+#[cfg(all(test, unix))]
+mod space_fleet;
 pub(crate) mod status;
 mod store;
 #[cfg(test)]
 mod tests;
+pub(crate) mod vacate;
+#[cfg(test)]
+mod vacate_tests;
 mod worker;
 
 use crate::{live::Live, terminal_input::Destination};
@@ -114,6 +123,8 @@ struct SessionLists {
     /// Oldest first; epochs only increase within one session.
     published: std::collections::VecDeque<(u64, Vec<SessionInfo>)>,
     discovery: Discovery,
+    /// The session the worker serves: its layout and row are the worker's own.
+    current: String,
 }
 
 impl SessionLists {
@@ -144,6 +155,12 @@ impl SessionLists {
 pub(crate) struct Discovery {
     rows: Option<Vec<SessionInfo>>,
     failed: bool,
+    /// Spaces the poll found vacant, to stop once they stay so (`vacate.rs`).
+    vacancies: vacate::Vacancies,
+    /// Spaces stopped here, kept off the rows until a poll no longer lists them.
+    removed: std::collections::BTreeSet<String>,
+    /// Spaces the last successful poll listed without a server answering.
+    unanswered: std::collections::BTreeSet<String>,
 }
 
 pub(crate) struct Session {
@@ -155,6 +172,8 @@ pub(crate) struct Session {
     host: String,
     name: String,
     sessions: SessionList,
+    /// Set once by the worker when it removed its own space.
+    removal: Arc<Mutex<Option<vacate::Removal>>>,
     #[cfg(test)]
     pub finished: Arc<AtomicBool>,
 }
@@ -246,8 +265,11 @@ impl Session {
         let sessions = Arc::new(Mutex::new(SessionLists {
             published: Default::default(),
             discovery,
+            current: name.clone(),
         }));
         let worker_sessions = sessions.clone();
+        let removal = Arc::new(Mutex::new(None));
+        let worker_removal = removal.clone();
         let (queue, receive) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let input_epoch = Arc::new(AtomicU64::new(0));
@@ -291,7 +313,7 @@ impl Session {
                         None
                     } else {
                         start_discovery(
-                            target.host.clone(),
+                            (target.host.clone(), target.name.clone()),
                             root.clone(),
                             worker_sessions.clone(),
                             shared.clone(),
@@ -304,7 +326,7 @@ impl Session {
                         backend,
                         target,
                         generation,
-                        (&shared, &worker_sessions),
+                        (&shared, &worker_sessions, &worker_removal),
                         (&stopped, &worker_epoch, &column),
                         receive,
                         root,
@@ -329,6 +351,7 @@ impl Session {
             host,
             name,
             sessions,
+            removal,
             #[cfg(test)]
             finished,
         })
@@ -352,6 +375,15 @@ impl Session {
     }
     pub(crate) fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The removal of this session's own space, once the worker did it: its
+    /// last tab closed, no terminal ran in it, and its server was stopped.
+    pub(crate) fn removal(&self) -> Option<vacate::Removal> {
+        self.removal
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Keep a snapshot for the next named session without sharing its mailbox.
@@ -389,15 +421,8 @@ impl Session {
         let Some(rows) = lists.viewed(viewed_epoch).map(<[SessionInfo]>::to_vec) else {
             return Vec::new();
         };
-        if let Some(external) = &lists.discovery.rows {
-            let mut merged = rows
-                .iter()
-                .filter(|row| row.name == self.name)
-                .chain(external.iter().filter(|row| row.name != self.name))
-                .cloned()
-                .collect::<Vec<_>>();
-            sort_sessions(&mut merged);
-            return merged;
+        if lists.discovery.rows.is_some() {
+            return merged_sessions(&lists, &self.name, &rows);
         }
         rows
     }
@@ -513,6 +538,22 @@ struct ExternalObservation {
     terminals: Vec<sheprd_core_client::wire::Terminal>,
 }
 
+/// The session itself, then the other spaces its host last showed, in the
+/// sidebar's order.
+fn merged_sessions(lists: &SessionLists, own: &str, rows: &[SessionInfo]) -> Vec<SessionInfo> {
+    let Some(external) = &lists.discovery.rows else {
+        return rows.to_vec();
+    };
+    let mut merged = rows
+        .iter()
+        .filter(|row| row.name == own)
+        .chain(external.iter().filter(|row| row.name != own))
+        .cloned()
+        .collect::<Vec<_>>();
+    sort_sessions(&mut merged);
+    merged
+}
+
 fn sort_sessions(rows: &mut [SessionInfo]) {
     rows.sort_by(|left, right| {
         (left.created == 0, left.created, &left.name).cmp(&(
@@ -530,21 +571,116 @@ fn record_discovery(
     host: &str,
     output: Option<&[u8]>,
 ) -> crate::Result<bool> {
-    let rows = output.map(|output| worker::catalog_sessions(root, host, parse_discovery(output)));
+    record_discovery_at(lists, root, host, output, std::time::Instant::now())
+}
+
+/// `record_discovery` for the snapshot taken at `now`. The spaces it found
+/// vacant are noted in `Discovery::vacancies`; `due_vacancies` names those
+/// that stayed so long enough to be stopped.
+#[cfg(any(target_os = "ios", test))]
+fn record_discovery_at(
+    lists: &SessionList,
+    root: Option<&std::path::Path>,
+    host: &str,
+    output: Option<&[u8]>,
+    now: std::time::Instant,
+) -> crate::Result<bool> {
+    let observed = output.map(parse_discovery);
+    // The names-only listing (no python3 on the host) cannot say whether a
+    // listed space's server answers.
+    let answers_seen = output.is_some_and(|output| !output.starts_with(b"\0"));
+    // Spaces holding a terminal whose state is not finished: never vacant,
+    // whatever the saved tabs say (a state this client does not know counts).
+    let busy = observed
+        .iter()
+        .flatten()
+        .filter(|(_, row)| {
+            row.as_ref()
+                .is_some_and(|row| !vacate::vacant(0, &row.terminals))
+        })
+        .map(|(name, _)| name.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let listed = observed
+        .iter()
+        .flat_map(|observed| observed.keys().cloned())
+        .collect::<std::collections::BTreeSet<_>>();
+    let rows = observed.map(|observed| worker::catalog_sessions(root, host, observed));
+    let mut guard = lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let current = guard.current.clone();
+    let discovery = &mut guard.discovery;
+    let mut gone = Vec::new();
+    let changed = 'snapshot: {
+        let Some(rows) = rows else {
+            break 'snapshot None;
+        };
+        discovery.failed = false;
+        let mut rows = rows?;
+        // A space stopped here may still be listed by a poll that began before.
+        discovery.removed.retain(|name| listed.contains(name));
+        rows.retain(|row| !discovery.removed.contains(&row.name));
+        // A saved layout whose server this successful poll does not find is
+        // a space that is gone (stopped elsewhere, or by `hc server stop`):
+        // it leaves the sidebar and its layout file is deleted. A space the
+        // poll lists but whose server did not answer must stay so in two polls
+        // in a row, so a busy server's slow answer never costs a layout.
+        let mut unanswered = std::collections::BTreeSet::new();
+        for row in rows
+            .iter()
+            .filter(|row| !row.confirmed && row.name != current && !vacate::protected(&row.name))
+        {
+            if !listed.contains(&row.name) {
+                gone.push(row.name.clone());
+            } else if answers_seen {
+                if discovery.unanswered.contains(&row.name) {
+                    gone.push(row.name.clone());
+                }
+                unanswered.insert(row.name.clone());
+            }
+        }
+        discovery.unanswered = unanswered;
+        rows.retain(|row| !gone.contains(&row.name));
+        let vacant = rows
+            .iter()
+            .filter(|row| {
+                row.confirmed
+                    && !vacate::protected(&row.name)
+                    && !busy.contains(&row.name)
+                    && row.tabs.is_empty()
+            })
+            .filter_map(|row| Some((row.name.clone(), row.core_id.clone()?)))
+            .collect();
+        discovery.vacancies.observe(now, vacant);
+        if discovery.rows.as_ref() == Some(&rows) {
+            Some(false)
+        } else {
+            discovery.rows = Some(rows);
+            Some(true)
+        }
+    };
+    drop(guard);
+    if let Some(changed) = changed {
+        if !gone.is_empty() {
+            let _storage = store::LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for name in &gone {
+                if let Err(error) = store::remove_workspace(root, host, name) {
+                    tracing::warn!(%error, %name, "Forget a Herdr 2 space that is gone");
+                }
+            }
+        }
+        return Ok(changed || !gone.is_empty());
+    }
+
+    // A failed poll (transport error or timeout) deletes nothing and forgets
+    // nothing: rows and layouts stay.
     let mut lists = lists
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let discovery = &mut lists.discovery;
-    if let Some(rows) = rows {
-        discovery.failed = false;
-        let rows = rows?;
-        if discovery.rows.as_ref() == Some(&rows) {
-            return Ok(false);
-        }
-        discovery.rows = Some(rows);
-        return Ok(true);
-    }
-
+    discovery.unanswered.clear();
     // A single transport failure leaves the last snapshot usable.
     if !std::mem::replace(&mut discovery.failed, true) {
         return Ok(false);
@@ -558,6 +694,65 @@ fn record_discovery(
         changed = true;
     }
     Ok(changed)
+}
+
+/// The spaces (name, server id) the polls found vacant at two snapshots at
+/// least `vacate::GRACE` apart, other than `current`, which its own worker
+/// removes.
+#[cfg(any(target_os = "ios", test))]
+fn due_vacancies(
+    lists: &SessionList,
+    now: std::time::Instant,
+    current: &str,
+) -> Vec<(String, String)> {
+    let lists = lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    lists
+        .discovery
+        .vacancies
+        .due(now)
+        .into_iter()
+        .filter(|(name, _)| name != current)
+        .collect()
+}
+
+/// Stops one vacant space found by a poll and forgets it: its saved layout,
+/// its row, its timer. On a failure the space stays listed and the error is
+/// the result. Blocking: a worker thread only.
+#[cfg(any(target_os = "ios", test))]
+fn retire_vacant(
+    lists: &SessionList,
+    root: Option<&std::path::Path>,
+    host: &str,
+    (name, core_id): &(String, String),
+    stop: &vacate::Stopper,
+) -> crate::Result<()> {
+    if let Err(error) = stop(name, core_id) {
+        let mut lists = lists
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        lists.discovery.vacancies.failed(name, core_id);
+        return Err(error);
+    }
+    {
+        let _storage = store::LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(error) = store::remove_workspace(root, host, name) {
+            tracing::warn!(%error, %name, "Forget a removed Herdr 2 space");
+        }
+    }
+    let mut lists = lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let discovery = &mut lists.discovery;
+    discovery.vacancies.done(name);
+    discovery.removed.insert(name.clone());
+    if let Some(rows) = &mut discovery.rows {
+        rows.retain(|row| &row.name != name);
+    }
+    Ok(())
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -612,7 +807,7 @@ exit 0
 
 #[cfg(all(target_os = "ios", not(test)))]
 fn start_discovery(
-    host: String,
+    (host, current): (String, String),
     root: Option<std::path::PathBuf>,
     mailbox: SessionList,
     inbox: Arc<Mutex<Live>>,
@@ -620,6 +815,7 @@ fn start_discovery(
 ) -> std::io::Result<()> {
     use std::{thread, time::Duration};
 
+    let stopper = vacate::stopper(&host);
     thread::Builder::new()
         .name("yebisu-core-discovery".into())
         .spawn(move || {
@@ -640,6 +836,21 @@ fn start_discovery(
                     && let Ok(mut live) = inbox.lock()
                 {
                     live.dirty = true;
+                }
+                // A space found vacant at two polls, 5 s apart, goes: its
+                // server is stopped and its row leaves the sidebar.
+                for vacant in due_vacancies(&mailbox, std::time::Instant::now(), &current) {
+                    if stopped() {
+                        break;
+                    }
+                    let result = retire_vacant(&mailbox, root.as_deref(), &host, &vacant, &stopper);
+                    if let Ok(mut live) = inbox.lock() {
+                        if let Err(error) = result {
+                            live.status =
+                                format!("Could not remove Herdr 2 space {}: {error}", vacant.0);
+                        }
+                        live.dirty = true;
+                    }
                 }
                 // The active session still uses its own one-second listing.
                 for _ in 0..50 {
