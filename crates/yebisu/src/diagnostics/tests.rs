@@ -29,25 +29,31 @@ fn privacy(secret: &'static str) -> TestResult {
     let (sender, receiver) = sync_channel(QUEUE);
     let destination = path.clone();
     let worker = std::thread::spawn(move || write_loop(&destination, receiver));
-    tracing::subscriber::with_default(Capture(sender), || {
-        record("startup");
-        record("connected");
-        let mut input = crate::input::Input::default();
-        input.replace(None, secret, false, None);
-        assert_eq!(input.text, secret);
-        let mut live = crate::live::Live::default();
-        let mut surface = crate::mock_peer::surface(1);
-        surface.frame.cells[0].symbol = secret.into();
-        live.apply(sheprd_client::ClientEvent::Surface(surface.into()));
-        live.apply(sheprd_client::ClientEvent::Disconnected {
-            reason: secret.into(),
-            ssh: None,
-        });
-        // Test both dependency targets and hostile fields on an accepted target.
-        tracing::info!(target: "terminal", terminal_output = secret, typed_key = secret, "{secret}");
-        tracing::info!(target: "yebisu::diagnostics", code = "connected", terminal_output = secret, typed_key = secret);
-        tracing::error!(target: "yebisu::diagnostics", code = secret, "{secret}");
-    });
+    tracing::subscriber::with_default(
+        Capture {
+            codes: sender,
+            receipts: false,
+        },
+        || {
+            record("startup");
+            record("connected");
+            let mut input = crate::input::Input::default();
+            input.replace(None, secret, false, None);
+            assert_eq!(input.text, secret);
+            let mut live = crate::live::Live::default();
+            let mut surface = crate::mock_peer::surface(1);
+            surface.frame.cells[0].symbol = secret.into();
+            live.apply(sheprd_client::ClientEvent::Surface(surface.into()));
+            live.apply(sheprd_client::ClientEvent::Disconnected {
+                reason: secret.into(),
+                ssh: None,
+            });
+            // Test both dependency targets and hostile fields on an accepted target.
+            tracing::info!(target: "terminal", terminal_output = secret, typed_key = secret, "{secret}");
+            tracing::info!(target: "yebisu::diagnostics", code = "connected", terminal_output = secret, typed_key = secret);
+            tracing::error!(target: "yebisu::diagnostics", code = secret, "{secret}");
+        },
+    );
     worker
         .join()
         .map_err(|_| io::Error::other("writer panicked"))??;
@@ -111,13 +117,55 @@ fn size_cap_and_single_rotation_hold() -> TestResult {
 #[test]
 fn full_queue_drops_without_waiting_and_unknown_codes_are_ignored() {
     let (sender, receiver) = sync_channel(1);
-    tracing::subscriber::with_default(Capture(sender), || {
-        for _ in 0..10_000 {
-            record("startup");
-        }
-        record("password");
-    });
+    tracing::subscriber::with_default(
+        Capture {
+            codes: sender,
+            receipts: false,
+        },
+        || {
+            for _ in 0..10_000 {
+                record("startup");
+            }
+            record("password");
+        },
+    );
     assert_eq!(receiver.try_iter().collect::<Vec<_>>(), ["startup"]);
+}
+
+#[test]
+fn receipts_are_accepted_only_when_the_launch_wants_them() {
+    // A product build (and a Simulator build without a QA variable) keeps
+    // `receipts: false`: herdr-uikit's receipt target is not even enabled.
+    assert!(!accepts("herdr_uikit::qa_input", false));
+    assert!(accepts("herdr_uikit::qa_input", true));
+    assert!(accepts("yebisu::diagnostics", false));
+    assert!(accepts("yebisu::diagnostics", true));
+    assert!(!accepts("other", true));
+    assert!(!accepts("herdr_uikit::window", true));
+    assert_eq!(RECEIPTS, crate::qa_ax::input::TARGET);
+}
+
+#[test]
+fn receipts_never_reach_the_diagnostics_log() {
+    for receipts in [false, true] {
+        let (sender, receiver) = sync_channel(QUEUE);
+        tracing::subscriber::with_default(
+            Capture {
+                codes: sender,
+                receipts,
+            },
+            || {
+                // A receipt that carries an allowlisted code is still no code.
+                tracing::info!(target: "herdr_uikit::qa_input", receipt = "touch", code = "connected");
+                record("startup");
+            },
+        );
+        assert_eq!(
+            receiver.try_iter().collect::<Vec<_>>(),
+            ["startup"],
+            "receipts={receipts}"
+        );
+    }
 }
 
 #[test]
@@ -147,12 +195,18 @@ fn f24_child_panic_sink_probe() -> TestResult {
     // print them before this process exits.
     assert!(observation.wait_for_drop_report(std::time::Duration::from_secs(5)));
     install_panic_hook();
-    tracing::subscriber::with_default(Capture(send), || {
-        record("startup");
-        let _ = std::panic::catch_unwind(|| {
-            panic!("FAKE_PRIVATE_SENTINEL RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM")
-        });
-    });
+    tracing::subscriber::with_default(
+        Capture {
+            codes: send,
+            receipts: false,
+        },
+        || {
+            record("startup");
+            let _ = std::panic::catch_unwind(|| {
+                panic!("FAKE_PRIVATE_SENTINEL RkFLRV9QVUJMSUNfS0VZX1NFTlRJTkVM")
+            });
+        },
+    );
     worker.join().map_err(|_| "writer panic")??;
     println!("f24-child-positive");
     Ok(())

@@ -76,6 +76,9 @@ impl Smoke {
                         this.ticks += 1;
                         #[cfg(all(target_os = "ios", target_abi = "sim"))]
                         crate::animation_qa::sample(&this.observation);
+                        // Simulator QA: a stalled main thread leaves a gap.
+                        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                        crate::qa_ax::input::heartbeat(&this.observation, this.ticks);
                         if this.smoke_mode {
                             cx.notify();
                         }
@@ -402,6 +405,9 @@ pub(crate) fn run() {
         eprintln!("yebisu diagnostics initialization failed: {error}");
     }
     herdr_uikit::application().run(|cx: &mut App| {
+        // Once per process: every call adds a global listener (not in render).
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        crate::qa_ax::input::register_global(cx);
         match cx.open_window(WindowOptions::default(), |window, cx| {
             let entity = cx.new(Smoke::new);
             let notification_owner = entity.downgrade();

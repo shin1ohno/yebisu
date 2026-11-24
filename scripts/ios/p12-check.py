@@ -150,7 +150,8 @@ def main():
     messages = live_jsonl.read_records(directory / "peer.jsonl")
     verdict = oracle.validate(records, messages, ui, screenshots)
     oracle.validate_faults(fault, ui)
-    verdict.update(head=head, device=device, screenshot_count=len(screenshots), fault=fault)
+    verdict.update(head=head, device=device, screenshot_count=len(screenshots), fault=fault,
+                   heartbeat_gaps=live_jsonl.heartbeat_gaps(records))
     (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
     print(json.dumps(verdict), flush=True)
 
