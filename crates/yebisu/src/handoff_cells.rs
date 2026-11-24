@@ -37,7 +37,7 @@ pub(super) fn graphemes(cells: &[CellData]) -> impl Iterator<Item = (usize, usiz
 
 /// Whether each of `cells`, the start of a row, only continues the wide
 /// grapheme before it, by the reading of [`graphemes`].
-pub(super) fn continuations(cells: &[CellData]) -> Vec<bool> {
+pub(crate) fn continuations(cells: &[CellData]) -> Vec<bool> {
     let mut continuing = vec![true; cells.len()];
     for (column, _, _) in graphemes(cells) {
         continuing[column] = false;

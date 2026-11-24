@@ -298,8 +298,17 @@ impl Host {
                                 ""
                             }
                         );
+                        // L66: the link fixture, only with YEBISU_URL_TAP_QA.
+                        let links = if crate::terminal_links::qa::enabled() {
+                            let cols = request["params"]["cols"].as_u64().unwrap_or(80);
+                            crate::terminal_links::qa::herdr2_output(
+                                u16::try_from(cols).unwrap_or(80),
+                            )
+                        } else {
+                            String::new()
+                        };
                         let output = format!(
-                            "{modes}\x1b[2J\x1b[H\x1b[38;2;136;192;208myebisu P9 Herdr 2\r\nprivate core wire peer · {} · pane {channel}\r\n日本語 IME · Split · Detach / Reattach\x1b[0m\r\n$ ",
+                            "{modes}\x1b[2J\x1b[H\x1b[38;2;136;192;208myebisu P9 Herdr 2\r\nprivate core wire peer · {} · pane {channel}\r\n日本語 IME · Split · Detach / Reattach\x1b[0m{links}\r\n$ ",
                             channels
                                 .get(&channel)
                                 .map(String::as_str)
