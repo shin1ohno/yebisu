@@ -6,8 +6,9 @@ import XCTest
 // not answer while a presented panel is up in this Simulator (herdr-uikit
 // scripts/native-search-qa/Tests/NativeSearch.swift:5-7), so inside the panel this test acts on
 // a fixed schedule at points of the panel's layout (herdr-uikit window/native_modal/panel.rs:
-// Cancel at x width-96..width-16, y 8..40; the field at y 48..84; the results from y 134, a
-// section header then 44 pt rows), measured from the popover's origin. `SEARCH_STEP <name>
+// Cancel at x width-96..width-16, y 8..40; the field at y 48..84; the results from y 134),
+// measured from the popover's origin; the first result row's center (y 207) and the origin were
+// read from the screenshots of the first run on the iPad Pro 13-inch Simulator. `SEARCH_STEP <name>
 // <unix time>` lines split the records by step; marker letters typed into the terminal after a
 // close split the peer log.
 extension SmokeQA {
@@ -18,6 +19,8 @@ extension SmokeQA {
         "YEBISU_INPUT_QA": "1",
     ]
     private static let panelWidth: CGFloat = 360
+    /// The first result row's center below the popover's origin (screenshots of the first run).
+    private static let firstRow: CGFloat = 207
 
     private func searchStep(_ name: String) {
         print(String(format: "SEARCH_STEP %@ %.3f", name, Date().timeIntervalSince1970))
@@ -31,11 +34,18 @@ extension SmokeQA {
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y))
     }
 
-    /// Where the popover's content starts: below the magnifier, its left edge clamped to the
-    /// window's margin (UIKit keeps an arrowless popover on screen).
+    /// Where the popover's content starts. UIKit centers an arrowless popover on the magnifier and
+    /// keeps it inside the window, so next to the top edge its top sits at the safe area's margin
+    /// (y 33 in landscape in the first run's screenshots), over the magnifier: the magnifier
+    /// cannot be tapped while the panel is up.
     private func panelOrigin(_ magnifier: CGRect, _ app: XCUIApplication) -> CGPoint {
         let x = min(max(magnifier.midX - Self.panelWidth / 2, 24), app.frame.width - Self.panelWidth - 24)
-        return CGPoint(x: x, y: magnifier.maxY + 8)
+        return CGPoint(x: x, y: 33)
+    }
+
+    /// The panel's Cancel button.
+    private func cancel(_ app: XCUIApplication, _ origin: CGPoint) {
+        at(app, CGPoint(x: origin.x + Self.panelWidth - 56, y: origin.y + 24)).tap()
     }
 
     private func openSearch(_ app: XCUIApplication, _ magnifier: CGRect, _ what: String) {
@@ -89,11 +99,12 @@ extension SmokeQA {
         // T-S4: Cancel, then a tap outside the popover; both keep the filter.
         searchStep("T-S4")
         openSearch(app, magnifier, "T-S4 cancel")
-        at(app, CGPoint(x: origin.x + Self.panelWidth - 56, y: origin.y + 24)).tap()
+        cancel(app, origin)
         sleep(3)
         save("search-s4-cancel")
         openSearch(app, magnifier, "T-S4 outside")
-        at(app, CGPoint(x: app.frame.width - 40, y: app.frame.height - 40)).tap()
+        // Over the terminal, right of the panel and above the software keyboard.
+        at(app, CGPoint(x: app.frame.width - 200, y: 200)).tap()
         sleep(3)
         save("search-s4-outside")
         marker(app, "w")
@@ -109,18 +120,20 @@ extension SmokeQA {
         app.typeKey("f", modifierFlags: .command)
         sleep(2)
         save("search-s5-paste")
-        // Clear the field (select all, delete) so the next steps see every row.
-        app.typeKey("a", modifierFlags: .command)
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        // "pro searchpasteword" matches nothing: the empty results' Clear filter empties the
+        // field and the filter (ClearRequested, set_query), so the next steps see every row.
+        searchMark("clear")
+        at(app, CGPoint(x: origin.x + 96, y: origin.y + 194)).tap()
         sleep(2)
-        at(app, CGPoint(x: origin.x + Self.panelWidth - 56, y: origin.y + 24)).tap()
+        save("search-s5-cleared")
+        cancel(app, origin)
         sleep(3)
 
         // T-S6: a result row opens its space; the panel closes for it.
         searchStep("T-S6")
         openSearch(app, magnifier, "T-S6")
         save("search-s6-open")
-        at(app, CGPoint(x: origin.x + Self.panelWidth / 2, y: origin.y + 134 + 28 + 22)).tap()
+        at(app, CGPoint(x: origin.x + Self.panelWidth / 2, y: origin.y + Self.firstRow)).tap()
         sleep(4)
         save("search-s6-selected")
         marker(app, "x")
@@ -129,11 +142,12 @@ extension SmokeQA {
         searchStep("T-S7")
         try qa.press(QAIds.bandMark)
         openSearch(app, magnifier, "T-S7")
-        at(app, CGPoint(x: origin.x + Self.panelWidth - 56, y: origin.y + 24)).tap()
+        cancel(app, origin)
         sleep(3)
         marker(app, "v")
 
-        // T-S8: background and foreground keep the field first responder; the hide key keeps it up.
+        // T-S8: background and foreground keep the field first responder; the keyboard's hide key
+        // leaves the panel up (iPad ends editing there, so the field resigns first responder).
         searchStep("T-S8")
         openSearch(app, magnifier, "T-S8")
         XCUIDevice.shared.press(.home)
@@ -142,12 +156,13 @@ extension SmokeQA {
         sleep(4)
         searchMark("foreground")
         save("search-s8-foreground")
-        // The software keyboard's dismiss key sits at its bottom-right corner on iPad.
-        at(app, CGPoint(x: app.frame.width - 40, y: app.frame.height - 30)).tap()
+        // The software keyboard's dismiss key sits at its bottom-right corner on iPad (its center
+        // in the first run's screenshots).
+        at(app, CGPoint(x: app.frame.width - 41, y: app.frame.height - 64)).tap()
         sleep(3)
         save("search-s8-hide")
         searchMark("close")
-        at(app, CGPoint(x: origin.x + Self.panelWidth - 56, y: origin.y + 24)).tap()
+        cancel(app, origin)
         sleep(3)
         marker(app, "u")
         searchStep("end")

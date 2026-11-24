@@ -61,6 +61,28 @@ def by_step(records, times):
     return windows
 
 
+def step_events(records, times):
+    """{step: [(time, event)]}: each numbered event of the records' `events` history, in the step
+    whose window holds the first record that carries it. A `Dismissed` and the `InputRestored`
+    after it can land in one frame, so `last_event` alone can skip the dismissal."""
+    first = {}
+    states = sorted((r for r in records if isinstance(r, dict) and r.get('kind') == 'search-state'
+                     and isinstance(r.get('time'), (int, float))), key=lambda r: r['time'])
+    for record in states:
+        for entry in record.get('events') or []:
+            if (isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], int)
+                    and isinstance(entry[1], str)):
+                first.setdefault(entry[0], (record['time'], entry[1]))
+    steps = {name: [] for name, _ in times}
+    for number in sorted(first):
+        time, event = first[number]
+        for index, (name, start) in enumerate(times):
+            end = times[index + 1][1] if index + 1 < len(times) else float('inf')
+            if start <= time < end:
+                steps[name].append((time, event))
+    return steps
+
+
 def peer_events(record):
     """(kind, detail) for each pane input in one peer record (externally tagged ClientMessage)."""
     if not isinstance(record, dict) or len(record) != 1:
@@ -107,13 +129,20 @@ def up(record):
             and sdk(record, 'gpui_drawing_first_responder') is False)
 
 
+def state_at(records, time):
+    """The last record at or before `time`: records are written only when the state changes."""
+    earlier = [r for r in records if r.get('time', 0) <= time]
+    return max(earlier, key=lambda r: r['time']) if earlier else {}
+
+
 def count_text(flat, text):
     return sum(1 for item in flat if item[:2] == ('text', text))
 
 
-def verdicts(windows, peer_flat, peer_steps, compact_windows, stdout):
-    """{step: (ok, reason)} for every step."""
+def verdicts(windows, peer_flat, peer_steps, compact_windows, stdout, events=None):
+    """{step: (ok, reason)} for every step; `events` is step_events() of the main run."""
     result = {}
+    events = events or {}
 
     def check(name, ok, reason):
         result[name] = (bool(ok), reason)
@@ -121,34 +150,46 @@ def verdicts(windows, peer_flat, peer_steps, compact_windows, stdout):
     def any_in(name, predicate):
         return any(predicate(r) for r in windows.get(name, []))
 
+    def seen(name, prefix):
+        return any(event.startswith(prefix) for _, event in events.get(name, []))
+
     check('T-S1', any_in('T-S1', lambda r: up(r) and sdk(r, 'presentation_style') == 7),
           'popover (style 7) up, field first responder, GPUI views not')
     check('T-S2', any_in('T-S2', lambda r: up(r) and sdk(r, 'field_text') == 'pro' and r.get('filter') == 'pro')
           and peer_steps.get('T-S3') == [],
           'field and filter "pro" while up; the peer received nothing before the T-S3 marker')
-    check('T-S3', any_in('T-S3', lambda r: not r.get('open') and r.get('filter') == 'pro')
+    check('T-S3', seen('T-S3', 'Dismissed(Return)')
+          and any_in('T-S3', lambda r: not r.get('open') and r.get('filter') == 'pro')
           and 'SEARCH banner exists=true' in stdout and count_text(peer_flat, MARKERS['T-S3']) == 1,
           'closed by Return with the filter kept, the banner shown, the marker received once')
-    check('T-S4', any_in('T-S4', lambda r: 'Dismissed(Cancel)' in str(r.get('last_event')) and r.get('filter') == 'pro')
-          and any_in('T-S4', lambda r: 'Dismissed(OutsideTap)' in str(r.get('last_event')) and r.get('filter') == 'pro')
+    check('T-S4', seen('T-S4', 'Dismissed(Cancel)') and seen('T-S4', 'Dismissed(OutsideTap)')
+          and not any(r.get('filter') != 'pro' for r in windows.get('T-S4', []))
           and not peer_steps.get('T-S4') and count_text(peer_flat, MARKERS['T-S4']) == 1,
           'Cancel and an outside tap closed it with the filter kept; nothing else reached the peer')
     s5 = windows.get('T-S5', [])
+    cleared = _after(stdout, 'clear')
     check('T-S5', any(up(r) and PASTED in str(sdk(r, 'field_text')) for r in s5)
           and len({r.get('sidebar_mode') for r in s5}) <= 1 and not any(r.get('find_open') for r in s5)
-          and not any(PASTED in str(i[1]) for i in peer_flat),
-          'Command-V into the field; Command-B and Command-F changed nothing; no paste reached the peer')
-    check('T-S6', any_in('T-S6', lambda r: 'Dismissed(Selected(' in str(r.get('last_event')))
+          and not any(PASTED in str(i[1]) for i in peer_flat)
+          and seen('T-S5', 'ClearRequested')
+          and any(up(r) and sdk(r, 'field_text') == '' and r.get('filter') == '' for r in s5
+                  if r.get('time', 0) >= cleared),
+          'Command-V into the field; Command-B and Command-F changed nothing; no paste reached the peer; '
+          'Clear filter in the empty results emptied the field and the filter')
+    check('T-S6', seen('T-S6', 'Selected {') and seen('T-S6', 'Dismissed(Selected(')
           and count_text(peer_flat, MARKERS['T-S6']) == 1 and not peer_steps.get('T-S6'),
           'a result row opened, the panel closed for it, the marker reached the terminal once')
-    check('T-S7', any_in('T-S7', up) and not peer_steps.get('T-S7') and count_text(peer_flat, MARKERS['T-S7']) == 1,
+    check('T-S7', any_in('T-S7', up) and seen('T-S7', 'Dismissed(Cancel)') and not peer_steps.get('T-S7') and count_text(peer_flat, MARKERS['T-S7']) == 1,
           'the terminal composition at open was not sent; the marker after the close arrived once')
     s8 = windows.get('T-S8', [])
-    after_foreground = [r for r in s8 if r.get('time', 0) >= _after(stdout, 'foreground')]
-    check('T-S8', any(up(r) for r in after_foreground)
-          and not any('Dismissed' in str(r.get('last_event')) for r in after_foreground
-                      if r.get('time', 0) < _after(stdout, 'close')),
-          'after background and foreground, and the hide key, the field is still first responder')
+    foreground, close = _after(stdout, 'foreground'), _after(stdout, 'close')
+    hidden = state_at(s8, close)
+    check('T-S8', up(state_at(s8, foreground))
+          and hidden.get('phase') == 'Open' and sdk(hidden, 'phase') == 'Presented'
+          and not any(event.startswith('Dismissed') for time, event in events.get('T-S8', []) if time < close)
+          and seen('T-S8', 'Dismissed(Cancel)') and count_text(peer_flat, MARKERS['T-S8']) == 1,
+          'after background and foreground the field is first responder; the keyboard\'s hide key '
+          'leaves the panel up; Cancel then closes it')
     check('T-S9', any(up(r) and sdk(r, 'presentation_style') == 1 for r in compact_windows.get('T-S9', [])),
           'with YEBISU_QA_SEARCH_COMPACT=1 the panel is a page sheet (style 1)')
     return result
@@ -229,16 +270,19 @@ def main():
         runs[name] = (test, read_jsonl(out / f'{name}-app.jsonl'), read_jsonl(out / f'{name}-peer.jsonl'))
     main_test, records, peer = runs['testSidebarSearch']
     compact_test, compact_records, _ = runs['testSidebarSearchCompact']
-    windows = by_step(records, step_times(main_test.stdout))
+    times = step_times(main_test.stdout)
+    windows = by_step(records, times)
     compact_windows = by_step(compact_records, step_times(compact_test.stdout))
     flat, steps = split_peer(peer, MARKERS)
-    result = verdicts(windows, flat, steps, compact_windows, main_test.stdout)
+    events = step_events(records, times)
+    result = verdicts(windows, flat, steps, compact_windows, main_test.stdout, events)
     summary = {
         'label': args.label,
         'xcodebuild_exit': {name: test.returncode for name, (test, _, _) in runs.items()},
         'records': {name: len(rows) for name, (_, rows, _) in runs.items()},
         'peer_inputs': flat,
         'peer_steps': steps,
+        'events': events,
         'steps': {name: {'ok': ok, 'reason': reason, 'records': len(windows.get(name, compact_windows.get(name, [])))}
                   for name, (ok, reason) in result.items()},
     }

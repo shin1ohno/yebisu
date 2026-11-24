@@ -2,7 +2,7 @@
 //!
 //! Each frame the magnifier paints, `qa.state.search` carries yebisu's side
 //! of the session (phase, filter, presentation, the revision at open, the
-//! last event) and the SDK's (`herdr_uikit::native_search_state`: which view
+//! last event and the numbered recent ones) and the SDK's (`herdr_uikit::native_search_state`: which view
 //! is first responder, the field's text, the presentation style). The same
 //! object goes to app.jsonl as a `search-state` record whenever it changes,
 //! so `scripts/ios/search-check.py` can judge a step after the run even when
@@ -12,14 +12,21 @@ use super::search::{Phase, Presentation, SearchEvent};
 use crate::{app::Smoke, observation::Observation};
 use gpui::AnyWindowHandle;
 use serde_json::{Value, json};
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::VecDeque};
 
 /// `1` makes the panel a sheet and `0` a popover, whatever the width: the
 /// Simulator has no window below 352 pt (issue #138, T-S9).
 pub(crate) const COMPACT_ENV: &str = "YEBISU_QA_SEARCH_COMPACT";
 
+/// How many recent events a record carries. A `Dismissed` and the
+/// `InputRestored` after it can land in one frame, so `last_event` alone
+/// can skip the dismissal.
+const RECENT_EVENTS: usize = 16;
+
 thread_local! {
     static LAST_EVENT: RefCell<String> = const { RefCell::new(String::new()) };
+    /// The number of events so far and the last `RECENT_EVENTS` of them.
+    static EVENTS: RefCell<(u64, VecDeque<String>)> = const { RefCell::new((0, VecDeque::new())) };
     static LAST_RECORD: RefCell<Option<Value>> = const { RefCell::new(None) };
 }
 
@@ -32,7 +39,27 @@ pub(crate) fn forced_compact() -> Option<bool> {
 }
 
 pub(crate) fn event(_app: &Smoke, event: &SearchEvent) {
-    LAST_EVENT.with_borrow_mut(|last| *last = format!("{event:?}"));
+    let text = format!("{event:?}");
+    EVENTS.with_borrow_mut(|(count, recent)| {
+        *count += 1;
+        recent.push_back(text.clone());
+        if recent.len() > RECENT_EVENTS {
+            recent.pop_front();
+        }
+    });
+    LAST_EVENT.with_borrow_mut(|last| *last = text);
+}
+
+/// `[[number, event], ...]` for the recent events, numbered from 1.
+fn recent_events() -> Value {
+    EVENTS.with_borrow(|(count, recent)| {
+        let first = count.saturating_sub(recent.len() as u64) + 1;
+        recent
+            .iter()
+            .zip(first..)
+            .map(|(event, number)| json!([number, event]))
+            .collect()
+    })
 }
 
 /// yebisu's side, taken while rendering the magnifier.
@@ -54,6 +81,7 @@ pub(crate) fn snapshot(app: &Smoke) -> Value {
         "pending": session.and_then(|s| s.pending).map(|(revision, id)| json!([revision, id])),
         "filter": app.sidebar_filter(),
         "last_event": LAST_EVENT.with_borrow(Clone::clone),
+        "events": recent_events(),
         "status": app.terminal.live.status,
         "sidebar_mode": format!("{:?}", app.sidebar_user_mode()),
         "find_open": app.find.is_some(),

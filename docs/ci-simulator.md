@@ -506,9 +506,12 @@ and `Documents/p4-peer.jsonl`, copied once the app was terminated.
 - Steps: T-S1 popover (style 7), field first responder, GPUI views not; T-S2 typing reaches the
   field and the filter, nothing the peer; T-S3 Return closes it, the filter and the "Filtered by"
   row stay, the marker arrives once; T-S4 Cancel and an outside tap keep the filter; T-S5
-  Command-V into the field, Command-B and Command-F change nothing; T-S6 a result row opens and
-  the panel closes for it; T-S7 a terminal composition at open is not sent; T-S8 background,
-  foreground and the hide key keep the field first responder; T-S9 `YEBISU_QA_SEARCH_COMPACT=1`
+  Command-V into the field, Command-B and Command-F change nothing, and the empty results' Clear
+  filter empties the field and the filter (`ClearRequested`, `set_query`); T-S6 a result row opens and
+  the panel closes for it; T-S7 a terminal composition at open is not sent; T-S8 background and
+  foreground keep the field first responder, and the software keyboard's hide key leaves the panel
+  up (iPad ends editing there, so the field is no longer first responder; D5 checks that a tap on
+  the field brings the keyboard back); T-S9 `YEBISU_QA_SEARCH_COMPACT=1`
   makes it a page sheet (style 1).
 - `YEBISU_QA_SEARCH_COMPACT` (`1` sheet, `0` popover) is read only in a test-support Simulator
   build: the Simulator has no window below 352 pt, so a real narrow window is an owner check.
