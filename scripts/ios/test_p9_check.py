@@ -76,6 +76,8 @@ class DocEvidenceTests(unittest.TestCase):
     def test_doc_receipts_pass_the_other_observers(self):
         paints, wire = ImageEvidenceTests().fixture()
         wire.insert(1, self.receipt())
+        wire.insert(2, {"method": "terminal.run", "terminal": "t9",
+                        "labels": {"herdr.space": "spa", "herdr.tab": "tba", "herdr.seen": "0"}})
         p9.validate(paints, wire)
         p9.validate_images(wire)
 

@@ -48,8 +48,10 @@ def validate(paints, wire):
 
 
 def is_doc(receipt):
-    """A herdr-app document receipt of the mock core (#144); validate_doc reads those."""
-    return str(receipt.get("method", "")).startswith("doc.")
+    """A herdr-app receipt of the mock core (#144): a doc.* call, or a terminal.run with the
+    official app's labels. validate_doc reads those; the other observers skip them."""
+    method = str(receipt.get("method", ""))
+    return method.startswith("doc.") or method == "terminal.run"
 
 
 def validate_doc(wire, expected=0):
