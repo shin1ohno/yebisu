@@ -205,8 +205,9 @@ fn serve(
                 let mut probe = serial;
                 let mut frame = focused_surface(&board_snapshot, &mut probe).frame;
                 // The frame the client shows: the tests' stays at the peer's
-                // first size, with the fixture they add to it.
-                if let Some((cols, rows)) = size.filter(|_| fault != "links") {
+                // first size (no resize is answered), with the fixture they
+                // add to it.
+                if let Some((cols, rows)) = size {
                     resize_frame(&mut frame, cols, rows);
                 }
                 if links {
@@ -364,6 +365,11 @@ fn serve(
             return Ok(());
         }
         if let ClientMessage::ClientShellResize { surface_size, .. } = message {
+            // The tests' link fixture is the frame they show; a resized
+            // frame racing a press would change it under the press.
+            if fault == "links" {
+                continue;
+            }
             serial += 1;
             let mut frame = focused_surface(&board_snapshot, &mut serial);
             frame.surface_revision = serial;
