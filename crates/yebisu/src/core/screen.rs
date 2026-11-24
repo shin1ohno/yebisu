@@ -4,9 +4,10 @@ use crate::{
     live::Live,
     shell::single_pane::ColumnMetrics,
 };
-use sheprd_backend::{FrameData, KeyReporting, Size, SurfaceUpdate};
+use sheprd_backend::{FrameData, KeyReporting, ScrollPosition, Size, SurfaceUpdate};
 use sheprd_client::protocol::{
-    CellData, ClientShellPane, ClientShellSnapshot, PaneSurfaceFrame, PaneSurfacePane, SurfaceRect,
+    CellData, ClientShellPane, ClientShellSnapshot, PaneSurfaceFrame, PaneSurfacePane,
+    PaneSurfaceScrollMetrics, SurfaceRect,
 };
 use std::sync::Arc;
 
@@ -16,6 +17,10 @@ pub(super) struct Screen {
     pub keys: KeyReporting,
     pub ended: bool,
     pub title: Option<String>,
+    /// Where the view is in the terminal's history (issue #137 PR 6).
+    pub scroll: Option<ScrollPosition>,
+    /// Whether the program reads the mouse, so the wheel reaches it.
+    pub mouse_reporting: bool,
 }
 impl Screen {
     pub fn apply(&mut self, update: SurfaceUpdate) {
@@ -38,6 +43,8 @@ impl Screen {
                 frame.cursor = cursor;
             }
             SurfaceUpdate::KeyReporting(keys) => self.keys = keys,
+            SurfaceUpdate::MouseReporting(on) => self.mouse_reporting = on,
+            SurfaceUpdate::Scroll(position) => self.scroll = Some(position),
             SurfaceUpdate::Ended(_) => self.ended = true,
             SurfaceUpdate::Title(title) => {
                 self.title = (!title.trim().is_empty()).then_some(title);
@@ -294,6 +301,7 @@ pub(super) fn publish_for(
         .enumerate()
         .filter(|(index, _)| !single || *index == saved.active)
         .map(|(index, (rect, pane_id))| {
+            let screen = screens.get(index);
             let rect = SurfaceRect {
                 x: rect.x,
                 y: rect.y,
@@ -305,10 +313,18 @@ pub(super) fn publish_for(
                 content_revision: revision,
                 rect,
                 inner_rect: rect,
+                // No daemon-drawn bar column: the thumb paints in the pane's
+                // last column (`Scrollbar::for_pane`), over its cells.
                 scrollbar_rect: None,
-                scroll: None,
+                scroll: screen.and_then(|screen| screen.scroll).map(|position| {
+                    PaneSurfaceScrollMetrics {
+                        offset_from_bottom: position.offset as u64,
+                        max_offset_from_bottom: position.history as u64,
+                        viewport_rows: u64::from(position.rows),
+                    }
+                }),
                 focused: index == saved.active,
-                mouse_reporting: false,
+                mouse_reporting: screen.is_some_and(|screen| screen.mouse_reporting),
                 sgr_pixel_mouse: false,
                 alternate_screen_active: false,
                 pixel_width: 0,

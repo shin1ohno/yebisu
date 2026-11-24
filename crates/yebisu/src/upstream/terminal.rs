@@ -298,9 +298,28 @@ pub(crate) struct Scrollbar {
     max: u64,
 }
 
+/// Where `pane`'s thumb runs: the daemon's bar column, or for a pane whose
+/// daemon draws none (Herdr 2) its last column, the thumb over its cells.
+pub(crate) fn scrollbar_track(pane: &PaneSurfacePane) -> Option<SurfaceRect> {
+    pane.scroll?;
+    pane.scrollbar_rect.or_else(|| {
+        let rect = pane.inner_rect;
+        (rect.width > 0).then(|| SurfaceRect {
+            x: rect.x + rect.width - 1,
+            width: 1,
+            ..rect
+        })
+    })
+}
+
 impl Scrollbar {
-    pub(crate) fn new(pane: &PaneSurfacePane, cell_width: f32, cell_height: f32) -> Option<Self> {
-        let (rect, scroll) = (pane.scrollbar_rect?, pane.scroll?);
+    /// `pane`'s scrollbar along `scrollbar_track`.
+    pub(crate) fn for_pane(
+        pane: &PaneSurfacePane,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> Option<Self> {
+        let (rect, scroll) = (scrollbar_track(pane)?, pane.scroll?);
         if scroll.max_offset_from_bottom == 0 || rect.height == 0 {
             return None;
         }

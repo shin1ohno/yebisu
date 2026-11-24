@@ -707,10 +707,9 @@ impl TerminalPainter {
                 for bar in panes
                     .iter()
                     .filter(|pane| {
-                        pane.scrollbar_rect
-                            .is_some_and(|rect| covers(area, rect.x, rect.y))
+                        scrollbar_track(pane).is_some_and(|rect| covers(area, rect.x, rect.y))
                     })
-                    .filter_map(|pane| Scrollbar::new(pane, cell_width, self.cell_height))
+                    .filter_map(|pane| Scrollbar::for_pane(pane, cell_width, self.cell_height))
                 {
                     let width =
                         (f32::from(bar.track.size.width) - 2. * SCROLLBAR_INSET).clamp(2., 4.);

@@ -12,6 +12,8 @@ mod links;
 mod minimum;
 #[path = "screen_tests/narrow.rs"]
 mod narrow;
+#[path = "screen_tests/scroll.rs"]
+mod scroll;
 #[path = "screen_tests/support.rs"]
 mod support;
 #[path = "screen_tests/worker_hidden.rs"]

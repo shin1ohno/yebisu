@@ -144,15 +144,12 @@ impl Smoke {
         }
     }
 
-    /// Asks Herdr 1 to show `pane_id`'s bottom when the pane shows its
-    /// scrollback: with `pane.scroll`, or with the wheel when Herdr lacks that
-    /// method and the pane reads neither the mouse nor the alternate screen.
-    /// Herdr 1 only: yebisu cannot see a Herdr 2 pane's position yet. Returns
-    /// whether a request was made.
+    /// Returns `pane_id` to its bottom when it shows its scrollback. Herdr 1
+    /// gets `pane.scroll`, or the wheel when it lacks that method; a Herdr 2
+    /// pane's emulator gets the wheel. The wheel only ever goes to a pane that
+    /// reads neither the mouse nor the alternate screen: a program would read
+    /// it as reports or arrow keys. Returns whether a request was made.
     pub(crate) fn scroll_to_bottom(&mut self, pane_id: &str) -> bool {
-        if self.terminal.core.is_some() {
-            return false;
-        }
         let Some(destination) = self.terminal.input.destination.clone() else {
             return false;
         };
@@ -169,7 +166,25 @@ impl Smoke {
         else {
             return false;
         };
-        let result = if Method::PaneScroll.advertised_in(&self.terminal.live.methods) {
+        let wheel = |offset: u64| ClientPaneInputEvent::Mouse {
+            kind: ClientMouseKind::ScrollDown,
+            position: ClientMousePosition::Cell { column: 0, row: 0 },
+            geometry: None,
+            modifiers: 0,
+            lines: u16::try_from(offset).unwrap_or(u16::MAX),
+        };
+        let reads_wheel = pane.mouse_reporting || pane.alternate_screen_active;
+        let result = if let Some(core) = &self.terminal.core {
+            if reads_wheel {
+                return false;
+            }
+            // The emulator scrolls its own history; one event, any count.
+            core.send(crate::core::Command::Wheel {
+                destination: destination.clone(),
+                pane: pane_id.to_owned(),
+                event: wheel(offset),
+            })
+        } else if Method::PaneScroll.advertised_in(&self.terminal.live.methods) {
             let Some(handle) = &self.terminal.link.handle else {
                 return false;
             };
@@ -181,20 +196,12 @@ impl Smoke {
                 )
                 .map(drop)
                 .map_err(|error| crate::Error::Ssh(error.to_string()))
-        } else if !pane.mouse_reporting && !pane.alternate_screen_active {
-            // Without the method, the wheel scrolls the scrollback back down;
-            // a program reading the mouse would get it as reports instead.
-            let event = ClientPaneInputEvent::Mouse {
-                kind: ClientMouseKind::ScrollDown,
-                position: ClientMousePosition::Cell { column: 0, row: 0 },
-                geometry: None,
-                modifiers: 0,
-                lines: u16::try_from(offset).unwrap_or(u16::MAX),
-            };
+        } else if !reads_wheel {
+            // Without the method, the wheel scrolls the scrollback back down.
             self.terminal.link.send_wheel(
                 &destination,
                 &InputTarget::Pane(pane_id.to_owned()),
-                vec![event],
+                vec![wheel(offset)],
             )
         } else {
             return false;
