@@ -20,7 +20,7 @@ P13 fence. No input is buffered or replayed for recovery.
 
 The SDK was pinned to the herdr-uikit PR 14 merge commit
 99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main); L61 moved it
-to the PR 18 merge commit af7c496099dd6d308055be1818ddf971a321e4f8, which adds
+to the PR 18 merge commit 0100d382254cda65c400b92388896c075ff491fb, which adds
 PR 17 (test-support held-press) and PR 18 (empty edit menu for unpresented
 configurations) and keeps the same helper. 99d7928 contains
 the earlier fe3a0da query helper, main's 3ec67ca, and a test-support-only
