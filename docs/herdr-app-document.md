@@ -51,6 +51,7 @@ decision 12):
 | `core-roundtrip-v0.json`, `core-roundtrip-written.json` | Stand-ins for the private core's captures: a document never written (`null`, version 0), and one written and read back |
 | `tree-three-panes.json`, `tree-stack.json`, `tree-mod.json`, `tree-float.json`, `tree-tab-agent.json`, `tree-px.json` | One tree shape each |
 | `new-node-fields.json` | A node field from a newer official app |
+| `two-spaces.json` | Two spaces, one named and one automatic, for the Simulator QA (`YEBISU_CORE_DOC_QA=two-spaces`) |
 | `unreadable-*.json` | Shapes the official app cannot read: `spaces` not an array, a root without `type`, a child that is not an object, a top level that is not an object |
 
 The tests list the directory, so a new fixture is checked without a code

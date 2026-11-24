@@ -234,6 +234,7 @@ fn refusal(kind: &str, message: &str) -> Value {
 fn qa_fixture(name: &str) -> Option<Value> {
     let text = match name {
         "tree-three-panes" => include_str!("../../fixtures/herdr-app/tree-three-panes.json"),
+        "two-spaces" => include_str!("../../fixtures/herdr-app/two-spaces.json"),
         "unknown-fields" => include_str!("../../fixtures/herdr-app/unknown-fields.json"),
         "unreadable-root" => include_str!("../../fixtures/herdr-app/unreadable-root.json"),
         _ => return None,
