@@ -4,8 +4,8 @@
 # after a wait, and a copy of the app's log file from its data container.
 #
 # Never uninstalls other apps, deletes data, or changes system settings. The
-# only process it terminates is an earlier copy of com.shin1ohno.yebisu, when
-# launching. It never registers this Mac with the team unless asked to with
+# only process it terminates is an earlier copy of com.shin1ohno.yebisu, before
+# installing. It never registers this Mac with the team unless asked to with
 # --register-device (just mac-register, the owner's one-time step).
 #
 # Tests point YEBISU_MAC_APPLICATIONS (default /Applications) at a scratch
@@ -185,50 +185,15 @@ fi
 # gate:embedded-profile end
 codesign --verify --strict "$app" >&2 || fail bundle-check 1 "the bundle's signature does not verify"
 
-# The signed .app does not run as it is ("incorrect executable format"). A zip
-# whose root is Payload/yebisu.app is an .ipa, and opening one has macOS
-# install the app as $applications/yebisu.app/Wrapper/yebisu.app.
-installed=$applications/yebisu.app
-installed_app=$installed/Wrapper/yebisu.app
-mac_install() {
-  if [[ -e $installed || -L $installed ]]; then
-    local existing
-    existing=$(plutil -extract CFBundleIdentifier raw -o - "$installed_app/Info.plist" 2>/dev/null) ||
-      existing=
-    if [[ $existing != "$bundle_id" ]]; then
-      existing=${existing:-$(plutil -extract CFBundleIdentifier raw -o - "$installed/Contents/Info.plist" \
-        2>/dev/null || echo "not a wrapped iPad app")}
-      echo "error: $installed is another app ($existing); not replacing it" >&2
-      return 1
-    fi
-  fi
-  mkdir -p "$work/ipa/Payload"
-  ditto "$app" "$work/ipa/Payload/yebisu.app" && codesign --verify --strict "$work/ipa/Payload/yebisu.app" &&
-    rm -f "$out/yebisu.ipa" &&
-    ditto -c -k --sequesterRsrc --keepParent "$work/ipa/Payload" "$out/yebisu.ipa" &&
-    open "$out/yebisu.ipa" || return 1
-  # The installer finishes after open returns. bundle.sh signs every build
-  # anew (the signature carries its time), so a built executable matches the
-  # installed one only once this install is done; an --app bundle installed
-  # before may match at once, which leaves the same content installed.
-  local second
-  for ((second = 0; second < timeout_seconds; second++)); do
-    if cmp -s "$app/yebisu" "$installed_app/yebisu"; then return 0; fi
-    sleep 1
-  done
-  echo "error: $installed_app did not become this build within ${timeout_seconds}s" >&2
-  return 1
-}
-mac_install || fail install 1 "could not install $app on this Mac"
-echo "Installed $bundle_id as $installed_app" >&2
-
 # "PID PPID EXECUTABLE" for processes running an installed com.shin1ohno.yebisu
 # bundle's own executable; never a process matched by its name alone.
 app_processes() {
   ps -axww -o pid=,ppid=,comm= | "${mac_py[@]}" processes --bundle-id "$bundle_id" "$@"
 }
-mac_launch() {
-  local earlier old_pid tick launched=
+# Before installing: the installer ends a running copy itself
+# (installcoordinationd), so mac.sh stops this bundle's own processes first.
+mac_terminate() {
+  local earlier old_pid tick
   earlier=$(app_processes) || return 1
   while read -r old_pid _; do
     if [[ -n $old_pid ]]; then
@@ -238,25 +203,101 @@ mac_launch() {
   done <<<"$earlier"
   for ((tick = 0; tick < timeout_seconds * 5; tick++)); do
     earlier=$(app_processes) || return 1
-    [[ -z $earlier ]] && break
+    if [[ -z $earlier ]]; then return 0; fi
     sleep 0.2
   done
-  if [[ -n $earlier ]]; then
-    echo "error: the earlier $bundle_id did not stop: $earlier" >&2
-    return 1
+  echo "error: the earlier $bundle_id did not stop: $earlier" >&2
+  return 1
+}
+mac_terminate || fail terminate 1 "could not stop the running $bundle_id"
+
+# The signed .app does not run as it is ("incorrect executable format"). A zip
+# whose root is Payload/yebisu.app is an .ipa; opening one has macOS install it
+# as a wrapper, $applications/yebisu.app/Wrapper/yebisu.app on a first install.
+wrappers() { # the installed wrappers of this bundle identifier, one per line
+  local wrapper
+  for wrapper in "$applications"/*.app; do
+    if [[ -d $wrapper/Wrapper && $(plutil -extract CFBundleIdentifier raw -o - \
+      "$wrapper/Wrapper/yebisu.app/Info.plist" 2>/dev/null) == "$bundle_id" ]]; then
+      printf '%s\n' "$wrapper"
+    fi
+  done
+}
+installed=
+installed_app=
+mac_install() {
+  local named=$applications/yebisu.app existing= before= found= wrapper= second
+  if [[ -e $named || -L $named ]]; then
+    existing=$(plutil -extract CFBundleIdentifier raw -o - "$named/Wrapper/yebisu.app/Info.plist" 2>/dev/null) ||
+      existing=
+    if [[ $existing != "$bundle_id" ]]; then
+      existing=${existing:-$(plutil -extract CFBundleIdentifier raw -o - "$named/Contents/Info.plist" \
+        2>/dev/null || echo "not a wrapped iPad app")}
+      echo "error: $named is another app ($existing); not replacing it" >&2
+      return 1
+    fi
   fi
-  # LaunchServices starts the app, so launchd (pid 1) is its parent and it
-  # does not end with this terminal or the guard's process group.
-  open -b "$bundle_id" || return 1
-  for ((tick = 0; tick < timeout_seconds; tick++)); do
-    launched=$(app_processes | head -n 1) || return 1
-    [[ -n $launched ]] && break
+  before=$(wrappers)
+  mkdir -p "$work/ipa/Payload"
+  ditto "$app" "$work/ipa/Payload/yebisu.app" && codesign --verify --strict "$work/ipa/Payload/yebisu.app" &&
+    rm -f "$out/yebisu.ipa" &&
+    ditto -c -k --sequesterRsrc --keepParent "$work/ipa/Payload" "$out/yebisu.ipa" &&
+    open "$out/yebisu.ipa" || return 1
+  # The installer finishes after open returns. bundle.sh signs every build
+  # anew (the signature carries its time), so a built executable matches an
+  # installed one only once this install is done; an --app bundle installed
+  # before may match at once, which leaves the same content installed.
+  for ((second = 0; second < timeout_seconds; second++)); do
+    while IFS= read -r wrapper; do
+      if [[ -n $wrapper ]] && cmp -s "$app/yebisu" "$wrapper/Wrapper/yebisu.app/yebisu"; then
+        found=$wrapper
+        break
+      fi
+    done <<<"$(wrappers)"
+    if [[ -n $found ]]; then break; fi
     sleep 1
   done
-  [[ -n $launched ]] || return 1
-  read -r pid ppid executable <<<"$launched"
-  printf 'pid %s\nparent pid %s\nexecutable %s\nlaunched %s\n' "$pid" "$ppid" "$executable" \
-    "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$out/launch.txt"
+  if [[ -z $found ]]; then
+    echo "error: no installed wrapper became this build within ${timeout_seconds}s" >&2
+    return 1
+  fi
+  # A numbered copy beside the existing wrapper is never used (the owner,
+  # 2026-11-24); mac.sh never removes a wrapper either.
+  if [[ -n $before ]] && ! grep -qxF -- "$found" <<<"$before"; then
+    echo "error: macOS installed this build as a new wrapper, $found, instead of" \
+      "updating $(paste -sd , - <<<"$before"); numbered wrappers are not used" >&2
+    return 1
+  fi
+  installed=$found
+  installed_app=$found/Wrapper/yebisu.app
+}
+mac_install || fail install 1 "could not install $app on this Mac"
+echo "Installed $bundle_id as $installed_app" >&2
+while IFS= read -r wrapper; do
+  if [[ -n $wrapper && $wrapper != "$installed" ]]; then
+    echo "note: another $bundle_id wrapper is installed, for the owner to remove: $wrapper" >&2
+  fi
+done <<<"$(wrappers)"
+
+mac_launch() {
+  local tick
+  # Opening the wrapper starts this copy even when LaunchServices knows several
+  # com.shin1ohno.yebisu bundles, where open -b could pick any. LaunchServices
+  # starts it, so launchd (pid 1) is its parent and it does not end with this
+  # terminal or the guard's process group.
+  open "$installed" || return 1
+  for ((tick = 0; tick < timeout_seconds; tick++)); do
+    while read -r pid ppid executable; do
+      if [[ -n $pid ]] && cmp -s "$app/yebisu" "$executable"; then
+        printf 'pid %s\nparent pid %s\nexecutable %s\nlaunched %s\n' "$pid" "$ppid" "$executable" \
+          "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$out/launch.txt"
+        return 0
+      fi
+    done <<<"$(app_processes)"
+    sleep 1
+  done
+  pid=
+  return 1
 }
 
 pid=

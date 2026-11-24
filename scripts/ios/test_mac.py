@@ -103,28 +103,43 @@ FAKES = {
         print(f"Executable={args[-1]}/yebisu", file=sys.stderr)
         sys.stdout.buffer.write(plistlib.dumps({"application-identifier": env("MAC_TEST_SIGNED_APP_ID")}))
     ''',
-    # Opening an .ipa installs it as Applications/yebisu.app/Wrapper/yebisu.app;
-    # open -b starts the installed app from a translocated copy under launchd.
+    # Opening an .ipa updates the existing wrapper in place (MAC_TEST_INSTALL=yes)
+    # or, as macOS did on 2026-11-24, adds a numbered one (numbered); opening a
+    # wrapper starts it from a translocated copy under launchd.
     "open": r'''
         log("open")
-        installed = pathlib.Path(env("YEBISU_MAC_APPLICATIONS")) / "yebisu.app" / "Wrapper" / "yebisu.app"
+        applications = pathlib.Path(env("YEBISU_MAC_APPLICATIONS"))
         if args[0].endswith(".ipa"):
+            alive = []
+            for entry in registry():
+                try:
+                    os.kill(entry["pid"], 0)
+                    alive.append(entry["pid"])
+                except ProcessLookupError:
+                    pass
+            (pathlib.Path(env("MAC_TEST_ROOT")) / "alive-at-install.json").write_text(json.dumps(alive))
             mode = env("MAC_TEST_INSTALL", "yes")
             if mode == "fail":
                 sys.exit(1)
-            if mode == "yes":
+            existing = sorted(w for w in applications.glob("*.app") if (w / "Wrapper/yebisu.app").is_dir())
+            target = applications / "yebisu.app"
+            if mode == "yes" and existing:
+                target = existing[0]
+            elif mode == "numbered" and target.exists():
+                target = applications / "yebisu 2.app"
+            if mode in ("yes", "numbered"):
                 scratch = tempfile.mkdtemp()
                 subprocess.run(["ditto", "-x", "-k", args[0], scratch], check=True)
-                shutil.rmtree(installed, ignore_errors=True)
-                shutil.copytree(pathlib.Path(scratch) / "Payload" / "yebisu.app", installed)
-        elif args[:1] == ["-b"]:
+                shutil.rmtree(target / "Wrapper" / "yebisu.app", ignore_errors=True)
+                shutil.copytree(pathlib.Path(scratch) / "Payload" / "yebisu.app", target / "Wrapper" / "yebisu.app")
+        elif args[0].endswith(".app"):
             mode = env("MAC_TEST_LAUNCH", "yes")
             if mode == "fail":
                 sys.exit(1)
             if mode == "yes":
                 pid = spawn()
                 copy = pathlib.Path(env("MAC_TEST_ROOT")) / "X" / str(pid) / "d" / "Wrapper" / "yebisu.app"
-                shutil.copytree(installed, copy)
+                shutil.copytree(pathlib.Path(args[0]) / "Wrapper" / "yebisu.app", copy)
                 listings = env("MAC_TEST_LISTINGS")
                 registry(registry() + [{"pid": pid, "ppid": int(env("MAC_TEST_PARENT", "1")),
                                         "exe": str(copy / "yebisu"),
@@ -133,9 +148,11 @@ FAKES = {
                 logfile = container / "Data" / env("MAC_TEST_LOG_SOURCE")
                 logfile.parent.mkdir(parents=True, exist_ok=True)
                 (container / ".com.apple.containermanagerd.metadata.plist").write_bytes(
-                    plistlib.dumps({"MCMMetadataIdentifier": args[1]}))
+                    plistlib.dumps({"MCMMetadataIdentifier": "com.shin1ohno.yebisu"}))
                 with open(logfile, "a") as out:
                     out.write(json.dumps({"event": "startup", "pid": pid}, separators=(",", ":")) + "\n")
+        else:
+            sys.exit(64)
     ''',
     "ps": r'''
         log("ps")
@@ -248,9 +265,10 @@ class Harness:
         self.write_profile(path / "embedded.mobileprovision", devices=devices)
         return path
 
-    def running(self, parts, bundle_id=BUNDLE, executable="yebisu"):
+    def running(self, parts, bundle_id=BUNDLE, executable="yebisu", ignore_term=False):
         """Start a sleep that ps reports as running ROOT/PARTS/EXECUTABLE."""
-        started = subprocess.run(["/bin/sh", "-c", "sleep 600 </dev/null >/dev/null 2>&1 & echo $!"],
+        trap = "trap '' TERM; " if ignore_term else ""
+        started = subprocess.run(["/bin/sh", "-c", f"({trap}exec sleep 600) </dev/null >/dev/null 2>&1 & echo $!"],
                                  capture_output=True, text=True, check=True)
         pid = int(started.stdout)
         bundle = self.root.joinpath(*parts)
@@ -265,7 +283,7 @@ class Harness:
     def stop_sleepers(self):
         for entry in json.loads(self.registry.read_text()):
             if alive(entry["pid"]):
-                os.kill(entry["pid"], signal.SIGTERM)
+                os.kill(entry["pid"], signal.SIGKILL)
 
     def run_mac(self, *args, script=None):
         return subprocess.run(
@@ -279,7 +297,16 @@ class Harness:
         return [call for call in calls if tool is None or call["tool"] == tool]
 
     def opened(self, kind):
-        return [c for c in self.calls("open") if (c["args"][0].endswith(".ipa")) == (kind == "ipa")]
+        return [c for c in self.calls("open") if c["args"][0].endswith(f".{kind}")]
+
+    def wrapper(self, name, bundle_id=BUNDLE):
+        """An installed wrapper from an earlier install, with another build's executable."""
+        bundle = self.applications / name / "Wrapper" / "yebisu.app"
+        bundle.mkdir(parents=True)
+        (bundle / "Info.plist").write_bytes(plistlib.dumps(
+            {"CFBundleIdentifier": bundle_id, "CFBundleExecutable": "yebisu"}))
+        (bundle / "yebisu").write_bytes(b"an earlier build")
+        return self.applications / name
 
     def assert_refused(self, result, step, status):
         self.assertEqual(result.returncode, status, result.stdout + result.stderr)
@@ -478,11 +505,40 @@ class MacScriptTests(Harness, unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"Terminating the earlier {BUNDLE} (pid {earlier})", result.stderr)
         self.assertFalse(alive(earlier))
+        self.assertNotIn(earlier, json.loads((self.root / "alive-at-install.json").read_text()))
         for survivor in (host_build, other_bundle, unwrapped):
             self.assertTrue(alive(survivor), survivor)
         self.assertEqual(result.stderr.count("Terminating"), 1)
         launched = json.loads(self.registry.read_text())[-1]["pid"]
         self.assertIn(f"state:      running (pid {launched})", result.stdout)
+
+    def test_earlier_copy_that_will_not_stop_fails_before_install(self):
+        stubborn = self.running(("X", "OLD", "d", "Wrapper", "yebisu.app"), ignore_term=True)
+        result = self.run_mac()
+        self.assert_refused(result, "terminate", 1)
+        self.assertIn(f"did not stop: {stubborn} ", result.stderr)
+        self.assertFalse(self.opened("ipa"))
+
+    def test_existing_wrapper_is_updated_in_place_and_opened_by_path(self):
+        numbered, named = self.wrapper("yebisu 2.app"), self.wrapper("yebisu.app")
+        result = self.run_mac()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"app:        {numbered}/Wrapper/yebisu.app", result.stdout)
+        self.assertEqual([c["args"] for c in self.opened("app")], [[str(numbered)]])
+        self.assertIn(f"note: another {BUNDLE} wrapper is installed, for the owner to remove: {named}",
+                      result.stderr)
+        self.assertEqual((named / "Wrapper/yebisu.app/yebisu").read_bytes(), b"an earlier build")
+
+    def test_new_numbered_wrapper_is_refused_and_nothing_is_removed(self):
+        named = self.wrapper("yebisu.app")
+        self.env["MAC_TEST_INSTALL"] = "numbered"
+        result = self.run_mac()
+        self.assert_refused(result, "install", 1)
+        self.assertIn(f"as a new wrapper, {self.applications / 'yebisu 2.app'}, instead of updating {named};"
+                      " numbered wrappers are not used", result.stderr)
+        self.assertEqual((named / "Wrapper/yebisu.app/yebisu").read_bytes(), b"an earlier build")
+        self.assertTrue((self.applications / "yebisu 2.app").exists())
+        self.assertFalse(self.opened("app"))
 
     def test_app_under_another_parent_fails_the_running_check(self):
         self.env["MAC_TEST_PARENT"] = "4242"
@@ -494,7 +550,7 @@ class MacScriptTests(Harness, unittest.TestCase):
         result = self.run_mac("--no-launch")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.opened("ipa"))
-        self.assertFalse(self.opened("bundle id"))
+        self.assertFalse(self.opened("app"))
         self.assertIn("state:      installed, not launched", result.stdout)
 
 
