@@ -22,8 +22,8 @@ import subprocess
 import sys
 
 BUNDLE = 'com.shin1ohno.yebisu'
-STEPS = ('R1', 'R2', 'R3', 'R4', 'R5')
-MARKERS = {'R1': 'z', 'R2': 'y', 'R3': 'x', 'R4': 'w', 'R5': 'v'}
+STEPS = ('R1', 'R2', 'R2b', 'R3', 'R4', 'R5')
+MARKERS = {'R1': 'z', 'R2': 'y', 'R2b': 'u', 'R3': 'x', 'R4': 'w', 'R5': 'v'}
 PASTED = 'renamepasteword'
 
 
@@ -116,11 +116,27 @@ def up(record):
             and sdk.get('gpui_drawing_first_responder') is False)
 
 
-def verdicts(windows, steps):
+def cancelled_touches(records, times, name):
+    """Touches UIKit cancelled during step `name` (a system gesture took them)."""
+    bounds = dict(times)
+    order = [step for step, _ in times]
+    if name not in bounds:
+        return 0
+    at = order.index(name)
+    end = times[at + 1][1] if at + 1 < len(times) else float('inf')
+    return sum(1 for r in records if isinstance(r, dict) and r.get('kind') == 'input-receipt'
+               and r.get('stage') == 'cancelled' and bounds[name] <= r.get('time', 0) < end)
+
+
+def verdicts(windows, steps, cancelled=None):
+    """(ok, reason) per step; ok is None (UNVERIFIED) for a double tap whose second touch UIKit
+    cancelled: the Simulator then cannot show the gesture (device check D4)."""
+    cancelled = cancelled or {}
     result = {}
 
     def check(name, ok, reason):
         result[name] = (bool(ok), reason)
+
 
     def opened(name):
         return any(up(r) for r in windows.get(name, []))
@@ -134,6 +150,15 @@ def verdicts(windows, steps):
     check('R2', opened('R2') and len(tab) == 1 and (tab[0][2] or {}).get('label') == 'build'
           and len(renames(r2)) == 1 and not inputs(r2),
           f'opened={opened("R2")} renames={renames(r2)} inputs={inputs(r2)}')
+    if not result['R2'][0] and not opened('R2') and cancelled.get('R2'):
+        result['R2'] = (None, f'UIKit cancelled {cancelled["R2"]} touch(es) of the double tap at the top '
+                              'of the window; not shown in this Simulator (device check D4)')
+    r2b = steps.get('R2b', [])
+    space = renames(r2b, 'workspace.rename')
+    moves = [e for e in r2b if e[0] == 'rpc' and e[1] == 'workspace.focus']
+    check('R2b', opened('R2b') and len(space) == 1 and (space[0][2] or {}).get('label') == 'space2'
+          and len(moves) <= 1 and not inputs(r2b),
+          f'opened={opened("R2b")} renames={renames(r2b)} moves={len(moves)} inputs={inputs(r2b)}')
     r3 = steps.get('R3', [])
     check('R3', opened('R3') and not renames(r3) and not inputs(r3),
           f'opened={opened("R3")} renames={renames(r3)} inputs={inputs(r3)}')
@@ -144,7 +169,11 @@ def verdicts(windows, steps):
     r5 = steps.get('R5', [])
     languages = sorted({(r.get('sdk') or {}).get('primary_language') for r in windows.get('R5', [])} - {None})
     marked = any((r.get('sdk') or {}).get('marked') for r in windows.get('R5', []))
-    check('R5', opened('R5') and len(renames(r5, 'workspace.rename')) == 1 and not inputs(r5),
+    # Without a composition the first Return commits and closes, so the second reaches the
+    # terminal after the restore: that one Return is expected, nothing else.
+    extra = inputs(r5)
+    expected_extra = [] if marked else [('key', 'Enter')]
+    check('R5', opened('R5') and len(renames(r5, 'workspace.rename')) == 1 and extra in ([], expected_extra),
           f'opened={opened("R5")} renames={renames(r5)} languages={languages} marked_seen={marked} '
           f'(composition is recorded, not required: Simulator)')
     return result
@@ -203,9 +232,11 @@ def main():
         if (documents / source).is_file():
             shutil.copyfile(documents / source, out / target)
     records, peer = read_jsonl(out / 'app.jsonl'), read_jsonl(out / 'peer.jsonl')
-    windows = by_step(records, step_times(test.stdout))
+    times = step_times(test.stdout)
+    windows = by_step(records, times)
     flat, steps = split_peer(peer)
-    outcome = verdicts(windows, steps)
+    cancelled = {name: cancelled_touches(records, times, name) for name in STEPS}
+    outcome = verdicts(windows, steps, cancelled)
     summary = {
         'label': args.label,
         'xcodebuild_exit': test.returncode,
@@ -218,8 +249,8 @@ def main():
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, default=str) + '\n')
     failed = False
     for name, (ok, reason) in outcome.items():
-        print('RENAME', name, 'PASS' if ok else 'FAIL', reason, flush=True)
-        failed |= not ok
+        print('RENAME', name, {True: 'PASS', False: 'FAIL', None: 'UNVERIFIED'}[ok], reason, flush=True)
+        failed |= ok is False
     sys.exit(1 if failed else 0)
 
 

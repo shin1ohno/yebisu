@@ -38,7 +38,14 @@ impl Smoke {
         div()
             .id(ElementId::Name(selector.clone().into()))
             .debug_selector(move || selector)
+            .relative()
             .min_w_0()
+            .when(row.kind == HerdrKind::Herdr1 && space.current, |name| {
+                name.children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::SIDEBAR_CURRENT_SPACE,
+                    "Current space",
+                ))
+            })
             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                 if event.click_count() != 2 {
                     return;

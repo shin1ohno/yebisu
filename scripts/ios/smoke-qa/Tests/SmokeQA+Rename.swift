@@ -29,10 +29,12 @@ extension SmokeQA {
         sleep(1)
     }
 
-    /// Long press of the current space's row, then its menu's Rename….
+    /// Long press of the current space's row, then its menu's Rename…. A long press reaches the
+    /// row's press layer, not the mark's tap count, so it is confirmed by the menu it opens.
     private func renameSpace(_ qa: QAAx) throws {
-        try qa.press(QAIds.sidebarCurrentSpace, duration: 1.2)
-        sleep(1)
+        let row = try qa.find(QAIds.sidebarCurrentSpace)
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+        _ = try qa.waitState("the space row's menu is open") { $0.string("row_menu") == "space" }
         try qa.press(QAIds.sidebarSpaceRename)
         sleep(3)
     }
@@ -82,6 +84,19 @@ extension SmokeQA {
         sleep(3)
         save("rename-r2-done")
         renameMarker(app, "y")
+
+        // R2b (S2, space): a double tap on the current space's name, "space2", Return: one
+        // workspace.rename, and the row moved at most once.
+        renameStep("R2b")
+        let row = try qa.find(QAIds.sidebarCurrentSpace)
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        sleep(3)
+        save("rename-r2b-open")
+        app.typeText("space2")
+        sleep(2)
+        app.typeText("\n")
+        sleep(3)
+        renameMarker(app, "u")
 
         // R3 (S5): a tap outside the field cancels: no request, the tap does nothing else.
         renameStep("R3")

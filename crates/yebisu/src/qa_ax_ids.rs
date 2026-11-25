@@ -453,7 +453,7 @@ pub(crate) const SIDEBAR_AGENT_RENAME: &str = "qa.sidebar.agent-rename";
 pub(crate) const RAIL_MENU_RENAME: &str = "qa.rail.menu-rename";
 pub(crate) const TAB_MENU_RENAME: &str = "qa.tab.menu-rename";
 pub(crate) const TAB_MENU_CLOSE: &str = "qa.tab.menu-close";
-/// The current space's sidebar row and the current tab's label, where the
-/// rename QA (SmokeQA+Rename.swift) long-presses and double-taps.
+/// The current space's name in its sidebar row and the current tab's label,
+/// where the rename QA (SmokeQA+Rename.swift) long-presses and double-taps.
 pub(crate) const SIDEBAR_CURRENT_SPACE: &str = "qa.sidebar.current-space";
 pub(crate) const TABS_CURRENT: &str = "qa.tabs.current";

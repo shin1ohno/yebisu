@@ -25,14 +25,17 @@ def field(time, open_=True, first=True, language="en-US", marked=False):
                     "gpui_drawing_first_responder": False, "primary_language": language, "marked": marked}}
 
 
-TIMES = [("R1", 10.0), ("R2", 20.0), ("R3", 30.0), ("R4", 40.0), ("R5", 50.0), ("end", 60.0)]
+TIMES = [("R1", 10.0), ("R2", 20.0), ("R2b", 25.0), ("R3", 30.0), ("R4", 40.0), ("R5", 50.0), ("end", 60.0)]
 
 
 def good_peer():
     return [rpc("workspace.rename", workspace_id="w1", label="ship"), text("z"),
             rpc("tab.focus", tab_id="w1:t1"), rpc("tab.rename", tab_id="w1:t1", label="build"), text("y"),
+            rpc("workspace.rename", workspace_id="w1", label="space2"), text("u"),
             text("x"), text("w"),
-            rpc("workspace.rename", workspace_id="w1", label="ぷろ"), text("v")]
+            rpc("workspace.rename", workspace_id="w1", label="ぷろ"),
+            {"ClientShellPaneInput": {"pane_id": "w1:p1", "events": [{"Key": {"kind": "Press", "code": "Enter"}}]}},
+            text("v")]
 
 
 def good_records():
@@ -76,6 +79,29 @@ class Verdicts(unittest.TestCase):
         peer = [rpc("tab.rename", tab_id="w1:t1", label="other") if r == rpc("tab.rename", tab_id="w1:t1", label="build")
                 else r for r in good_peer()]
         self.assertFalse(self.verdicts(peer, good_records())["R2"][0])
+
+
+    def test_a_second_move_fails_r2b(self):
+        peer = good_peer()
+        at = peer.index(text("u"))
+        peer[at:at] = [rpc("workspace.focus", workspace_id="w1"), rpc("workspace.focus", workspace_id="w1")]
+        self.assertFalse(self.verdicts(peer, good_records())["R2b"][0])
+
+    def test_r5_takes_only_the_trailing_return(self):
+        peer = good_peer()
+        peer.insert(peer.index(text("v")), text("q"))
+        self.assertFalse(self.verdicts(peer, good_records())["R5"][0])
+
+
+    def test_a_cancelled_double_tap_is_unverified_not_passed(self):
+        peer = [r for r in good_peer() if r != rpc("tab.rename", tab_id="w1:t1", label="build")]
+        records = [r for r in good_records() if not (20.0 <= r["time"] < 25.0)]
+        windows = check.by_step(records, TIMES)
+        _, steps = check.split_peer(peer)
+        ok, reason = check.verdicts(windows, steps, {"R2": 1})["R2"]
+        self.assertIsNone(ok)
+        self.assertIn("D4", reason)
+        self.assertFalse(check.verdicts(windows, steps, {})["R2"][0], "without a cancel it fails")
 
 
 class Parsing(unittest.TestCase):

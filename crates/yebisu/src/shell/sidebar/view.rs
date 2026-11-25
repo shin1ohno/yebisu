@@ -587,12 +587,7 @@ impl Smoke {
             .when(kind == HerdrKind::Herdr1, |row| {
                 row.child(long_press_layer(press, cx))
             })
-            .when(kind == HerdrKind::Herdr1 && space.current, |row| {
-                row.children(crate::qa_ax::mark(
-                    crate::qa_ax::ids::SIDEBAR_CURRENT_SPACE,
-                    "Current space",
-                ))
-            })
+
             .on_click(cx.listener(move |this, _, window, cx| match kind {
                 HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
                 HerdrKind::Herdr2 => {
