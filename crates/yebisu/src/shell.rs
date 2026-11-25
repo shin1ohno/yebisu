@@ -26,6 +26,9 @@ pub(crate) mod overlay;
 pub(crate) mod qa_strip;
 pub(crate) mod rail;
 pub(crate) mod rail_badges;
+pub(crate) mod search;
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+pub(crate) mod search_qa;
 pub(crate) mod shortcuts;
 pub(crate) mod sidebar;
 pub(crate) mod sidebar_list;
@@ -128,4 +131,5 @@ pub(crate) struct ShellState {
     pub(crate) single_pane: single_pane::SinglePaneState,
     pub(crate) herdr2: herdr2_frame::Herdr2State,
     pub(crate) fit: fit::FitState,
+    pub(crate) search: search::SearchState,
 }

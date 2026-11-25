@@ -345,7 +345,7 @@ def build_owned(session, directory, source, device, environment, head):
                     profile=dict(opt_level='0', debuginfo=0, debug_assertions=True,
                                  overflow_checks=True, test=False),
                     sdk=[dict(name='herdr-uikit', url='https://github.com/shin1ohno/herdr-uikit',
-                              revision='f9fcab6cd55ad52fd88ee2aaac88700a778e0df7'),
+                              revision='0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c'),
                          dict(name='herdr-ssh', url='https://github.com/shin1ohno/herdr-gpui',
                               revision='9327f4482faeb0b9ccfb086c912a300a98ebad61')])
     return session.build_install(directory, source, device,

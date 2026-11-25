@@ -37,6 +37,9 @@ gpui.workspace = true
 # Named only to match the SDK's typed device-key errors in key_ops/provider.rs.
 sheprd-credentials.workspace = true
 herdr-uikit.workspace = true
+# Polls herdr-uikit's NativeSearchEvents (a futures::Stream) in shell/search.rs;
+# the same version and features herdr-uikit already builds.
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "tracing"] }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSDictionary", "std"] }
