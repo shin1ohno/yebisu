@@ -30,6 +30,20 @@ class JobTests(unittest.TestCase):
         self.assertNotIn("retry", job.lower())
         self.assertNotIn("continue-on-error", job)
 
+    def test_both_simulator_jobs_end_with_the_resend_budget(self):
+        """Issue #142 stage 4 (Owner decision 5): more than 3 proven resends fail the job by name,
+        judged after every check ran (if: always()), and the ledger is kept as evidence."""
+        smoke = re.search(r"^  simulator-smoke:\n(.*?)^  check:\n", WORKFLOW, re.S | re.M).group(1)
+        step = ("      - name: Simulator input resend budget\n        if: always()\n"
+                "        run: python3 scripts/ios/resend_budget.py judge target/sim-resends.jsonl\n")
+        for name, job, last_check in (("edit-menu", self.job(), "run: just guarded python3 scripts/ios/ci-sh1-152.py\n"),
+                                      ("simulator-smoke", smoke, "run: just guarded python3 scripts/ios/p12-ci.py\n")):
+            with self.subTest(job=name):
+                self.assertEqual(job.count(step), 1)
+                self.assertLess(job.index(last_check), job.index(step))
+                self.assertLess(job.index(step), job.index("uses: actions/upload-artifact@v4"))
+                self.assertIn("            target/sim-resends.jsonl\n", job)
+
     def test_the_driver_runs_the_four_scripts_in_order(self):
         driver = (HERE / "ci-sh1-152.py").read_text()
         names = re.findall(r'"([a-z0-9_-]+-check\.py)"', driver)
@@ -194,6 +208,13 @@ class PathFilterTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))
+
+    def test_the_stage_4_harness_scripts_run_both_simulator_jobs(self):
+        for path in ("scripts/ios/sim_ready.py", "scripts/ios/resend_budget.py"):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
+                selected = decisions("pull_request", [path], tmp)
+                self.assertTrue(selected["edit-menu"])
+                self.assertTrue(selected["simulator-smoke"])
 
     def test_every_path_added_after_review_runs_it(self):
         """Each path the first review found the checks driving but the pattern missing."""

@@ -8,6 +8,13 @@ import shutil
 import subprocess
 import time
 
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
+
 ROOT = Path(__file__).resolve().parents[2]
 _live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
 live_jsonl = importlib.util.module_from_spec(_live_spec)
@@ -21,9 +28,15 @@ DISCARDED = "てすと"
 
 def run(*args, **kwargs):
     print("SH1-156 COMMAND", list(args), flush=True)
-    result = subprocess.run(args, text=True, capture_output=True, **kwargs)
+    if args[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4 (class D): once more when xcodebuild found no device and ran no test.
+        result = sim_ready.run_test(args, lambda: subprocess.run(args, text=True, capture_output=True, **kwargs))
+    else:
+        result = subprocess.run(args, text=True, capture_output=True, **kwargs)
     print(result.stdout, flush=True)
     print(result.stderr, flush=True)
+    if args[:2] == ("xcodebuild", "test"):
+        resend_budget.record(Path(__file__).stem, result.stdout)  # issue #142 stage 4: the job's resend budget
     result.check_returncode()
     return result
 
@@ -87,14 +100,17 @@ def main():
         shutil.rmtree(settings)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = directory / "result.xcresult"
     try:
         try:
-            tested = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/" + TEST], text=True, capture_output=True)
+            tested = sim_ready.run_test(xctest_command := ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-only-testing:SmokeOracle/SmokeQA/" + TEST], lambda: subprocess.run(xctest_command, text=True, capture_output=True))
         finally:
             # Stop the app before its files are read, also when XCTest failed.
             terminate(device)
         print(tested.stdout, flush=True)
+        resend_budget.record("sh1-156-check", tested.stdout)
         print(tested.stderr, flush=True)
         # Keep the receipts even when the XCTest failed: they show what arrived.
         for source, target in [("p0-smoke.jsonl", "app.jsonl"), ("p4-peer.jsonl", "peer.jsonl")]:

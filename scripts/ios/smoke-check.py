@@ -9,10 +9,26 @@ import subprocess
 import time
 import uuid
 import smoke_oracle
+import importlib.util
+
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
 
 
 def run(*command, **kwargs):
     print('SMOKE COMMAND', list(command), flush=True)
+    if command[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4: streamed as before, and kept for the job's resend budget.
+        # Class D: once more when xcodebuild found no device and ran no test (sim_ready.run_test).
+        result = sim_ready.run_test(list(command), lambda: subprocess.CompletedProcess(list(command), *resend_budget.run_tee(list(command), **kwargs)))
+        resend_budget.record(Path(__file__).stem, result.stdout)
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, command, result.stdout)
+        return result
     return subprocess.run(command, check=True, text=True, **kwargs)
 
 
@@ -52,6 +68,8 @@ def main():
     device = resolved.split()[0]
     spec = root/'scripts/ios/smoke-qa'
     run('xcodegen', 'generate', '--spec', str(spec/'project.yml'), '--project', str(spec))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(spec / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = destination/'result.xcresult'
     container = subprocess.check_output(['xcrun','simctl','get_app_container',device,'com.shin1ohno.yebisu','data'], text=True).strip()
     try:
@@ -64,7 +82,12 @@ def main():
         if receipts.is_file():
             shutil.copyfile(receipts, destination/'app.jsonl')
             try:
-                idle_report(smoke_oracle.live_jsonl.read_records(destination/'app.jsonl'))
+                events = smoke_oracle.live_jsonl.read_records(destination/'app.jsonl')
+                idle_report(events)
+                # Issue #142 stage 4 (classes Q and S): main-thread stalls, reported, not judged.
+                gaps = smoke_oracle.live_jsonl.heartbeat_gaps(events)
+                (destination/'heartbeat-gaps.json').write_text(json.dumps(gaps, indent=1)+'\n')
+                print('P0 heartbeat gaps:', json.dumps(gaps), flush=True)
             except (OSError, ValueError) as error:  # never hide XCTest's own failure (PR 84 review N3)
                 print('P0 animations-running records unreadable:', error, flush=True)
     export = destination/'attachments'

@@ -200,6 +200,7 @@ final class P12QA: XCTestCase {
             case .resend:
                 var reason = dropOpen ? "injected fault: the open tap was skipped; " : ""
                 reason += "no menu item \(Self.menuItemTimeout) s after the open tap, no app touch and no screen change; tapping once more"
+                QAAx.resend(kind: "open-retry", id: caseName, reason: reason)
                 events.append(["kind": "open-retry", "case": caseName, "reason": reason, "injected": dropOpen,
                                "time": Date().timeIntervalSince1970])
                 target.tap()
@@ -273,6 +274,7 @@ final class P12QA: XCTestCase {
                 let injected = dropPick || dropTwice
                 var reason = injected ? "injected fault: the first pick tap was skipped; " : ""
                 reason += "OS menu still open 5 s after the pick tap, no menu-perform, no app touch, no screen change; tapping once more"
+                QAAx.resend(kind: "pick-retry", id: caseName, reason: reason)
                 events.append(["kind": "pick-retry", "case": caseName, "reason": reason, "injected": injected,
                                "time": Date().timeIntervalSince1970])
                 attempts = 2
@@ -393,6 +395,7 @@ final class P12QA: XCTestCase {
             reason += "OS menu bar not revealed \(Int(waited)) s after the first swipe"
             reason += " (the swipe call took \(String(format: "%.1f", swipeSeconds)) s); swiping once more"
             revealNote = "after one retry (" + reason + "); "
+            QAAx.resend(kind: "reveal-retry", id: caseName, reason: reason)
             events.append(["kind": "reveal-retry", "case": caseName, "reason": reason, "injected": injected,
                            "swipeSeconds": swipeSeconds, "waited": waited, "time": Date().timeIntervalSince1970])
             attempt += 1
@@ -517,6 +520,7 @@ final class P12QA: XCTestCase {
     private func touchReady() throws {
         let started = Date().timeIntervalSince1970
         let empty = try qa.find(Self.emptySpace, timeout: 10)
+        let first = qa.read()
         for attempt in 1...Self.touchReadyPresses {
             let before = try qa.waitState("qa.state before touch-ready press \(attempt)", timeout: 5) { _ in true }
             empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -534,7 +538,11 @@ final class P12QA: XCTestCase {
         events.append(["kind": "touch-ready", "ready": false, "presses": Self.touchReadyPresses,
                        "started": started, "ended": Date().timeIntervalSince1970])
         screenshot("p12-touch-not-ready")
-        XCTFail("No touch reached GPUI in \(Self.touchReadyPresses) presses on \(Self.emptySpace) after launch; qa.state=\(qa.read()?.text ?? "nil")")
+        // Class T (issue #142 stage 4): whether any touch reached the app, and where. No relaunch here:
+        // the oracle requires one peer start (p12-oracle.py), and the issue limits it to EditMenuQA.
+        let after = qa.read()
+        XCTFail("No touch reached GPUI in \(Self.touchReadyPresses) presses on \(Self.emptySpace) after launch; "
+                + qa.touchSummary(Self.emptySpace, empty, first: first, after: after) + "; qa.state=\(after?.text ?? "nil")")
         throw NSError(domain: "P12.TouchNotReady", code: 1)
     }
 
@@ -654,6 +662,7 @@ final class P12QA: XCTestCase {
                 reason = String(format: "the touch on %@ was cancelled by UIKit before it ended (last_touch %@) and nothing moved within %.0f s", id, lastTouch, Self.receiptTimeout)
             }
             qa.session.retries.append("\(id): \(reason)")
+            QAAx.resend(kind: "press-retry", id: id, reason: reason)
             print("P12 held press \(id) lost (\(reason)); pressing once more")
         }
     }
