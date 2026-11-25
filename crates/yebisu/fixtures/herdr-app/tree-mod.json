@@ -1,0 +1,38 @@
+{
+  "spaces": [
+    {
+      "id": "sp00000000000000000000000000000007",
+      "name": "",
+      "folder": "/Users/owner/src/alpha",
+      "tabs": [
+        {
+          "id": "tb00000000000000000000000000000008",
+          "name": "",
+          "root": {
+            "id": "tb00000000000000000000000000000008",
+            "type": "row",
+            "children": [
+              {
+                "id": "p0000000000000000000000000000000b",
+                "type": "block",
+                "content": {
+                  "terminal": "t1"
+                }
+              },
+              {
+                "id": "p0000000000000000000000000000000c",
+                "type": "block",
+                "content": {
+                  "mod": "browser",
+                  "props": {
+                    "url": "https://example.com"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -7278,6 +7278,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "dispatch2",
+ "futures",
  "gpui-pre",
  "herdr-ssh",
  "herdr-uikit",

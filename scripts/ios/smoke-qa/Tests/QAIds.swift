@@ -62,4 +62,6 @@ enum QAIds {
     static let sidebarList = "qa.sidebar.list"
     static let sidebarHostAlpha = "qa.sidebar.host.qa-alpha"
     static let sidebarHostBeta = "qa.sidebar.host.qa-beta"
+    static let sidebarSearch = "qa.sidebar.search"
+    static let sidebarFilterClear = "qa.sidebar.filter-clear"
 }

@@ -59,6 +59,19 @@ fn trigger(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, mode: usize) 
         });
     }
 }
+
+/// Issue #138: the sidebar's native search panel opening is a cancel source.
+fn open_search(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
+    let fake = crate::shell::search::tests::fake::RecordedSearch::default();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.shell.search.set_presenter(Box::new(fake));
+            let anchor = this.search_anchor(gpui::point(gpui::px(1.), gpui::px(1.)));
+            this.open_sidebar_search(anchor, window, cx);
+            assert!(this.search_open(), "fixture: the search panel opened");
+        });
+    });
+}
 fn preparation_gate(
     view: &Entity<Smoke>,
     cx: &mut TestAppContext,
@@ -83,7 +96,7 @@ fn preparation_gate(
 #[gpui::test]
 fn cancellation_sources_fence_preparation_and_waiting_put(cx: &mut TestAppContext) {
     for preparing in [true, false] {
-        for mode in 0..10 {
+        for mode in 0..11 {
             let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
             let probe = Probe::default();
             probe.lock().replies.push_back(None);
@@ -97,7 +110,11 @@ fn cancellation_sources_fence_preparation_and_waiting_put(cx: &mut TestAppContex
                 wait(&view, cx, |_| probe.lock().puts.len() == 1);
             }
             let serial = view.update(cx, |this, _| this.handoff.serial);
-            trigger(&view, cx, mode);
+            if mode == 10 {
+                open_search(&view, cx);
+            } else {
+                trigger(&view, cx, mode);
+            }
             assert_ne!(
                 view.update(cx, |this, _| this.handoff.serial),
                 serial,
