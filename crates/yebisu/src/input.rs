@@ -91,26 +91,27 @@ impl Smoke {
 #[cfg(any(target_os = "ios", test))]
 impl EntityInputHandler for Smoke {
     fn accepts_text_input(&self, window: &mut Window, _: &mut Context<Self>) -> bool {
-        if self.settings_modal {
-            return false;
+        let terminal_owns = self.terminal_owns_text_input();
+        let find = self.find.is_some() || self.find_handoff.paused;
+        let focused = self.active_focus().is_focused(window);
+        let destination = self.terminal.input.accepts(focused, false);
+        if !self.settings_modal && terminal_owns && !find && focused && !destination {
+            self.terminal.input.report_drop(&self.observation);
         }
-        if self.terminal_owns_text_input() {
-            if self.find.is_some() || self.find_handoff.paused {
-                return false;
-            }
-            let focused = self.active_focus().is_focused(window);
-            let accepted = self.terminal.input.accepts(focused, false);
-            if focused && !accepted {
-                self.terminal.input.report_drop(&self.observation);
-            }
-            // The Shortcuts popover is modal like the palette (L6 review S1).
-            accepted
-                && self.terminal.navigating.is_none()
-                && !self.actions.palette
-                && !self.shell.shortcuts.open
-        } else {
-            self.active_focus().is_focused(window) && (self.smoke_mode || !self.setup.busy)
-        }
+        // The Shortcuts popover is modal like the palette (L6 review S1).
+        let gate = crate::text_gate::Gate::decide(crate::text_gate::Facts {
+            settings_modal: self.settings_modal,
+            terminal_owns,
+            find,
+            focused,
+            destination,
+            navigating: self.terminal.navigating.is_some(),
+            palette: self.actions.palette,
+            shortcuts: self.shell.shortcuts.open,
+            sheet_ready: self.smoke_mode || !self.setup.busy,
+        });
+        self.text_gate.note(gate);
+        gate == crate::text_gate::Gate::Accepts
     }
 
     fn text_for_range(
@@ -256,7 +257,11 @@ impl EntityInputHandler for Smoke {
             }
             self.actions.key_status = None;
             self.refresh_terminal_input();
+            let starting = self.terminal.input.composition.marked.is_none();
             self.terminal.input.mark(text, selected);
+            if starting && self.terminal.input.composition.marked.is_some() {
+                self.compose_started_at_bottom(window);
+            }
             window.notify_text_input_changed(self.active_focus());
             cx.notify();
             return;

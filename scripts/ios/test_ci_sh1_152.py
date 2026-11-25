@@ -72,6 +72,21 @@ def git(repo, *args):
 
 def decisions(event, changed, tmp, *, skipped_jobs="", invalid_diff=False):
     """Runs the real filter step in a throwaway repository and returns the boolean outputs."""
+    return run_filter(event, changed, tmp, skipped_jobs=skipped_jobs, invalid_diff=invalid_diff)[0]
+
+
+AREA = re.compile(r"^  the diff touches ([a-z-]+)'s area: run it locally; main runs it after the merge$", re.M)
+SIMULATOR_JOBS = ("simulator-smoke", "edit-menu", "layout-smoke")
+
+
+def pr_areas(changed, tmp, *, invalid_diff=False):
+    """A pull request's outputs and the Simulator jobs whose area its log says the diff touches."""
+    outputs, log = run_filter("pull_request", changed, tmp, invalid_diff=invalid_diff)
+    return outputs, set(AREA.findall(log))
+
+
+def run_filter(event, changed, tmp, *, skipped_jobs="", invalid_diff=False):
+    """The filter step's boolean outputs and its log."""
     repo = Path(tmp) / "repo"
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
@@ -97,7 +112,7 @@ def decisions(event, changed, tmp, *, skipped_jobs="", invalid_diff=False):
     }
     result = subprocess.run(["bash", str(script)], cwd=repo, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    return {k: v == "true" for k, v in (line.split("=") for line in output.read_text().split())}
+    return {k: v == "true" for k, v in (line.split("=") for line in output.read_text().split())}, result.stdout
 
 
 def menu_pattern():
@@ -151,11 +166,18 @@ UNRELATED = {
 
 
 class PathFilterTests(unittest.TestCase):
-    """Runs the changes job's own filter script, so the pattern and the push-to-main rule are both exercised."""
+    """Runs the changes job's own filter script, so the pattern and the push-to-main rule are both exercised.
+
+    A pull request never runs edit-menu (owner decision 2026-11-26); there the pattern decides whether the
+    log says the diff touches edit-menu's area, which tells the local gate to run the Simulator checks."""
 
     def edit_menu(self, *paths, event="pull_request"):
         with tempfile.TemporaryDirectory() as tmp:
-            return decisions(event, paths, tmp)["edit-menu"]
+            if event != "pull_request":
+                return decisions(event, paths, tmp)["edit-menu"]
+            outputs, areas = pr_areas(paths, tmp)
+        self.assertFalse(outputs["edit-menu"], "a pull request ran edit-menu")
+        return "edit-menu" in areas
 
     def test_edit_menu_rs_change_runs_it(self):
         self.assertTrue(self.edit_menu("crates/yebisu/src/edit_menu.rs"))
@@ -214,12 +236,13 @@ class PathFilterTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))
 
-    def test_the_stage_4_harness_scripts_run_both_simulator_jobs(self):
+    def test_the_stage_4_harness_scripts_are_in_both_simulator_areas(self):
         for path in ("scripts/ios/sim_ready.py", "scripts/ios/resend_budget.py"):
             with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
-                selected = decisions("pull_request", [path], tmp)
-                self.assertTrue(selected["edit-menu"])
-                self.assertTrue(selected["simulator-smoke"])
+                selected, areas = pr_areas([path], tmp)
+                self.assertEqual(areas, {"edit-menu", "simulator-smoke"})
+                self.assertFalse(selected["edit-menu"])
+                self.assertFalse(selected["simulator-smoke"])
 
     def test_every_path_added_after_review_runs_it(self):
         """Each path the first review found the checks driving but the pattern missing."""
@@ -289,8 +312,54 @@ class PathFilterTests(unittest.TestCase):
 
     def test_unrelated_jobs_keep_their_own_filters(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(decisions("pull_request", ["crates/yebisu/src/find/search.rs"], tmp),
-                             {"check": True, "simulator-smoke": True, "edit-menu": False, "layout-smoke": False, "layout-mutations": False})
+            selected, areas = pr_areas(["crates/yebisu/src/find/search.rs"], tmp)
+        self.assertEqual(selected, {"check": True, "simulator-smoke": False, "edit-menu": False, "layout-smoke": False,
+                                    "layout-mutations": False})
+        self.assertEqual(areas, {"simulator-smoke"})
+
+
+class PullRequestSimulatorTests(unittest.TestCase):
+    """Owner decision 2026-11-26: PRs merge on local tests, so no Simulator job runs on a pull request,
+    while main pushes, the nightly run and manual dispatches select them exactly as before."""
+
+    # Paths that selected each Simulator job on a pull request before the decision, and the workflow itself.
+    PATHS = (".github/workflows/ci.yml", "Cargo.lock", "justfile", "crates/yebisu/src/edit_menu.rs",
+             "crates/yebisu/src/find/search.rs", "scripts/ios/smoke-qa/Tests/SmokeQA.swift", "scripts/ios/p12-qa/project.yml",
+             "scripts/ios/sim_ready.py", "crates/yebisu/src/layout.rs", "docs/ci-simulator.md")
+
+    def test_no_pull_request_runs_a_simulator_job(self):
+        for path in self.PATHS:
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
+                selected = decisions("pull_request", [path], tmp)
+                self.assertEqual({job: selected[job] for job in SIMULATOR_JOBS}, dict.fromkeys(SIMULATOR_JOBS, False))
+        with tempfile.TemporaryDirectory() as tmp:
+            selected = decisions("pull_request", list(self.PATHS), tmp)
+        self.assertEqual({job: selected[job] for job in SIMULATOR_JOBS}, dict.fromkeys(SIMULATOR_JOBS, False))
+        self.assertTrue(selected["check"])
+        self.assertTrue(selected["layout-mutations"])
+
+    def test_an_unavailable_diff_runs_check_but_no_simulator_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            selected, areas = pr_areas(["docs/ci-simulator.md"], tmp, invalid_diff=True)
+        self.assertEqual(selected, {"check": True, "simulator-smoke": False, "edit-menu": False, "layout-smoke": False,
+                                    "layout-mutations": False})
+        self.assertEqual(areas, set())
+
+    def test_main_push_schedule_and_manual_runs_select_every_simulator_job(self):
+        for event in ("push", "schedule", "workflow_dispatch"):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as tmp:
+                selected, log = run_filter(event, ["docs/ci-simulator.md"], tmp)
+            self.assertEqual(selected, {"check": True, "simulator-smoke": True, "edit-menu": True, "layout-smoke": True,
+                                        "layout-mutations": True})
+            self.assertNotIn("area", log)
+
+    def test_the_jobs_themselves_refuse_a_pull_request(self):
+        for job in ("edit-menu", "simulator-smoke"):
+            with self.subTest(job=job):
+                self.assertIn(f"  {job}:\n    needs: changes\n"
+                              f"    if: github.event_name != 'pull_request' && needs.changes.outputs.{job} == 'true'\n", WORKFLOW)
+        self.assertIn("    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' "
+                      "&& needs.changes.outputs.layout-smoke == 'true'\n", WORKFLOW)
 
 
 if __name__ == "__main__":

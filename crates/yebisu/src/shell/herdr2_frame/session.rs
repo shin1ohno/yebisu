@@ -61,13 +61,15 @@ fn space_identity(space: &str) -> String {
 }
 
 /// A space row's session, and its document space when it is one.
-pub(super) fn split_space_identity(identity: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_space_identity(identity: &str) -> (&str, Option<&str>) {
     match identity.split_once('\0') {
         Some((session, space)) => (session, Some(space)),
         None => (identity, None),
     }
 }
 
+/// The detail of a space listed before its host's session ended.
+pub(crate) const NOT_CONNECTED: &str = "Not connected";
 /// The detail of a row this core's official app never shows (decision 3).
 const IPAD_ONLY: &str = "iPad only";
 /// The `default` row of a document the official app could not read (Q1).
@@ -287,16 +289,19 @@ pub(super) fn bootstrap_catalog(name: &str) -> Vec<SessionInfo> {
 }
 
 /// A Herdr 2 host keeps its identity when disconnected and forgets its
-/// session rows and receive order until a new connection publishes them.
+/// agents and receive order until a new connection publishes them. Its
+/// spaces stay as `listed` last had them, each not connected, so a tap can
+/// open one again (`sidebar::Listed`).
 pub(crate) fn host_entry(
     mut entry: HostEntry,
     current: &str,
-    catalog: &[SessionInfo],
+    (catalog, listed): (&[SessionInfo], &[SessionInfo]),
     statuses: &[CoreStatus],
     state: &SidebarState,
 ) -> HostEntry {
     if entry.link != HostLink::Connected {
         state.forget(&entry.host, HerdrKind::Herdr2);
+        entry.spaces = listed_spaces(current, listed);
         return entry;
     }
     let (spaces, agents) = catalog_content(
@@ -310,4 +315,28 @@ pub(crate) fn host_entry(
     entry.spaces = spaces;
     entry.agents = agents;
     entry
+}
+
+/// One row per confirmed space a host listed last, without agents: drawn
+/// while the host has no connected session.
+fn listed_spaces(current: &str, listed: &[SessionInfo]) -> Vec<SpaceEntry> {
+    listed
+        .iter()
+        .filter(|row| row.confirmed)
+        .map(|row| {
+            let mut space = space_entry(
+                HerdrKind::Herdr2,
+                SpaceInput {
+                    id: row.name.clone(),
+                    name: one_line(&row.name),
+                    tabs: row.tabs.len(),
+                    branch: None,
+                    current: row.name == current,
+                },
+                &[],
+            );
+            space.detail = NOT_CONNECTED.into();
+            space
+        })
+        .collect()
 }

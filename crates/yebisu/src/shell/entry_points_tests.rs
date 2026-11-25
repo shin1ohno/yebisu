@@ -85,8 +85,22 @@ fn chrome_entry_points_cover_required_set() {
         EntryAction::Split,
         EntryAction::Shortcuts,
         EntryAction::ToggleSidebar,
+        EntryAction::ForwardPort,
     ] {
         assert!(all.contains(&action), "{action:?}");
+    }
+    // Issue 140: Forward port… is in the menu bar, a host row's long press
+    // and the Shortcuts list in every state.
+    for (name, state) in states() {
+        let points = chrome_entry_points(&state, legacy);
+        for place in [Place::MenuBar, Place::LongPress, Place::ShortcutsPopover] {
+            assert!(
+                points
+                    .iter()
+                    .any(|p| p.action == EntryAction::ForwardPort && p.place == place),
+                "{name}: Forward port… missing from {place:?}"
+            );
+        }
     }
     assert!(!required_entry_actions(&states()[0].1).contains(&EntryAction::Reconnect));
     assert!(required_entry_actions(&states()[0].1).contains(&EntryAction::Find));

@@ -53,6 +53,13 @@ use std::sync::{
 
 pub(crate) enum Command {
     Input(Destination, ClientPaneInputEvent),
+    /// Wheel input for `pane`, which need not be the focused pane; the
+    /// focused `destination` proves the layout it was aimed at is current.
+    Wheel {
+        destination: Destination,
+        pane: String,
+        event: ClientPaneInputEvent,
+    },
     PutImage {
         destination: Destination,
         ticket: crate::handoff_ticket::PasteTicket,
@@ -72,6 +79,17 @@ pub(crate) enum Command {
     /// Herdr 2's New space: a space in the `default` core's document, never
     /// another session (#144 decision 10).
     NewDocSpace,
+    /// Renames a space of the `default` core's document; "" is the
+    /// automatic name (#144 D3, Design E).
+    RenameSpace {
+        id: String,
+        name: String,
+    },
+    /// Renames a tab of the `default` core's document; "" is its position.
+    RenameTab {
+        id: String,
+        name: String,
+    },
     Focus(usize),
     Orientation,
     #[cfg(test)]
@@ -115,6 +133,9 @@ pub(crate) struct DocCatalog {
     pub(crate) selected: Option<String>,
     /// The iPad-only tabs: terminals of this core in no document block.
     pub(crate) local_tabs: usize,
+    /// The version of the document read: a rename's name counts as shown
+    /// once a later version is read (#144 D3, the optimistic label).
+    pub(crate) version: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -382,13 +403,17 @@ impl Session {
         std::thread::Builder::new()
             .name("yebisu-core".into())
             .spawn(move || {
+                let mut dialed = false;
                 let result = (|| {
+                    crate::diagnostics::record("herdr2_connecting");
                     let backend = connect()?;
+                    dialed = true;
                     // Hello may finish after this connection was retired. Never spawn,
                     // attach or persist a terminal for that obsolete completion.
                     if stopped.load(Ordering::Acquire) {
                         return Ok(());
                     }
+                    crate::diagnostics::record("herdr2_connected");
                     // Its own thread, never the worker loop below. Dropped
                     // (stopped, joined within status::JOIN_BOUND) when the
                     // worker returns.
@@ -454,6 +479,9 @@ impl Session {
                     )
                 })();
                 stopped.store(true, Ordering::Release);
+                if let Err(error) = &result {
+                    crate::diagnostics::record(ended_code(dialed, error));
+                }
                 if let Err(error) = result {
                     tracing::warn!(%error, "Herdr 2 connection stopped");
                     if let Ok(mut live) = shared.lock() {
@@ -696,6 +724,15 @@ use poll::{due_vacancies, record_discovery, retire_vacant};
 
 /// The session itself, then the other spaces its host last showed, in the
 /// sidebar's order.
+/// The diagnostics code of a Herdr 2 link that ended with `error`.
+fn ended_code(dialed: bool, error: &crate::Error) -> &'static str {
+    match error {
+        _ if !dialed => "herdr2_dial_failed",
+        crate::Error::Core(sheprd_core_client::Error::Lost) => "herdr2_ended_lost",
+        _ => "herdr2_ended_error",
+    }
+}
+
 fn merged_sessions(lists: &SessionLists, own: &str, rows: &[SessionInfo]) -> Vec<SessionInfo> {
     let Some(external) = &lists.discovery.rows else {
         return rows.to_vec();

@@ -124,12 +124,14 @@ impl Smoke {
             },
             connected,
             connecting,
+            herdr2_document: core && self.doc_names().is_some(),
             selecting: self.handoff.select_mode || self.handoff.selection.is_some(),
             sheet_open: self.settings_modal,
             find_available: crate::find_view::available(&self.terminal),
             // The rail is on screen when the user chose it or the width forces it.
             sidebar_hidden: self.actions.board_hidden || self.shell.frame.sidebar_collapsed,
             sidebar_forced: self.sidebar_forced_rail(),
+            host_selected: !self.terminal.reconnect.target.is_empty(),
         }
     }
 

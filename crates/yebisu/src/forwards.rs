@@ -11,6 +11,8 @@
 //! [`PAUSE_GRACE`] and resumes on its previous local port when the app is
 //! active again (owner decision 6).
 mod error;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod qa;
 pub(crate) mod scan;
 pub(crate) mod worker;
 
@@ -70,6 +72,26 @@ impl State {
             Self::Listening { .. } => "listening",
             Self::Paused => "paused",
             Self::Ended(_) => "ended",
+        }
+    }
+
+    /// The words after the port on a row: `→ 127.0.0.1:3000`,
+    /// `connecting…`, `paused` or `ended` (the reason has its own line).
+    pub(crate) fn row_text(self) -> String {
+        match self {
+            Self::Connecting => "connecting…".into(),
+            Self::Listening { local, .. } => format!("→ 127.0.0.1:{local}"),
+            Self::Paused => "paused".into(),
+            Self::Ended(_) => "ended".into(),
+        }
+    }
+
+    /// The sidebar row's line: `⇄ 3000 → 127.0.0.1:3000`, `⇄ 5173 ·
+    /// connecting…`, `⇄ 4000 · paused`, `⇄ 8080 · ended`.
+    pub(crate) fn sidebar_text(self, remote: u16) -> String {
+        match self {
+            Self::Listening { .. } => format!("⇄ {remote} {}", self.row_text()),
+            _ => format!("⇄ {remote} · {}", self.row_text()),
         }
     }
 
@@ -244,6 +266,31 @@ impl Forwards {
         let url = self.get(host, remote)?.url()?;
         let hint = (!std::mem::replace(&mut self.open_hint_shown, true)).then_some(OPEN_HINT);
         Some((url, hint))
+    }
+
+    /// `qa.state`'s `forwards`: each forward's host, ports and state, and
+    /// an ended one's reason as a fixed word. Never a URL or host text.
+    pub(crate) fn qa_state(&self) -> serde_json::Value {
+        self.entries
+            .iter()
+            .map(|forward| {
+                let local = match forward.state {
+                    State::Listening { local, .. } => Some(local),
+                    _ => forward.last_local,
+                };
+                let reason = match forward.state {
+                    State::Ended(reason) => Some(reason.name()),
+                    _ => None,
+                };
+                serde_json::json!({
+                    "host": forward.host,
+                    "remote": forward.remote.get(),
+                    "local": local,
+                    "state": forward.state.name(),
+                    "reason": reason,
+                })
+            })
+            .collect()
     }
 
     /// Whether a worker still runs.
@@ -451,6 +498,15 @@ impl Smoke {
             self.notifications.set_status(notice);
         }
         changed |= polled.changed;
+        changed |= self.poll_forward_sheet();
+        crate::qa_ax::report("forwards", || self.forwards.qa_state());
+        let sheet = self.forward_sheet_qa(cx);
+        crate::qa_ax::report("forward_sheet", || sheet);
+        // forward-check.py authorizes this public line on its private sshd.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        if let Some(line) = qa::device_key_line() {
+            crate::qa_ax::report("device_key_line", || line.into());
+        }
         if changed {
             cx.notify();
         }

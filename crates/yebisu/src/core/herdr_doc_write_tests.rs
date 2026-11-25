@@ -454,3 +454,76 @@ fn new_space_and_split_are_refused_where_nothing_can_be_written() {
     });
     assert!(worker.host.doc().sets().is_empty());
 }
+
+/// #144 D3: Rename Space and Rename Tab through the worker. A stale write
+/// re-applies the rename to the newer document (the other app's change and
+/// the name both kept), over the newer version.
+#[test]
+fn rename_conflict_reapplies() {
+    let worker = worker(seeded("two-spaces"));
+    let space = worker.host.doc().doc().0["spaces"][0]["id"].clone();
+    let id = space.as_str().unwrap_or_default().to_owned();
+    worker.host.doc().conflict_next(1);
+    worker.send(Command::RenameSpace {
+        id,
+        name: "ship".into(),
+    });
+    wait_until("the renamed space", || {
+        worker.host.doc().doc().0["spaces"][0]["name"] == json!("ship")
+    });
+    let sets = worker.host.doc().sets();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert!(sets[1].1 > sets[0].1, "the second over the newer version");
+    assert_eq!(sets[1].0["external"], json!(1));
+    assert_ne!(sets[0].0, sets[1].0, "never the same value again");
+}
+
+/// "" is the automatic name: the tab's `name` becomes "" and nothing else
+/// of the tab changes (Design E, AC5).
+#[test]
+fn rename_tab_to_empty_is_the_automatic_name() {
+    let worker = worker(seeded("two-spaces"));
+    let before = worker.host.doc().doc().0["spaces"][0]["tabs"][1].clone();
+    let id = before["id"].as_str().unwrap_or_default().to_owned();
+    worker.send(Command::RenameTab {
+        id,
+        name: String::new(),
+    });
+    wait_until("the automatic name", || {
+        worker.host.doc().doc().0["spaces"][0]["tabs"][1]["name"] == json!("")
+    });
+    let mut after = worker.host.doc().doc().0["spaces"][0]["tabs"][1].clone();
+    after["name"] = before["name"].clone();
+    assert_eq!(after, before, "only the name changed");
+    assert_eq!(worker.host.doc().sets().len(), 1);
+}
+
+/// A rename is refused with a reason, and nothing is written, when the
+/// document cannot be read or no longer holds the space.
+#[test]
+fn rename_is_refused_where_nothing_can_be_written() {
+    let worker = worker(seeded("unreadable-root"));
+    worker.send(Command::RenameSpace {
+        id: "sp00000000000000000000000000000015".into(),
+        name: "ship".into(),
+    });
+    wait_until("the refusal", || {
+        worker
+            .live()
+            .status
+            .contains("Can't read the herdr-app layout; Rename needs it")
+    });
+    assert!(worker.host.doc().sets().is_empty());
+    let worker = self::worker(seeded("two-spaces"));
+    worker.send(Command::RenameTab {
+        id: "tb000000000000000000000000000000ff".into(),
+        name: "gone".into(),
+    });
+    wait_until("the refusal of an unknown tab", || {
+        worker
+            .live()
+            .status
+            .contains("no longer in the herdr-app layout")
+    });
+    assert!(worker.host.doc().sets().is_empty());
+}

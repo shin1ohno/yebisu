@@ -225,6 +225,7 @@ impl DocSync {
             asked: None,
             period: plan.period,
             stats: WriteStats::default(),
+            reported: None,
         };
         let mut unsent = unsent().remove(host);
         let stop = Arc::new(AtomicBool::new(false));
@@ -312,6 +313,8 @@ struct Reader {
     asked: Option<(Vec<String>, Instant)>,
     period: Duration,
     stats: WriteStats,
+    /// The diagnostics code of the last read's result, recorded on change.
+    reported: Option<&'static str>,
 }
 
 impl Reader {
@@ -348,6 +351,15 @@ impl Reader {
             }
             Err(error) => Read::Unavailable(error.to_string()),
         };
+        let code = match &read {
+            Read::Readable(_) => "herdr2_doc_readable",
+            Read::Unreadable => "herdr2_doc_unreadable",
+            Read::Unavailable(_) => "herdr2_doc_unavailable",
+        };
+        if self.reported != Some(code) {
+            crate::diagnostics::record(code);
+            self.reported = Some(code);
+        }
         // A failed list keeps the last one: a pane is not dropped for it.
         if let Ok(list) = core.list(false) {
             self.live = list

@@ -253,7 +253,12 @@ impl Smoke {
             this.terminal.input.detach();
             this.handoff.cancel();
             this.handoff.selection = None;
-            core.send(command)
+            let sent = core.send(command);
+            // A Herdr 2 switch has no navigation to finish; restore now.
+            if sent.is_ok() {
+                this.terminal.restore_keys = true;
+            }
+            sent
         })
     }
 

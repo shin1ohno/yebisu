@@ -31,6 +31,9 @@ STEPS = ('R1', 'R2', 'R2b', 'R3', 'R4', 'R5')
 MARKERS = {'R1': 'z', 'R2': 'y', 'R2b': 'u', 'R3': 'x', 'R4': 'w', 'R5': 'v'}
 PASTED = 'renamepasteword'
 HERDR2 = 'Not available on Herdr 2 yet'
+# #144 D3: Herdr 2 renames the spaces and tabs of the `default` session's herdr-app document; the
+# mock serves none, so Rename Space and the tab's Rename... say why (Rename Pane keeps HERDR2).
+NOT_IN_DOCUMENT = 'Only herdr-app spaces and tabs can be renamed'
 # `--suite more`: the marker typed after each step's close.
 MORE_ORDER = (('S7', 't'), ('S8', 's'))
 SMOKE = ('scripts/ios/smoke-qa', 'SmokeOracle.xcodeproj', 'SmokeOracle', 'target/ios-smoke/build')
@@ -243,13 +246,14 @@ def more_verdicts(windows, steps, inserted):
 
 
 def herdr2_verdicts(windows):
-    """S10 (`--suite herdr2`): the palette's and the tab menu's Rename disabled with the reason,
-    and no field ever opened."""
+    """S10 (`--suite herdr2`): the palette's and the tab menu's Rename disabled with the reason
+    (#144 D3: no document space or tab to rename on the mock), and no field ever opened."""
     every = [r for records in windows.values() for r in records]
     rows = [row for r in windows.get('S10-palette', []) for row in (r.get('palette') or [])]
-    disabled = {row.get('label') for row in rows if row.get('enabled') is False and row.get('reason') == HERDR2}
+    disabled = {row.get('label') for row in rows
+                if row.get('enabled') is False and row.get('reason') == NOT_IN_DOCUMENT}
     menus = [r.get('tab_menu') for r in windows.get('S10-tab', []) if r.get('tab_menu')]
-    tab = any(m.get('core') is True and m.get('rename_reason') == HERDR2 for m in menus)
+    tab = any(m.get('core') is True and m.get('rename_reason') == NOT_IN_DOCUMENT for m in menus)
     opened = any(r.get('open') is True for r in every)
     return {
         'S10-palette': ('Rename Space' in disabled and not opened,

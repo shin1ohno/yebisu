@@ -50,6 +50,8 @@ mod mock_peer;
 mod terminal_links;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_view;
+#[cfg(any(target_os = "ios", test))]
+mod text_gate;
 
 #[cfg(any(target_os = "ios", test))]
 mod input_geometry;
@@ -67,10 +69,6 @@ mod reconnect;
 mod launch_restore;
 
 #[cfg(any(target_os = "ios", test))]
-#[allow(
-    dead_code,
-    reason = "the forward sheet and the sidebar rows (issue 140's UI) call the entry points, and the iOS test build has no SSH scan caller until then"
-)]
 mod forwards;
 
 #[cfg(any(target_os = "ios", test))]
@@ -168,6 +166,8 @@ mod native_menus;
 mod p11_observer;
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
 mod qa_stderr;
+#[cfg(any(target_os = "ios", test))]
+mod terminal_wheel;
 
 #[cfg(all(target_os = "ios", target_abi = "sim"))]
 mod edit_menu_qa_native;
@@ -189,6 +189,9 @@ mod theme_picker;
 
 #[cfg(test)]
 mod discard_recovery_tests;
+
+#[cfg(test)]
+mod switch_restore_tests;
 
 #[cfg(test)]
 mod discard_connection_tests;

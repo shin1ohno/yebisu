@@ -181,11 +181,12 @@ class Herdr2AndMenus(unittest.TestCase):
     TIMES = [("S10-palette", 10.0), ("S10-tab", 20.0), ("end", 30.0)]
 
     def records(self):
-        rows = [{"label": "Rename Space", "enabled": False, "reason": check.HERDR2},
-                {"label": "Rename Tab", "enabled": False, "reason": check.HERDR2}]
+        rows = [{"label": "Rename Space", "enabled": False, "reason": check.NOT_IN_DOCUMENT},
+                {"label": "Rename Tab", "enabled": False, "reason": check.NOT_IN_DOCUMENT},
+                {"label": "Rename Pane", "enabled": False, "reason": check.HERDR2}]
         return [{"kind": "rename-state", "time": 11.0, "open": False, "palette": rows},
                 {"kind": "rename-state", "time": 21.0, "open": False,
-                 "tab_menu": {"core": True, "rename_reason": check.HERDR2}}]
+                 "tab_menu": {"core": True, "rename_reason": check.NOT_IN_DOCUMENT}}]
 
     def test_disabled_with_reason_passes_s10(self):
         result = check.herdr2_verdicts(check.by_step(self.records(), self.TIMES))
@@ -198,6 +199,10 @@ class Herdr2AndMenus(unittest.TestCase):
         records = self.records()
         records[1]["open"] = True
         self.assertFalse(check.herdr2_verdicts(check.by_step(records, self.TIMES))["S10-tab"][0])
+        # #144 D3: the reason is the document's; the old blanket Herdr 2 one fails.
+        records = self.records()
+        records[0]["palette"][0]["reason"] = check.HERDR2
+        self.assertFalse(check.herdr2_verdicts(check.by_step(records, self.TIMES))["S10-palette"][0])
 
     def test_s9_needs_the_field_over_each_anchor(self):
         times = [("S9-tab", 10.0), ("S9-space", 20.0), ("end", 30.0)]

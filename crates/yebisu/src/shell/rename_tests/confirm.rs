@@ -294,6 +294,7 @@ fn confirmed_until_a_newer_snapshot(cx: &mut gpui::TestAppContext) {
             object: space("w1"),
             text: "ship".into(),
             sent_revision: shown.revision,
+            doc: false,
             request: "r1".into(),
             state: crate::shell::rename::send::PendingState::Sending,
             sent_at: std::time::Instant::now(),

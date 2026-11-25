@@ -4,7 +4,8 @@ import XCTest
 // fixture of crates/yebisu/fixtures/herdr-app/; YEBISU_CORE_DOC_QA_CONFLICTS makes the first
 // writes stale). Controls are pressed by QA identifier and every result is read from qa.state
 // (herdr_doc); p9-check validate_doc checks the doc.set and labelled terminal.run receipts the
-// mock core wrote: S5's write, S3's refused write and its write again, and none for S1 or S4.
+// mock core wrote: S5's write, S3's refused write and its write again, and none for S1 or S4;
+// then testP9HerdrDocRename's (#144 D3): S2's rename, and S3's refused rename and its write again.
 extension QAState {
     var herdrDoc: [String: Any]? { raw["herdr_doc"] as? [String: Any] }
     var herdrDocState: String? { herdrDoc?["state"] as? String }
@@ -81,6 +82,59 @@ extension SmokeQA {
         try qa.hideKeyboard("herdr doc end")
         // p9-check requires this attachment, so a filtered-out test cannot pass unseen.
         save("p9-herdr-doc")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// #144 D3: Rename Space on Herdr 2 writes the document. S2: a double tap on the current
+    /// space's name, a name, Return: one write over the version read, and the row shows the name.
+    /// S3: the first write finds a newer document; the rename is applied to it and sent again.
+    func testP9HerdrDocRename() throws {
+        continueAfterFailure = false
+        func launch(conflicts: Int) throws -> (XCUIApplication, QAAx) {
+            let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+            app.terminate()
+            app.launchEnvironment["YEBISU_CORE_QA"] = "1"
+            app.launchEnvironment["YEBISU_CORE_DOC_QA"] = "two-spaces"
+            app.launchEnvironment["YEBISU_CORE_DOC_QA_CONFLICTS"] = String(conflicts)
+            app.launchEnvironment["YEBISU_QA_AX"] = "1"
+            app.launch()
+            let qa = QAAx(app)
+            try qa.waitState("the two document spaces are drawn", timeout: 60) {
+                $0.herdrDocState == "readable" && $0.herdrDocSpaces == ["Build:2", "beta:1"]
+                    && $0.bool("connected") == true && $0.coreTerminal(0) == "t1"
+            }
+            try qa.hideKeyboard("herdr doc rename launch")
+            return (app, qa)
+        }
+        /// A double tap on the current space's name opens the native field (as #165's R2b;
+        /// a Herdr 2 row has no long-press menu, `sidebar/view.rs`), and the name and Return
+        /// commit it. QAAx places the taps from the mark's painted frame.
+        func renameCurrentSpace(_ app: XCUIApplication, _ qa: QAAx, to name: String) throws {
+            let row = try qa.find(QAIds.sidebarCurrentSpace)
+            try qa.coordinate(row, id: QAIds.sidebarCurrentSpace, at: CGVector(dx: 0.5, dy: 0.5))
+                .doubleTap()
+            let field = app.textFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 15), "the rename field opened")
+            app.typeText(name + "\n")
+        }
+        // S2
+        var (app, qa) = try launch(conflicts: 0)
+        try renameCurrentSpace(app, qa, to: "ship")
+        let saved = try qa.waitState("the renamed space is written and read back", timeout: 30) {
+            $0.herdrDocWrites == 1 && $0.herdrDocLast == "saved" && $0.herdrDocSpaces == ["ship:2", "beta:1"]
+        }
+        XCTAssertEqual(saved.herdrDocConflicts, 0, "\(saved)")
+        app.terminate()
+
+        // S3
+        (app, qa) = try launch(conflicts: 1)
+        try renameCurrentSpace(app, qa, to: "ship")
+        try qa.waitState("the rename is saved after one conflict", timeout: 30) {
+            $0.herdrDocWrites == 1 && $0.herdrDocConflicts == 1 && $0.herdrDocLast == "saved"
+                && $0.herdrDocSpaces == ["ship:2", "beta:1"]
+        }
+        // p9-check requires this attachment, so a filtered-out test cannot pass unseen.
+        save("p9-herdr-doc-rename")
         XCTAssertEqual(app.state, .runningForeground)
     }
 }

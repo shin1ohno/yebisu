@@ -1,6 +1,7 @@
 use super::{
     Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
     doc_tabs::{self, DocTabs},
+    herdr_doc,
     herdr_doc_sync::{DocMailbox, DocWriter},
     screen::{self, Screen},
     sort_sessions,
@@ -196,6 +197,36 @@ pub(super) fn run(
                         active.terminals[saved.active].input(&event)?;
                     }
                 }
+                Command::Wheel {
+                    destination,
+                    pane,
+                    event,
+                } => {
+                    let Some(saved) = active_layout(&workspace) else {
+                        continue;
+                    };
+                    let current = screen::publish(
+                        &active.screens,
+                        saved,
+                        size,
+                        generation,
+                        revision,
+                        epoch,
+                        column.latest(),
+                    );
+                    if queued_epoch == input_epoch.load(Ordering::Acquire)
+                        && crate::terminal_input::destination(&current, generation).as_ref()
+                            == Some(&destination)
+                        && let Some(index) = saved.ids.iter().position(|id| id.as_str() == pane)
+                        && active
+                            .screens
+                            .get(index)
+                            .is_some_and(|screen| !screen.ended)
+                        && let Some(terminal) = active.terminals.get_mut(index)
+                    {
+                        terminal.input(&event)?;
+                    }
+                }
                 #[cfg(test)]
                 Command::PauseInput(gate) => gate.wait()?,
                 #[cfg(test)]
@@ -266,6 +297,18 @@ pub(super) fn run(
                 Command::NewDocSpace => {
                     if let Err(error) = doc.new_space(&backend, doc_writer.as_ref(), &mut workspace)
                     {
+                        command_error = Some(error.to_string());
+                    }
+                }
+                Command::RenameSpace { id, name } => {
+                    let intent = herdr_doc::Intent::RenameSpace { id, name };
+                    if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
+                        command_error = Some(error.to_string());
+                    }
+                }
+                Command::RenameTab { id, name } => {
+                    let intent = herdr_doc::Intent::RenameTab { id, name };
+                    if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
                         command_error = Some(error.to_string());
                     }
                 }
@@ -629,6 +672,7 @@ fn forget_space(
     sessions: &mut Vec<SessionInfo>,
     epoch: u64,
 ) {
+    crate::diagnostics::record("herdr2_space_removed");
     {
         let _storage = store::LOCK
             .lock()

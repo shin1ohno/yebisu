@@ -79,9 +79,12 @@ class DocEvidenceTests(unittest.TestCase):
                 "labels": {"herdr.space": "spa", "herdr.tab": "tba", "herdr.seen": "0"}}
 
     def written(self):
-        # S5's save, then S3's stale write and the write again over the newer version.
+        # S5's save, then S3's stale write and the write again over the newer version; then
+        # testP9HerdrDocRename's (#144 D3, a new mock core per launch): S2's rename, and S3's
+        # stale rename and the rename again. A rename starts no terminal.
         return [self.receipt(1), self.run_receipt("t3"), self.receipt(1, "conflict", 120),
-                self.receipt(2, "ok", 135), self.run_receipt("t3")]
+                self.receipt(2, "ok", 135), self.run_receipt("t3"),
+                self.receipt(1, "ok", 121), self.receipt(1, "conflict", 121), self.receipt(2, "ok", 136)]
 
     def test_doc_receipts_pass_the_other_observers(self):
         paints, wire = ImageEvidenceTests().fixture()
@@ -112,6 +115,11 @@ class DocEvidenceTests(unittest.TestCase):
             written[3] = again
             with self.subTest(again=again), self.assertRaisesRegex(ValueError, "sent again unchanged"):
                 p9.validate_doc(written)
+        # D3: a stale rename sent again unchanged fails the same way.
+        written = self.written()
+        written[-1] = self.receipt(2, "ok", 121)
+        with self.assertRaisesRegex(ValueError, "sent again unchanged"):
+            p9.validate_doc(written)
 
     def test_terminals_need_the_official_labels(self):
         for labels in ({"herdr.space": "spa", "herdr.tab": "tba"}, {"herdr.space": "spa", "herdr.tab": "tba",
@@ -120,8 +128,9 @@ class DocEvidenceTests(unittest.TestCase):
             written[1] = {"method": "terminal.run", "terminal": "t3", "labels": labels}
             with self.subTest(labels=labels), self.assertRaisesRegex(ValueError, "official labels"):
                 p9.validate_doc(written)
+        # S3's New tab terminal (the last labelled run) missing.
         with self.assertRaisesRegex(ValueError, "labelled terminal.run"):
-            p9.validate_doc(self.written()[:-1])
+            p9.validate_doc([r for i, r in enumerate(self.written()) if i != 4])
 
     def test_schema(self):
         for broken in ({"method": "doc.set", "bytes": 1, "result": "ok"},

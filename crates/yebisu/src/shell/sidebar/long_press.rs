@@ -31,6 +31,11 @@ pub(crate) enum PressedRow {
         id: String,
         name: String,
     },
+    /// A port forward's row (issue 140): Open and Stop, or Dismiss.
+    Forward {
+        host: String,
+        remote: u16,
+    },
 }
 
 /// An open long-press menu: the row, the target it was shown for, its
@@ -65,6 +70,13 @@ impl Smoke {
                 let entries = host_menus::space_long_press_for(&state, &shown, &current);
                 (shown, entries)
             }
+            PressedRow::Forward { host, .. } => (
+                MenuScope {
+                    host: host.clone(),
+                    space: None,
+                },
+                Vec::new(),
+            ),
         };
         self.shell.sidebar.long_press = Some(LongPressMenu {
             row,
@@ -100,6 +112,9 @@ impl Smoke {
         let target = match &menu.row {
             PressedRow::Host(host) => host.clone(),
             PressedRow::Space { name, .. } => name.clone(),
+            PressedRow::Forward { host, remote } => {
+                return self.render_forward_menu(host, *remote, menu.at, cx);
+            }
         };
         let mut list = div()
             .id("sidebar-long-press")
@@ -148,8 +163,20 @@ impl Smoke {
                             this.terminal.live.status = e.to_string();
                         }
                         cx.notify();
-                    })),
+                    }))
+                    .when(
+                        item == MenuItemId::Host(host_menus::HostMenuItem::ForwardPort),
+                        |row| {
+                            row.relative().children(crate::qa_ax::mark(
+                                crate::qa_ax::ids::HOST_MENU_FORWARD,
+                                host_menus::HostMenuItem::ForwardPort.label(),
+                            ))
+                        },
+                    ),
             );
+        }
+        if let PressedRow::Host(host) = &menu.row {
+            list = list.children(self.host_menu_forwards(host, cx));
         }
         Some(
             deferred(anchored().position(menu.at).snap_to_window().child(list))
@@ -166,8 +193,8 @@ pub(super) struct AgentMenu {
     pub(super) at: Point<Pixels>,
 }
 
-// SidebarSpec.dc.html:42, agent actions popover.
-const AGENT_MENU_WIDTH: f32 = 224.;
+// SidebarSpec.dc.html:42, agent actions popover; a forward row's menu too.
+pub(super) const AGENT_MENU_WIDTH: f32 = 224.;
 
 impl Smoke {
     pub(super) fn render_agent_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
