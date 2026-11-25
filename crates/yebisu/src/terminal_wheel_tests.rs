@@ -16,8 +16,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "terminal_wheel_tests/coast.rs"]
+mod coast;
 #[path = "terminal_wheel_tests/herdr2.rs"]
 mod herdr2;
+#[path = "terminal_wheel_tests/sheets.rs"]
+mod sheets;
 
 const END: &str = "issue-137-end";
 const FOCUSED: &str = "w1:p1";
