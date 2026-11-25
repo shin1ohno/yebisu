@@ -130,8 +130,11 @@ extension SmokeQA {
         XCTAssertTrue(refused(local), "127.0.0.1:\(local) still accepted after the grace")
         app.activate()
         try requireState(app, [.runningForeground], "back to yebisu after home")
+        // Until the app's next poll, qa.state is the snapshot from before going
+        // home and still says listening, so the wait also asks the port itself.
         let resumed = try qa.waitState("port \(port) listens again", timeout: 60) {
-            (self.forward($0, remote: port)?["state"] as? String) == "listening"
+            guard (self.forward($0, remote: port)?["state"] as? String) == "listening" else { return false }
+            return (self.forward($0, remote: port)?["local"] as? Int) != local || !self.refused(local)
         }
         XCTAssertEqual(forward(resumed, remote: port)?["local"] as? Int, local, "resumed on the same port")
         XCTAssertFalse(refused(local), "127.0.0.1:\(local) refused after the resume")
