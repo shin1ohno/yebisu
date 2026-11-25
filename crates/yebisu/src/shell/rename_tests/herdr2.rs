@@ -53,10 +53,22 @@ fn palette_row_says_why(cx: &mut gpui::TestAppContext) {
     let (view, _receipts, cx) = terminal(cx);
     view.update(cx, |this, _| {
         assert_eq!(this.palette_reason(Command::RenameTab, true), None);
-        assert_eq!(this.palette_reason(Command::RenameTab, false), None, "Herdr 1 has no reason");
+        assert_eq!(
+            this.palette_reason(Command::RenameTab, false),
+            None,
+            "Herdr 1 has no reason"
+        );
         this.terminal.core_mode = true;
-        for command in [Command::RenameTab, Command::RenameWorkspace, Command::RenamePane] {
-            assert_eq!(this.palette_reason(command, false), Some(HERDR2), "{command:?}");
+        for command in [
+            Command::RenameTab,
+            Command::RenameWorkspace,
+            Command::RenamePane,
+        ] {
+            assert_eq!(
+                this.palette_reason(command, false),
+                Some(HERDR2),
+                "{command:?}"
+            );
         }
         assert_eq!(this.palette_reason(Command::NextTab, false), None);
         this.terminal.core_mode = false;
@@ -74,7 +86,10 @@ fn no_request(cx: &mut gpui::TestAppContext) {
             .unwrap_or_else(|| panic!("fixture: target"));
         target.kind = HerdrKind::Herdr2;
         this.begin_rename(target, RenameAnchor::SpaceRow);
-        assert!(this.shell.rename.session.is_none(), "a Herdr 2 rename started");
+        assert!(
+            this.shell.rename.session.is_none(),
+            "a Herdr 2 rename started"
+        );
         assert_eq!(this.terminal.live.status, HERDR2);
     });
     draw(&view, cx);

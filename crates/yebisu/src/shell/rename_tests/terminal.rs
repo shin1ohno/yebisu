@@ -18,7 +18,10 @@ fn detach_before_open(cx: &mut gpui::TestAppContext) {
             "the composition survived the open"
         );
     });
-    assert!(sent(&view, &receipts, cx).is_empty(), "the composition reached the peer");
+    assert!(
+        sent(&view, &receipts, cx).is_empty(),
+        "the composition reached the peer"
+    );
 }
 
 #[gpui::test]
@@ -33,10 +36,16 @@ fn nothing_reaches_peer_while_open(cx: &mut gpui::TestAppContext) {
     opened(&view, &fake, cx, space("w1"), RenameAnchor::SpaceRow);
     type_text(&view, cx, "x");
     mark_text(&view, cx, "ぷ");
-    assert!(sent(&view, &receipts, cx).is_empty(), "input reached the peer while the field was up");
+    assert!(
+        sent(&view, &receipts, cx).is_empty(),
+        "input reached the peer while the field was up"
+    );
     push(&fake, cx, FieldEvent::Dismissed(FieldDismiss::Escape));
     type_text(&view, cx, "y");
-    assert!(sent(&view, &receipts, cx).is_empty(), "input reached the peer before the restore");
+    assert!(
+        sent(&view, &receipts, cx).is_empty(),
+        "input reached the peer before the restore"
+    );
 }
 
 #[gpui::test]
@@ -78,7 +87,10 @@ fn drop_after_send(cx: &mut gpui::TestAppContext) {
     // The request was handed to the client before the handle went.
     let sent_before_drop = view.read_with(cx, |this, _| this.shell.rename.pending.is_some());
     push(&fake, cx, FieldEvent::Dismissed(FieldDismiss::Committed));
-    assert!(sent_before_drop && fake.dropped(), "the handle went before the send");
+    assert!(
+        sent_before_drop && fake.dropped(),
+        "the handle went before the send"
+    );
     assert_eq!(renames(&view, &receipts, cx).len(), 1);
 }
 

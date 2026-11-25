@@ -202,7 +202,7 @@ impl Live {
     /// A rejected command other than a rename: the link resolve, Find and
     /// navigation slots, and the status text.
     fn reject_command(&mut self, request_id: Option<String>, reason: String) {
-                crate::terminal_links::resolve::reject(self, request_id.as_deref());
+        crate::terminal_links::resolve::reject(self, request_id.as_deref());
         if self
             .search
             .ticket

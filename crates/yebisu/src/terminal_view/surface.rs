@@ -166,6 +166,7 @@ impl TerminalView {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_surface(
         &mut self,
         (snapshot, surface): (&ClientShellSnapshot, &PaneSurfaceFrame),

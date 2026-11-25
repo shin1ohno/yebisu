@@ -70,7 +70,9 @@ pub(crate) fn push(fake: &RecordedField, cx: &mut VisualTestContext, event: Fiel
 }
 
 pub(crate) fn phase(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Option<Phase> {
-    view.read_with(cx, |this, _| this.shell.rename.session.as_ref().map(|s| s.phase))
+    view.read_with(cx, |this, _| {
+        this.shell.rename.session.as_ref().map(|s| s.phase)
+    })
 }
 
 pub(crate) fn status(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
@@ -96,7 +98,11 @@ pub(crate) fn opened(
     );
     assert_eq!(phase(view, cx), Some(Phase::Presenting));
     push(fake, cx, FieldEvent::Opened);
-    assert_eq!(phase(view, cx), Some(Phase::Open), "the session is not open");
+    assert_eq!(
+        phase(view, cx),
+        Some(Phase::Open),
+        "the session is not open"
+    );
 }
 
 /// Closes the field the way the SDK does: the dismissal, then the restore.
@@ -118,15 +124,20 @@ pub(crate) fn commit(fake: &RecordedField, cx: &mut VisualTestContext, text: &st
 
 /// The rename requests the peer received since the last call, as
 /// `method params` strings (params' keys sorted).
-pub(crate) fn renames(view: &Entity<Smoke>, receipts: &Receipts, cx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn renames(
+    view: &Entity<Smoke>,
+    receipts: &Receipts,
+    cx: &mut VisualTestContext,
+) -> Vec<String> {
     for _ in 0..5 {
         view.update(cx, |this, cx| this.poll_terminal(cx));
         cx.run_until_parked();
     }
     let mut seen = Vec::new();
     while let Ok(message) = receipts.recv_timeout(Duration::from_millis(50)) {
-        if let sheprd_client::protocol::ClientMessage::ClientShellEndpointRequest { request, .. } =
-            message
+        if let sheprd_client::protocol::ClientMessage::ClientShellEndpointRequest {
+            request, ..
+        } = message
         {
             let value: serde_json::Value =
                 serde_json::from_str(&request).unwrap_or_else(|e| panic!("request: {e}"));
@@ -140,15 +151,20 @@ pub(crate) fn renames(view: &Entity<Smoke>, receipts: &Receipts, cx: &mut Visual
 }
 
 /// Every endpoint request method the peer received since the last call.
-pub(crate) fn methods(view: &Entity<Smoke>, receipts: &Receipts, cx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn methods(
+    view: &Entity<Smoke>,
+    receipts: &Receipts,
+    cx: &mut VisualTestContext,
+) -> Vec<String> {
     for _ in 0..5 {
         view.update(cx, |this, cx| this.poll_terminal(cx));
         cx.run_until_parked();
     }
     let mut seen = Vec::new();
     while let Ok(message) = receipts.recv_timeout(Duration::from_millis(50)) {
-        if let sheprd_client::protocol::ClientMessage::ClientShellEndpointRequest { request, .. } =
-            message
+        if let sheprd_client::protocol::ClientMessage::ClientShellEndpointRequest {
+            request, ..
+        } = message
         {
             let value: serde_json::Value =
                 serde_json::from_str(&request).unwrap_or_else(|e| panic!("request: {e}"));

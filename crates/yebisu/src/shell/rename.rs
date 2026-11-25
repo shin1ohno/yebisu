@@ -16,12 +16,15 @@ use gpui::{AnyWindowHandle, Bounds, Context, Pixels, Window};
 use sheprd_client::{Method, protocol::ClientShellSnapshot};
 use std::task::{Context as TaskContext, Poll};
 
-#[cfg(target_os = "ios")]
-mod native;
 pub(crate) mod entry;
 pub(crate) mod labels;
+#[cfg(target_os = "ios")]
+mod native;
 pub(crate) mod normalize;
-#[cfg(any(test, all(target_os = "ios", target_abi = "sim", feature = "test-support")))]
+#[cfg(any(
+    test,
+    all(target_os = "ios", target_abi = "sim", feature = "test-support")
+))]
 pub(crate) mod qa;
 pub(crate) mod send;
 pub(crate) mod slot;
@@ -36,8 +39,8 @@ pub(crate) const EMPTY_HINT: &str = "Enter a name, or press Escape to cancel.";
 pub(crate) const FIND_OPEN: &str = "Close Find first";
 pub(crate) const HERDR2: &str = "Not available on Herdr 2 yet";
 pub(crate) const LENGTH_HINT: &str = "Names are limited to 160 characters.";
-pub(crate) const NOT_CONNECTED: &str = "Not connected";
 pub(crate) const NO_METHOD: &str = "This host can't rename";
+pub(crate) const NOT_CONNECTED: &str = "Not connected";
 pub(crate) const OTHER_HOST: &str = "Select this host first";
 pub(crate) const SHEET_OPEN: &str = "Close the sheet first";
 pub(crate) const UNAVAILABLE_HERE: &str = "Rename unavailable here";
@@ -235,8 +238,11 @@ pub(crate) trait FieldPresenter {
 
 /// The consumer's hold on a session; dropping it ends the session.
 pub(crate) trait FieldControl {
-    fn set_frame(&self, frame: Bounds<Pixels>, clip: Option<Bounds<Pixels>>)
-    -> Result<(), FieldError>;
+    fn set_frame(
+        &self,
+        frame: Bounds<Pixels>,
+        clip: Option<Bounds<Pixels>>,
+    ) -> Result<(), FieldError>;
     fn dismiss(&self) -> Result<(), FieldError>;
 }
 
@@ -386,7 +392,10 @@ impl RenameState {
         self.session
             .as_ref()
             .is_some_and(|s| s.anchor == anchor && &s.target.object == object)
-            && self.session.as_ref().is_some_and(|s| s.phase != Phase::Restoring)
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|s| s.phase != Phase::Restoring)
     }
 }
 

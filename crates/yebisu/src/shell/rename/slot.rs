@@ -196,7 +196,11 @@ impl Smoke {
             // The first tick after `begin_rename` comes before any frame drew
             // the anchor (it is drawn only while it is being renamed); after
             // that, two frames in a row without it end the session.
-            let limit = if session.phase == Phase::Measuring { 3 } else { 2 };
+            let limit = if session.phase == Phase::Measuring {
+                3
+            } else {
+                2
+            };
             if session.missed >= limit {
                 return Some(if session.phase == Phase::Measuring {
                     Step::Unavailable(session.id)
@@ -236,9 +240,10 @@ impl Smoke {
     /// A sidebar row whose field is (partly) outside the list's visible
     /// area, a docked keyboard's included, scrolls the list to show it.
     fn reveal_rename_row(&mut self, placed: Placed) {
-        let in_sidebar = self.shell.rename.session.as_ref().is_some_and(|s| {
-            matches!(s.anchor, RenameAnchor::SpaceRow | RenameAnchor::AgentRow)
-        });
+        let in_sidebar =
+            self.shell.rename.session.as_ref().is_some_and(|s| {
+                matches!(s.anchor, RenameAnchor::SpaceRow | RenameAnchor::AgentRow)
+            });
         let Some(clip) = placed.clip.filter(|_| in_sidebar) else {
             return;
         };

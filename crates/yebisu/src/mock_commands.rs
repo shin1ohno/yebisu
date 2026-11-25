@@ -16,7 +16,10 @@ pub(crate) fn apply(s: &mut ClientShellSnapshot, request: &Value) -> bool {
     match method {
         "workspace.rename" => {
             let id = params["workspace_id"].as_str();
-            let Some(space) = s.workspaces.iter_mut().find(|w| Some(w.workspace_id.as_str()) == id)
+            let Some(space) = s
+                .workspaces
+                .iter_mut()
+                .find(|w| Some(w.workspace_id.as_str()) == id)
             else {
                 return false;
             };

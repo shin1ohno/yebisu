@@ -6,9 +6,7 @@
 use super::*;
 use crate::{board::Target, mock_peer};
 
-fn silent(
-    cx: &mut gpui::TestAppContext,
-) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
+fn silent(cx: &mut gpui::TestAppContext) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(1000.)));
     let (client, receipts) =
@@ -57,7 +55,11 @@ fn navigation_runs_while_rename_pending(cx: &mut gpui::TestAppContext) {
     push(&fake, cx, FieldEvent::Committed("ship".into()));
     let moved = view.update(cx, |this, _| {
         assert!(
-            this.shell.rename.pending.as_ref().is_some_and(|p| p.sending()),
+            this.shell
+                .rename
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.sending()),
             "fixture: the rename waits for its answer"
         );
         let (boot, generation) = (
@@ -68,8 +70,14 @@ fn navigation_runs_while_rename_pending(cx: &mut gpui::TestAppContext) {
         );
         this.navigate_board("A", Target::Space("w2".into()), &boot, generation)
     });
-    assert!(moved.is_ok(), "a move was refused while a rename waited: {moved:?}");
-    assert_eq!(methods(&view, &receipts, cx), ["workspace.rename", "workspace.focus"]);
+    assert!(
+        moved.is_ok(),
+        "a move was refused while a rename waited: {moved:?}"
+    );
+    assert_eq!(
+        methods(&view, &receipts, cx),
+        ["workspace.rename", "workspace.focus"]
+    );
 }
 
 #[gpui::test]
@@ -81,11 +89,18 @@ fn palette_runs_while_pending(cx: &mut gpui::TestAppContext) {
     push(&fake, cx, FieldEvent::Committed("ship".into()));
     let ran = view.update(cx, |this, _| {
         assert!(
-            this.shell.rename.pending.as_ref().is_some_and(|p| p.sending()),
+            this.shell
+                .rename
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.sending()),
             "fixture: the rename waits for its answer"
         );
         this.run_action(sheprd_commands::Command::Tab)
     });
     assert!(ran.is_ok(), "a palette command was refused: {ran:?}");
-    assert_eq!(methods(&view, &receipts, cx), ["workspace.rename", "tab.create"]);
+    assert_eq!(
+        methods(&view, &receipts, cx),
+        ["workspace.rename", "tab.create"]
+    );
 }

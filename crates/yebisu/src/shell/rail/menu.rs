@@ -40,7 +40,9 @@ enum Action {
     Open,
     NewTab,
     Detach,
-    Pin { was_pinned: bool },
+    Pin {
+        was_pinned: bool,
+    },
     /// Issue #143: the menu stays open and its header becomes the field.
     Rename,
 }

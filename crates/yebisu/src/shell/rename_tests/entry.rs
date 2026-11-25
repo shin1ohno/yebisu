@@ -55,7 +55,10 @@ fn rename_space_label_has_target() {
 fn rename_enabled_on_another_space_row() {
     let entries = space_long_press_for(&connected(), &scope("A", "w2"), &scope("A", "w1"));
     let rename = entries.iter().find(|e| e.item == RENAME);
-    assert!(rename.is_some_and(|e| e.enabled), "Rename on another space's row: {entries:?}");
+    assert!(
+        rename.is_some_and(|e| e.enabled),
+        "Rename on another space's row: {entries:?}"
+    );
     assert!(
         entries
             .iter()
@@ -74,9 +77,21 @@ fn rename_disabled_on_another_host_row() {
 
 #[test]
 fn rename_pick_refused_after_space_removed() {
-    assert!(rename_scope_valid(&scope("A", "w2"), &scope("A", "w1"), true));
-    assert!(!rename_scope_valid(&scope("A", "w2"), &scope("A", "w1"), false));
-    assert!(!rename_scope_valid(&scope("A", "w2"), &scope("B", "w1"), true));
+    assert!(rename_scope_valid(
+        &scope("A", "w2"),
+        &scope("A", "w1"),
+        true
+    ));
+    assert!(!rename_scope_valid(
+        &scope("A", "w2"),
+        &scope("A", "w1"),
+        false
+    ));
+    assert!(!rename_scope_valid(
+        &scope("A", "w2"),
+        &scope("B", "w1"),
+        true
+    ));
 }
 
 #[gpui::test]
@@ -84,15 +99,23 @@ fn palette_lists_three_renames(cx: &mut gpui::TestAppContext) {
     let (view, _receipts, cx) = terminal(cx);
     view.read_with(cx, |this, _| {
         let rows = crate::actions::catalog(&this.terminal);
-        for command in [Command::RenameTab, Command::RenameWorkspace, Command::RenamePane] {
+        for command in [
+            Command::RenameTab,
+            Command::RenameWorkspace,
+            Command::RenamePane,
+        ] {
             assert!(
-                rows.iter().any(|row| row.info.command == command && row.available),
+                rows.iter()
+                    .any(|row| row.info.command == command && row.available),
                 "{command:?} is not in the palette"
             );
         }
         let labels: Vec<_> = rows.iter().map(|row| row.label.clone()).collect();
         for label in ["Rename Tab", "Rename Space", "Rename Pane"] {
-            assert!(labels.iter().any(|l| l == label), "{label} missing: {labels:?}");
+            assert!(
+                labels.iter().any(|l| l == label),
+                "{label} missing: {labels:?}"
+            );
         }
     });
 }
@@ -111,7 +134,12 @@ fn palette_rename_opens_the_field(cx: &mut gpui::TestAppContext) {
     draw(&view, cx);
     assert_eq!(fake.presents(), 1, "Rename Tab did not present the field");
     view.read_with(cx, |this, _| {
-        let session = this.shell.rename.session.as_ref().unwrap_or_else(|| panic!("session"));
+        let session = this
+            .shell
+            .rename
+            .session
+            .as_ref()
+            .unwrap_or_else(|| panic!("session"));
         assert_eq!(session.anchor, RenameAnchor::TabLabel);
         assert_eq!(session.target.object, tab("w1:t1"));
     });
@@ -201,7 +229,11 @@ fn double_tap_space_moves_once(cx: &mut gpui::TestAppContext) {
     assert_eq!(fake.presents(), 1, "the second tap did not open the field");
     view.read_with(cx, |this, _| {
         assert_eq!(
-            this.shell.rename.session.as_ref().map(|s| s.target.object.clone()),
+            this.shell
+                .rename
+                .session
+                .as_ref()
+                .map(|s| s.target.object.clone()),
             Some(space("w2"))
         );
     });

@@ -84,7 +84,10 @@ fn pane_chip_takes_the_pending_name(cx: &mut gpui::TestAppContext) {
     assert_eq!(renames(&view, &receipts, cx).len(), 1, "fixture: sent");
     view.read_with(cx, |this, _| {
         let chip = this.shell.rename.chip("boot-v1");
-        assert_eq!(chip.pending_for("w1:p1"), Some(("agent".into(), color::MUTED)));
+        assert_eq!(
+            chip.pending_for("w1:p1"),
+            Some(("agent".into(), color::MUTED))
+        );
     });
 }
 
@@ -310,6 +313,9 @@ fn confirmed_until_a_newer_snapshot(cx: &mut gpui::TestAppContext) {
         this.terminal.live.snapshot = Some(std::sync::Arc::new(newer));
         this.terminal.live.pending_snapshot = None;
         this.settle_pending_rename();
-        assert!(this.shell.rename.pending.is_none(), "a newer snapshot names it");
+        assert!(
+            this.shell.rename.pending.is_none(),
+            "a newer snapshot names it"
+        );
     });
 }

@@ -407,27 +407,34 @@ impl Smoke {
                     })
                     .child(name)
                     .child(self.tab_press_layer(press, cx))
-                    .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                        if this.terminal.core_mode != core_mode {
-                            return;
-                        }
-                        // The first tap moved to the tab; the second renames it.
-                        if event.click_count() == 2 {
-                            this.tab_double_tap(&rename_host, &rename_id, &rename_boot, generation);
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            if this.terminal.core_mode != core_mode {
+                                return;
+                            }
+                            // The first tap moved to the tab; the second renames it.
+                            if event.click_count() == 2 {
+                                this.tab_double_tap(
+                                    &rename_host,
+                                    &rename_id,
+                                    &rename_boot,
+                                    generation,
+                                );
+                                cx.notify();
+                                return;
+                            }
+                            let result = if core_mode {
+                                this.core_tab_action(&select_host, generation, &select_id, false)
+                            } else {
+                                this.focus_tab(&select_host, &select_id, &select_boot, generation)
+                            };
+                            if let Err(error) = result {
+                                this.terminal.live.status = error.to_string();
+                            }
+                            window.dismiss_virtual_keyboard();
                             cx.notify();
-                            return;
-                        }
-                        let result = if core_mode {
-                            this.core_tab_action(&select_host, generation, &select_id, false)
-                        } else {
-                            this.focus_tab(&select_host, &select_id, &select_boot, generation)
-                        };
-                        if let Err(error) = result {
-                            this.terminal.live.status = error.to_string();
-                        }
-                        window.dismiss_virtual_keyboard();
-                        cx.notify();
-                    })),
+                        }),
+                    ),
             )
             .child(
                 div()

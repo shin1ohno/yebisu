@@ -16,8 +16,8 @@ use crate::{
     shell::{
         HerdrKind, filter,
         herdr2_frame::sidebar::{CoreRow, herdr2_hosts},
-        sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
         rename::{RenameAnchor, RenameObject},
+        sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
         style::{color, metric, radius, text, tint, weight},
     },
     terminal_view::TerminalView,
@@ -681,17 +681,19 @@ impl Smoke {
                                     .items_center()
                                     .gap(px(agent_icon::AGENTS.gap))
                                     .child(line.row.icon.draw(&icon_row, agent_icon::AGENTS))
-                                    .child(self.renamable(
-                                        div()
-                                            .debug_selector(move || name_id)
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate(),
-                                        &host.boot,
-                                        RenameAnchor::AgentRow,
-                                        RenameObject::Pane(id.pane.clone()),
-                                        line.shown.clone(),
-                                    )),
+                                    .child(
+                                        self.renamable(
+                                            div()
+                                                .debug_selector(move || name_id)
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate(),
+                                            &host.boot,
+                                            RenameAnchor::AgentRow,
+                                            RenameObject::Pane(id.pane.clone()),
+                                            line.shown.clone(),
+                                        ),
+                                    ),
                             )
                             .child(
                                 div()

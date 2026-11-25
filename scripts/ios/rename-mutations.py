@@ -74,8 +74,8 @@ CASES = [
      "Some(s) if s.boot_id != session.target.boot => {", T + "confirm::target_removed_closes"),
     # Q-R5: an anchor missing for two frames keeps the field.
     ("anchor-missing-kept", "shell/rename/slot.rs",
-     "let limit = if session.phase == Phase::Measuring { 3 } else { 2 };",
-     "let limit = if session.phase == Phase::Measuring { 3 } else { 200 };",
+     "            } else {\n                2\n            };",
+     "            } else {\n                200\n            };",
      T + "confirm::anchor_missing_twice_cancels"),
     # B-7: the rename takes navigation's one slot.
     ("rename-in-pending-request", "shell/rename/send.rs", "        live.rename = Some(RenameTicket {\n",
