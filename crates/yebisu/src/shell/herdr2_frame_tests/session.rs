@@ -26,7 +26,9 @@ fn default_session_keeps_one_space_row_on_upgrade() {
     assert!(space.current);
     // Every agent of the session sits in that one tab.
     assert!(host.agents.iter().all(|line| line.row.tab == 1));
-    // Not connected: no session row is kept (decided 2026-11-11).
+    // Not connected, with nothing listed while connected: no session row
+    // (decided 2026-11-11). What was listed stays (2026-11-26,
+    // `offline_rows.rs`).
     let offline = host_entry(
         "pro-dev",
         HostLink::Offline(crate::shell::sidebar::model::OfflineReason::NotConnected),

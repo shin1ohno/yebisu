@@ -43,6 +43,9 @@ pub(crate) struct TerminalView {
     pub(crate) link_hover: crate::terminal_links::Hover,
     /// #139: the cursor drawn last, to tell the SDK when it moved.
     pub(crate) input_indicator: crate::input_indicator::CursorWatch,
+    /// The Herdr 2 spaces this view last listed while connected: the
+    /// sidebar keeps them while there is no connected session.
+    pub(crate) listed: crate::shell::herdr2_frame::sidebar::Listed,
 }
 impl TerminalView {
     /// #139: the cursor cell moved since the last frame. GPUI then reports
@@ -244,6 +247,7 @@ impl Smoke {
             if let Some(mut live) = self.terminal.link.take_update() {
                 live.clipboard.clear();
                 self.terminal.live = live;
+                self.terminal.note_listed();
                 crate::board::finish_navigation(&mut self.terminal);
                 self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
                 cx.notify();
@@ -258,6 +262,7 @@ impl Smoke {
                 .input
                 .sync(&live, self.terminal.link.generation, self.terminal.size);
             self.terminal.live = live;
+            self.terminal.note_listed();
             crate::board::finish_navigation(&mut self.terminal);
             self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
             self.flush_terminal();

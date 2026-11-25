@@ -616,6 +616,7 @@ fn forget_space(
     sessions: &mut Vec<SessionInfo>,
     epoch: u64,
 ) {
+    crate::diagnostics::record("herdr2_space_removed");
     {
         let _storage = store::LOCK
             .lock()

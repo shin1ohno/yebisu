@@ -306,6 +306,7 @@ impl Smoke {
                 // Hidden host clipboard effects are consumed, never replayed on selection.
                 live.clipboard.clear();
                 terminal.live = live;
+                terminal.note_listed();
                 finish_navigation(terminal);
                 updates.push((host.clone(), terminal.herdr_kind()));
             }
