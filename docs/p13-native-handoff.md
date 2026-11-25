@@ -41,11 +41,15 @@ Later moves, oldest first:
   `retirement_probe::delegate_notifications`) and the PR 24 merge commit
   bd0d13047de730475166ec95cc5416ef54372c14 (Mac control letters, so Ctrl-A
   reaches Herdr in the Designed for iPad app).
+- yebisu #159 moved it to the PR 25 merge commit
+  1fab654acee82bda7cc43f8703826c151c6acc34 (Mac title bar hidden so content
+  fills the window). That commit also brings PR 23 (trackpad momentum and
+  wheel lines, 43fff02b).
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 0349dcf. A later bump appends its move to this list.
+identical from 99d7928 to 1fab654. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c.
+The current pin is herdr-uikit 1fab654acee82bda7cc43f8703826c151c6acc34.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.

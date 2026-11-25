@@ -118,5 +118,47 @@ class DriverTests(unittest.TestCase):
         for reader in ("SH1_152_DOCUMENTS", "contentsOfDirectory", "String(contentsOf", "p4-peer.jsonl\")", "FileManager"):
             self.assertNotIn(reader, swift)
 
+
+check_spec = importlib.util.spec_from_file_location("sh1_152_check", Path(__file__).with_name("sh1-152-check.py"))
+check = importlib.util.module_from_spec(check_spec)
+check_spec.loader.exec_module(check)
+
+
+class CheckReportTests(unittest.TestCase):
+    """Issue #142 stage 4: what sh1-152-check.py adds to its verdict and to the job's resend ledger."""
+
+    def test_the_verdict_names_each_case_files_heartbeat_gaps(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = [{"kind": "launch", "pid": 7, "time": 0}, *({"kind": "heartbeat", "tick": 2 * n, "time": t} for n, t in enumerate([2, 4, 30.5, 32]))]
+            (directory / "sh1-152-E4-text-0.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+            (directory / "sh1-152-E1-key-0.jsonl").write_text(json.dumps({"kind": "observation-dropped", "count": 1, "time": 1}) + "\n")
+            report = check.heartbeat_report(directory)
+        self.assertEqual(report[0]["file"], "sh1-152-E1-key-0.jsonl")
+        self.assertIn("unreadable", report[0])
+        self.assertEqual(report[1], {"from": 4, "to": 30.5, "seconds": 26.5, "pid": 7, "file": "sh1-152-E4-text-0.jsonl"})
+
+    def test_a_launch_retry_needs_a_launch_that_started_no_process(self):
+        resend = 'QA-RESEND {"id": "E2-text", "kind": "launch-retry", "reason": "not running", "time": 1.0}'
+        attempts = "SH1-152 LAUNCH E1-text 4.2\nSH1-152 LAUNCH E2-text 108.0\n" + resend + "\nSH1-152 LAUNCH E2-text 5.1\n"
+        self.assertEqual(check.launch_retries_proven("SH1-152 LAUNCH E1-text 4.2\n", ""), "no launch-retry")
+        two_starts = "app-stderr launch pid=11\nx\napp-stderr launch pid=12\n"
+        self.assertIn("1 launch-retry proven: 2 app starts for 3 attempts", check.launch_retries_proven(attempts, two_starts))
+        with self.assertRaisesRegex(ValueError, "launch-retry not proven: 3 app starts for 3 launch attempts"):
+            check.launch_retries_proven(attempts, two_starts + "app-stderr launch pid=13\n")
+
+    def test_the_check_writes_its_ledger_line_before_any_verdict_and_also_on_failure(self):
+        source = (Path(__file__).with_name("sh1-152-check.py")).read_text()
+        main = source[source.index("def main("):]
+        run = main.index('result = sim_ready.run_test(xctest_command := ["xcodebuild", "test"')
+        record = main.index('\n        resend_budget.record("sh1-152-check", result.stdout)\n')
+        self.assertRegex(main, r'\n        resend_budget\.record\("sh1-152-check", result\.stdout\)\n', "an unconditional statement")
+        self.assertLess(run, record)
+        self.assertLess(record, main.index("finally:"), "recorded before terminate, whatever XCTest's exit code")
+        self.assertLess(record, main.index('raise SystemExit("SH1-152 FAIL'))
+        self.assertIn('verdicts["heartbeat_gaps"] = heartbeat_report(directory)', main)
+
+
 if __name__ == "__main__":
     unittest.main()
