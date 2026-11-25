@@ -2,10 +2,7 @@ use crate::{
     app::Smoke,
     board::{Navigation, Target, snapshot},
     core::Command,
-    shell::{
-        fit::key_band_height,
-        style::{color, metric, text},
-    },
+    shell::style::{color, metric, text},
 };
 use gpui::{
     AnyElement, Context, DispatchPhase, HitboxBehavior, MouseButton, Role, TouchDragEvent,
@@ -90,11 +87,7 @@ impl Smoke {
         let viewport = window.viewport_size();
         let size = crate::layout::Size::new(viewport.width.into(), viewport.height.into());
         self.compact_window_at(window)
-            || key_band_height(
-                size,
-                &self.platform_insets(window).ime,
-                self.hardware_keyboard_attached(),
-            ) > 0.0
+            || self.key_band_now(size, &self.platform_insets(window).ime) > 0.0
     }
 
     pub(super) fn pager(&self) -> Option<Pager> {

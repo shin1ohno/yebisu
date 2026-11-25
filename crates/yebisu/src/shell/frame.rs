@@ -132,6 +132,20 @@ impl Smoke {
         )
     }
 
+    /// The key band's height now: none while the native search panel is up
+    /// (its field owns the keyboard), else the fit rule.
+    pub(in crate::shell) fn key_band_now(
+        &self,
+        size: Size,
+        ime: &gpui::Edges<gpui::Pixels>,
+    ) -> f32 {
+        if self.search_open() {
+            0.0
+        } else {
+            fit::key_band_height(size, ime, self.hardware_keyboard_attached())
+        }
+    }
+
     #[cfg(any(target_os = "ios", test))]
     pub(crate) fn key_band_can_apply(&self, window: &Window) -> bool {
         self.shell.frame.key_band.is_armed() && self.frame_layout(window).key_band.is_some()
@@ -166,7 +180,7 @@ impl Smoke {
             regions: self.requested_mod_regions(self.fit_now()),
             ..frame_input(size, insets, self.find.is_some())
         };
-        let band = fit::key_band_height(size, &platform.ime, self.hardware_keyboard_attached());
+        let band = self.key_band_now(size, &platform.ime);
         if band > 0.0 {
             layout::compute_with_key_band(&input, band)
         } else {
