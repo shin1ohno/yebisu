@@ -1,15 +1,18 @@
 //! Text a terminal may have wrapped across rows. Modified from the fork's
-//! links/wrap.rs. The surface carries no soft-wrap flag, so a row may go on
-//! in the row below only when its text reaches the pane's right edge, or
-//! stops one cell short because the next row starts with a wide glyph that
-//! did not fit (Herdr 1's and Herdr 2's terminals both leave a blank there),
-//! and the row below has text in its first column. Such a reading is only a
-//! candidate: a line that happened to end at the edge looks the same, so an
-//! address read across rows, or one that meets the edge, is opened only once
-//! Herdr says where it ends (`super::resolve`). The fork also reads a
-//! program's own indented wrap, for paths only; web addresses never go on
-//! after an indent here either.
-use super::{MAX_ROW_BYTES, continuations, shown};
+//! links/wrap.rs. A Herdr 1 surface carries no soft-wrap flag, so there a
+//! row may go on in the row below only when its text reaches the pane's
+//! right edge, or stops one cell short because the next row starts with a
+//! wide glyph that did not fit (Herdr 1's and Herdr 2's terminals both leave
+//! a blank there), and the row below has text in its first column. Such a
+//! reading is only a candidate: a line that happened to end at the edge
+//! looks the same, so an address read across rows, or one that meets the
+//! edge, is opened only once Herdr says where it ends (`super::resolve`).
+//! Herdr 2 frames carry `SOFT_WRAP` on a wrapped row's last cell (the
+//! emulator's own wrap flag), which proves both a wrap and a line end, so
+//! there these guesses are not used. The fork also reads a program's own
+//! indented wrap, for paths only; web addresses never go on after an indent
+//! here either.
+use super::{MAX_ROW_BYTES, SOFT_WRAP, UNMARKED, continuations, shown};
 use sheprd_client::protocol::{CellData, FrameData};
 use std::ops::{Range, RangeInclusive};
 use unicode_width::UnicodeWidthStr;
@@ -29,6 +32,8 @@ pub(super) struct Area<'a> {
     frame: &'a FrameData,
     columns: Range<u16>,
     rows: Range<u16>,
+    /// Whether the frame carries soft-wrap marks (Herdr 2).
+    marked: bool,
 }
 
 /// The rows read around a press, and whether the text may go on above the
@@ -40,12 +45,41 @@ pub(super) struct Lines {
 }
 
 impl<'a> Area<'a> {
-    pub(super) fn new(frame: &'a FrameData, columns: Range<u16>, rows: Range<u16>) -> Self {
+    pub(super) fn new(
+        frame: &'a FrameData,
+        columns: Range<u16>,
+        rows: Range<u16>,
+        marked: bool,
+    ) -> Self {
         Self {
             frame,
             columns,
             rows,
+            marked,
         }
+    }
+
+    /// Whether `row`'s soft-wrap mark is to be trusted: a Herdr 2 frame, and
+    /// a pane the composer did not mark `UNMARKED`.
+    fn marked_row(&self, row: u16) -> bool {
+        self.marked
+            && self
+                .cells(row)
+                .and_then(<[CellData]>::first)
+                .is_some_and(|cell| cell.modifier & UNMARKED == 0)
+    }
+
+    /// Whether the emulator wrapped `row` into the next: its last cell, a
+    /// wide glyph's spacer included, carries `SOFT_WRAP`.
+    fn wraps(&self, row: u16) -> bool {
+        self.cells(row)
+            .and_then(<[CellData]>::last)
+            .is_some_and(|cell| cell.modifier & SOFT_WRAP != 0)
+    }
+
+    /// Whether every row of `rows` carries marks to be trusted.
+    pub(super) fn marks(&self, rows: &RangeInclusive<u16>) -> bool {
+        rows.clone().all(|row| self.marked_row(row))
     }
 
     /// The area's cells in frame row `row`, if it has that row.
@@ -78,7 +112,9 @@ impl<'a> Area<'a> {
 
     /// Whether `row` ends in the blank a terminal leaves when the wide glyph
     /// starting the row below did not fit in its last cell: text reaches the
-    /// cell before it, and the row below starts with a wide glyph.
+    /// cell before it, and the row below starts with a wide glyph. With
+    /// marks it matters only on a row the emulator wrapped, as `continues`
+    /// alone says whether a row goes on.
     fn spacer(&self, row: u16) -> bool {
         let Some(cells) = self.cells(row) else {
             return false;
@@ -94,17 +130,29 @@ impl<'a> Area<'a> {
         blank(last) && !blank(before) && wide_below
     }
 
-    /// Whether the text of row `above` may go on in the row below it.
+    /// Whether the text of row `above` may go on in the row below it. With
+    /// marks, exactly when the emulator wrapped `above` into a row of the
+    /// area.
     fn continues(&self, above: u16) -> bool {
+        if self.marked_row(above) {
+            return self.wraps(above)
+                && above
+                    .checked_add(1)
+                    .is_some_and(|below| self.cells(below).is_some());
+        }
         above
             .checked_add(1)
             .is_some_and(|below| (self.fills(above) || self.spacer(above)) && self.starts(below))
     }
 
-    /// Whether text reaching the end of row `last` certainly ends there: the
-    /// row below is in the area and starts with a blank, where a wrapped
-    /// line would go on with its next character.
+    /// Whether text reaching the end of row `last` certainly ends there. With
+    /// marks: the emulator did not wrap it. Without: the row below is in the
+    /// area and starts with a blank, where a wrapped line would go on with
+    /// its next character.
     pub(super) fn ends_line(&self, last: u16) -> bool {
+        if self.marked_row(last) {
+            return !self.wraps(last);
+        }
         last.checked_add(1)
             .is_some_and(|below| self.cells(below).is_some() && !self.starts(below))
     }

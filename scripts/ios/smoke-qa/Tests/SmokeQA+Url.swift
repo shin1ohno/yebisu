@@ -157,9 +157,12 @@ extension SmokeQA {
         save("url-herdr2-fixture")
         try opens(app, qa, "core_plain", "Herdr 2 plain address") { $0 == "https://example.com/l66/core-plain" }
         try opens(app, qa, "core_osc8", "Herdr 2 OSC 8 hyperlink") { $0 == "https://example.com/l66/core-osc8" }
-        // Herdr 2 has no pane.link.resolve and its frames no soft-wrap flag: an address at a row
-        // edge opens nothing and says why (review F1).
-        try refuses(app, qa, "core_wrapped", "Not opened: the address meets the line edge")
+        // Herdr 2's frames carry the emulator's soft-wrap mark (#141): the address the terminal
+        // wrapped opens whole, `x` twice the pane's columns after the prefix (qa.rs herdr2_output).
+        let prefix = "https://example.com/l66/core-wrapped/"
+        try opens(app, qa, "core_wrapped", "Herdr 2 address the terminal wrapped") { url in
+            url.hasPrefix(prefix + "x") && url.dropFirst(prefix.count).allSatisfy { $0 == "x" }
+        }
     }
 
     /// The Command underline as the app paints it: `YEBISU_URL_TAP_QA=hover` takes the pointer to

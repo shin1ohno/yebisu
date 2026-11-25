@@ -7297,6 +7297,7 @@ dependencies = [
  "sheprd-core-client",
  "sheprd-credentials",
  "sheprd-i18n",
+ "sheprd-terminal",
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "tracing",

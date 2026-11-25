@@ -234,6 +234,18 @@ pub(super) fn publish_for(
                 }
             }
         }
+        // An emulator frame of another width (Herdr 2's first frames after a
+        // reconnect are 80 x 24 until the resize) is clipped or padded, so
+        // its last drawn column is not its last column and its soft-wrap
+        // marks prove nothing: the link reader reads this pane unmarked.
+        if source.width != rect.cols {
+            for row in 0..rect.rows.min(size.rows().saturating_sub(y)) {
+                let at = usize::from(y + row) * usize::from(size.cols()) + usize::from(x);
+                if let Some(cell) = frame.cells.get_mut(at) {
+                    cell.modifier |= crate::terminal_links::UNMARKED;
+                }
+            }
+        }
         if index == saved.active && !screen.ended {
             frame.cursor = source.cursor.clone().map(|mut cursor| {
                 cursor.x += x;

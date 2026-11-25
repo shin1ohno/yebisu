@@ -37,7 +37,7 @@ fn each_pane_keeps_its_own_hyperlinks() -> crate::Result<()> {
     ]) {
         let rect = pane.inner_rect;
         assert!(pane_hyperlink_at(surface, rect.x + 2, rect.y), "{want}");
-        let Some(found) = pane_link_at(surface, rect.x + 2, rect.y) else {
+        let Some(found) = pane_link_at(surface, rect.x + 2, rect.y, true) else {
             panic!("no link read in pane {}", pane.pane_id);
         };
         assert_eq!(found.target, Target::Web(want.into()));

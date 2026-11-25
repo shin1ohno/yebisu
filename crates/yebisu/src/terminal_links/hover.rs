@@ -70,9 +70,10 @@ impl TerminalView {
         let Some((column, row)) = self.geometry.cell_at(&surface, position, None) else {
             return Vec::new();
         };
-        match pane_link_at(&surface, column, row) {
-            // Only an address that opens as read: one Herdr must still
-            // resolve shows no line, as its extent is not known.
+        match pane_link_at(&surface, column, row, self.core_mode) {
+            // Only an address that opens as read: a candidate Herdr must
+            // still resolve, or one Herdr 2's marks cannot settle, shows no
+            // line, as its extent is not known.
             Some(
                 link @ Link {
                     target: Target::Web(_),
