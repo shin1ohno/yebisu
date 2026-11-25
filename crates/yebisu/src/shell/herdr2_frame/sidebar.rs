@@ -97,18 +97,35 @@ impl Smoke {
             .core
             .as_ref()
             .ok_or_else(|| crate::Error::Ssh("Stale Herdr 2 row; tap again".into()))?;
-        let (session, address) = match &target {
-            CoreRow::Space(session) => (session.as_str(), None),
+        let (session, address, space) = match &target {
+            CoreRow::Space(identity) => {
+                let (session, space) = session::split_space_identity(identity);
+                (session, None, space)
+            }
             CoreRow::Agent(identity) => {
                 let (session, address) = session::split_pane_identity(identity);
-                (session, Some(address))
+                (session, Some(address), None)
             }
         };
+        // #144 D2: a document space row draws that space; the plain
+        // `default` row of a host reading the document draws the iPad-only
+        // tabs (owner answer D2-1).
+        let documented = core
+            .sessions(view.live.input_epoch)
+            .iter()
+            .any(|row| row.name == super::HERDR2_SESSION && row.doc.is_some());
+        let select_space = (address.is_none()
+            && session == super::HERDR2_SESSION
+            && (space.is_some() || documented))
+            .then(|| crate::core::Command::SelectDocSpace(space.map(str::to_owned)));
         if session == core.name() {
             self.select_host_kind(host, HerdrKind::Herdr2);
             self.shell.sidebar.reveal_host(host);
             if let Some(address) = address {
                 self.try_core_command(crate::core::Command::FocusAddress(address.to_owned()))?;
+            }
+            if let Some(command) = select_space {
+                self.try_core_command(command)?;
             }
             return Ok(());
         }
@@ -136,6 +153,11 @@ impl Smoke {
                 expected_core_id,
             },
             cx,
-        )
+        )?;
+        // The new session's queue takes commands before its worker starts.
+        match select_space {
+            Some(command) => self.try_core_command(command),
+            None => Ok(()),
+        }
     }
 }
