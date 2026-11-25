@@ -145,6 +145,12 @@ fn rename_available(terminal: &TerminalView, command: Command) -> bool {
     let Some(shown) = snapshot(&terminal.live) else {
         return false;
     };
+    // Herdr 2 renames the `default` document's drawn space and tab, never a
+    // pane (#144 D3, AC14).
+    if terminal.core_mode {
+        return terminal.live.version_mismatch.get().is_none()
+            && crate::shell::rename::herdr2::command_unavailable(terminal, command).is_none();
+    }
     let (method, target) = match command {
         Command::RenamePane => (Method::PaneRename, shown.focused_pane_id.is_some()),
         Command::RenameTab => (Method::TabRename, shown.focused_tab_id.is_some()),

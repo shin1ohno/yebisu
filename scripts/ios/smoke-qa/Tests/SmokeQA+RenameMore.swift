@@ -90,7 +90,9 @@ extension SmokeQA {
         _ = try qa.waitState("the Herdr 2 terminal is connected and drawn", timeout: 60) {
             $0.string("screen") == "terminal" && $0.bool("connected") == true && !$0.isNull("surface")
         }
-        let reason = "Not available on Herdr 2 yet"
+        // #144 D3: Herdr 2 renames the `default` session's herdr-app document's spaces and tabs;
+        // the mock serves none, so Rename Space and the tab's Rename… say why.
+        let reason = "Only herdr-app spaces and tabs can be renamed"
 
         // Herdr 2's ... menu has no Command palette item: the palette opens with Command-Shift-P
         // once the terminal has the keyboard.

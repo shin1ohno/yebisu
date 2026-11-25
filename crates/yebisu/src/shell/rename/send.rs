@@ -74,8 +74,12 @@ pub(crate) struct PendingLabel {
     pub(crate) boot: String,
     pub(crate) object: RenameObject,
     pub(crate) text: String,
-    /// The snapshot revision when it was sent.
+    /// The snapshot revision when it was sent; for a Herdr 2 name, the
+    /// version of the document read (#144 D3).
     pub(crate) sent_revision: u64,
+    /// A Herdr 2 name, written through the `herdr-app` document: no
+    /// request answers it; a later read of the document does.
+    pub(crate) doc: bool,
     pub(crate) request: String,
     pub(crate) state: PendingState,
     pub(crate) sent_at: Instant,
@@ -112,10 +116,14 @@ impl Smoke {
         cx: &mut Context<Self>,
     ) {
         let text = normalize_name(text);
-        if text.is_empty() && !target.object.allows_empty() {
+        if text.is_empty() && !target.allows_empty() {
             return;
         }
-        match self.send_rename_inner(target, &text) {
+        let sent = match target.kind {
+            crate::shell::HerdrKind::Herdr2 => self.send_doc_rename(target, &text),
+            crate::shell::HerdrKind::Herdr1 => self.send_rename_inner(target, &text),
+        };
+        match sent {
             Ok(Some(request)) => {
                 let timer = request.clone();
                 cx.spawn(async move |this, cx| {
@@ -186,6 +194,7 @@ impl Smoke {
             object: target.object.clone(),
             text: text.to_owned(),
             sent_revision: revision,
+            doc: false,
             request: request.clone(),
             state: PendingState::Sending,
             sent_at: Instant::now(),
@@ -193,6 +202,46 @@ impl Smoke {
         self.observation.record(serde_json::json!({
             "kind": "rename",
             "method": target.object.method().as_str(),
+        }));
+        Ok(Some(request))
+    }
+
+    /// A Herdr 2 rename (#144 D3): `Command::RenameSpace` or `RenameTab` to
+    /// the `default` core, which writes the document. The name shows,
+    /// muted, until a later version of the document is read.
+    fn send_doc_rename(
+        &mut self,
+        target: &RenameTarget,
+        text: &str,
+    ) -> crate::Result<Option<String>> {
+        if let Some(reason) = self.herdr2_rename_unavailable(target) {
+            return Err(crate::Error::Ssh(reason.into()));
+        }
+        let doc = self
+            .doc_names()
+            .ok_or_else(|| crate::Error::Ssh(super::herdr2::NO_DOCUMENT.into()))?;
+        if normalize_name(&doc.name(&target.object)) == text {
+            return Ok(None);
+        }
+        let command = doc
+            .command(&target.object, text)
+            .ok_or_else(|| crate::Error::Ssh(super::herdr2::NOT_IN_DOCUMENT.into()))?;
+        self.try_core_command(command)?;
+        // No request id answers a document write: the timer keys on this.
+        let request = format!("doc-{}-{}", doc.version, self.shell.rename.next_session);
+        self.shell.rename.pending = Some(PendingLabel {
+            boot: target.boot.clone(),
+            object: target.object.clone(),
+            text: text.to_owned(),
+            sent_revision: doc.version,
+            doc: true,
+            request: request.clone(),
+            state: PendingState::Sending,
+            sent_at: Instant::now(),
+        });
+        self.observation.record(serde_json::json!({
+            "kind": "rename",
+            "method": if matches!(target.object, RenameObject::Space(_)) { "doc.rename-space" } else { "doc.rename-tab" },
         }));
         Ok(Some(request))
     }
@@ -208,6 +257,17 @@ impl Smoke {
         let shown = snapshot(live);
         if !live.connected || shown.is_none_or(|s| s.boot_id != pending.boot) {
             self.shell.rename.pending = None;
+            return;
+        }
+        if pending.doc {
+            // Any later read ends it: it holds the name written, or the
+            // document's own after a lost write (whose notice says so).
+            if self
+                .doc_names()
+                .is_none_or(|doc| doc.version > pending.sent_revision)
+            {
+                self.shell.rename.pending = None;
+            }
             return;
         }
         let outcome = live

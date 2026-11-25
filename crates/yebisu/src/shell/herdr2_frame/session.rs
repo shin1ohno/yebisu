@@ -61,7 +61,7 @@ fn space_identity(space: &str) -> String {
 }
 
 /// A space row's session, and its document space when it is one.
-pub(super) fn split_space_identity(identity: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_space_identity(identity: &str) -> (&str, Option<&str>) {
     match identity.split_once('\0') {
         Some((session, space)) => (session, Some(space)),
         None => (identity, None),

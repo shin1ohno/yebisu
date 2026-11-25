@@ -94,7 +94,8 @@ impl Smoke {
             .px(px(metric::INLINE_GAP))
             .py(px(SECTION_SIDE_PADDING))
             .min_h_0()
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            .track_scroll(self.shell.indicators.settings_categories.handle());
         for (group, members) in sections::GROUPS {
             pages = pages.child(
                 group_heading(group)
@@ -110,6 +111,7 @@ impl Smoke {
                 pages = pages.child(self.settings_section_button(member, section, cx));
             }
         }
+        let pages = pages.child(self.shell.indicators.settings_categories.thumb());
         let intro = match self.settings_page {
             Page::Input => Some(
                 "How keys, Japanese input and selection reach the terminal. Changes apply at once. “Saved” appears after the write succeeds; if it fails, the reason and Retry appear at the top.",
@@ -177,6 +179,7 @@ impl Smoke {
                     .min_h_0()
                     .min_w_0()
                     .overflow_y_scroll()
+                    .track_scroll(self.shell.indicators.settings_content.handle())
                     .p(px(CONTENT_PADDING))
                     .flex()
                     .flex_col()
@@ -199,7 +202,8 @@ impl Smoke {
                                 intro.map(|intro| div().text_color(rgb(color::MUTED)).child(intro)),
                             )
                     }))
-                    .child(content),
+                    .child(content)
+                    .child(self.shell.indicators.settings_content.thumb()),
             );
         // The same clearance the shell chrome keeps for the window controls.
         let inset = header_inset(

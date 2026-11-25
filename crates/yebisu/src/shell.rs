@@ -28,6 +28,7 @@ pub(crate) mod qa_strip;
 pub(crate) mod rail;
 pub(crate) mod rail_badges;
 pub(crate) mod rename;
+pub(crate) mod scroll_indicator;
 pub(crate) mod search;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 pub(crate) mod search_qa;
@@ -63,6 +64,9 @@ pub(crate) struct ChromeState {
     /// Herdr 2 only: the session is still being dialed (no frame yet and its
     /// worker has not stopped). Neither connected nor failed.
     pub(crate) connecting: bool,
+    /// Herdr 2 only: the drawn `default` session's `herdr-app` document is
+    /// readable, so its spaces can be renamed (#144 D3).
+    pub(crate) herdr2_document: bool,
     pub(crate) selecting: bool,
     pub(crate) sheet_open: bool,
     pub(crate) find_available: bool,
@@ -150,4 +154,6 @@ pub(crate) struct ShellState {
     pub(crate) search: search::SearchState,
     pub(crate) rename: rename::RenameState,
     pub(crate) forward_sheet: forward_sheet::ForwardSheetState,
+    /// Issue #137 PR 5: the scroll thumb of each list.
+    pub(crate) indicators: scroll_indicator::Indicators,
 }

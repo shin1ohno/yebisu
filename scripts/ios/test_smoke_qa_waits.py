@@ -168,6 +168,8 @@ class P9Timeout(unittest.TestCase):
         self.assertIn("-only-testing:SmokeOracle/SmokeQA/testP9Core()", command)
         # #144: the herdr-app document test runs where CI runs P9.
         self.assertIn("-only-testing:SmokeOracle/SmokeQA/testP9HerdrDoc()", command)
+        # #144 D3: the rename test too.
+        self.assertIn("-only-testing:SmokeOracle/SmokeQA/testP9HerdrDocRename()", command)
         self.assertIn("id=DEVICE", command)
 
     def test_p9_core_has_an_execution_time_allowance(self):
@@ -182,7 +184,8 @@ class P9Timeout(unittest.TestCase):
 
 class S3Identifiers(unittest.TestCase):
     """UI test redesign S3: P9, SH1-154 and P3 press QA identifiers and wait on qa.state."""
-    TESTS = ("func testP9Core(", "func testSH154CoreImage(", "func testP3Terminal(", "func testP9HerdrDoc(")
+    TESTS = ("func testP9Core(", "func testSH154CoreImage(", "func testP3Terminal(", "func testP9HerdrDoc(",
+             "func testP9HerdrDocRename(")
     OCR = ("tapText(", "tapTextBox(", "tapMenuItem(", "textVisible(", "waitForRenderedText(", "tapRecorded(",
            "openSettings(in:", "openOverflowMenu(", "closeOverflowMenu(", "recognize(", "hideSoftwareKeyboard(")
 

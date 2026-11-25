@@ -45,6 +45,10 @@ pub(crate) struct TerminalView {
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
     pub(crate) link_hover: crate::terminal_links::Hover,
+    /// Wheel and trackpad motion not yet a whole line (issue #137).
+    pub(crate) wheel: crate::upstream::wheel::WheelAccumulator,
+    /// The surface shown and the wheel scrolling drawn between its rows.
+    pub(crate) presentation: crate::upstream::presentation::Presentation,
     /// #139: the cursor drawn last, to tell the SDK when it moved.
     pub(crate) input_indicator: crate::input_indicator::CursorWatch,
     /// The Herdr 2 spaces this view last listed while connected: the
@@ -302,6 +306,7 @@ impl Smoke {
                     terminal.geometry = crate::input_geometry::InputGeometry::from_canvas(bounds, cell_width, line_height);
                     terminal.canvas_bounds = Some(bounds);
                     let shown = terminal.coherent_frame();
+                    terminal.presentation.present(shown.as_ref().map(|(_, surface)| surface));
                     let panes = shown.as_ref().map_or_else(Vec::new, |(_, surface)| {
                         terminal.geometry.framed_panes(surface)
                     });
@@ -584,6 +589,8 @@ impl Smoke {
                         cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
                     .child(self.edit_menu_canvas(cx))
+                    .child(self.terminal_wheel_canvas(cx))
+                    .children(self.jump_to_bottom_buttons(cx))
                     // Last, so no other child's hitbox lies over it.
                     .children(crate::qa_ax::mark(
                         crate::qa_ax::ids::TERMINAL_INPUT,

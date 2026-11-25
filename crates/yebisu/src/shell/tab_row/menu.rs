@@ -5,7 +5,7 @@
 use crate::{
     app::Smoke,
     shell::{
-        rename::{HERDR2, RenameAnchor, RenameObject, RenameTarget},
+        rename::{RenameAnchor, RenameObject, RenameTarget},
         sidebar::long_press::row_press_layer,
         style::{color, metric, radius, shadow, text},
     },
@@ -92,8 +92,8 @@ impl Smoke {
             .editing(RenameAnchor::TabLabel, &RenameObject::Tab(id.to_owned()))
     }
 
-    /// A second tap on a tab's label renames it (the first moved there).
-    /// On Herdr 2 `begin_rename` refuses it with the reason.
+    /// A second tap on a tab's label renames it (the first moved there);
+    /// on Herdr 2 only a document tab (#144 D3), `begin_rename` says why.
     pub(super) fn tab_double_tap(&mut self, host: &str, id: &str, boot: &str, generation: u64) {
         let target = RenameTarget {
             host: host.to_owned(),
@@ -126,11 +126,7 @@ impl Smoke {
             generation: menu.generation,
             object: RenameObject::Tab(menu.id.clone()),
         };
-        let reason = if menu.core {
-            Some(HERDR2)
-        } else {
-            self.rename_unavailable(&target)
-        };
+        let reason = self.rename_unavailable(&target);
         (target, reason)
     }
 

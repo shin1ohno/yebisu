@@ -29,6 +29,9 @@ pub(super) struct Workspace {
     pub tabs: Vec<Tab>,
     pub active: usize,
     pub doc_view: DocView,
+    /// The document version the saved `default` tabs moved in at (#144
+    /// Design G); `None` until then. Never migrated twice (AC12).
+    pub migrated: Option<u64>,
 }
 
 /// The iPad's own view of the `herdr-app` document (#144 decision 11): the
@@ -198,6 +201,7 @@ pub(super) fn load_workspace(
             tabs: tabs.into_iter().collect(),
             active: 0,
             doc_view: DocView::default(),
+            migrated: None,
         });
     }
     if value["version"] != 2 {
@@ -233,6 +237,7 @@ pub(super) fn load_workspace(
         tabs,
         active,
         doc_view: DocView::read(&value),
+        migrated: value["migrated"].as_u64(),
     })
 }
 
@@ -256,9 +261,39 @@ pub(super) fn save_workspace(
         serde_json::json!({
             "version": 2, "host": host, "session": session, "created": workspace.created,
             "tabs": tabs.collect::<Vec<_>>(), "active": workspace.active,
-            "doc_view": {"space": workspace.doc_view.space, "tabs": workspace.doc_view.tabs}
+            "doc_view": {"space": workspace.doc_view.space, "tabs": workspace.doc_view.tabs},
+            "migrated": workspace.migrated
         }),
     )
+}
+
+/// Copies the `default` session's file to `…-default.v2.json` once, before
+/// its tabs move into the document (#144 Design G), so they can be put
+/// back. An existing copy is kept: this never overwrites it.
+pub(super) fn backup_once(root: Option<&Path>, host: &str) -> crate::Result<()> {
+    let Some(root) = root else {
+        return Ok(());
+    };
+    let source = path(root, host, "default");
+    let bytes = match std::fs::read(&source) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let backup = source.with_extension("v2.json");
+    let mut file = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    std::fs::File::open(root)?.sync_all()?;
+    Ok(())
 }
 
 /// Forgets a space whose server was stopped: without its saved layout the

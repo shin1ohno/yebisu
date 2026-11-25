@@ -93,8 +93,10 @@ move and the field's frame stay within 1 pt of the rectangle over it, also
 after the window turns to portrait and back. S8 renames the current space
 from the rail's long-press menu (one `workspace.rename`). `--suite herdr2`
 runs `SmokeQA/testRenameHerdr2` on the Herdr 2 mock: S10, the palette's
-Rename rows and the tab menu's Rename… are disabled with "Not available on
-Herdr 2 yet" and no field opens. `--suite menus` runs `P12QA/testRenameMenus`
+Rename Space row and the tab menu's Rename… are disabled with "Only herdr-app
+spaces and tabs can be renamed" (the mock serves no `herdr-app` document;
+#144 D3 renames a document's spaces and tabs, and Rename Pane stays "Not
+available on Herdr 2 yet") and no field opens. `--suite menus` runs `P12QA/testRenameMenus`
 (scripts/ios/p12-qa): S9, the OS menu bar's Rename Tab and Space › Rename
 Space — name open the field over the tab and the space row. The menu bar is
 revealed by P12's swipe, which can flake (issue #142).

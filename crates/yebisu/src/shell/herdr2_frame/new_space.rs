@@ -435,10 +435,12 @@ impl Smoke {
             .flex_col()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(self.shell.indicators.new_space.handle())
             .children(hosts);
         if chooser.hosts.is_empty() {
             host_list = host_list.child("Add a host before creating a space");
         }
+        let host_list = host_list.child(self.shell.indicators.new_space.thumb());
         let enabled = chooser.selection().is_some();
         let panel = div()
             .id("new-space-panel")
