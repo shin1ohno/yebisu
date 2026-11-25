@@ -71,9 +71,31 @@ impl NativeCommand {
 
 /// Shared Settings/menu presentation API. No platform keymap is modified.
 /// Search opens from its shortcut and the palette; the keyless OS menu keeps
-/// its pre-search command set.
+/// its pre-search command set. Rename Space is the Space menu's item.
 pub(crate) fn in_os_menu(row: &actions::Action) -> bool {
-    row.info.command != Command::Find
+    row.info.command != Command::Find && row.info.command != Command::RenameWorkspace
+}
+
+/// The menu items' subtitles: on Herdr 2 the disabled Rename items say why
+/// (issue #143 decision 10); none otherwise.
+pub(crate) fn rename_subtitles(
+    rows: &[MenuRow],
+    host_menus: &[(&'static str, Vec<MenuRow>)],
+    herdr2: bool,
+) -> Vec<(String, String)> {
+    if !herdr2 {
+        return Vec::new();
+    }
+    let renames = [
+        "rename_tab",
+        "rename_pane",
+        host_menus::SpaceMenuItem::Rename.name(),
+    ];
+    rows.iter()
+        .chain(host_menus.iter().flat_map(|(_, rows)| rows))
+        .filter(|(name, _, enabled)| !enabled && renames.contains(&name.as_str()))
+        .map(|(_, label, _)| (label.clone(), crate::shell::rename::HERDR2.to_owned()))
+        .collect()
 }
 /// The Settings sheet supplies its intended terminal focus/scene context.
 pub(crate) fn catalog_rows(
@@ -135,7 +157,7 @@ fn with_shortcut(label: &str, shortcut: &str) -> String {
 }
 
 /// One OS menu row: (`NativeCommand` name, label, enabled).
-type MenuRow = (String, String, bool);
+pub(crate) type MenuRow = (String, String, bool);
 /// The Host and Space menus: title and rows.
 type HostMenuRows = Vec<(&'static str, Vec<MenuRow>)>;
 
@@ -351,6 +373,15 @@ impl Smoke {
                 .iter()
                 .map(|(title, rows)| Menu::new(*title).items(rows.iter().map(menu_item))),
         );
+        let subtitles = rename_subtitles(
+            &self.native_menus.rows,
+            &self.native_menus.host_menus,
+            self.terminal.core_mode,
+        );
+        #[cfg(target_os = "ios")]
+        herdr_uikit::set_menu_subtitles(subtitles);
+        #[cfg(not(target_os = "ios"))]
+        let _ = subtitles;
         cx.set_menus(menus);
     }
 

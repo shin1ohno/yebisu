@@ -47,7 +47,7 @@ impl Smoke {
     pub(crate) fn request_text_retirement(&mut self) {
         // The search panel's field holds first responder until
         // `InputRestored`; the next transition after it submits.
-        if self.search_open() {
+        if self.native_field_open() {
             return;
         }
         if let Some(receipt) = self.retirement.receipt.clone()
@@ -88,7 +88,7 @@ impl Smoke {
     }
 
     fn submit_text_retirement(&mut self) {
-        if self.search_open() {
+        if self.native_field_open() {
             return;
         }
         if let Some(receipt) = self.retirement.receipt.as_ref()
