@@ -2471,7 +2471,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=bd0d13047de730475166ec95cc5416ef54372c14#bd0d13047de730475166ec95cc5416ef54372c14"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c#0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c"
 dependencies = [
  "anyhow",
  "block2",
@@ -7278,6 +7278,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "dispatch2",
+ "futures",
  "gpui-pre",
  "herdr-ssh",
  "herdr-uikit",

@@ -1,7 +1,8 @@
-//! The filter field on the real screen (owner decision 2026-11-19,
-//! `pr77-filter-no-input-decision.json`): it says filtering is not available
-//! yet, takes no keyboard focus, and a tap on it never changes what the
-//! terminal receives or which element has focus.
+//! The magnifier on the real screen (owner decision 2026-11-19,
+//! `pr77-filter-no-input-decision.json`): it takes no keyboard focus, a tap
+//! on it opens the native search panel (issue #138) without moving focus,
+//! and it never changes what the terminal receives. On the host the panel's
+//! presenter is the recorded one, so a tap opens a session that stays up.
 use crate::{app::Smoke, mock_peer};
 use gpui::{
     Entity, EntityInputHandler, FocusHandle, Keystroke, Modifiers, TestAppContext,
@@ -83,7 +84,7 @@ fn focused(cx: &mut VisualTestContext) -> Option<FocusHandle> {
 
 fn tap_field(cx: &mut VisualTestContext) {
     let at = cx
-        .debug_bounds("sidebar-filter-unavailable")
+        .debug_bounds("sidebar-search")
         .unwrap_or_else(|| panic!("the filter field is not painted"));
     cx.simulate_click(
         point(
@@ -171,6 +172,7 @@ fn send(input: &Input, view: &Entity<Smoke>, cx: &mut VisualTestContext) {
 /// with `tap`, the field is tapped before every input.
 fn run(cx: &mut TestAppContext, hardware: bool, tap: bool) -> Vec<(Vec<String>, bool)> {
     let (view, receipts, cx) = terminal(cx, hardware);
+    let fake = crate::shell::search::tests::install_fake(&view, cx);
     let start = focused(cx);
     assert!(
         terminal_focused(&view, cx),
@@ -190,24 +192,42 @@ fn run(cx: &mut TestAppContext, hardware: bool, tap: bool) -> Vec<(Vec<String>, 
         "",
         "a key reached the filter query"
     );
+    assert_eq!(
+        fake.presents(),
+        usize::from(tap),
+        "fixture: the taps opened one panel"
+    );
     seen
 }
 
-/// The field says why it takes no keys, in every state the earlier field
-/// changed with: no hardware keyboard, a hardware keyboard, and Herdr 2.
+/// A tap on the magnifier opens the panel and keeps focus where it was, in
+/// every state the earlier field changed with: no hardware keyboard, a
+/// hardware keyboard, and Herdr 2. No GPUI input field is drawn.
 #[gpui::test]
-fn the_field_says_filtering_is_not_available(cx: &mut TestAppContext) {
-    let (view, _receipts, cx) = terminal(cx, false);
+fn the_magnifier_opens_search_and_keeps_focus(cx: &mut TestAppContext) {
     for (hardware, core) in [(false, false), (true, false), (true, true)] {
+        let (view, receipts, cx) = terminal(cx, hardware);
+        let fake = crate::shell::search::tests::install_fake(&view, cx);
         view.update(cx, |this, cx| {
-            this.shell.fit.hardware_keyboard = hardware;
             this.terminal.core_mode = core;
             cx.notify();
         });
         cx.run_until_parked();
+        let focus = terminal_focused(&view, cx);
+        tap_field(cx);
+        assert_eq!(
+            fake.presents(),
+            1,
+            "hardware={hardware} core={core}: the panel was not presented"
+        );
+        assert_eq!(
+            terminal_focused(&view, cx),
+            focus,
+            "hardware={hardware} core={core}: the tap moved focus"
+        );
         assert!(
-            cx.debug_bounds("sidebar-filter-unavailable").is_some(),
-            "hardware={hardware} core={core}: the field does not say it is unavailable"
+            sent(&view, &receipts, cx).is_empty(),
+            "hardware={hardware} core={core}: the tap sent input"
         );
         assert!(
             cx.debug_bounds("sidebar-filter").is_none(),
