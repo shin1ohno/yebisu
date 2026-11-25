@@ -56,6 +56,7 @@ fn queue_full_and_dropped_reply_release_ui_slot(cx: &mut TestAppContext) {
                 host: this.terminal.reconnect.target.clone(),
                 name: "default".to_owned(),
                 sessions: Default::default(),
+                removal: Default::default(),
                 finished: Arc::new(AtomicBool::new(false)),
             })
         });

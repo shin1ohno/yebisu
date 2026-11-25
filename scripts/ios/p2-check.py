@@ -18,6 +18,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import importlib.util
+
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
 
 BUNDLE = "com.shin1ohno.yebisu"
 # The line the injected QA provider holds (crates/yebisu/src/settings/key_ops/provider.rs).
@@ -27,6 +35,14 @@ COPIED = "Copied restricted public key."
 
 def run(*command, **kwargs):
     print("P2 COMMAND", list(command), flush=True)
+    if command[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4: streamed as before, and kept for the job's resend budget.
+        # Class D: once more when xcodebuild found no device and ran no test (sim_ready.run_test).
+        result = sim_ready.run_test(list(command), lambda: subprocess.CompletedProcess(list(command), *resend_budget.run_tee(list(command), **kwargs)))
+        resend_budget.record(Path(__file__).stem, result.stdout)
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, command, result.stdout)
+        return result
     return subprocess.run(command, check=True, text=True, **kwargs)
 
 
@@ -179,6 +195,8 @@ def main():
     run("xcrun", "simctl", "install", device, app_path)
     spec = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(spec / "project.yml"), "--project", str(spec))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(spec / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     command, runner_environment = xcodebuild_test_command(spec, device, root / "target/ios-smoke/build", destination / "result.xcresult")
     container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", device, BUNDLE, "data"], text=True).strip())
     receipts = container / "Documents/p2-setup.jsonl"

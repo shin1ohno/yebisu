@@ -4,6 +4,7 @@ use sheprd_client::{
     protocol::{endpoint::*, *},
 };
 use std::time::Duration;
+pub(crate) mod split;
 pub(crate) const SNAPSHOT: &str = include_str!("../fixtures/endpoint-snapshot-v1.json");
 const WELCOME: &str = include_str!("../fixtures/endpoint-welcome-v1.json");
 pub(crate) fn surface(revision: u64) -> PaneSurfaceFrame {
@@ -120,7 +121,10 @@ fn serve(
         "pane.focus_direction",
         "pane.zoom",
         "pane.close",
-        "tab.close"
+        "tab.close",
+        "workspace.rename",
+        "tab.rename",
+        "pane.rename"
     ]);
     // Issue #137: a Herdr that can move a pane's scrollback.
     if fault == "quiet-scroll"
@@ -270,6 +274,25 @@ fn serve(
                     gate = None;
                 }
             }
+            // Issue #143: a rename the host refuses, or never answers.
+            if crate::mock_commands::is_rename(&request) && fault == "rename-error" {
+                write_message(
+                    &mut server,
+                    &ServerMessage::ClientShellEndpointResponseChunk {
+                        boot_id: "boot-v1".into(),
+                        request_id: id.clone(),
+                        final_chunk: true,
+                        data: serde_json::to_vec(
+                            &serde_json::json!({"id": id, "error": "workspace not found"}),
+                        )?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                continue;
+            }
+            if crate::mock_commands::is_rename(&request) && fault == "rename-silent" {
+                continue;
+            }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
                 write_message(
                     &mut server,
@@ -381,6 +404,10 @@ fn serve(
             let mut frame = focused_surface(&board_snapshot, &mut serial);
             frame.surface_revision = serial;
             resize_frame(&mut frame.frame, surface_size.cols, surface_size.rows);
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            if std::env::var_os(split::ENV).is_some() {
+                frame.panes = split::herdr1_frame(&mut frame.frame);
+            }
             scroll_qa_pane(
                 &mut frame,
                 board_snapshot.focused_pane_id.as_deref().unwrap_or("w1:p1"),
@@ -594,6 +621,14 @@ fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurf
     frame
 }
 
+/// A recorded peer with `fault` (issue #143: `rename-error`, `rename-silent`).
+#[cfg(test)]
+pub(crate) fn connect_recorded_fault(
+    fault: &'static str,
+) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, fault)
+}
+
 #[cfg(test)]
 pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
     connect_mode(1, false, fault).map(|(client, _)| client)
@@ -603,6 +638,31 @@ pub(crate) fn connect_fault(fault: &'static str) -> crate::Result<Client> {
 const P12_HELD_REQUESTS: u32 = 2;
 fn p12_observing() -> bool {
     cfg!(all(target_os = "ios", target_abi = "sim")) && std::env::var_os("YEBISU_P12_QA").is_some()
+}
+/// The variant name of a client message for the P12 trace. The message is
+/// untrusted daemon data, so only serde's externally tagged variant name is
+/// kept, and only when it is a plain identifier.
+fn client_message_kind(message: &ClientMessage) -> String {
+    serde_json::to_value(message).map_or_else(|_| UNCLASSIFIED.to_owned(), message_kind)
+}
+const UNCLASSIFIED: &str = "unclassified";
+/// The variant name in a serialized message: a unit variant's string, or the
+/// one key of a data variant's object.
+fn message_kind(value: serde_json::Value) -> String {
+    let name = match value {
+        serde_json::Value::String(name) => Some(name),
+        serde_json::Value::Object(object) if object.len() == 1 => object.keys().next().cloned(),
+        _ => None,
+    };
+    name.filter(|name| {
+        let mut chars = name.chars();
+        name.len() <= 64
+            && chars
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic())
+            && chars.all(|rest| rest.is_ascii_alphanumeric())
+    })
+    .unwrap_or_else(|| UNCLASSIFIED.to_owned())
 }
 fn record(
     message: &ClientMessage,
@@ -633,7 +693,9 @@ fn record(
             ClientMessage::ClientShellResize { .. } | ClientMessage::ClientShellFocus { .. } => {
                 serde_json::json!({"geometry":true})
             }
-            _ => serde_json::json!({"other_message":true}),
+            // The variant name only (class P of issue #142): no payload.
+            other => serde_json::json!({"other_message": true,
+                "message_kind": client_message_kind(other)}),
         };
         // qa.state's `peer` (UI test redesign S5): P12 waits for its FIFO
         // fence here, inside the Finish step. Only the fence text is passed,
@@ -787,3 +849,7 @@ fn observer_received(message: &ClientMessage) {
 pub(crate) fn observer_ack(phase: u32) -> bool {
     OBSERVER_ACK.load(std::sync::atomic::Ordering::Acquire) == phase
 }
+
+#[cfg(test)]
+#[path = "mock_peer_tests.rs"]
+mod tests;

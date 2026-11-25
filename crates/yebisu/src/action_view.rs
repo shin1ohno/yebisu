@@ -11,6 +11,7 @@ impl Smoke {
             return div().into_any_element();
         };
         let enabled = entry.available;
+        let reason = self.palette_reason(command, enabled);
         div()
             .id(entry.info.name)
             .px_3()
@@ -18,6 +19,11 @@ impl Smoke {
             .bg(rgb(if enabled { 0x434c5e } else { 0x242933 }))
             .text_color(rgb(if enabled { 0xd8dee9 } else { 0x777777 }))
             .child(entry.label)
+            .children(reason.map(|why| {
+                div()
+                    .text_size(gpui::px(crate::shell::style::text::SMALL))
+                    .child(why)
+            }))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if enabled {
                     if command == Command::Find {
@@ -34,6 +40,16 @@ impl Smoke {
             }))
             .into_any_element()
     }
+    /// The small line under a disabled palette row (issue #143 AC15): on
+    /// Herdr 2 the Rename rows say why they are disabled.
+    pub(crate) fn palette_reason(&self, command: Command, enabled: bool) -> Option<&'static str> {
+        let rename = matches!(
+            command,
+            Command::RenamePane | Command::RenameTab | Command::RenameWorkspace
+        );
+        (rename && !enabled && self.terminal.core_mode).then_some(crate::shell::rename::HERDR2)
+    }
+
     /// The commands the palette list shows (the whole supported catalog
     /// but the palette itself).
     pub(crate) fn palette_commands(&self) -> Vec<Command> {

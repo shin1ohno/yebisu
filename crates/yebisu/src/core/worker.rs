@@ -1,13 +1,16 @@
 use super::{
-    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo, ended,
+    Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
+    doc_tabs::{self, DocTabs},
+    herdr_doc_sync::DocMailbox,
     screen::{self, Screen},
     sort_sessions,
     store::{self, Saved, Tab, Workspace},
+    vacate::{self, Removal},
 };
 use crate::{live::Live, shell::single_pane::Mailbox};
 use sheprd_backend::{Backend as _, Role, Size, Spawn, SurfaceUpdate, Terminal as _};
 use sheprd_core_client::{
-    CoreBackend, CoreTerminal,
+    CoreBackend,
     wire::{Run, Terminal as ListedTerminal, TerminalState},
 };
 use std::{
@@ -17,16 +20,20 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::Receiver,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+mod active;
+
+use active::Active;
 
 pub(super) fn run(
     backend: CoreBackend,
     target: SessionTarget,
     generation: u64,
-    outputs: (&Arc<Mutex<Live>>, &SessionList),
+    outputs: (&Arc<Mutex<Live>>, &SessionList, &Mutex<Option<Removal>>),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
-    commands: Receiver<Queued>,
+    (commands, doc_mailbox): (Receiver<Queued>, Option<DocMailbox>),
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
     let SessionTarget {
@@ -35,7 +42,9 @@ pub(super) fn run(
         focus,
         expected_core_id,
     } = target;
-    let (inbox, session_list) = outputs;
+    let (inbox, session_list, removal) = outputs;
+    // The server has run at least this long when this connection is made.
+    let connected_at = Instant::now();
     let (stop, input_epoch, column) = controls;
     let _disconnect = super::paste::Disconnect(backend.clone());
     let mut uploads = super::paste::Uploads::default();
@@ -63,6 +72,18 @@ pub(super) fn run(
     } else {
         reconcile(&mut workspace, &available);
     }
+    // #144 D2: the document decides what is drawn before anything attaches.
+    let mut doc = DocTabs::default();
+    let mut doc_seen = 0;
+    if let Some(snapshot) = doc_mailbox
+        .as_ref()
+        .and_then(|mailbox| mailbox.first(&mut doc_seen, stop))
+    {
+        doc.take(snapshot, &mut workspace);
+    }
+    if let Some(address) = &focus {
+        doc.focus(address, &mut workspace);
+    }
     if let Some(address) = focus
         && !focus_address(&mut workspace, &address, &available)
     {
@@ -73,7 +94,7 @@ pub(super) fn run(
     let size = Size::new(80, 24)?;
     // Attaching first drops what finished while no client was attached.
     let mut active = Active::attach(&backend, &mut workspace, size, column.latest())?;
-    if workspace.tabs.is_empty() {
+    if workspace.tabs.is_empty() && !doc.drawing_space() {
         workspace.tabs.push(spawn_tab(&backend)?);
         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
     }
@@ -83,13 +104,15 @@ pub(super) fn run(
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
-    store::save_workspace(root.as_deref(), &host, &name, &workspace)?;
+    store::save_workspace(root.as_deref(), &host, &name, &doc.saved(&workspace))?;
     let mut sessions = catalog_sessions(root.as_deref(), &host, Observations::new())?;
     sessions.retain(|row| row.name != name);
-    sessions.push(session_info(name.clone(), &workspace, true, Vec::new()));
+    sessions.push(current_info(name.clone(), &workspace, &doc));
     sort_sessions(&mut sessions);
     drop(storage);
     let mut published_epoch = None;
+    let stopper = vacate::stopper(&host);
+    let mut watch = vacate::Watch::default();
     #[cfg(test)]
     let mut publication_probe: Option<Box<super::publication_probe::AfterCompare>> = None;
     while !stop.load(Ordering::Acquire) {
@@ -101,11 +124,35 @@ pub(super) fn run(
         let mut changed = false;
         let mut persist = false;
         let mut command_error = None;
+        // A new document read: the rows always change, the panes may. Only
+        // a change of the drawn panes is a new epoch; input aimed at the
+        // surface drawn now must not become stale for a change elsewhere.
+        let mut rows_changed = false;
+        if let Some(snapshot) = doc_mailbox
+            .as_ref()
+            .and_then(|mailbox| mailbox.since(&mut doc_seen))
+        {
+            let (before, view) = (doc_tabs::drawn(&workspace), workspace.doc_view.clone());
+            if doc.take(snapshot, &mut workspace) {
+                if before != doc_tabs::drawn(&workspace) {
+                    active = Active::attach(&backend, &mut workspace, size, column.latest())?;
+                    epoch += 1;
+                    changed = true;
+                }
+                persist = view != workspace.doc_view;
+                refresh(&mut sessions, &name, &workspace, &doc);
+                rows_changed = true;
+            }
+        }
         for command in commands.try_iter().take(256) {
             if stop.load(Ordering::Acquire) {
                 return Ok(());
             }
             let queued_epoch = command.input_epoch;
+            // The user acts: a failed stop's notice has been seen.
+            if !matches!(command.command, Command::Resize(_)) {
+                clear_notice(session_list);
+            }
             match command.command {
                 Command::Input(destination, event) => {
                     let Some(saved) = active_layout(&workspace) else {
@@ -224,6 +271,11 @@ pub(super) fn run(
                     size = next;
                     changed = true;
                 }
+                Command::NewTab | Command::Split | Command::SplitInDirection(_)
+                    if doc.drawing_space() =>
+                {
+                    command_error = Some(doc_tabs::NOT_YET.to_owned());
+                }
                 Command::NewTab => {
                     workspace.tabs.push(spawn_tab(&backend)?);
                     workspace.active = workspace.tabs.len() - 1;
@@ -237,11 +289,22 @@ pub(super) fn run(
                         && index != workspace.active
                     {
                         workspace.active = index;
+                        doc.note_tab(&mut workspace);
                         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                         persist = true;
                         changed = true;
                         epoch += 1;
                     }
+                }
+                Command::SelectDocSpace(space) => {
+                    let before = doc_tabs::drawn(&workspace);
+                    doc.select(space, &mut workspace);
+                    if before != doc_tabs::drawn(&workspace) {
+                        active = Active::attach(&backend, &mut workspace, size, column.latest())?;
+                    }
+                    persist = true;
+                    changed = true;
+                    epoch += 1;
                 }
                 Command::CloseTab(id) => {
                     let Some(index) = workspace.tabs.iter().position(|tab| tab.id == id) else {
@@ -282,8 +345,9 @@ pub(super) fn run(
                     persist = true;
                 }
                 Command::FocusAddress(address) => {
+                    let switched = doc.focus(&address, &mut workspace);
                     if let Some((tab, pane)) = locate(&workspace, &address) {
-                        if tab != workspace.active {
+                        if switched || tab != workspace.active {
                             workspace.active = tab;
                             workspace.tabs[tab].layout.active = pane;
                             active =
@@ -299,6 +363,7 @@ pub(super) fn run(
                         }
                         active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     }
+                    doc.note_tab(&mut workspace);
                     persist = true;
                     changed = true;
                     epoch += 1;
@@ -350,7 +415,7 @@ pub(super) fn run(
         }
         let saving = (root.as_deref(), host.as_str(), name.as_str());
         if persist {
-            if !save(stop, saving, &workspace, &mut sessions)? {
+            if !save(stop, saving, (&workspace, &doc), &mut sessions)? {
                 return Ok(());
             }
             changed = true;
@@ -379,8 +444,33 @@ pub(super) fn run(
             active.resize(saved, size, column.latest())?;
             epoch += 1;
             changed = true;
-            if !save(stop, saving, &workspace, &mut sessions)? {
+            if !save(stop, saving, (&workspace, &doc), &mut sessions)? {
                 return Ok(());
+            }
+        }
+        // The last tab of a named space is gone, closed or its program
+        // ended: the space goes with it unless a terminal still runs there.
+        let gone = workspace.tabs.is_empty()
+            || (workspace.tabs.len() == 1
+                && !active.screens.is_empty()
+                && active.screens.iter().all(|screen| screen.ended));
+        if !vacate::protected(&name) && watch.due(gone, Instant::now()) {
+            match vacate_space(&backend, &stopper, &name, connected_at)? {
+                Vacated::Busy => watch.busy(Instant::now()),
+                Vacated::Failed(message) => {
+                    // Kept over every screen until the user acts.
+                    set_notice(session_list, &message);
+                    command_error = Some(message);
+                }
+                Vacated::Removed => {
+                    forget_space(
+                        (root.as_deref(), &host, &name),
+                        (inbox, session_list, removal),
+                        &mut sessions,
+                        epoch + 1,
+                    );
+                    return Ok(());
+                }
             }
         }
         if let Some(saved) = active_layout(&workspace) {
@@ -432,6 +522,9 @@ pub(super) fn run(
             if let Some(error) = command_error {
                 live.status = error;
             }
+            if let Some(notice) = notice(session_list) {
+                live.status = notice;
+            }
             if let Ok(mut inbox) = inbox.lock() {
                 if published_epoch != Some(epoch) {
                     publish_sessions(session_list, epoch, &sessions);
@@ -445,110 +538,125 @@ pub(super) fn run(
             inbox.status = error;
             inbox.dirty = true;
         }
+        // New rows for the epoch already published (see `rows_changed`).
+        if rows_changed
+            && published_epoch == Some(epoch)
+            && let Ok(mut inbox) = inbox.lock()
+        {
+            publish_sessions(session_list, epoch, &sessions);
+            inbox.dirty = true;
+        }
     }
     Ok(())
 }
 
-#[derive(Default)]
-struct Active {
-    terminals: Vec<CoreTerminal>,
-    screens: Vec<Screen>,
+enum Vacated {
+    /// A terminal still runs in the space: it stays.
+    Busy,
+    /// The server could not be stopped: the space stays, with this error.
+    Failed(String),
+    /// The server is stopped.
+    Removed,
 }
 
-impl Active {
-    /// Attaches the tab in use. A terminal whose program already finished
-    /// cannot be attached (herdr-core refuses with `finished`): its pane
-    /// leaves the layout, and a tab left empty closes (`ended`). The caller
-    /// saves the layout. Any other failure is the connection's.
-    fn attach(
-        backend: &CoreBackend,
-        workspace: &mut Workspace,
-        size: Size,
-        column: Option<crate::shell::single_pane::ColumnMetrics>,
-    ) -> crate::Result<Self> {
-        loop {
-            let Some(saved) = active_layout(workspace) else {
-                return Ok(Self::default());
-            };
-            let initial = screen::pane_size(size, saved.ids.len(), saved.vertical, column)?;
-            let mut terminals = Vec::with_capacity(saved.ids.len());
-            let mut gone = None;
-            for id in &saved.ids {
-                match backend.attach(id, initial, Role::Active) {
-                    Ok(terminal) => terminals.push(terminal),
-                    Err(error) if ended::finished(&error) => {
-                        gone = Some(id.clone());
-                        break;
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            let Some(id) = gone else {
-                let screens = terminals.iter().map(|_| Screen::default()).collect();
-                return Ok(Self { terminals, screens });
-            };
-            tracing::info!(terminal = %id.as_str(), "Herdr 2 terminal finished; its pane closes");
-            // Each pass removes one pane, so this ends.
-            drop(terminals);
-            ended::remove_terminal(workspace, &id);
+/// Stops the space's server when, in a list taken just now, no terminal has a
+/// state other than finished. Only a lost connection is an error here.
+fn vacate_space(
+    backend: &CoreBackend,
+    stopper: &vacate::Stopper,
+    name: &str,
+    connected_at: Instant,
+) -> crate::Result<Vacated> {
+    let list = backend.core().list(false)?;
+    if !vacate::vacant(0, &list.terminals) {
+        return Ok(Vacated::Busy);
+    }
+    // The stop asks the server again, in the connection it stops through, for
+    // its id, its age (a server that restarted since this connection was made
+    // is younger) and its live terminals.
+    let age = u64::try_from(connected_at.elapsed().as_millis())
+        .unwrap_or(u64::MAX)
+        .saturating_sub(1000);
+    let expect = vacate::Expect {
+        core_id: backend.core().hello().core.id.clone(),
+        pid: None,
+        min_uptime_ms: Some(age),
+    };
+    Ok(match stopper(name, &expect) {
+        Ok(vacate::Stopped::Done) => Vacated::Removed,
+        Ok(vacate::Stopped::Busy) => Vacated::Busy,
+        Err(error) => {
+            tracing::warn!(%error, %name, "Herdr 2 space did not stop");
+            Vacated::Failed(format!("Could not remove Herdr 2 space {name}: {error}"))
+        }
+    })
+}
+
+fn notice(lists: &SessionList) -> Option<String> {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice
+        .clone()
+}
+
+fn set_notice(lists: &SessionList, message: &str) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = Some(message.to_owned());
+}
+
+fn clear_notice(lists: &SessionList) {
+    lists
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .notice = None;
+}
+
+/// The space's server is stopped: its saved layout and rows go, the view is
+/// told (`Session::removal`), and the worker ends.
+fn forget_space(
+    (root, host, name): (Option<&Path>, &str, &str),
+    (inbox, session_list, removal): (&Arc<Mutex<Live>>, &SessionList, &Mutex<Option<Removal>>),
+    sessions: &mut Vec<SessionInfo>,
+    epoch: u64,
+) {
+    {
+        let _storage = store::LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(error) = store::remove_workspace(root, host, name) {
+            tracing::warn!(%error, %name, "Forget a removed Herdr 2 space");
         }
     }
-
-    /// Closes the panes whose program ended while another pane of the tab
-    /// remains; the last pane keeps its final screen. True when one closed.
-    fn close_ended(&mut self, saved: &mut Saved) -> crate::Result<bool> {
-        let before = saved.ids.get(saved.active).cloned();
-        let mut closed = false;
-        while self.screens.len() > 1 {
-            let Some(index) = self.screens.iter().position(|screen| screen.ended) else {
-                break;
-            };
-            self.terminals.remove(index);
-            self.screens.remove(index);
-            ended::remove_pane(saved, index);
-            closed = true;
+    let next = {
+        let mut lists = session_list
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next = vacate::next_space(&super::merged_sessions(&lists, name, sessions), name);
+        lists.discovery.vacancies.done(name);
+        lists.discovery.removed.insert(name.to_owned(), None);
+        lists.notice = None;
+        if let Some(rows) = &mut lists.discovery.rows {
+            rows.retain(|row| row.name != name);
         }
-        // The pane that takes over tells its program it has the focus.
-        if closed
-            && saved.ids.get(saved.active) != before.as_ref()
-            && !self.screens[saved.active].ended
-        {
-            self.terminals[saved.active].focus(true)?;
-        }
-        Ok(closed)
-    }
-
-    /// Sends each drawn pane its size; an ended or hidden pane keeps its own.
-    fn resize(
-        &mut self,
-        saved: &Saved,
-        size: Size,
-        column: Option<crate::shell::single_pane::ColumnMetrics>,
-    ) -> crate::Result<()> {
-        let sizes = screen::pane_sizes(
-            size,
-            self.terminals.len(),
-            saved.vertical,
-            saved.active,
-            column,
-        )?;
-        for ((terminal, screen), sent) in self.terminals.iter_mut().zip(&self.screens).zip(sizes) {
-            if let (false, Some(sent)) = (screen.ended, sent) {
-                terminal.resize(sent)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn focus(&mut self, saved: &mut Saved, next: usize) -> crate::Result<()> {
-        if !self.screens[saved.active].ended {
-            self.terminals[saved.active].focus(false)?;
-        }
-        saved.active = next;
-        if !self.screens[next].ended {
-            self.terminals[next].focus(true)?;
-        }
-        Ok(())
+        next
+    };
+    sessions.retain(|row| row.name != name);
+    *removal
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Removal {
+        name: name.to_owned(),
+        next,
+    });
+    let mut live = Live::default();
+    live.status = format!("Herdr 2 · space {name} removed");
+    live.input_epoch = epoch;
+    live.dirty = true;
+    if let Ok(mut inbox) = inbox.lock() {
+        publish_sessions(session_list, epoch, sessions);
+        *inbox = live;
     }
 }
 
@@ -557,7 +665,7 @@ impl Active {
 fn save(
     stop: &AtomicBool,
     (root, host, name): (Option<&Path>, &str, &str),
-    workspace: &Workspace,
+    (workspace, doc): (&Workspace, &DocTabs),
     sessions: &mut [SessionInfo],
 ) -> crate::Result<bool> {
     let _storage = store::LOCK
@@ -566,11 +674,22 @@ fn save(
     if stop.load(Ordering::Acquire) {
         return Ok(false);
     }
-    store::save_workspace(root, host, name, workspace)?;
-    if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
-        *entry = session_info(name.to_owned(), workspace, true, Vec::new());
-    }
+    store::save_workspace(root, host, name, &doc.saved(workspace))?;
+    refresh(sessions, name, workspace, doc);
     Ok(true)
+}
+
+/// The session's own catalog row, with the document's spaces (#144 D2).
+fn current_info(name: String, workspace: &Workspace, doc: &DocTabs) -> SessionInfo {
+    let mut info = session_info(name, workspace, true, Vec::new());
+    doc.fill(&mut info, workspace);
+    info
+}
+
+fn refresh(sessions: &mut [SessionInfo], name: &str, workspace: &Workspace, doc: &DocTabs) {
+    if let Some(entry) = sessions.iter_mut().find(|session| session.name == name) {
+        *entry = current_info(name.to_owned(), workspace, doc);
+    }
 }
 
 fn active_layout(workspace: &Workspace) -> Option<&Saved> {
@@ -751,6 +870,7 @@ fn session_info(
         core_id: None,
         statuses,
         created: workspace.created,
+        doc: None,
         tabs: workspace
             .tabs
             .iter()
@@ -767,6 +887,7 @@ fn session_info(
                 active: index == workspace.active,
                 focused_pane: tab.layout.active,
                 vertical: tab.layout.vertical,
+                auto_name: false,
             })
             .collect(),
     }

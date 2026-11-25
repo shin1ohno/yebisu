@@ -198,11 +198,13 @@ fn herdr2_rows_take_the_icon_from_the_status_app() {
             panes: vec!["t1".into(), "t2".into(), "t3".into()],
             focused_pane: 0,
             vertical: false,
+            auto_name: false,
         }],
         confirmed: true,
         core_id: None,
         statuses: Vec::new(),
         created: 0,
+        doc: None,
     };
     let state = SidebarState::default();
     let (spaces, lines) = catalog_content("pro-dev", 1, "default", &[session], &statuses, &state);

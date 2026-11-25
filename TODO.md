@@ -43,6 +43,7 @@
 - P8 physical selection/paste acceptance awaits the owner. Reason: device signing needs the locally unlocked login keychain and touch/trackpad/menu feel needs M5. First step: unlock locally, run the absolute just ipad command, then follow the P8 section of docs/device-check.md against an authorized sandbox. Close condition: device/iPadOS, trackpad/touch, native Paste menu, large image, target-change cancellation and selected variants are recorded in PR QA; delete in the resolving commit.
 
 - P9 physical Herdr 2 acceptance awaits the owner. Reason: signing requires the locally unlocked keychain, and physical IME/keyboard behavior needs M5. First step: unlock locally, run the absolute just ipad command, and follow the P9 section in docs/device-check.md against an authorized disposable host running herdr-core serve. Close condition: PR QA records physical input/IME, both split orientations, detach/reattach, host-switch isolation and background return with device/iPadOS; delete in the resolving commit.
+- Herdr 2 status-bar Connecting/Disconnected acceptance awaits the owner (task abe91a5c10864985). Reason: host tests prove the chrome state, but a real dial, a refused dial and a host that drops need the Mac and the iPad. First step: on the Mac (Designed for iPad) and on M5, open a disposable Herdr 2 space, then repeat with the host unreachable and with herdr-core stopped; check that the bar reads Connecting (yellow, no Reconnect) while dialing, Disconnected with Reconnect and the reason under the detail mark after a failure, and Connected only once tabs appear. Close condition: PR QA records both devices with OS versions; delete in the resolving commit.
 
 - P10 physical persistence acceptance awaits the owner. Reason: device signing requires the locked login keychain and physical lock/suspension cannot be established by Simulator. First step: locally unlock the keychain, run the absolute just ipad command, then follow docs/device-check.md P10 to change the three existing options and immediately background/lock/relaunch. Close condition: PR QA records device/iPadOS, restored values and input/reconnect regression results; delete in the resolving commit.
 
@@ -193,21 +194,4 @@ repeating it.
   Close condition: that change merged and the next p10 failure, if any, is
   classified from its artifact; or 10 green layout-smoke runs with it; delete in
   the resolving commit.
-- Rebuild the sidebar filter field as a UIKit text-input target with IME
-  support. Description: since PR 77 the field in the sidebar header takes no
-  keyboard focus and shows `Filter · not available yet`
-  (`shell/filter.rs` `render_filter_field`); the query, matching and the
-  `Clear filter` row are kept but nothing sets the query. Reason: four review
-  rounds of the GPUI field (G1 hardware-keyboard detection, H1 detached
-  keyboard, SF1/S1 Option and Control routing, F1 in review
-  67c755ff05614a56: with a Japanese input source, printable keys go to UIKit
-  composition and the text lands in the terminal) each found keys reaching the
-  remote shell; the owner chose no input for now (2026-11-19,
-  `pr77-filter-no-input-decision.json`). First step: in herdr-uikit, add a
-  text-input target a GPUI element can own (its own `UITextInput` responder
-  with marked text, so composition and commit go to the field and never to
-  the terminal's input handler), then write a host test and a Simulator check
-  that Japanese composition, Option keys, Control-C and the software keyboard
-  each reach only the intended target. Close condition: the field takes text
-  through that target with those tests green and the device check passed;
-  delete in the resolving commit.
+- Cold-launch restore acceptance awaits the owner (task abe91a5c10864985). Reason: host tests drive the restore with in-process peers; a real relaunch, SSH space listing and the Return setting need the Mac and the iPad, and no Simulator scenario relaunches with a saved record yet. First step: on the Mac (Designed for iPad) and on M5, open a disposable Herdr 2 space beside a Herdr 1 host, quit and relaunch; repeat with Return: Tap reconnect, with the host unreachable, and after removing the space. Close condition: PR QA records both devices with OS versions for each case; delete in the resolving commit.

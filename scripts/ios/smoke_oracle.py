@@ -90,6 +90,10 @@ def validate(directory, verbose=True):
         require(any(e.get("kind") == "input" and e.get("input") == expected_input and e["time"] <= stage["time"] for e in events), f'{name}: missing input-handler receipt')
         if verbose:
             print(f'RECEIVE PASS {name} input={expected_input!r} marked=None ticks={receipts[name]["ticks"]}')
+    # Issue #142 stage 2: herdr-uikit's receipt of the P0 tap (qa_ax_input.rs), read after terminate.
+    require(any(e.get("kind") == "input-receipt" and e.get("receipt") == "touch" and e.get("stage") == "began"
+                and e["time"] <= by_stage["initial"]["time"] for e in events),
+            "initial: no input-receipt touch began before the first screenshot (the P0 tap's receipt is missing)")
     require(receipts["returned"]["ticks"] > receipts["initial"]["ticks"], "counter did not advance across background/return")
     require(by_stage["idle"]["time"] - by_stage["idle-before"]["time"] >= 60, "idle interval was shorter than 60 seconds")
     require(receipts["idle"]["ticks"] > receipts["idle-before"]["ticks"], "counter did not advance across idle")
@@ -125,6 +129,8 @@ def negative_fixture(source, destination, mode):
         for event in events:
             if 'input' in event:
                 event['input'] = ''
+    elif mode == 'touch-receipt':
+        events = [e for e in events if e.get('kind') != 'input-receipt']
     elif mode == 'counter-background':
         for event in events:
             if 'ticks' in event:

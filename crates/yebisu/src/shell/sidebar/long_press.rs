@@ -9,7 +9,8 @@ use super::{AgentIdentity, view::SidebarTap};
 use crate::{
     app::Smoke,
     shell::{
-        host_menus::{self, MenuEntry, MenuItemId, MenuScope},
+        host_menus::{self, MenuEntry, MenuItemId, MenuScope, SpaceMenuItem},
+        rename::{RenameAnchor, RenameObject},
         style::{color, metric, radius, shadow, text},
     },
 };
@@ -125,7 +126,17 @@ impl Smoke {
                     .flex_col()
                     .justify_center()
                     .text_color(rgb(if entry.enabled { color::TEXT } else { 0x6b7080 }))
-                    .child(host_menus::menu_item_label(item, &target))
+                    .child(host_menus::long_press_label(item, &target))
+                    .children(
+                        (item == MenuItemId::Space(SpaceMenuItem::Rename))
+                            .then(|| {
+                                crate::qa_ax::mark(
+                                    crate::qa_ax::ids::SIDEBAR_SPACE_RENAME,
+                                    "Rename space",
+                                )
+                            })
+                            .flatten(),
+                    )
                     .children(entry.reason.map(|why| {
                         div()
                             .text_size(px(text::SECONDARY))
@@ -168,6 +179,12 @@ impl Smoke {
             return None;
         };
         let pinned = self.shell.sidebar.is_agent_pinned(&menu.id, boot);
+        let rename = self.rename_target(RenameObject::Pane(menu.id.pane.clone()));
+        let unavailable = rename
+            .as_ref()
+            .map_or(Some(crate::shell::rename::NOT_CONNECTED), |target| {
+                self.rename_unavailable(target)
+            });
         let tap = menu.tap.clone();
         let boot = boot.clone();
         let generation = *generation;
@@ -216,7 +233,38 @@ impl Smoke {
                     }
                     cx.notify();
                 })),
-            );
+            )
+            .child(
+                button("sidebar-agent-rename", "Rename…")
+                    .text_color(rgb(if unavailable.is_some() {
+                        color::DISABLED
+                    } else {
+                        color::TEXT
+                    }))
+                    .children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::SIDEBAR_AGENT_RENAME,
+                        "Rename agent",
+                    ))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.shell.sidebar.agent_menu = None;
+                        match rename.clone() {
+                            Some(target) => this.begin_rename(target, RenameAnchor::AgentRow),
+                            None => {
+                                this.terminal.live.status =
+                                    crate::shell::rename::NOT_CONNECTED.into();
+                            }
+                        }
+                        cx.notify();
+                    })),
+            )
+            .children(unavailable.map(|why| {
+                div()
+                    .px(px(metric::SIDE))
+                    .pb(px(metric::MENU_PADDING))
+                    .text_size(px(text::SECONDARY))
+                    .text_color(rgb(color::DISABLED))
+                    .child(why)
+            }));
         Some(
             deferred(anchored().position(menu.at).snap_to_window().child(list))
                 .with_priority(1)
@@ -237,7 +285,7 @@ pub(super) fn agent_press_layer(menu: AgentMenu, cx: &mut Context<Smoke>) -> imp
 }
 
 /// Handles a native long press without forwarding it to the terminal.
-fn row_press_layer(
+pub(crate) fn row_press_layer(
     cx: &mut Context<Smoke>,
     open: impl Fn(&mut Smoke, Point<Pixels>) + Clone + 'static,
 ) -> impl IntoElement {

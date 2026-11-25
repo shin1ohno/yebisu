@@ -62,6 +62,11 @@ fn tapping_each_enabled_row_runs_it(cx: &mut TestAppContext) {
                     Command::Find => assert!(this.find.is_some(), "Find: {status}"),
                     Command::Palette => assert!(this.actions.palette),
                     Command::ToggleSidebar => assert_ne!(this.actions.board_hidden, hidden),
+                    // Issue #143: a rename row starts the rename field; its
+                    // request goes on Return (shell/rename_tests).
+                    Command::RenameTab | Command::RenamePane | Command::RenameWorkspace => {
+                        assert!(this.shell.rename.session.is_some(), "{command:?}: {status}")
+                    }
                     _ => assert!(
                         this.terminal.navigating.is_some(),
                         "{command:?} sent nothing: {status}"

@@ -48,17 +48,38 @@ class LifecycleWaits(unittest.TestCase):
         return [self.test[at + 1] for at, line in enumerate(self.test) if line.startswith(prefix) and at + 1 < len(self.test)]
 
     def test_no_fixed_sleep_follows_home_activate_or_typing(self):
-        for prefix in ("XCUIDevice.shared.press(.home)", "app.activate()", 'app.typeText("P0-input")',
+        for prefix in ("try leaveForeground(app, qa,", "app.activate()", 'app.typeText("P0-input")',
                        'app.typeText("-returned")', 'app.typeText("-rotated")', 'app.typeText("-idle")'):
             with self.subTest(prefix=prefix):
                 steps = self.following(prefix)
                 self.assertTrue(steps, prefix + " not found")
                 for step in steps:
                     self.assertNotIn("sleep(", step)
+        # Issue #142 stage 4: Home is pressed inside QAAx.pressHome, and its wait follows at once there too.
+        qaax = (TESTS / "QAAx.swift").read_text()
+        press_home = statements(body(qaax, "func pressHome("))
+        sends = [at for at, line in enumerate(press_home) if line == "sendHome(what)"]
+        self.assertEqual(len(sends), 2, "the first press and the one resend")
+        for at in sends:
+            self.assertTrue(press_home[at + 1].startswith(("if background()", "return background()")), press_home[at + 1])
+        self.assertIn("XCUIDevice.shared.press(.home)", body(qaax, "private func sendHome("))
+        # The resend is decided by the receipts (HomeDecision), never on the timeout alone.
+        home = body(qaax, "func pressHome(")
+        decision = home.index("switch HomeDecision.of(before: before, after: after, appForeground: app.state == .runningForeground) {")
+        self.assertLess(home.index('settledOrReason("after Home'), decision)
+        resend = home[home.index("case .resend:", decision):home.index("case let .noResend(why):", decision)]
+        self.assertIn('QAAx.resend(kind: "home-retry", id: what, reason: reason)', resend)
+        self.assertIn("sendHome(what)", resend)
+        self.assertNotIn("sendHome(what)", home[home.index("case let .noResend(why):"):])
 
     def test_each_wait_is_a_named_state_wait(self):
         text = "\n".join(self.test)
-        self.assertIn("press(.home)\n" + 'try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")', text)
+        self.assertIn('try leaveForeground(app, qa, "app left the foreground after press(.home)")\napp.activate()', text)
+        leave = body(self.source, "func leaveForeground(")
+        self.assertIn("let background: [XCUIApplication.State] = [.runningBackground, .runningBackgroundSuspended]", leave)
+        self.assertIn("reachState(app, background, what, timeout: timeout)", leave)
+        self.assertIn("func leaveForeground(_ app: XCUIApplication, _ qa: QAAx, _ what: String, timeout: TimeInterval = 30)", self.source)
+        self.assertIn('XCTFail("\\(what): app.state is \\(stateName(observed)) after \\(Int(timeout)) s', leave)
         self.assertIn('app.activate()\ntry requireState(app, [.runningForeground], "activate() after press(.home)")', text)
         for value in ("P0-input", "P0-input-returned", "P0-input-returned-rotated", "P0-input-returned-rotated-idle"):
             self.assertIn(f'try waitP0Input(qa, "{value}", what:', text)
@@ -83,10 +104,15 @@ class LifecycleWaits(unittest.TestCase):
         # after press(.home) and the wait failed although Home had been handled. The wait
         # must go through app.wait(for:timeout:), return as soon as a wanted state is reached,
         # and only fail after its timeout (run 43790640783 shows it passing, 5.29 s after Home).
-        function = body(self.source, "func requireState(")
+        self.assertIn("reachState(app, states, what, timeout: timeout)", body(self.source, "func requireState("))
+        function = body(self.source, "func reachState(")
         wait = function.index("app.wait(for: state")
-        self.assertLess(wait, function.index("return"))
-        self.assertLess(function.index("return"), function.index("XCTFail("))
+        self.assertLess(wait, function.index("return (true, state)"))
+        # It fails only after its timeout: the not-reached answer comes after the timeout check, and
+        # requireState turns it into the named failure.
+        self.assertLess(function.index("if Date().timeIntervalSince(start) >= timeout"), function.index("return (false, observed)"))
+        require = body(self.source, "func requireState(")
+        self.assertLess(require.index("if reached { return }"), require.index("XCTFail("))
         self.assertNotRegex(function, r"while\s+!states\.contains\(app\.state\)")
 
     def test_oracle_stages_and_idle_interval_are_unchanged(self):
@@ -119,12 +145,29 @@ class LifecycleWaits(unittest.TestCase):
         self.assertIn("idle_report(", driver)
 
 
+class SelectionAfterScroll(unittest.TestCase):
+    """Issue #142 stage 3: QAAx no longer sends a press again once its touch reached the app, and the first tap
+    after SH1-151's scroll reaches the app untaken; the test proves taps are taken before pressing Double tap."""
+
+    def test_taps_are_proven_taken_after_the_scroll_before_the_edit(self):
+        test = statements(body(swift_source(), "func testSH1151SelectionSettings("))
+        drag = next(at for at, line in enumerate(test) if "thenDragTo:" in line)
+        ready = test.index('try qa.touchReady(QAIds.startDrag, what: "Settings › Input after the scroll")')
+        press = next(at for at, line in enumerate(test) if line.startswith("try qa.press(QAIds.startDoubleTap"))
+        self.assertEqual((drag + 1, ready + 1), (ready, press), "drag, then touch-ready on the selected Drag option, then the edit")
+        self.assertNotIn("sleep(", "\n".join(test[drag:press]))
+        ids = (TESTS / "QAIds.swift").read_text()
+        self.assertIn('static let startDrag = "qa.settings.start-selection.drag"', ids)
+
+
 class P9Timeout(unittest.TestCase):
     def test_xcodebuild_enforces_test_timeouts(self):
         command = p9.xcodebuild_test_command(Path("project"), "DEVICE", Path("derived"), Path("result.xcresult"))
         at = command.index("-test-timeouts-enabled")
         self.assertEqual(command[at + 1], "YES")
         self.assertIn("-only-testing:SmokeOracle/SmokeQA/testP9Core()", command)
+        # #144: the herdr-app document test runs where CI runs P9.
+        self.assertIn("-only-testing:SmokeOracle/SmokeQA/testP9HerdrDoc()", command)
         self.assertIn("id=DEVICE", command)
 
     def test_p9_core_has_an_execution_time_allowance(self):
@@ -139,7 +182,7 @@ class P9Timeout(unittest.TestCase):
 
 class S3Identifiers(unittest.TestCase):
     """UI test redesign S3: P9, SH1-154 and P3 press QA identifiers and wait on qa.state."""
-    TESTS = ("func testP9Core(", "func testSH154CoreImage(", "func testP3Terminal(")
+    TESTS = ("func testP9Core(", "func testSH154CoreImage(", "func testP3Terminal(", "func testP9HerdrDoc(")
     OCR = ("tapText(", "tapTextBox(", "tapMenuItem(", "textVisible(", "waitForRenderedText(", "tapRecorded(",
            "openSettings(in:", "openOverflowMenu(", "closeOverflowMenu(", "recognize(", "hideSoftwareKeyboard(")
 

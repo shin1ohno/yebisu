@@ -8,7 +8,9 @@ fails only on a Simulator, long after the change; this check runs where the sour
   * every identifier is a constant in crates/yebisu/src/qa_ax_ids.rs (value `qa.<...>`,
     unique), and no other app source (tests aside) spells a `"qa.` literal;
   * every `qa_ax::mark(...)` call in the app passes one of those constants, and every
-    constant except STATE (published by the app root) is marked somewhere;
+    constant except STATE (published by the app root) is marked somewhere; a constant
+    passed as a field of `NativeInlineFieldIdentifiers { ... }` counts as marked (NATIVE:
+    herdr-uikit sets it on its own UIKit view, issue #143);
   * every `"qa.<id>"` string a Swift test uses (scripts/ios/*/Tests/*.swift) is one of the
     constants; an identifier composed at run time ("qa.p0.\\(x)") cannot be checked and is
     an error;
@@ -38,6 +40,8 @@ GATES = {
 CONST = re.compile(r'pub\(crate\) const (\w+): &str = "([^"\\]*)";')
 ID_TEXT = re.compile(r"qa\.[A-Za-z0-9_.-]*[A-Za-z0-9_-]")
 MARK = re.compile(r"\bqa_ax::mark\(\s*([\w:]+)\s*,")
+NATIVE = re.compile(r"\bNativeInlineFieldIdentifiers\s*\{(.*?)\}", re.S)
+NATIVE_FIELD = re.compile(r"\b(?:crate::qa_ax::ids|qa_ax::ids|qa_ax_ids|ids)::(\w+)\b")
 SWIFT_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 
 
@@ -111,6 +115,11 @@ def marks(root, ids, problems):
                 problems.append("%s: qa_ax::mark(%s, ...) does not name a constant of %s" % (where, argument, IDS))
                 continue
             marked.setdefault(name, []).append(where)
+        for block in NATIVE.finditer(text):
+            where = "%s:%d (native)" % (rel, line_of(text, block.start()))
+            for field in NATIVE_FIELD.finditer(block.group(1)):
+                if field.group(1) in ids:
+                    marked.setdefault(field.group(1), []).append(where)
     for name in sorted(ids):
         if name not in NOT_MARKED and name not in marked:
             problems.append("%s (%r) is defined in %s but no qa_ax::mark call uses it: the app never exposes it"

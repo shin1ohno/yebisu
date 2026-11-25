@@ -416,3 +416,102 @@ fn hide_over_sheet(
         assert!(!app.shell.frame.key_band.is_armed());
     });
 }
+
+/// One finger pan step of `x`, `y` points over `at` (issue #137 PR 2).
+fn swipe(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, x: f32, y: f32) {
+    cx.simulate_event(gpui::ScrollEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(point(px(x), px(y))),
+        modifiers: Modifiers::none(),
+        touch_phase: gpui::TouchPhase::Started,
+        source: gpui::ScrollSource::Touch,
+    });
+    cx.run_until_parked();
+}
+
+/// Issue #137 PR 2: the overflowing key band moves sideways under a
+/// sideways swipe only; a vertical swipe leaves it where it is.
+#[gpui::test]
+fn the_key_band_ignores_vertical_swipes(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(320.), px(834.)));
+    let (client, _) = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
+    view.update(cx, |app, _| install(app, client));
+    wait_for_terminal(&view, cx);
+    set_insets(&view, cx, 320., false);
+    wait_for_terminal(&view, cx);
+    let esc = |cx: &mut VisualTestContext| {
+        cx.debug_bounds("key-band-esc")
+            .unwrap_or_else(|| panic!("esc key"))
+    };
+    let at = esc(cx).center();
+    let start = esc(cx).left();
+    swipe(cx, at, 0., -80.);
+    assert_eq!(esc(cx).left(), start, "a vertical swipe moved the band");
+    swipe(cx, at, -80., 0.);
+    assert!(
+        esc(cx).left() < start,
+        "a sideways swipe must move the overflowing band"
+    );
+}
+
+/// While the native search panel is up (issue #138), a band press that began
+/// on the old layout changes nothing: Hide dismisses no keyboard and keeps
+/// the latch, and a key sends no input.
+#[gpui::test]
+fn band_presses_while_search_is_open_change_nothing(cx: &mut TestAppContext) {
+    use crate::shell::search::{SearchEvent, tests::fake::RecordedSearch};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1376.), px(1032.)));
+    let (client, replies) =
+        mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
+    view.update(cx, |app, _| install(app, client));
+    wait_for_terminal(&view, cx);
+    set_insets(&view, cx, 498., false);
+    cx.update(|window, app| {
+        view.update(app, |view, cx| view.terminal_focus.focus(window, cx));
+    });
+    cx.run_until_parked();
+    let fake = RecordedSearch::default();
+    let presenter = fake.clone();
+    view.update(cx, |app, _| {
+        app.shell.search.set_presenter(Box::new(presenter))
+    });
+    record_dismissals(cx);
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            let anchor = app.search_anchor(point(px(1.), px(1.)));
+            app.open_sidebar_search(anchor, window, cx);
+        });
+    });
+    fake.push(SearchEvent::Opened);
+    cx.run_until_parked();
+    assert!(
+        view.update(cx, |app, _| app.search_open()),
+        "fixture: the search panel is up"
+    );
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            app.shell
+                .frame
+                .key_band
+                .toggle(Action::Control, destination());
+            app.press_key_band(Action::Hide, window, cx);
+            assert!(
+                app.shell.frame.key_band.is_armed(),
+                "Hide acted while the panel was up"
+            );
+            app.press_key_band(Action::Key("escape"), window, cx);
+        });
+    });
+    cx.run_until_parked();
+    assert_dismissals(cx, &[]);
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Ok(message) = replies.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+    {
+        assert!(
+            !matches!(message, ClientMessage::ClientShellPaneInput { .. }),
+            "a band key reached the terminal while the panel was up: {message:?}"
+        );
+    }
+}

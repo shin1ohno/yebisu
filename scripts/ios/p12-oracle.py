@@ -74,6 +74,7 @@ def validate(records, messages, ui, screenshots):
     require([r.get("case") for r in picks] == CASES, "actual OS menu cases missing/duplicated")
     validate_fixture_taps(records, ui)
     retries = validate_retries(ui)
+    validate_menu_retries(records, ui)
     prepares = [r for r in records if r.get("kind") == "p12-prepare"]
     require([r.get("case") for r in prepares] == CASES, "app prepare cases missing/duplicated")
     receivers = [r for r in records if r.get("kind") == "p12-menu-receiver"]
@@ -141,7 +142,48 @@ def validate(records, messages, ui, screenshots):
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes,
-            "retries": retries, "hold_queries": hold_queries(ui)}
+            "retries": retries, "hold_queries": hold_queries(ui), "input_receipts": input_receipts(records)}
+
+
+def input_receipts(records):
+    """How many herdr-uikit input receipts of each kind the app recorded (issue #142 stage 2).
+    Reported, not judged: it shows the receipts reached the app's file."""
+    counts = {}
+    for record in records:
+        if record.get("kind") == "input-receipt":
+            counts[record.get("receipt")] = counts.get(record.get("receipt"), 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: str(item[0])))
+
+
+def menu_stage(records, pick):
+    """Where a pick with no p12-menu-entry stopped, by the app's input receipts inside the pick window.
+
+    The names, in the order they are decided: `menu-global` (the command reached GPUI, but no window
+    handler on the dispatch path took it), `menu-deliver <outcome>` for the first deliver that did not
+    deliver, `menu-perform <outcome>` for a perform without a tag or sender, `no menu-perform` (the
+    command never reached the app: SpringBoard did not perform it, or the touch never reached the menu),
+    `menu-perform without menu-deliver` (performed, never handed to GPUI), else `menu-deliver delivered`."""
+    receipts = [r for r in records if r.get("kind") == "input-receipt" and inside(r, pick)]
+    performs = [r for r in receipts if r.get("receipt") == "menu-perform"]
+    delivers = [r for r in receipts if r.get("receipt") == "menu-deliver"]
+    if any(r.get("receipt") == "menu-global" for r in receipts):
+        return "menu-global"
+    failed = [r for r in delivers if r.get("outcome") != "delivered"]
+    if failed:
+        return f"menu-deliver {failed[0].get('outcome')}"
+    refused = [r for r in performs if r.get("outcome") != "performed"]
+    if refused:
+        return f"menu-perform {refused[0].get('outcome')}"
+    if not performs:
+        touches = [r for r in receipts if r.get("receipt") == "touch" and r.get("stage") == "began"]
+        if touches:
+            last = touches[-1]
+            return (f"pick tap reached the app ({len(touches)} touch began, last at {last.get('x')}, {last.get('y')}), "
+                    f"not the menu item")
+        return "no menu-perform"
+    if not delivers:
+        return "menu-perform without menu-deliver"
+    return "menu-deliver delivered"
 
 
 # A hold window longer than this leaves under 20 s of the 60 s COMMAND_TIMEOUT: the S5 follow-up
@@ -229,15 +271,99 @@ def validate_retries(ui):
     for result in (r for r in ui if r.get("kind") == "reveal-result"):
         retried = len([r for r in swipes if r.get("case") == result.get("case")])
         require(result.get("attempts", 1) == 1 + retried, f"reveal attempts and retries disagree in case {result.get('case')}")
+    menus = {}
+    for kind, key in (("pick-retry", "pick"), ("open-retry", "open")):
+        found = [r for r in ui if r.get("kind") == kind]
+        for retry in found:
+            require(isinstance(retry.get("reason"), str) and retry["reason"], f"{kind} without a logged reason")
+            require(retry.get("case") in CHOOSES and isinstance(retry.get("injected"), bool), f"{kind} record incomplete")
+        require(len({r.get("case") for r in found}) == len(found), f"more than one {kind} for a case")
+        menus[key] = [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in found]
     return {"fixture": [{"step": r["step"], "reason": r["reason"], "injected": r["injected"]} for r in taps],
-            "reveal": [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in swipes]}
+            "reveal": [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in swipes], **menus}
+
+
+def pick_decision(closed, entry, perform_grew, touch_grew, screen_moved, receipts_bad):
+    """Issue #142 stage 3's decision table for a pick, as P12QA's MenuInputDecision.pick decides it
+    (QAAx.swift) and the oracle judges a closed menu. Returns (verdict, resend):
+    success, A1 (open 5 s and nothing reached the app: tap the same item once more), A2 (closed
+    with no callback: not resent, the selection or its delivery was lost), defect (no_tag, a failed
+    menu-deliver or menu-global: not resent), or not-lost (open, but the app received something)."""
+    if receipts_bad:
+        return "defect", False
+    if closed:
+        return ("success", False) if entry else ("A2", False)
+    if perform_grew or touch_grew or screen_moved:
+        return "not-lost", False
+    return "A1", True
+
+
+def open_decision(item_exists, touch_grew, screen_moved):
+    """The decision table's row 5 for the tap that opens the OS menu (MenuInputDecision.open): no
+    menu item, no app touch and no screen change is class M, and the open tap is sent once more."""
+    if item_exists:
+        return "opened", False
+    if touch_grew or screen_moved:
+        return "not-lost", False
+    return "M", True
+
+
+def validate_menu_retries(records, ui):
+    """A pick-retry or open-retry is accepted only when the app's receipts agree it was lost: no
+    touch began and no menu-perform between the first input and the retry (issue #142 stage 3)."""
+    picks = {r.get("case"): r for r in ui if r.get("kind") == "os-menu-pick"}
+    reveals = {r.get("case"): r for r in ui if r.get("kind") == "reveal-result"}
+    receipts = [r for r in records if r.get("kind") == "input-receipt"]
+    for retry in (r for r in ui if r.get("kind") in ("pick-retry", "open-retry")):
+        case = retry.get("case")
+        start = (picks.get(case) or {}).get("started") if retry["kind"] == "pick-retry" else (reveals.get(case) or {}).get("time")
+        require(isinstance(start, (int, float)) and isinstance(retry.get("time"), (int, float)) and start <= retry["time"],
+                f"{retry['kind']} in case {case} outside its input window")
+        window = {"started": start, "ended": retry["time"]}
+        reached = [r for r in receipts if inside(r, window) and (r.get("receipt") == "menu-perform" or
+                                                                 (r.get("receipt") == "touch" and r.get("stage") == "began"))]
+        require(not reached, f"{retry['kind']} in case {case} was not proven lost: the app received "
+                             f"{sorted({r.get('receipt') for r in reached})} before it")
+
+
+# Negative controls that must fail by name without a resend, with the words the failure must say. A tap
+# beside the item never reaches the app: SpringBoard's open menu takes it and closes, so offset-pick fails
+# as A2 (issue #142 stage 3; receipts in PR-3's text). `pick tap reached the app` stays as an A2 stage.
+EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "tap lost (class A2)"}
+# Negative controls on a choose() case; drop-tap names a fixture step instead.
+CASE_FAULTS = ("skip-swipe", "drop-pick", "drop-open", *EXPECTED_FAILURES)
 
 
 def valid_fault(spec):
-    """True when spec is empty or a comma list of `drop-tap:<step>` and `skip-swipe:<case>` negative controls."""
+    """True when spec is empty or a comma list of negative controls: `drop-tap:<step>`, and
+    `skip-swipe:`, `drop-pick:`, `drop-open:`, `drop-pick-twice:` or `offset-pick:` with a choose() case."""
     items = [item for item in spec.split(",") if item]
-    return all(item.startswith("drop-tap:") and item[9:] in STEPS or item.startswith("skip-swipe:") and item[11:] in CHOOSES
-               for item in items)
+    def one(item):
+        kind, _, target = item.partition(":")
+        return target in STEPS if kind == "drop-tap" else kind in CASE_FAULTS and target in CHOOSES
+    return all(one(item) for item in items)
+
+
+def expected_failure(spec):
+    """(words, case) when spec is one control that must fail by name, else None. Such a control
+    is run alone: with it, a test failure that names the case and the words is the pass."""
+    items = [item for item in spec.split(",") if item]
+    controls = [item.partition(":") for item in items if item.partition(":")[0] in EXPECTED_FAILURES]
+    if not controls:
+        return None
+    require(len(items) == 1, f"an expected-failure control runs alone, got {spec!r}")
+    kind, _, case = controls[0]
+    return EXPECTED_FAILURES[kind], case
+
+
+def failed_as_expected(spec, failure_text, ui):
+    """Whether an expected-failure control (`expected_failure`) failed as it must: some failure line
+    names its case and its words, and no pick was resent for drop-pick-twice more than once or for
+    offset-pick at all."""
+    words, case = expected_failure(spec)
+    named = any(words in line and f"case {case}" in line for line in failure_text.splitlines())
+    resends = len([r for r in ui if r.get("kind") == "pick-retry" and r.get("case") == case])
+    return named and resends == (1 if words == EXPECTED_FAILURES["drop-pick-twice"] else 0)
 
 
 def validate_faults(spec, ui):
@@ -245,12 +371,13 @@ def validate_faults(spec, ui):
 
     A fault that leaves no retry means the retry path was not exercised; a retry that
     no fault asked for is not hidden by this check (it stays in the verdict)."""
+    retry_kinds = {"drop-tap": "fixture-retry", "skip-swipe": "reveal-retry", "drop-pick": "pick-retry", "drop-open": "open-retry"}
     for item in [item for item in spec.split(",") if item]:
         kind, _, target = item.partition(":")
-        if kind == "drop-tap":
-            found = [r for r in ui if r.get("kind") == "fixture-retry" and r.get("step") == target and r.get("injected") is True]
-        else:
-            found = [r for r in ui if r.get("kind") == "reveal-retry" and r.get("case") == target and r.get("injected") is True]
+        if kind in EXPECTED_FAILURES:
+            continue  # judged by failed_as_expected
+        key = "step" if kind == "drop-tap" else "case"
+        found = [r for r in ui if r.get("kind") == retry_kinds[kind] and r.get(key) == target and r.get("injected") is True]
         require(len(found) == 1, f"injected fault {item} did not force exactly one logged retry")
 
 
@@ -284,10 +411,11 @@ def validate_gui_preconditions(records, ui, picks, prepares):
     entries = [r for r in records if r.get("kind") == "p12-menu-entry"]
     for pick in picks:
         require(pick.get("menuClosed") is True, f"OS menu not closed after the pick in case {pick.get('case')}: tap lost (class A)")
-        if pick.get("tapped"):
-            require(any(entry.get("case") == pick.get("case") for entry in entries),
-                    f"tap lost (class A) in case {pick.get('case')}: the pick reached no native menu callback; "
-                    f"{builds_near(records, pick['started'])}")
+        if pick.get("tapped") and not any(entry.get("case") == pick.get("case") for entry in entries):
+            stage = menu_stage(records, pick)
+            if stage == "menu-deliver delivered":
+                stage += ": the command reached GPUI; it stopped in GPUI or yebisu"
+            raise ValueError(f"tap lost (class A2) in case {pick.get('case')}: {stage}; {builds_near(records, pick['started'])}")
 
 
 def inside(record, window):
@@ -297,7 +425,7 @@ def inside(record, window):
 
 def validate_observation(records, messages, ui, picks, prepares, receivers):
     # Strict joint ordering: callbacks must belong to the actual OS pick, and
-    # every fixture click must have zero command effect. Wall clocks must be
+    # every fixture tap must have zero command effect. Wall clocks must be
     # the same Simulator clock; missing/ambiguous observations fail closed.
     steps = STEPS
     controls = [r for r in ui if r.get("kind") == "fixture-control"]
@@ -382,7 +510,8 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
         require(inside(gate, release), "gate release not correlated")
     inputs = [m for m in ingress if "input" in m["message"]]
     require([m["message"]["input"] for m in inputs] == [["fifo_fence"]], "extra terminal input or missing FIFO fence")
-    require(not any(m["message"].get("other_message") for m in ingress), "unexpected peer message")
+    others = sorted({str(m["message"].get("message_kind", "?")) for m in ingress if m["message"].get("other_message")})
+    require(not others, f"unexpected peer message: {others}")
     fence = inputs[0]
     require(inside(fence, controls[-1]) and fence["time"] > picks[-1]["ended"] and fence["sequence"] > requests[-1]["sequence"], "final receiving FIFO fence ordering")
     require(not any(m["sequence"] > fence["sequence"] and ("request_method" in m["message"] or "input" in m["message"]) for m in ingress), "wire after final FIFO fence")

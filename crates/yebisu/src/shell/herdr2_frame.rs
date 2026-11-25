@@ -9,8 +9,10 @@ use super::{
 use crate::{app::Smoke, notifications::Context, terminal_view::TerminalView};
 use sheprd_core_client::wire::StatusState;
 
+pub(crate) mod names;
 mod new_space;
 pub(crate) mod panes;
+mod removed;
 pub(crate) mod session;
 pub(crate) mod sidebar;
 
@@ -31,6 +33,17 @@ impl Herdr2State {
         self.selected
             .get(host)
             .map_or(HERDR2_SESSION, String::as_str)
+    }
+
+    /// The space was removed: a reconnect must not select it again.
+    pub(crate) fn forget_session(&mut self, host: &str, session: &str) {
+        if self
+            .selected
+            .get(host)
+            .is_some_and(|selected| selected == session)
+        {
+            self.selected.remove(host);
+        }
     }
 
     pub(crate) fn confirm_session(&mut self, host: &str, session: &str) {
