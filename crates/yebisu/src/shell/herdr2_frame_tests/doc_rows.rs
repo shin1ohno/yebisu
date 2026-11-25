@@ -1,7 +1,7 @@
 //! Sidebar rows of a host whose `default` session reads `herdr-app` (#144
 //! D2, AC1, AC2, AC11): one row per document space in its order, the
-//! iPad-only `default` row, every other session "iPad only", and a tap on
-//! a document space row draws that space.
+//! iPad-only `default` row, every other session "iPad only", a tap on a
+//! document space row draws that space, and New tab there writes it (D4).
 use super::*;
 use crate::{
     app::Smoke,
@@ -334,18 +334,18 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
             .and_then(|row| row.spaces.get(1).map(|space| space.current));
         tab_labels(this).is_empty() && current == Some(true) && this.terminal.live.connected
     });
-    // New tab waits for the write path (owner answer D2-1 (1)).
+    // #144 D4: New tab in a document space writes the document, and the
+    // new tab is drawn (and chosen) once the read after the write has it.
     view.update(cx, |this, _| {
         this.try_core_command(crate::core::Command::NewTab)
             .unwrap_or_else(|e| panic!("send: {e}"));
     });
-    wait_for(&view, cx, "the refusal", |this| {
-        this.terminal
-            .live
-            .status
-            .contains("Not available in Herdr 2 document spaces yet")
+    // The space's first tab (`t30`) is not live, so the new one, second in
+    // the document, is the only tab drawn.
+    wait_for(&view, cx, "the new tab", |this| {
+        tab_labels(this) == ["2"] && this.core_tabs().first().is_some_and(|tab| tab.active)
     });
-    assert!(host.doc().sets().is_empty(), "D2 writes nothing");
+    assert_eq!(host.doc().sets().len(), 1, "one doc.set");
     view.update(cx, |this, _| {
         this.terminal.core.take();
     });
