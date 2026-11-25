@@ -121,7 +121,10 @@ fn serve(
         "pane.focus_direction",
         "pane.zoom",
         "pane.close",
-        "tab.close"
+        "tab.close",
+        "workspace.rename",
+        "tab.rename",
+        "pane.rename"
     ]);
     welcome["capabilities"] = serde_json::json!(["surface_interest", "presentation_effects_fence"]);
     let welcome = welcome.to_string();
@@ -263,6 +266,25 @@ fn serve(
                 if held == P12_HELD_REQUESTS {
                     gate = None;
                 }
+            }
+            // Issue #143: a rename the host refuses, or never answers.
+            if crate::mock_commands::is_rename(&request) && fault == "rename-error" {
+                write_message(
+                    &mut server,
+                    &ServerMessage::ClientShellEndpointResponseChunk {
+                        boot_id: "boot-v1".into(),
+                        request_id: id.clone(),
+                        final_chunk: true,
+                        data: serde_json::to_vec(
+                            &serde_json::json!({"id": id, "error": "workspace not found"}),
+                        )?,
+                    },
+                    MAX_FRAME_SIZE,
+                )?;
+                continue;
+            }
+            if crate::mock_commands::is_rename(&request) && fault == "rename-silent" {
+                continue;
             }
             if crate::mock_commands::apply(&mut board_snapshot, &request) {
                 write_message(
@@ -548,6 +570,14 @@ fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurf
         }
     }
     frame
+}
+
+/// A recorded peer with `fault` (issue #143: `rename-error`, `rename-silent`).
+#[cfg(test)]
+pub(crate) fn connect_recorded_fault(
+    fault: &'static str,
+) -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, fault)
 }
 
 #[cfg(test)]

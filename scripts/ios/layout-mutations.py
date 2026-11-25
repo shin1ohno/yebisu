@@ -163,8 +163,9 @@ CASES = [
      "shell::shortcuts::tests::rows::shortcuts_rows_come_from_catalog"),
     # L6: long press of a space row lists the Space menu's items (Q8).
     ("l6-long-press-match", "shell/host_menus.rs",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 3] = [\n    SpaceMenuItem::NewTab,\n"
+     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Rename,\n];",
      "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
-     "const SPACE_LONG_PRESS: [SpaceMenuItem; 1] = [SpaceMenuItem::NewTab];",
      "shell::host_menus::tests::long_press::menu_items_match_long_press"),
     # L8 (plan v2 7.14): a status-less Herdr 2 terminal listed in AGENTS (Q4).
     ("l8-status-less", "shell/herdr2_frame/session.rs", ".filter(|(_, status)| status.is_agent())",

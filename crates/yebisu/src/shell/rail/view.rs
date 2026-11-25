@@ -52,7 +52,7 @@ fn badge_measure(cx: &Context<Smoke>, pt: f32) -> impl Fn(&str) -> f32 + use<> {
 
 impl Smoke {
     /// Gather each host's connections, with the preferred one first.
-    pub(super) fn rail_hosts(&self) -> Vec<RailHost> {
+    pub(crate) fn rail_hosts(&self) -> Vec<RailHost> {
         let saved = &self.setup.hosts;
         let mut hosts = self
             .board
@@ -151,8 +151,10 @@ impl Smoke {
     pub(super) fn rail_column(&mut self, header: f32, cx: &mut Context<Self>) -> AnyElement {
         self.load_sidebar_agent_pins(cx);
         let metrics = rail_metrics(1.0);
-        let items = rail_items(&self.rail_hosts(), &self.setup);
-        let agents = self.rail_agent_items();
+        let mut items = rail_items(&self.rail_hosts(), &self.setup);
+        let mut agents = self.rail_agent_items();
+        self.rail_names(&mut items);
+        self.rail_names(&mut agents);
         let measure = badge_measure(cx, metrics.badge_pt);
         self.record_rail_badges(&items, &measure);
         let list = div()
