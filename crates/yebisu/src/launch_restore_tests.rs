@@ -1,6 +1,9 @@
 //! A cold launch with saved hosts and a record of what was open restores it
 //! (owner decision 2026-11-25). Every dial goes to an in-process peer; no
 //! test reaches a host.
+#[path = "launch_restore/no_record_tests.rs"]
+mod no_record;
+
 use super::*;
 use crate::terminal_view::TerminalView;
 use gpui::{Entity, TestAppContext, VisualTestContext};
@@ -319,7 +322,8 @@ fn the_record_is_not_written_before_the_restore_or_while_suspended(cx: &mut Test
         this.terminal.reconnect.target = ONE.into();
         this.poll_terminal(cx);
         assert!(this.launch.written().is_none(), "written before any launch");
-        this.launch = LaunchRestore::loaded(None);
+        // An empty record: no record would list each host's spaces first.
+        this.launch = LaunchRestore::loaded(Some(Record::default()));
         this.setup.loaded = true;
         this.terminal.reconnect.suspended = true;
         this.poll_terminal(cx);
