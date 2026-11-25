@@ -9,6 +9,13 @@ import shutil
 import subprocess
 import time
 
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
+
 _live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
 live_jsonl = importlib.util.module_from_spec(_live_spec)
 _live_spec.loader.exec_module(live_jsonl)
@@ -16,6 +23,14 @@ _live_spec.loader.exec_module(live_jsonl)
 
 def run(*args, **kwargs):
     print("P3 COMMAND", list(args), flush=True)
+    if args[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4: streamed as before, and kept for the job's resend budget.
+        # Class D: once more when xcodebuild found no device and ran no test (sim_ready.run_test).
+        result = sim_ready.run_test(list(args), lambda: subprocess.CompletedProcess(list(args), *resend_budget.run_tee(list(args), **kwargs)))
+        resend_budget.record(Path(__file__).stem, result.stdout)
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout)
+        return result
     try:
         return subprocess.run(args, check=True, text=True, **kwargs)
     except subprocess.CalledProcessError as error:
@@ -97,6 +112,8 @@ def main():
     run("xcrun", "simctl", "install", device, app.stdout.strip().splitlines()[-1])
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = directory / "result.xcresult"
     try:
         tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
