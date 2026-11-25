@@ -6,17 +6,24 @@ the pinned Rust toolchain and the continuously monitored 6 GiB disk guard.
 
 ## When CI runs
 
-- **Pull requests.** The `changes` job selects `check`, `simulator-smoke` and
-  `edit-menu` from the whole PR diff. The Simulator path filters still include
-  their matching test-only files. Within `check`, `Layout geometry source
+- **Pull requests.** No Simulator job runs on a pull request:
+  `simulator-smoke`, `edit-menu` and `layout-smoke` are skipped on every PR
+  (owner decision 2026-11-26: PRs merge on local tests, and main's CI catches
+  the rest). The `changes` job selects `check` from the whole PR diff, and
+  `commit-subjects` runs on every PR. Within `check`, `Layout geometry source
   mutations` runs when the diff matches layout, shell, settings, settings
   pages, core/screen, terminal_input, their test paths, the mutation script,
   or the build inputs listed in the `mutations` pattern in `ci.yml`. If the
-  diff is unavailable, the PR jobs run and the mutation step waits for main.
-  `layout-smoke` is skipped on every PR.
+  diff is unavailable, `check` runs and the mutation step waits for main. The
+  `smoke` and `menu` patterns still name the files each Simulator job drives:
+  when the diff touches one, the `changes` log says
+  `the diff touches <job>'s area: run it locally; main runs it after the merge`,
+  so the local gate runs that Simulator check before the merge.
 - **Pushes to main.** Each macOS job runs unless the GitHub API identifies a
   merged PR with the exact same Git tree and a completed job whose every step
-  passed in the latest attempt. `edit-menu` also verifies the tree of the
+  passed in the latest attempt. Since PRs run no Simulator job, only `check`
+  can be reused this way; main runs `simulator-smoke`, `edit-menu` and
+  `layout-smoke` itself. `edit-menu` also verifies the tree of the
   synthetic merge commit its runner checked out. Missing or ambiguous evidence
   leaves the job scheduled. A PR `check` that skipped layout mutations cannot
   replace main's `check`. Whenever `check` runs on main, it runs the mutations.
@@ -28,7 +35,8 @@ the pinned Rust toolchain and the continuously monitored 6 GiB disk guard.
   `layout-smoke` job is restricted to main.
 
 For a skipped job, open `changes` in the Actions run. On a PR, its
-`Select jobs by changed paths` log lists the changed files and selection.
+`Select jobs by changed paths` log lists the changed files, the selection and
+the Simulator areas the diff touches.
 On a main push, the run summary lists any reused PR jobs with their matching
 tree SHA and links to the original job logs and evidence. Before the owner
 dispatches TestFlight, check that CI for the exact main tip is green, and
@@ -89,7 +97,7 @@ rendering and lifecycle behavior, not physical IME or hardware keyboard behavior
 
 | Job | Runs | Limit | Selected by |
 |---|---|---|---|
-| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | main pushes, nightly runs and manual dispatches on main; the main push may reuse complete same-tree PR evidence |
+| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | main pushes, nightly runs and manual dispatches on main; never a pull request |
 | `check`, step `QA identifiers` | `scripts/ios/qa-ax-ids-check.py`: every QA identifier a Swift UI test presses is a constant of `crates/yebisu/src/qa_ax_ids.rs` that the app marks (UI test redesign S6 replaced the SmokeQA label check, which tied every text SmokeQA tapped or OCR-matched to the app source that painted it) | within the 60-minute `check` job | every `check` run |
 
 These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
@@ -324,13 +332,13 @@ The 2026-11-20 owner decision sets the rerun rule in step 5.)
    failure. If it is unclear whether a changed path drives the failing step, treat
    it as touched when reporting the failure.
 4. Simulator merge policy (owner decision 2026-11-21,
-   `owner-batch-2026-11-21-decision.json`, `ci_simulator_on_prs`). On pull
-   requests, `simulator-smoke`, `edit-menu` and `layout-smoke` report their
-   results without blocking a merge. Cite the primary evidence and whether
-   the PR change caused each failure. The selection rules above still apply.
-   On main and before dispatching TestFlight, require green results for all
-   three jobs. An eligible same-tree skip on a main push uses the original
-   green job linked in `changes`. Merge permission stays per PR or approved
+   `owner-batch-2026-11-21-decision.json`, `ci_simulator_on_prs`; since the
+   owner decision of 2026-11-26 pull requests run no Simulator job). A PR
+   merges on its local gates; when the `changes` log says the diff touches a
+   Simulator job's area, run that check locally first. A failure on main is
+   classified with steps 1-3: cite the primary evidence and which merged PR
+   caused it. On main and before dispatching TestFlight, require green
+   results for all three jobs. Merge permission stays per PR or approved
    plan. Merge with a merge commit.
    Resends (Owner decision 5, issue #142): a UI test sends an input once more only when the
    app's own receipts prove it was lost, at most once per input, and logs each resend as a
