@@ -244,3 +244,104 @@ fn spans_and_styles_use_custom_theme() {
     assert_eq!(cell_colors(&row[0], &theme).0, theme.foreground);
     assert_eq!(cell_colors(&row[1], &theme).0, theme.palette[1]);
 }
+
+/// Issue #137 PR 6 (yebisu): a pane with a scroll position but no bar column
+/// (Herdr 2) paints its thumb over its last column, whose cells still paint.
+#[gpui::test]
+fn a_pane_without_a_bar_column_paints_its_thumb_over_its_last_column(cx: &mut TestAppContext) {
+    use sheprd_client::protocol::{PaneSurfacePane, PaneSurfaceScrollMetrics};
+    const LAST: u32 = 0x00aa00;
+    let (_, cx) = cx.add_window_view(|_, _| Empty);
+    cx.draw(Point::default(), size(px(200.), px(200.)), |_, _| {
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, cx| {
+                let frame = FrameData {
+                    width: 4,
+                    height: 4,
+                    cells: (0..16u32)
+                        .map(|index| CellData {
+                            bg: 0x02000000
+                                | if index % 4 == 3 {
+                                    LAST
+                                } else {
+                                    0x101010 + index
+                                },
+                            ..cell(" ")
+                        })
+                        .collect(),
+                    cursor: None,
+                    hyperlinks: vec![],
+                    graphics: vec![],
+                };
+                let rect = SurfaceRect {
+                    x: 0,
+                    y: 0,
+                    width: 4,
+                    height: 4,
+                };
+                let pane = PaneSurfacePane {
+                    pane_id: "pane".into(),
+                    content_revision: 1,
+                    rect,
+                    inner_rect: rect,
+                    scrollbar_rect: None,
+                    scroll: Some(PaneSurfaceScrollMetrics {
+                        offset_from_bottom: 10,
+                        max_offset_from_bottom: 20,
+                        viewport_rows: 4,
+                    }),
+                    focused: true,
+                    mouse_reporting: false,
+                    sgr_pixel_mouse: false,
+                    alternate_screen_active: false,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                };
+                let mut painter = TerminalPainter::default();
+                painter.set_appearance(14., 20., Theme::default());
+                painter.paint_frame(
+                    &frame,
+                    Point::default(),
+                    None,
+                    Ground::Opaque,
+                    10.,
+                    &font("Menlo"),
+                    &[],
+                    std::slice::from_ref(&pane),
+                    None,
+                    None,
+                    window,
+                    cx,
+                );
+            },
+        )
+        .size_full()
+    });
+    cx.update(|window, _| {
+        let quads = window.painted_quads();
+        let scale = window.scale_factor();
+        for row in 0..4 {
+            let bounds = Bounds::new(point(px(30.), px(row as f32 * 20.)), size(px(10.), px(20.)))
+                .scale(scale);
+            assert!(
+                quads
+                    .iter()
+                    .any(|quad| quad.bounds == bounds && quad.background == rgb(LAST).into()),
+                "the last column's cell on row {row} still paints"
+            );
+        }
+        let thumb = rgba((Theme::default().muted << 8) | 0xc0);
+        let thumbs: Vec<_> = quads
+            .iter()
+            .filter(|quad| quad.background == thumb.into())
+            .collect();
+        assert_eq!(thumbs.len(), 1, "one thumb");
+        let column = Bounds::new(point(px(30.), px(0.)), size(px(10.), px(80.))).scale(scale);
+        let bounds = thumbs[0].bounds;
+        assert!(
+            bounds.left() >= column.left() && bounds.right() <= column.right(),
+            "the thumb rides the last column: {bounds:?}"
+        );
+    });
+}
