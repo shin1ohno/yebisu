@@ -455,6 +455,15 @@ fn rail_item(
                 .map(|(text, span)| badge(text, span, color::YELLOW, metrics)),
         )
         .child(long_press_layer(item.clone(), cx))
+        .when(
+            item.current && item.kind == RailItemKind::Space && item.herdr == HerdrKind::Herdr1,
+            |button| {
+                button.children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::RAIL_CURRENT_SPACE,
+                    "Current space",
+                ))
+            },
+        )
         .on_click(cx.listener(move |this, _, window, cx| {
             this.open_rail_target(&target, window, cx);
             cx.notify();

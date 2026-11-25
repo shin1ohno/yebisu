@@ -233,12 +233,16 @@ impl Smoke {
             .unwrap_or_default()
     }
 
-    /// The tab row. `controls_trailing` is L0's
-    /// `ControlsClearance::tab_row_trailing`: room after the pinned buttons
-    /// for window controls on the right edge; the row's background runs
-    /// under them.
+    /// The tab row. `controls_leading` is
+    /// `ControlsClearance::tab_row_leading`: room before the first item for a
+    /// Mac's traffic lights over a rail or no sidebar (0 on an iPad).
+    /// `controls_trailing` is L0's `ControlsClearance::tab_row_trailing`: room
+    /// after the pinned buttons for window controls on the right edge. The
+    /// row's background runs under both; `tab_hit`'s `x` starts after the
+    /// leading room.
     pub(crate) fn render_tab_row(
         &mut self,
+        controls_leading: f32,
         controls_trailing: f32,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -317,6 +321,7 @@ impl Smoke {
                 .flex_none()
                 .w_full()
                 .h(px(TAB_ROW_HEIGHT))
+                .pl(px(controls_leading))
                 .pr(px(controls_trailing))
                 .bg(rgb(color::SURFACE))
                 .text_color(rgb(color::TEXT))
@@ -359,7 +364,7 @@ impl Smoke {
             at: Default::default(),
         };
         let (rename_host, rename_id, rename_boot) = (host.clone(), id.clone(), boot.clone());
-        let name = self.tab_label(index, &label, &boot, &id, appearance.weight);
+        let name = self.tab_label(index, &label, &boot, &id, appearance.weight, focused);
         div()
             .id(("shell-tab", index))
             .debug_selector(move || format!("shell-tab-{index}"))

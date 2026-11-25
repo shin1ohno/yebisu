@@ -37,6 +37,10 @@ pub(crate) struct TerminalView {
     pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     pub show_options: bool,
     pub needs_focus: bool,
+    /// A switch (host, tab, space, pane) or navigation finished: the next
+    /// render gives the terminal its focus, text responder and input
+    /// destination back (`Smoke::restore_pending_terminal_keys`).
+    pub(crate) restore_keys: bool,
     pub reconnect_pending: bool,
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
@@ -47,6 +51,9 @@ pub(crate) struct TerminalView {
     pub(crate) presentation: crate::upstream::presentation::Presentation,
     /// #139: the cursor drawn last, to tell the SDK when it moved.
     pub(crate) input_indicator: crate::input_indicator::CursorWatch,
+    /// The Herdr 2 spaces this view last listed while connected: the
+    /// sidebar keeps them while there is no connected session.
+    pub(crate) listed: crate::shell::herdr2_frame::sidebar::Listed,
 }
 impl TerminalView {
     /// #139: the cursor cell moved since the last frame. GPUI then reports
@@ -248,6 +255,7 @@ impl Smoke {
             if let Some(mut live) = self.terminal.link.take_update() {
                 live.clipboard.clear();
                 self.terminal.live = live;
+                self.terminal.note_listed();
                 crate::board::finish_navigation(&mut self.terminal);
                 self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
                 cx.notify();
@@ -262,6 +270,7 @@ impl Smoke {
                 .input
                 .sync(&live, self.terminal.link.generation, self.terminal.size);
             self.terminal.live = live;
+            self.terminal.note_listed();
             crate::board::finish_navigation(&mut self.terminal);
             self.record_board(&self.terminal.reconnect.target, &self.terminal.live);
             self.flush_terminal();
@@ -363,6 +372,7 @@ impl Smoke {
             self.terminal_focus.focus(window, cx);
             self.terminal.needs_focus = false;
         }
+        self.restore_pending_terminal_keys(window, cx);
         // Submit once when an invalidated search hands focus back, again after
         // a NativeCallbackInFlight refusal, and again while the owner is busy
         // or moved (begin/complete_find_retirement); other refusals stay fenced.

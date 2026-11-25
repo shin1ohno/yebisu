@@ -1,14 +1,14 @@
 use super::{
     Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
     doc_tabs::{self, DocTabs},
-    herdr_doc_sync::DocMailbox,
+    herdr_doc_sync::{DocMailbox, DocWriter},
     screen::{self, Screen},
     sort_sessions,
     store::{self, Saved, Tab, Workspace},
     vacate::{self, Removal},
 };
 use crate::{live::Live, shell::single_pane::Mailbox};
-use sheprd_backend::{Backend as _, Role, Size, Spawn, SurfaceUpdate, Terminal as _};
+use sheprd_backend::{Backend as _, Role, Size, SurfaceUpdate, Terminal as _};
 use sheprd_core_client::{
     CoreBackend,
     wire::{Run, Terminal as ListedTerminal, TerminalState},
@@ -33,7 +33,7 @@ pub(super) fn run(
     generation: u64,
     outputs: (&Arc<Mutex<Live>>, &SessionList, &Mutex<Option<Removal>>),
     controls: (&AtomicBool, &AtomicU64, &Mailbox),
-    (commands, doc_mailbox): (Receiver<Queued>, Option<DocMailbox>),
+    (commands, doc_io): (Receiver<Queued>, Option<(DocMailbox, DocWriter)>),
     root: Option<PathBuf>,
 ) -> crate::Result<()> {
     let SessionTarget {
@@ -43,6 +43,7 @@ pub(super) fn run(
         expected_core_id,
     } = target;
     let (inbox, session_list, removal) = outputs;
+    let (doc_mailbox, doc_writer) = doc_io.unzip();
     // The server has run at least this long when this connection is made.
     let connected_at = Instant::now();
     let (stop, input_epoch, column) = controls;
@@ -142,6 +143,7 @@ pub(super) fn run(
                 persist = view != workspace.doc_view;
                 refresh(&mut sessions, &name, &workspace, &doc);
                 rows_changed = true;
+                command_error = doc.notice();
             }
         }
         for command in commands.try_iter().take(256) {
@@ -271,10 +273,18 @@ pub(super) fn run(
                     size = next;
                     changed = true;
                 }
-                Command::NewTab | Command::Split | Command::SplitInDirection(_)
-                    if doc.drawing_space() =>
-                {
-                    command_error = Some(doc_tabs::NOT_YET.to_owned());
+                // #144 D4: a terminal with the official labels, then the
+                // intent; the tab is drawn once the document has it.
+                Command::NewTab if doc.drawing_space() => {
+                    if let Err(error) = doc.new_tab(&backend, doc_writer.as_ref(), &mut workspace) {
+                        command_error = Some(error.to_string());
+                    }
+                }
+                Command::NewDocSpace => {
+                    if let Err(error) = doc.new_space(&backend, doc_writer.as_ref(), &mut workspace)
+                    {
+                        command_error = Some(error.to_string());
+                    }
                 }
                 Command::NewTab => {
                     workspace.tabs.push(spawn_tab(&backend)?);
@@ -369,6 +379,14 @@ pub(super) fn run(
                     epoch += 1;
                 }
                 Command::Split | Command::SplitInDirection(_) => {
+                    // A document tab splits with its labels, or not at all.
+                    let spawn = match doc.split_spawn(&workspace) {
+                        Ok(spawn) => spawn,
+                        Err(error) => {
+                            command_error = Some(error.to_string());
+                            continue;
+                        }
+                    };
                     let Some(saved) = active_layout_mut(&mut workspace) else {
                         continue;
                     };
@@ -379,7 +397,13 @@ pub(super) fn run(
                         Command::SplitInDirection(vertical) => vertical,
                         _ => saved.vertical,
                     };
-                    let info = backend.spawn(&Spawn::default())?;
+                    let info = backend.spawn(&spawn)?;
+                    let written = saved.ids.first().map(|first| {
+                        doc.split_written(doc_writer.as_ref(), first, &info.id, vertical)
+                    });
+                    if let Some(Err(error)) = written {
+                        command_error = Some(error.to_string());
+                    }
                     let terminal = backend.attach(
                         &info.id,
                         screen::pane_size(size, 2, vertical, column.latest())?,
@@ -622,6 +646,7 @@ fn forget_space(
     sessions: &mut Vec<SessionInfo>,
     epoch: u64,
 ) {
+    crate::diagnostics::record("herdr2_space_removed");
     {
         let _storage = store::LOCK
             .lock()

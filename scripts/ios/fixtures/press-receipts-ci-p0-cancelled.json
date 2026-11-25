@@ -1,0 +1,155 @@
+{
+ "about": "The app's own input receipts of the P0 tap (qa.p0.tap) and its one press-retry in three simulator-smoke runs of 2026-11-25 that failed SmokeQA+Terminal.swift:48 ('2' is not equal to '1'). Times are seconds after the first touch began. Issue #142 follow-up: QAAx.PressTouches.",
+ "cases": [
+  {
+   "name": "P0 main d0aa07c",
+   "run": 45574153676,
+   "job": 139144429735,
+   "source": "simulator-smoke-evidence: ios-smoke/20261125-114326-4ee576/app.jsonl and sim-resends.jsonl",
+   "resend": {
+    "kind": "press-retry",
+    "id": "qa.p0.tap",
+    "time": 5.932,
+    "reason": "the touch on qa.p0.tap was cancelled by UIKit before it ended (last_touch cancelled direct (516.0, 559.5)) and nothing moved within 5 s"
+   },
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "cancelled",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.148
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 6.31
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "ended",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 6.433
+    }
+   ]
+  },
+  {
+   "name": "P0 feat/terminal-scroll b8179fb",
+   "run": 45585296675,
+   "job": 139105319921,
+   "source": "simulator-smoke-evidence: ios-smoke/20261125-112708-4132de/app.jsonl and sim-resends.jsonl",
+   "resend": {
+    "kind": "press-retry",
+    "id": "qa.p0.tap",
+    "time": 6.088,
+    "reason": "the touch on qa.p0.tap was cancelled by UIKit before it ended (last_touch cancelled direct (516.0, 559.5)) and nothing moved within 5 s"
+   },
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "cancelled",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.306
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 7.541
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "ended",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 8.621
+    }
+   ]
+  },
+  {
+   "name": "P0 feat/herdr2-wrapped-links 7f378b7 (#157)",
+   "run": 45578440109,
+   "job": 139082591513,
+   "source": "simulator-smoke-evidence: ios-smoke/20261125-104718-d6430f/app.jsonl and sim-resends.jsonl",
+   "resend": {
+    "kind": "press-retry",
+    "id": "qa.p0.tap",
+    "time": 6.059,
+    "reason": "the touch on qa.p0.tap was cancelled by UIKit before it ended (last_touch cancelled direct (516.0, 559.5)) and nothing moved within 5 s"
+   },
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "cancelled",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 0.176
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "began",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 6.369
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "touch_kind": "direct",
+     "stage": "ended",
+     "x": 516.0,
+     "y": 559.5,
+     "time": 6.475
+    }
+   ]
+  }
+ ]
+}

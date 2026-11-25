@@ -13,7 +13,7 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
-from test_ci_sh1_152 import WORKFLOW, decisions
+from test_ci_sh1_152 import WORKFLOW, decisions, pr_areas
 
 
 MACOS_JOBS = ("check", "simulator-smoke", "edit-menu", "layout-smoke")
@@ -83,20 +83,21 @@ class WorkflowSelectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertFalse(decisions("pull_request", unrelated, tmp)["layout-mutations"])
 
-    def test_missing_pr_diff_keeps_pr_jobs_without_claiming_mutations_matched(self):
+    def test_missing_pr_diff_keeps_check_without_claiming_mutations_matched(self):
         with tempfile.TemporaryDirectory() as tmp:
             selected = decisions("pull_request", ["docs/ci-simulator.md"], tmp, invalid_diff=True)
-        self.assertEqual(selected, {"check": True, "simulator-smoke": True, "edit-menu": True,
+        self.assertEqual(selected, {"check": True, "simulator-smoke": False, "edit-menu": False,
                                     "layout-smoke": False, "layout-mutations": False})
 
-    def test_test_only_paths_still_select_the_applicable_simulator_jobs(self):
+    def test_test_only_paths_are_in_the_applicable_simulator_areas(self):
         for path, edit_menu in (("crates/yebisu/src/find/settle_tests.rs", False),
                                 ("crates/yebisu/src/layout/tests.rs", True),
                                 ("scripts/ios/smoke-qa/Tests/SmokeQA.swift", True)):
             with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
-                selected = decisions("pull_request", [path], tmp)
-                self.assertTrue(selected["simulator-smoke"])
-                self.assertEqual(selected["edit-menu"], edit_menu)
+                selected, areas = pr_areas([path], tmp)
+                self.assertIn("simulator-smoke", areas)
+                self.assertEqual("edit-menu" in areas, edit_menu)
+                self.assertFalse(selected["simulator-smoke"] or selected["edit-menu"])
 
 
 def successful_jobs():

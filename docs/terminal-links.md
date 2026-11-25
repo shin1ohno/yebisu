@@ -79,29 +79,43 @@ Terminal content is untrusted (AGENTS.md):
 
 Differences from the fork:
 
-- Neither Herdr's surface carries a soft-wrap flag, so a line the terminal
-  wrapped and a line that happened to end at the right edge look the same
-  (review F1: an address ending at the edge was opened joined with the next
-  line's first word, an address the screen never shows). An address is only
-  a candidate (`Link::unproven`) when it is read across rows, when it runs
-  into the right edge of a row whose next row is not certainly a new line
-  (a next row starting with a blank is one, as a wrapped address would go on
-  with its next character there), or when its rows run past 16. A candidate
-  is never opened as read. As the fork does, yebisu asks the Herdr 1 daemon
-  (`pane.link.resolve`, `terminal_links/resolve.rs`), whose terminal knows
-  its soft wraps, and opens what the cells it names show: the whole wrapped
-  address, which the status line shows whole as it opens, or only the row's
-  address when the line ended at the edge. A stale screen, an error or no
-  answer within 5 s opens nothing and says so. Herdr 2's terminal is emulated
-  in the app (`sheprd-terminal`), whose frames drop the wrap flag, and has no
-  such request, so there a candidate opens nothing and the status line says
-  why.
+- Herdr 1's surface carries no soft-wrap flag, so there a line the
+  terminal wrapped and a line that happened to end at the right edge look
+  the same (review F1: an address ending at the edge was opened joined with
+  the next line's first word, an address the screen never shows). An
+  address is only a candidate (`Link::unproven`) when it is read across
+  rows, when it runs into the right edge of a row whose next row is not
+  certainly a new line (a next row starting with a blank is one, as a
+  wrapped address would go on with its next character there), or when its
+  rows run past 16. A candidate is never opened as read. As the fork does,
+  yebisu asks the Herdr 1 daemon (`pane.link.resolve`,
+  `terminal_links/resolve.rs`), whose terminal knows its soft wraps, and
+  opens what the cells it names show: the whole wrapped address, which the
+  status line shows whole as it opens, or only the row's address when the
+  line ended at the edge. A stale screen, an error or no answer within 5 s
+  opens nothing and says so.
+- Herdr 2's terminal is emulated in the app (`sheprd-terminal`), whose frames
+  carry the emulator's `WRAPLINE` as `CellData::modifier` bit 9 (`SOFT_WRAP`,
+  fork `sheprd-terminal` `cells.rs`, #141) on the last cell of a row it
+  wrapped. The mark proves both a wrap and a line end, so a wrapped address
+  opens whole (status `Opening {whole}`), and an address ending at the edge
+  above a new line opens as shown. Only what the marks cannot settle stays a
+  candidate, which opens nothing and says why (Herdr 2 has no
+  `pane.link.resolve`): an address starting at the pane's top-left cell
+  (it may go on from a row the frame does not show; it is read as Herdr 1
+  reads it), one read past 16 rows, and a pane whose emulator frame is not
+  yet the pane's width (the composer marks it `UNMARKED`, a yebisu-only bit
+  never on the wire, as after a reconnect its first frames are 80 x 24).
+  Herdr 1 frames never set bit 9, and yebisu reads it only on Herdr 2.
 - A wide glyph that does not fit in a row's last cell goes to the next row,
   and both terminals leave a blank in that cell (Herdr 1: ghostty's spacer
   head, `src/pane/terminal.rs` writes `" "`; Herdr 2: alacritty's leading
   wide-char spacer, `sheprd-terminal` `cells.rs:102`). Such a row may go on
   too (review F3): text reaching the cell before the blank, under a row that
   starts with a wide glyph, is a candidate, and the blank is no part of it.
+  On Herdr 2 the spacer carries the wrap mark, which proves the row goes on;
+  a blank without it is a real line end. A wide glyph that fills the row
+  carries the mark on its second (`skip`) cell, where alacritty puts it.
 - The fork opens files and some other schemes on the machine that runs the
   pane. The iPad does not run the pane, so yebisu refuses them.
 
@@ -112,10 +126,14 @@ its own pane's target.
 
 ## Checks
 
-- Linux: `cargo test -p yebisu terminal_links core::screen::tests::links`.
+- Host: `cargo test --locked -p yebisu -- terminal_links core::screen::tests`.
   `terminal_links_tests/tap.rs` presses through GPUI's real mouse and touch
   dispatch on the Herdr 1 wire peer and reads GPUI's platform open and the
-  peer's received input.
+  peer's received input. Herdr 2's marks: `terminal_links::tests::marked`
+  (hand-built marked frames), `terminal_links::tests::core_open` (the same
+  dispatch on a view switched to Herdr 2) and `core::screen::tests::wrap`
+  (composition keeps each pane's marks, `UNMARKED`, and the pinned
+  `sheprd-terminal` emulator's own marks on the Herdr 2 fixture).
 - The Herdr 1 wire peer answers `pane.link.resolve` as a terminal that knows
   its wraps (`qa::mock_regions`): the fixture's wrapped address spans its
   rows, the address ending at the edge of row 18 (`EDGE`, above `tail` on
@@ -125,7 +143,8 @@ its own pane's target.
   launch with `YEBISU_URL_TAP_QA`, press each fixture link with the
   Simulator's hardware Command held, and check the app's own open receipt in
   `qa.state` (`url_open`, `url_open_last`), Safari in front, and the peer's
-  input count. `SmokeQA/testUrlCommandUnderlineShot` launches with
+  input count; on Herdr 2 `core_wrapped`, which the emulator wraps, opens
+  whole (#141). `SmokeQA/testUrlCommandUnderlineShot` launches with
   `YEBISU_URL_TAP_QA=hover`, which takes the pointer to rest on the plain
   address with Command held, and saves a screenshot of the underline; XCTest
   cannot hover a pointer on iPad. None of them is in the CI job selection.
@@ -134,10 +153,26 @@ its own pane's target.
   `plain-safari.png`, `edge-safari.png`, `wrapped-safari.png`,
   `osc8-safari.png`, `core-osc8-safari.png` (Safari in front after each
   Command + tap), `mailto-refused.png`, `path-refused.png` and
-  `core-wrapped-refused.png` (yebisu still in front after a refused press),
+  `core-wrapped-refused.png` (yebisu still in front after a refused press;
+  the `core-wrapped` one predates #141, which opens that address),
   `command-underline.png` (the Command underline on the plain address) and
   `artboard-open-url.png` (the design record).
 - Back from Safari, a Herdr 2 session reconnects with a new boot and its
   first frames are 80 x 24 until the resize, so the test presses a link only
   once its point and frame (`url_targets.surface`) held for two seconds, and
   `qa.state` `url_press` records the cell and row text each press read.
+
+## Device checks (owner)
+
+Hardware keyboard and trackpad on the owner's iPad; Simulator checks do not
+prove them (AGENTS.md). Herdr 2 checks print the address below the pane's
+first row, as an address from its top-left cell stays refused.
+
+| Check | What | Date | iPad model | iPadOS | Herdr | Result |
+|---|---|---|---|---|---|---|
+| O1 | A URL longer than the row: Command + finger tap and Command + pointer click on each row open the whole URL in Safari; status `Opening {whole}` | | | | 2 | not run |
+| O2 | An address exactly the row width, then another word on the next line: Command + tap opens only the address | | | | 2 | not run |
+| O3 | Rotate the iPad (width change), then O1 and O2 again | | | | 2 | not run |
+| O4 | An address with Japanese (wide) characters that meets the row edge opens whole, with no stray space | | | | 2 | not run |
+| O5 | Back from Safari, a tap without Command opens nothing (focus and selection as before) | | | | 2 | not run |
+| O6 | A Herdr 1 pane behaves as before (the daemon's `pane.link.resolve`) | | | | 1 | not run |

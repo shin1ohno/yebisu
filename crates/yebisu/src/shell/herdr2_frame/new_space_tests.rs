@@ -234,23 +234,17 @@ fn new_space_create_sends_herdr1_workspace_request(cx: &mut gpui::TestAppContext
 }
 
 #[gpui::test]
-fn new_space_create_names_herdr2_and_remembers_only_ready_session(cx: &mut gpui::TestAppContext) {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let millis = || {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|error| panic!("fixture clock: {error}"))
-            .as_millis()
-    };
+fn new_space_create_uses_the_default_session_and_remembers_only_ready_session(
+    cx: &mut gpui::TestAppContext,
+) {
+    // #144 decision 10 (AC10): Herdr 2's New space is a space in the
+    // `default` core's document; no `space-<ms>` session is started.
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     choose(&view, cx, HerdrKind::Herdr2);
-    let before = millis();
     let (mock, _) =
         crate::core_mock::recorded(false).unwrap_or_else(|error| panic!("Herdr 2 peer: {error}"));
     view.update(cx, |this, _| this.terminal.core_test_backend = Some(mock));
     click(cx, "new-space-create-0");
-    let after = millis();
     let name = view.read_with(cx, |this, _| {
         assert!(!this.new_space_open());
         this.terminal
@@ -260,11 +254,7 @@ fn new_space_create_names_herdr2_and_remembers_only_ready_session(cx: &mut gpui:
             .name()
             .to_owned()
     });
-    let stamp = name
-        .strip_prefix("space-")
-        .and_then(|stamp| stamp.parse::<u128>().ok())
-        .unwrap_or_else(|| panic!("expected space-<ms>, got {name}"));
-    assert!((before..=after).contains(&stamp));
+    assert_eq!(name, "default", "no space-<ms> session");
     wait(&view, cx, |this| this.terminal.live.connected);
     cx.run_until_parked();
     view.update(cx, |this, cx| {
@@ -279,6 +269,63 @@ fn new_space_create_names_herdr2_and_remembers_only_ready_session(cx: &mut gpui:
     view.read_with(cx, |this, _| {
         assert_eq!(this.shell.herdr2.selected_session(HOST), name);
     });
+}
+
+#[gpui::test]
+fn herdr2_new_space_writes_document_space(cx: &mut gpui::TestAppContext) {
+    use crate::core::herdr_doc_sync::{DocPlan, DocSource};
+    let host = crate::core_mock::Host::default();
+    host.doc().set_silent(
+        serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
+            .unwrap_or_else(|error| panic!("fixture: {error}")),
+    );
+    let (backend, _) = host
+        .recorded(false)
+        .unwrap_or_else(|error| panic!("Herdr 2 peer: {error}"));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.select_host(HOST);
+        this.terminal.reconnect.begin(HOST.into());
+        let generation = this.terminal.link.reset_for_core();
+        this.terminal.core_mode = true;
+        this.terminal.core = Some(
+            crate::core::Session::start_doc(
+                HOST.into(),
+                generation,
+                this.terminal.link.inbox.clone(),
+                move || Ok(backend),
+                None,
+                crate::shell::single_pane::Mailbox::detached(),
+                DocPlan {
+                    source: DocSource::Core,
+                    period: std::time::Duration::from_millis(200),
+                },
+            )
+            .unwrap_or_else(|error| panic!("start: {error}")),
+        );
+    });
+    wait(&view, cx, |this| !this.core_tabs().is_empty());
+    choose(&view, cx, HerdrKind::Herdr2);
+    click(cx, "new-space-create-0");
+    let spaces = || host.doc().doc().0["spaces"].as_array().map_or(0, Vec::len);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while spaces() != 3 {
+        assert!(std::time::Instant::now() < until, "no document space");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    view.read_with(cx, |this, _| {
+        let core = this
+            .terminal
+            .core
+            .as_ref()
+            .unwrap_or_else(|| panic!("core"));
+        assert_eq!(
+            core.name(),
+            "default",
+            "the same session, not a space-<ms> one"
+        );
+    });
+    assert_eq!(host.doc().sets().len(), 1);
 }
 
 #[gpui::test]

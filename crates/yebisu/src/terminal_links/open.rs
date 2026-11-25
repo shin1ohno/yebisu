@@ -48,10 +48,16 @@ impl Smoke {
                     self.refuse_link(&Refusal::Unproven);
                 }
             }
+            // Read across rows and not unproven: a wrap Herdr 2's soft-wrap
+            // marks proved, which no row shows whole.
             Some(Link {
                 target: Target::Web(url),
+                continued,
                 ..
-            }) => self.open_web_link(&url, None, cx),
+            }) => {
+                let whole = (!continued.is_empty()).then_some(url.as_str());
+                self.open_web_link(&url, whole, cx)
+            }
             Some(Link {
                 target: Target::Refused(refusal),
                 ..
@@ -85,7 +91,7 @@ impl Smoke {
                     .collect::<String>(),
             })
         });
-        let link = pane_link_at(&surface, column, row);
+        let link = pane_link_at(&surface, column, row, self.terminal.core_mode);
         Some((surface, (column, row), link))
     }
 
@@ -93,8 +99,9 @@ impl Smoke {
         self.actions.key_status = Some(KeyStatus::new(text, &self.terminal, self.board.selection));
     }
 
-    /// Opens `url`; `joined` is the whole address when Herdr proved that it
-    /// wraps, which the status line then shows, since no row shows it whole.
+    /// Opens `url`; `joined` is the whole address when Herdr, or a Herdr 2
+    /// frame's soft-wrap marks, proved that it wraps, which the status line
+    /// then shows, since no row shows it whole.
     pub(super) fn open_web_link(
         &mut self,
         url: &str,
