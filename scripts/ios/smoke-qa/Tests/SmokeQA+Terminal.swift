@@ -50,10 +50,10 @@ extension SmokeQA {
         app.typeText("P0-input")
         try waitP0Input(qa, "P0-input", what: "typed 'P0-input' received")
         save("initial")
-        XCUIDevice.shared.press(.home)
+        // Home; one that never reached SpringBoard is pressed once more (QAAx.pressHome, class K).
         // activate() issued while the Home press is still being handled leaves the app
         // suspended in the background (class C of the L17 diagnosis).
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "app left the foreground after press(.home)")
+        try leaveForeground(app, qa, "app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "activate() after press(.home)")
         try waitP0Input(qa, "P0-input", what: "repaint of 'P0-input' after returning")

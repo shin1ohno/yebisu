@@ -1,5 +1,8 @@
 //! Private socketpair peer speaking the pinned core framing and hello protocol.
+pub(crate) mod doc;
 pub(crate) mod paste;
+#[cfg(test)]
+mod qa_tick_tests;
 #[cfg(test)]
 pub(crate) mod transport;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -15,12 +18,18 @@ use std::{
     time::Duration,
 };
 
-/// The remote terminal namespace outlives any one client connection.
+/// The remote terminal namespace and documents outlive any one connection.
 #[derive(Clone)]
-pub(crate) struct Host(Arc<Mutex<Vec<String>>>);
+pub(crate) struct Host {
+    terminals: Arc<Mutex<Vec<String>>>,
+    doc: doc::Store,
+}
 impl Default for Host {
     fn default() -> Self {
-        Self(Arc::new(Mutex::new(vec!["t1".into(), "t2".into()])))
+        Self {
+            terminals: Arc::new(Mutex::new(vec!["t1".into(), "t2".into()])),
+            doc: doc::Store::qa(),
+        }
     }
 }
 
@@ -34,6 +43,55 @@ fn qa_statuses() -> bool {
 /// spawned pane report nothing (status-less shells, Q4).
 pub(crate) fn qa_status(id: &str) -> Option<Value> {
     (id == "t2").then(|| json!({"app":"qa","state":"error","title":"QA error agent"}))
+}
+
+/// T-IM-S4 (#139): the mock has no shell to run a background job, so under
+/// `YEBISU_CORE_QA` the typed line `yebisu-139-tick` makes its channel print
+/// one `.` per interval for a while. The output moves the cursor while the
+/// Simulator check holds a composition open.
+struct QaTicks {
+    enabled: bool,
+    every: Duration,
+    typed: Vec<u8>,
+    // (channel, next tick, ticks left)
+    due: Option<(u32, std::time::Instant, u32)>,
+}
+impl QaTicks {
+    const LINE: &[u8] = b"yebisu-139-tick\r";
+    fn new(enabled: bool, every: Duration) -> Self {
+        Self {
+            enabled,
+            every,
+            typed: Vec::new(),
+            due: None,
+        }
+    }
+    fn typed(&mut self, channel: u32, bytes: &[u8]) {
+        if !self.enabled {
+            return;
+        }
+        // Return may arrive as either byte.
+        self.typed
+            .extend(bytes.iter().map(|&b| if b == b'\n' { b'\r' } else { b }));
+        let stale = self.typed.len().saturating_sub(Self::LINE.len());
+        self.typed.drain(..stale);
+        if self.typed == Self::LINE {
+            self.due = Some((channel, std::time::Instant::now() + self.every, 60));
+        }
+    }
+    fn tick(&mut self) -> Option<u32> {
+        let (channel, next, left) = self.due.as_mut()?;
+        if std::time::Instant::now() < *next {
+            return None;
+        }
+        let channel = *channel;
+        *next += self.every;
+        *left -= 1;
+        if *left == 0 {
+            self.due = None;
+        }
+        Some(channel)
+    }
 }
 
 type Receipts = mpsc::Receiver<(u32, Vec<u8>)>;
@@ -63,7 +121,8 @@ impl Host {
         probe: paste::Probe,
         #[cfg(test)] gate: Option<transport::Control>,
     ) -> crate::Result<(CoreBackend, Receipts)> {
-        let namespace = self.0.clone();
+        let namespace = self.terminals.clone();
+        let doc = self.doc.clone();
         let (client, mut server) = UnixStream::pair()?;
         client.set_read_timeout(Some(Duration::from_millis(10)))?;
         client.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -97,10 +156,18 @@ impl Host {
                 let mut next_channel = 1;
                 let mut channels = std::collections::BTreeMap::new();
                 let mut pending = std::collections::BTreeMap::<usize, Value>::new();
+                let mut ticks = QaTicks::new(qa_statuses(), Duration::from_secs(2));
+                // Event subscriptions never echo input; `seen` counts doc events.
+                let (mut subscriptions, mut seen) = (std::collections::BTreeSet::new(), 0);
                 loop {
                     let frame: Frame = loop {
                         if probe.close.load(std::sync::atomic::Ordering::Acquire) {
                             return Ok(());
+                        }
+                        if let Some(channel) = ticks.tick()
+                            && channels.contains_key(&channel)
+                        {
+                            server.write_all(&encode(channel, Kind::Data, b".")?)?;
                         }
                         if probe.end.swap(false, std::sync::atomic::Ordering::AcqRel) {
                             for channel in channels.keys() {
@@ -119,6 +186,11 @@ impl Host {
                                 probe
                                     .replies_written
                                     .fetch_add(1, std::sync::atomic::Ordering::Release);
+                            }
+                        }
+                        for line in doc.events_after(&mut seen) {
+                            for channel in &subscriptions {
+                                server.write_all(&encode(*channel, Kind::Data, &line)?)?;
                             }
                         }
                         #[cfg(test)]
@@ -145,6 +217,9 @@ impl Host {
                         decoder.push(&buffer[..count]);
                     };
                     if frame.channel != 0 {
+                        if frame.kind == Kind::Close {
+                            subscriptions.remove(&frame.channel);
+                        }
                         if frame.kind == Kind::Data {
                             probe.lock().inputs.push((
                                 channels.get(&frame.channel).cloned().unwrap_or_default(),
@@ -187,6 +262,7 @@ impl Host {
                                         Kind::Data,
                                         &frame.payload,
                                     )?)?;
+                                    ticks.typed(frame.channel, &frame.payload);
                                 }
                             }
                             let _ = send.send((frame.channel, frame.payload));
@@ -199,7 +275,7 @@ impl Host {
                     let request: Value = serde_json::from_slice(&frame.payload)?;
                     let mut channel = None;
                     let terminal = |id: &str| {
-                        let mut t = json!({"address":id,"labels":{},"argv":["sh"],"cwd":"/tmp","state":"live","created_ms":1,"screen":"","cols":80,"rows":24});
+                        let mut t = json!({"address":id,"labels":doc.labels(id),"argv":["sh"],"cwd":"/tmp","state":"live","created_ms":1,"screen":"","cols":80,"rows":24});
                         if qa_statuses()
                             && let Some(status) = qa_status(id)
                         {
@@ -227,6 +303,17 @@ impl Host {
                         }
                         continue;
                     }
+                    let method = request["method"].as_str().unwrap_or_default();
+                    if let Some(answer) = doc.call(method, &request["params"]) {
+                        let reply = match answer {
+                            Ok(result) => {
+                                json!({"jsonrpc":"2.0","id":request["id"],"result":result})
+                            }
+                            Err(error) => json!({"jsonrpc":"2.0","id":request["id"],"error":error}),
+                        };
+                        server.write_all(&encode(0, Kind::Data, reply.to_string().as_bytes())?)?;
+                        continue;
+                    }
                     let result = match request["method"].as_str() {
                         Some("terminal.list") => {
                             let ids = namespace
@@ -247,6 +334,7 @@ impl Host {
                                 .clone()
                                 .unwrap_or_else(|| format!("t{next}"));
                             ids.push(id.clone());
+                            doc.record_labels(&id, &request["params"]["labels"]);
                             terminal(&id)
                         }
                         Some("terminal.kill") => {
@@ -281,6 +369,16 @@ impl Host {
                             t["cols"] = request["params"]["cols"].clone();
                             t["rows"] = request["params"]["rows"].clone();
                             json!({"channel":number,"terminal":t})
+                        }
+                        Some("events.subscribe") => {
+                            let number = next_channel;
+                            next_channel += 1;
+                            subscriptions.insert(number);
+                            seen = doc.event_count();
+                            let ids = namespace
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            json!({"channel":number,"seq":0,"terminals":ids.iter().map(|id|terminal(id)).collect::<Vec<_>>()})
                         }
                         _ => json!({}),
                     };
@@ -378,5 +476,16 @@ pub(crate) fn named(
     address: &str,
 ) -> crate::Result<(CoreBackend, Receipts)> {
     probe.spawn_address = Some(address.to_owned());
-    Host(Arc::new(Mutex::new(Vec::new()))).with_paste(false, probe)
+    let host = Host {
+        terminals: Arc::new(Mutex::new(Vec::new())),
+        doc: doc::Store::default(),
+    };
+    host.with_paste(false, probe)
+}
+#[cfg(test)]
+impl Host {
+    /// The host's documents, for tests to change and read.
+    pub(crate) fn doc(&self) -> &doc::Store {
+        &self.doc
+    }
 }

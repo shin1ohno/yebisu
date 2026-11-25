@@ -10,6 +10,13 @@ import platform
 import shutil
 import subprocess
 
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
+
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("p12_oracle", Path(__file__).with_name("p12-oracle.py"))
 oracle = importlib.util.module_from_spec(spec)
@@ -38,6 +45,34 @@ def terminate(device):
         raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
+def negative_control(directory, fault, tested, ui, screenshots, identity):
+    """A control that must fail by name without a resend (drop-pick-twice, offset-pick): the run passes
+    only when XCTest or the oracle failed naming its case and words (oracle.failed_as_expected); a run
+    that passed, or failed for another reason, fails here. Never used without P12_QA_FAULT."""
+    failure = (directory / "xctest.stdout").read_text()
+    oracle_error = ""
+    if ui is not None:
+        try:
+            oracle.validate(live_jsonl.read_records(directory / "app.jsonl"), live_jsonl.read_records(directory / "peer.jsonl"),
+                            ui, screenshots)
+        except (OSError, ValueError) as error:
+            oracle_error = str(error)
+    if tested.returncode == 0 and not oracle_error:
+        raise SystemExit(f"negative control {fault} did not fail: the pick it disturbs succeeded")
+    if not oracle.failed_as_expected(fault, failure + "\n" + oracle_error, ui or []):
+        raise SystemExit(f"negative control {fault} failed, but not by its name or with a resend; oracle: {oracle_error!r}")
+    words, case = oracle.expected_failure(fault)
+    line = next((line for line in (failure + "\n" + oracle_error).splitlines() if words in line and f"case {case}" in line), "")
+    try:
+        retries = oracle.validate_retries(ui) if ui is not None else None
+    except ValueError as error:
+        retries = {"invalid": str(error)}
+    verdict = {"negative_control": "failed as expected", "failure": line.strip(), "xctest_exit": tested.returncode,
+               "retries": retries, **identity}
+    (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
+    print(json.dumps(verdict), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -60,7 +95,11 @@ def main():
     def run(label, command, guarded=False, check=True, env=None):
         if guarded:
             command = ["python3", "scripts/guarded.py", *command]
-        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, env=env)
+        if label == "xctest":
+            # Issue #142 stage 4 (class D): once more when xcodebuild found no device and ran no test.
+            result = sim_ready.run_test(command, lambda: subprocess.run(command, cwd=ROOT, capture_output=True, text=True, env=env))
+        else:
+            result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, env=env)
         (directory / f"{label}.stdout").write_text(result.stdout)
         (directory / f"{label}.stderr").write_text(result.stderr)
         steps.append({"label": label, "command": command, "exit": result.returncode})
@@ -115,10 +154,14 @@ def main():
     # P12QA finds the fixture controls and reads qa.state with SmokeQA's QA layer helper.
     shutil.copyfile(ROOT / "scripts/ios/smoke-qa/Tests/QAAx.swift", project / "Tests/QAAx.swift")
     run("xcodegen", ["xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project)])
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "P12Oracle.xcodeproj", "P12Oracle", device)
     result_path = directory / "result.xcresult"
     derived = directory / "xcode-derived"
     fault = os.environ.get("P12_QA_FAULT", "")
-    oracle.require(oracle.valid_fault(fault), f"P12_QA_FAULT must be drop-tap:<step> or skip-swipe:<case> items, got {fault!r}")
+    oracle.require(oracle.valid_fault(fault), "P12_QA_FAULT must be drop-tap:<step>, or skip-swipe, drop-open, drop-pick, "
+                   f"drop-pick-twice or offset-pick:<case> items, got {fault!r}")
+    expected = oracle.expected_failure(fault)
     try:
         tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
             "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
@@ -144,13 +187,20 @@ def main():
             if name.startswith("p12-ui-events"):
                 ui = json.loads(data)
             screenshots.update(oracle.screenshot_names(name, data))
+    # Issue #142 stage 4: this check's proven resends for the job's budget, also when XCTest failed.
+    resends = resend_budget.record("p12-check", tested.stdout)
+    if expected:
+        negative_control(directory, fault, tested, ui, screenshots, dict(head=head, device=device, fault=fault))
+        return
     tested.check_returncode()
     oracle.require(ui is not None, "actual XCTest UI event attachment missing")
     records = live_jsonl.read_records(directory / "app.jsonl")
     messages = live_jsonl.read_records(directory / "peer.jsonl")
     verdict = oracle.validate(records, messages, ui, screenshots)
     oracle.validate_faults(fault, ui)
-    verdict.update(head=head, device=device, screenshot_count=len(screenshots), fault=fault,
+    logged = sum(len(entries) for entries in verdict["retries"].values())
+    oracle.require(len(resends) == logged, f"QA-RESEND lines ({len(resends)}) and the verdict's retries ({logged}) disagree")
+    verdict.update(head=head, device=device, screenshot_count=len(screenshots), fault=fault, resends=len(resends),
                    heartbeat_gaps=live_jsonl.heartbeat_gaps(records))
     (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
     print(json.dumps(verdict), flush=True)

@@ -35,11 +35,22 @@ final class SmokeQA: XCTestCase {
     /// t=61 s, state still runningForeground at t=92 s), so each pass asks XCTest to wait for a state.
     func requireState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
                       timeout: TimeInterval = 30) throws {
+        let (reached, observed) = reachState(app, states, what, timeout: timeout)
+        if reached { return }
+        save("state-wait-failed")
+        XCTFail("\(what): app.state is \(stateName(observed)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
+        throw NSError(domain: "SmokeQA.StateWait", code: 1)
+    }
+
+    /// `requireState`'s wait without its failure: whether the app reached one of `states` within
+    /// `timeout`, and the state read once at the end (issue #142 stage 4: QAAx.pressHome's wait).
+    func reachState(_ app: XCUIApplication, _ states: [XCUIApplication.State], _ what: String,
+                    timeout: TimeInterval = 30) -> (reached: Bool, observed: XCUIApplication.State) {
         let start = Date()
         while true {
             for state in states where app.wait(for: state, timeout: 0.5) {
                 print(String(format: "WAIT ok %@: app.state=%@ after %.2f s", what, stateName(state), Date().timeIntervalSince(start)))
-                return
+                return (true, state)
             }
             if Date().timeIntervalSince(start) >= timeout {
                 // Read the state once: the verdict and the message must come from the same
@@ -47,13 +58,27 @@ final class SmokeQA: XCTestCase {
                 let observed = app.state
                 if states.contains(observed) {
                     print(String(format: "WAIT ok %@: app.state=%@ after %.2f s (late)", what, stateName(observed), Date().timeIntervalSince(start)))
-                    return
+                    return (true, observed)
                 }
-                save("state-wait-failed")
-                XCTFail("\(what): app.state is \(stateName(observed)) after \(Int(timeout)) s, wanted \(states.map(stateName))")
-                throw NSError(domain: "SmokeQA.StateWait", code: 1)
+                return (false, observed)
             }
         }
+    }
+
+    /// Home, then `requireState`'s background wait (30 s); a Home that never reached SpringBoard is
+    /// pressed once more (QAAx.pressHome, class K), and a second miss fails as before, by `what`.
+    func leaveForeground(_ app: XCUIApplication, _ qa: QAAx, _ what: String, timeout: TimeInterval = 30) throws {
+        let background: [XCUIApplication.State] = [.runningBackground, .runningBackgroundSuspended]
+        var observed = app.state
+        let left = qa.pressHome(what) {
+            let result = reachState(app, background, what, timeout: timeout)
+            observed = result.observed
+            return result.reached
+        }
+        if left { return }
+        save("state-wait-failed")
+        XCTFail("\(what): app.state is \(stateName(observed)) after \(Int(timeout)) s, wanted \(background.map(stateName))")
+        throw NSError(domain: "SmokeQA.StateWait", code: 1)
     }
 
     func save(_ name: String) {

@@ -71,8 +71,16 @@ fn every_list_tracks_its_indicator_and_draws_its_thumb() {
     ];
     for (field, source) in sources {
         let flat: String = source.chars().filter(|c| !c.is_whitespace()).collect();
-        let tracked =
-            format!(".overflow_y_scroll().track_scroll(self.shell.indicators.{field}.handle())");
+        // A rename scrolls the sidebar too (issue #143), so the sidebar list
+        // tracks the rename's handle and its indicator shares that handle.
+        let handle = if field == "sidebar" {
+            let shared = "self.shell.indicators.sidebar.share(&self.shell.rename.sidebar_scroll);";
+            assert_eq!(flat.matches(shared).count(), 1, "sidebar shares the handle");
+            "&self.shell.rename.sidebar_scroll".to_string()
+        } else {
+            format!("self.shell.indicators.{field}.handle()")
+        };
+        let tracked = format!(".overflow_y_scroll().track_scroll({handle})");
         let thumb = format!("self.shell.indicators.{field}.thumb()");
         assert_eq!(
             flat.matches(&tracked).count(),

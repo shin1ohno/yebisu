@@ -46,8 +46,7 @@ extension SmokeQA {
         save("p2-copied")
 
         // Home and return are a lifecycle check; terminate+launch is a restart.
-        XCUIDevice.shared.press(.home)
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P2 after Home")
+        try leaveForeground(app, qa, "P2 after Home")
         app.activate()
         try qa.waitState("P2 the same process after Home and return", timeout: 30) {
             $0.launch == first.launch && $0.int("copied") == 1

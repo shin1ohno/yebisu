@@ -20,7 +20,7 @@ use sheprd_client::{
 };
 
 // R26: the fork's docs/agent-labels.md limits pane and task captions to 160 characters.
-const CAPTION_LIMIT: usize = 160;
+pub(crate) const CAPTION_LIMIT: usize = 160;
 
 /// Why a host is not connected (SidebarSpec 4). Fixed labels only: the
 /// daemon's or SSH's own text is untrusted and is never drawn here.

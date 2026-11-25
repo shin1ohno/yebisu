@@ -30,6 +30,20 @@ class JobTests(unittest.TestCase):
         self.assertNotIn("retry", job.lower())
         self.assertNotIn("continue-on-error", job)
 
+    def test_both_simulator_jobs_end_with_the_resend_budget(self):
+        """Issue #142 stage 4 (Owner decision 5): more than 3 proven resends fail the job by name,
+        judged after every check ran (if: always()), and the ledger is kept as evidence."""
+        smoke = re.search(r"^  simulator-smoke:\n(.*?)^  check:\n", WORKFLOW, re.S | re.M).group(1)
+        step = ("      - name: Simulator input resend budget\n        if: always()\n"
+                "        run: python3 scripts/ios/resend_budget.py judge target/sim-resends.jsonl\n")
+        for name, job, last_check in (("edit-menu", self.job(), "run: just guarded python3 scripts/ios/ci-sh1-152.py\n"),
+                                      ("simulator-smoke", smoke, "run: just guarded python3 scripts/ios/p12-ci.py\n")):
+            with self.subTest(job=name):
+                self.assertEqual(job.count(step), 1)
+                self.assertLess(job.index(last_check), job.index(step))
+                self.assertLess(job.index(step), job.index("uses: actions/upload-artifact@v4"))
+                self.assertIn("            target/sim-resends.jsonl\n", job)
+
     def test_the_driver_runs_the_four_scripts_in_order(self):
         driver = (HERE / "ci-sh1-152.py").read_text()
         names = re.findall(r'"([a-z0-9_-]+-check\.py)"', driver)
@@ -109,13 +123,18 @@ UNRELATED = {
     "find": "P13 search; test_find_search_change_skips_it keeps search changes off edit-menu pull requests. Its closing-press "
             "check runs on every terminal KeyDown (terminal_controls.rs) but owns no key unless search was open; push to main runs edit-menu",
     "find_view": "P13 search bar and its open/close focus, which no edit-menu check opens (same decision as find)",
+    "forwards": "outside the checks: port forwards (issue 140), polled from app.rs and paused from reconnect.rs; no edit-menu check starts one",
     "front_layer": "outside the checks: P12 front layer, called from app.rs",
     "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
     "hosts": "outside the checks: host list, called from terminal_view.rs",
+    "input_indicator": "#139: tells the SDK the cursor cell moved (invalidate_character_coordinates); decides no "
+                       "selection, edit or menu. Its call site is in terminal_view.rs, which the pattern matches",
     "keep_awake": "display idle timer synced by app.rs and reconnect.rs; the edit-menu checks assert selection, "
                   "editing and input behavior without testing display sleep",
     "keys": "outside the checks: device keys, called from settings/key_ops.rs",
+    "launch_restore": "outside the checks: cold-launch restore, called from app.rs and terminal_view.rs; a "
+                      "Simulator launch with any YEBISU_ variable skips it, so no edit-menu check reaches it",
     "native_menus_qa": "P12 native menu QA scene (YEBISU_P12_QA), called from app.rs",
     "notification_settings": "unreferenced",
     "notification_view": "outside the checks: notification banner, called from app.rs",
@@ -195,6 +214,13 @@ class PathFilterTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))
 
+    def test_the_stage_4_harness_scripts_run_both_simulator_jobs(self):
+        for path in ("scripts/ios/sim_ready.py", "scripts/ios/resend_budget.py"):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
+                selected = decisions("pull_request", [path], tmp)
+                self.assertTrue(selected["edit-menu"])
+                self.assertTrue(selected["simulator-smoke"])
+
     def test_every_path_added_after_review_runs_it(self):
         """Each path the first review found the checks driving but the pattern missing."""
         for path in (
@@ -211,6 +237,7 @@ class PathFilterTests(unittest.TestCase):
             "crates/yebisu/src/link.rs", "crates/yebisu/src/theme.rs", "crates/yebisu/src/board.rs", "crates/yebisu/src/i18n.rs",
             "scripts/ios/sh1-156-check.py", "crates/yebisu/src/sh1_156_qa.rs",
             "crates/yebisu/src/input_retirement.rs", "crates/yebisu/src/native_retirement.rs",
+            "scripts/ios/search-check.py", "scripts/ios/test_search_check.py",
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))

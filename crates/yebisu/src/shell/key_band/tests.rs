@@ -454,3 +454,64 @@ fn the_key_band_ignores_vertical_swipes(cx: &mut TestAppContext) {
         "a sideways swipe must move the overflowing band"
     );
 }
+
+/// While the native search panel is up (issue #138), a band press that began
+/// on the old layout changes nothing: Hide dismisses no keyboard and keeps
+/// the latch, and a key sends no input.
+#[gpui::test]
+fn band_presses_while_search_is_open_change_nothing(cx: &mut TestAppContext) {
+    use crate::shell::search::{SearchEvent, tests::fake::RecordedSearch};
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(size(px(1376.), px(1032.)));
+    let (client, replies) =
+        mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
+    view.update(cx, |app, _| install(app, client));
+    wait_for_terminal(&view, cx);
+    set_insets(&view, cx, 498., false);
+    cx.update(|window, app| {
+        view.update(app, |view, cx| view.terminal_focus.focus(window, cx));
+    });
+    cx.run_until_parked();
+    let fake = RecordedSearch::default();
+    let presenter = fake.clone();
+    view.update(cx, |app, _| {
+        app.shell.search.set_presenter(Box::new(presenter))
+    });
+    record_dismissals(cx);
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            let anchor = app.search_anchor(point(px(1.), px(1.)));
+            app.open_sidebar_search(anchor, window, cx);
+        });
+    });
+    fake.push(SearchEvent::Opened);
+    cx.run_until_parked();
+    assert!(
+        view.update(cx, |app, _| app.search_open()),
+        "fixture: the search panel is up"
+    );
+    cx.update(|window, app| {
+        view.update(app, |app, cx| {
+            app.shell
+                .frame
+                .key_band
+                .toggle(Action::Control, destination());
+            app.press_key_band(Action::Hide, window, cx);
+            assert!(
+                app.shell.frame.key_band.is_armed(),
+                "Hide acted while the panel was up"
+            );
+            app.press_key_band(Action::Key("escape"), window, cx);
+        });
+    });
+    cx.run_until_parked();
+    assert_dismissals(cx, &[]);
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Ok(message) = replies.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+    {
+        assert!(
+            !matches!(message, ClientMessage::ClientShellPaneInput { .. }),
+            "a band key reached the terminal while the panel was up: {message:?}"
+        );
+    }
+}

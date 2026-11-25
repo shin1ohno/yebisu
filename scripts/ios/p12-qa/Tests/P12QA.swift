@@ -18,8 +18,13 @@ final class P12QA: XCTestCase {
     private var preReveal: [String: Any] = [:]
     /// Negative controls (TEST_RUNNER_P12_QA_FAULT, comma separated, empty in CI):
     /// `drop-tap:<step>` skips the first tap of that fixture step, `skip-swipe:<case>`
-    /// skips the first reveal swipe of that case. Each fault is spent once, and the
-    /// retry it forces must be logged and accepted by the oracle.
+    /// skips the first reveal swipe of that case, `drop-open:<case>` the first tap that opens
+    /// the OS menu, and `drop-pick:<case>` the first pick tap. Each fault is spent once, and
+    /// the retry it forces must be logged and accepted by the oracle. Two more must fail by
+    /// name without a resend (p12-check.py then reports the expected failure):
+    /// `drop-pick-twice:<case>` skips the pick tap and its resend, and `offset-pick:<case>`
+    /// taps the app's empty strip instead of the item; the open menu takes that tap and closes,
+    /// so the case fails as A2 with no pick-retry.
     private var faults = Set((ProcessInfo.processInfo.environment["P12_QA_FAULT"] ?? "").split(separator: ",").map(String.init))
     /// How long a fixture press gets to reach its control (`presses`) before it is pressed once
     /// more, and then to show its setup step in `p12.setup`.
@@ -31,6 +36,13 @@ final class P12QA: XCTestCase {
     private typealias MenuBarPressPosition = (point: CGPoint, reported: CGRect, useButton: Bool)
     /// What the reveal of the case in progress needed, quoted by its failure.
     private var revealNote = ""
+    /// qa.state read just before the reveal swipe of the case in progress (nil when unreadable): the
+    /// baseline that proves an open or pick tap lost (issue #142 stage 3).
+    private var swipeBaseline: QAState?
+    /// The app touches the reveal swipes left, for a class B failure (issue #142 stage 3).
+    private var swipeTouches = ""
+    /// Why the open tap of the case in progress was not sent again, for its failure.
+    private var openNote = ""
     /// The fixture controls in panel order: the setup step each prepares and its QA identifier.
     private static let fixtureControls: [(step: String, id: String)] = [
         ("remote", "qa.p12.remote"), ("rearm", "qa.p12.rearm"), ("sidebar", "qa.p12.sidebar"),
@@ -66,7 +78,6 @@ final class P12QA: XCTestCase {
 
     func testInstalledTerminalMenu() throws {
         continueAfterFailure = false
-        XCTAssertTrue(XCUIDevice.shared.supportsPointerInteraction, "P12 requires an iPad with pointer support")
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
@@ -151,6 +162,7 @@ final class P12QA: XCTestCase {
         // Recorded before the swipe so a reveal that fails can say which
         // precondition was missing (L17 class B), not only that the bar is absent.
         recordRevealPrecondition(caseName)
+        openNote = ""
         // The pinned herdr-uikit (see Cargo.toml) menu::placement maps GPUI position 0
         // to UIMenuApplication, regardless of the consumer title "Terminal".
         // The installed Springboard menu-bar control is therefore "yebisu".
@@ -160,9 +172,13 @@ final class P12QA: XCTestCase {
         guard let pressPosition = revealMenuBar(applicationMenu, in: menuBar, caseName: caseName) else {
             springboardHierarchy("p12-revealed-" + caseName)
             screenshotOnFailure("p12-revealed-" + caseName, false)
-            XCTFail("OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary())
+            XCTFail("OS menu bar not revealed (class B) in case \(caseName): " + revealNote + preRevealSummary() + swipeTouches)
             return
         }
+        // Issue #142 stage 3: the app's state before the swipe is what the open and pick taps are
+        // judged against. Nothing in the app is queried while the menu is open unless an input
+        // showed nothing (PR 84: app queries in that window went with lost Springboard taps).
+        let baseline = swipeBaseline
         let target: XCUICoordinate
         if pressPosition.useButton {
             target = applicationMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -170,11 +186,29 @@ final class P12QA: XCTestCase {
             let offset = CGVector(dx: pressPosition.point.x - appOrigin.x, dy: pressPosition.point.y - appOrigin.y)
             target = app.coordinate(withNormalizedOffset: .zero).withOffset(offset)
         }
-        target.tap()
+        let dropOpen = faults.remove("drop-open:" + caseName) != nil
+        if dropOpen { print("P12 \(caseName): injected fault, the open tap is not sent") } else { target.tap() }
         // The menu belongs to Springboard. Let its row become interactive before
         // the pick, and leave yebisu's AX snapshots out of the open-menu window.
         let item = owner.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + "　")).firstMatch
-        let available = waitForEnabledMenuItem(item)
+        var available = waitForEnabledMenuItem(item)
+        if !available && !item.exists {
+            // Decision table row 5 (class M): the menu never opened. The open tap is sent once more
+            // only when the app shows no touch and no change; anything else fails below by name.
+            let (after, unsettled) = qa.settledOrReason("after the open tap in case \(caseName)")
+            switch MenuInputDecision.open(before: baseline, after: after) {
+            case .resend:
+                var reason = dropOpen ? "injected fault: the open tap was skipped; " : ""
+                reason += "no menu item \(Self.menuItemTimeout) s after the open tap, no app touch and no screen change; tapping once more"
+                QAAx.resend(kind: "open-retry", id: caseName, reason: reason)
+                events.append(["kind": "open-retry", "case": caseName, "reason": reason, "injected": dropOpen,
+                               "time": Date().timeIntervalSince1970])
+                target.tap()
+                available = waitForEnabledMenuItem(item)
+            case let .fail(why):
+                openNote = "; not tapped again: " + why + (unsettled.isEmpty ? "" : " (" + unsettled + ")")
+            }
+        }
         let hittable = available && !item.frame.isEmpty && item.isHittable
         // The current-focus menu stays a screenshot: it is the only visual proof of
         // the rebuilt menu after the stale rejection.
@@ -184,30 +218,27 @@ final class P12QA: XCTestCase {
         if !available {
             let exists = item.exists
             let enabled = exists && item.isEnabled
-            XCTFail("Native command availability wait expired: '\(title)' in case \(caseName), exists=\(exists), enabled=\(enabled)")
+            XCTFail("Native command availability wait expired: '\(title)' in case \(caseName), exists=\(exists), enabled=\(enabled)" + openNote)
             return
         }
         XCTAssertTrue(hittable, "Native command isHittable=false after becoming available: '\(title)' in case \(caseName)")
-        // Recap can send a touch before BackBoard registers its virtual
-        // digitizer. The trackpad waits for pointer readiness and delivers the
-        // selection or dismissal through the real system menu.
         if observeOnly {
             events.append(["kind": "current-native-menu", "case": "focus", "enabled": item.isEnabled,
                            "owner": "com.apple.springboard", "buttonLabel": item.label,
                            "time": Date().timeIntervalSince1970])
             let point = try dismissPoint(clearOf: item, caseName: "focus-current")
             let dismissTime = Date().timeIntervalSince1970
-            point.click()
-            assertMenuClosed(item, title: title, caseName: "focus-current", step: "dismiss", tapTime: dismissTime)
+            point.tap()
+            let closed = waitMenuClosed(item)
+            recordMenuClose(caseName: "focus-current", step: "dismiss", closed: closed, tapTime: dismissTime, attempts: 1)
+            XCTAssertTrue(closed, Self.stillOpen(step: "dismiss", title: title, caseName: "focus-current"))
             return
         }
-        // Position the pointer before the click and check that the same menu
-        // still has an actionable row after XCTest completes the move.
-        let pointerStart = Date().timeIntervalSince1970
-        if item.exists && item.isEnabled { item.hover() }
-        let (present, enabled, tapped) = waitForMenuItemAfterHover(item)
-        events.append(["kind": "pointer-ready", "case": caseName, "started": pointerStart,
-                       "ended": Date().timeIntervalSince1970, "actionable": tapped])
+        // Issue #142 stage 3: the pick and the dismiss are touches again (Owner decision 4); the
+        // pointer's hover and click are checked on the owner's iPad instead.
+        let present = item.exists
+        let enabled = present && item.isEnabled
+        let tapped = enabled && item.isHittable
         let mustTap = !negative || caseName == "focus"
         screenshotOnFailure("p12-before-" + caseName, present && (!mustTap || tapped) && (!enabled || tapped))
         XCTAssertTrue(present, "Native menu disappeared; this is not refusal evidence")
@@ -215,17 +246,54 @@ final class P12QA: XCTestCase {
         if enabled { XCTAssertTrue(tapped, "Enabled item must remain hittable") }
         let pickStart = Date().timeIntervalSince1970
         let buttonLabel = item.label
-        if tapped { item.click() }
-        else { try dismissPoint(clearOf: item, caseName: caseName).click() }
+        let dropPick = tapped && faults.remove("drop-pick:" + caseName) != nil
+        let dropTwice = tapped && faults.remove("drop-pick-twice:" + caseName) != nil
+        let offsetPick = tapped && faults.remove("offset-pick:" + caseName) != nil
+        func sendPick(_ attempt: Int) throws {
+            if !tapped { return try dismissPoint(clearOf: item, caseName: caseName).tap() }
+            if (dropPick && attempt == 1) || dropTwice {
+                print("P12 \(caseName): injected fault, pick tap \(attempt) is not sent")
+            } else if offsetPick {
+                try dismissPoint(clearOf: item, caseName: caseName).tap()
+            } else {
+                item.tap()
+            }
+        }
+        try sendPick(1)
         // A pick or dismiss that was lost leaves the menu open, and the next
-        // fixture tap would then only close it (L17 class A). Fail here, by name.
-        let menuClosed = assertMenuClosed(item, title: title, caseName: caseName,
-                                          step: tapped ? "pick" : "dismiss", tapTime: pickStart)
+        // fixture tap would then only close it (L17 class A). Decide here, by name.
+        var attempts = 1
+        var closed = waitMenuClosed(item)
+        var failure = ""
+        if !closed && tapped {
+            // Decision table row 2 (class A1): resend the pick once only when the app shows no
+            // menu-perform, no touch and no screen change; anything else fails without a resend.
+            let (after, unsettled) = qa.settledOrReason("OS menu still open after the pick in case \(caseName)")
+            switch MenuInputDecision.pick(itemEnabled: item.exists && item.isEnabled, before: baseline, after: after) {
+            case .resend:
+                let injected = dropPick || dropTwice
+                var reason = injected ? "injected fault: the first pick tap was skipped; " : ""
+                reason += "OS menu still open 5 s after the pick tap, no menu-perform, no app touch, no screen change; tapping once more"
+                QAAx.resend(kind: "pick-retry", id: caseName, reason: reason)
+                events.append(["kind": "pick-retry", "case": caseName, "reason": reason, "injected": injected,
+                               "time": Date().timeIntervalSince1970])
+                attempts = 2
+                try sendPick(2)
+                closed = waitMenuClosed(item)
+                if !closed { failure = "pick lost twice in case \(caseName): the OS menu is still open 5 s after the pick tap was sent again" }
+            case let .fail(why):
+                failure = "OS menu still open 5 s after the pick tap in case \(caseName), not tapped again: " + why
+                    + (unsettled.isEmpty ? "" : " (" + unsettled + ")")
+            }
+        }
+        let step = tapped ? "pick" : "dismiss"
+        recordMenuClose(caseName: caseName, step: step, closed: closed, tapTime: pickStart, attempts: attempts)
+        XCTAssertTrue(closed && failure.isEmpty, failure.isEmpty ? Self.stillOpen(step: step, title: title, caseName: caseName) : failure)
         sleep(1)
         events.append(["kind": "os-menu-pick", "case": caseName, "command": title,
                        "owner": owner === springboard ? "com.apple.springboard" : "com.shin1ohno.yebisu", "buttonLabel": buttonLabel,
                        "started": pickStart, "ended": Date().timeIntervalSince1970,
-                       "enabled": enabled, "tapped": tapped, "negative": negative, "menuClosed": menuClosed])
+                       "enabled": enabled, "tapped": tapped, "negative": negative, "menuClosed": closed])
         screenshot("p12-after-" + caseName)
     }
 
@@ -236,17 +304,6 @@ final class P12QA: XCTestCase {
         let available = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND enabled == true"), object: item)
         return XCTWaiter().wait(for: [available], timeout: Self.menuItemTimeout) == .completed
-    }
-
-    private func waitForMenuItemAfterHover(_ item: XCUIElement) -> (present: Bool, enabled: Bool, hittable: Bool) {
-        let deadline = ProcessInfo.processInfo.systemUptime + Self.menuItemTimeout
-        while item.exists {
-            guard item.isEnabled else { return (true, false, false) }
-            if !item.frame.isEmpty && item.isHittable { return (true, true, true) }
-            if ProcessInfo.processInfo.systemUptime >= deadline { return (true, true, false) }
-            usleep(Self.menuPollInterval)
-        }
-        return (false, false, false)
     }
 
     private static func screenScale(_ reported: CGFloat, expected: CGFloat) -> CGFloat? {
@@ -272,6 +329,13 @@ final class P12QA: XCTestCase {
         // Poll the geometry directly and use its centre for the touch.
         let deadline = ProcessInfo.processInfo.systemUptime + Self.revealTimeout
         repeat {
+            // Class B2: with no StatusBar, reading `bar.frame` failed the test at once ("Failed to get
+            // matching snapshot: No matches found ... StatusBar") instead of the named class B.
+            guard bar.exists else {
+                if ProcessInfo.processInfo.systemUptime >= deadline { return nil }
+                usleep(Self.menuPollInterval)
+                continue
+            }
             if button.exists {
                 let reported = button.frame
                 if let frame = Self.menuBarButtonFrame(reported, in: bar.frame, on: screen) {
@@ -293,6 +357,10 @@ final class P12QA: XCTestCase {
         -> MenuBarPressPosition? {
         var attempt = 1
         revealNote = ""
+        swipeTouches = ""
+        // The app's receipts before the swipe: they tell whether a swipe that revealed nothing reached
+        // the app instead of Springboard, and they are the baseline of the open and pick decisions.
+        swipeBaseline = qa.read()
         let screen = springboard.frame
         while true {
             let swipeStart = Date()
@@ -305,6 +373,13 @@ final class P12QA: XCTestCase {
             let revealStart = Date()
             let position = waitForMenuBarPressPosition(applicationMenu, in: bar, on: screen)
             let waited = Date().timeIntervalSince(revealStart)
+            if position == nil && attempt == 2 {
+                // Issue #142 stage 3-5: no resend is added for class B; the failure says whether the
+                // swipes reached the app.
+                let after = qa.read()
+                let began = (after?.inputCount("touch_began") ?? 0) - (swipeBaseline?.inputCount("touch_began") ?? 0)
+                swipeTouches = "; app touches during the swipe: began=\(began), last_touch=\(after?.lastTouchText ?? "qa.state unreadable")"
+            }
             if position != nil || attempt == 2 {
                 events.append(["kind": "reveal-result", "case": caseName, "revealed": position != nil,
                                "pressPosition": position.map { [$0.point.x, $0.point.y] } ?? [],
@@ -320,6 +395,7 @@ final class P12QA: XCTestCase {
             reason += "OS menu bar not revealed \(Int(waited)) s after the first swipe"
             reason += " (the swipe call took \(String(format: "%.1f", swipeSeconds)) s); swiping once more"
             revealNote = "after one retry (" + reason + "); "
+            QAAx.resend(kind: "reveal-retry", id: caseName, reason: reason)
             events.append(["kind": "reveal-retry", "case": caseName, "reason": reason, "injected": injected,
                            "swipeSeconds": swipeSeconds, "waited": waited, "time": Date().timeIntervalSince1970])
             attempt += 1
@@ -369,15 +445,17 @@ final class P12QA: XCTestCase {
         }
     }
 
-    /// Waits on the observable condition (the picked or dismissed menu item is gone).
-    /// `tapTime` is the start of the input, using the historical evidence key.
-    @discardableResult
-    private func assertMenuClosed(_ item: XCUIElement, title: String, caseName: String, step: String,
-                                  tapTime: TimeInterval) -> Bool {
-        let waitStart = Date()
-        let closed = item.waitForNonExistence(timeout: 5)
+    /// Waits on the observable condition (the picked or dismissed menu item is gone), at most 5 s,
+    /// and says whether it closed. The caller decides what an open menu means (issue #142 stage 3).
+    private func waitMenuClosed(_ item: XCUIElement) -> Bool {
+        item.waitForNonExistence(timeout: 5)
+    }
+
+    /// The `menu-close` record of one pick or dismiss, after its last attempt. `tapTime` is the
+    /// start of the first input, using the historical evidence key.
+    private func recordMenuClose(caseName: String, step: String, closed: Bool, tapTime: TimeInterval, attempts: Int) {
         events.append(["kind": "menu-close", "case": caseName, "step": step, "closed": closed,
-                       "tapTime": tapTime, "waited": Date().timeIntervalSince(waitStart),
+                       "tapTime": tapTime, "waited": Date().timeIntervalSince1970 - tapTime, "attempts": attempts,
                        "time": Date().timeIntervalSince1970])
         if closed {
             lastMenuClosed = Date()
@@ -385,9 +463,12 @@ final class P12QA: XCTestCase {
             screenshot("p12-menu-still-open-" + caseName)
             springboardHierarchy("p12-menu-still-open-" + caseName)
         }
-        XCTAssertTrue(closed, "OS menu still open 5 s after the \(step) click of '\(title)' in case \(caseName): "
-                      + "the click was lost; compare tapTime with the p12-menu-build records")
-        return closed
+    }
+
+    /// The failure of a pick or dismiss whose menu stayed open with nothing else to say.
+    private static func stillOpen(step: String, title: String, caseName: String) -> String {
+        "OS menu still open 5 s after the \(step) tap of '\(title)' in case \(caseName): "
+            + "the tap was lost; compare tapTime with the p12-menu-build records"
     }
 
     /// The app's `p12` field in qa.state (native_menus_qa.rs): `pending`, `case`, `mutated`, and
@@ -439,6 +520,7 @@ final class P12QA: XCTestCase {
     private func touchReady() throws {
         let started = Date().timeIntervalSince1970
         let empty = try qa.find(Self.emptySpace, timeout: 10)
+        let first = qa.read()
         for attempt in 1...Self.touchReadyPresses {
             let before = try qa.waitState("qa.state before touch-ready press \(attempt)", timeout: 5) { _ in true }
             empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -456,7 +538,11 @@ final class P12QA: XCTestCase {
         events.append(["kind": "touch-ready", "ready": false, "presses": Self.touchReadyPresses,
                        "started": started, "ended": Date().timeIntervalSince1970])
         screenshot("p12-touch-not-ready")
-        XCTFail("No touch reached GPUI in \(Self.touchReadyPresses) presses on \(Self.emptySpace) after launch; qa.state=\(qa.read()?.text ?? "nil")")
+        // Class T (issue #142 stage 4): whether any touch reached the app, and where. No relaunch here:
+        // the oracle requires one peer start (p12-oracle.py), and the issue limits it to EditMenuQA.
+        let after = qa.read()
+        XCTFail("No touch reached GPUI in \(Self.touchReadyPresses) presses on \(Self.emptySpace) after launch; "
+                + qa.touchSummary(Self.emptySpace, empty, first: first, after: after) + "; qa.state=\(after?.text ?? "nil")")
         throw NSError(domain: "P12.TouchNotReady", code: 1)
     }
 
@@ -538,19 +624,45 @@ final class P12QA: XCTestCase {
             if let last, last.presses(id) > before.presses(id) {
                 throw QAAxError.pressWithoutEffect(id: id, what: "p12-setup-end for \(step)", seconds: Date().timeIntervalSince(start), last: last.text)
             }
-            switch PressVerdict.of(before: before, after: last, id: id) {
+            // Issue #142 stage 3: decide on the state the app settled in, with its input receipts,
+            // as QAAx.press does (read every 250 ms here too).
+            let (settled, unsettled) = qa.settledOrReason("after the held press on \(id)", interval: Self.heldReadInterval)
+            let verdict = PressVerdict.of(before: before, after: settled, id: id)
+            switch verdict {
             case .relaunched:
-                throw QAAxError.relaunched(id: id, before: before.text, after: last?.text ?? "nil")
+                throw QAAxError.relaunched(id: id, before: before.text, after: settled?.text ?? "nil")
             case let .takenElsewhere(moved):
-                throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: last?.text ?? "nil")
-            case .lost:
+                throw QAAxError.pressTakenElsewhere(id: id, moved: moved, before: before.text, after: settled?.text ?? "nil")
+            case let .unproven(reason):
+                let why = unsettled.isEmpty ? reason : reason + ": " + unsettled
+                throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "not proven lost, so not pressed again: " + why,
+                                                  before: before.text, after: settled?.text ?? "nil")
+            case let .arrivedNotCounted(lastTouch):
+                // The touch reached the app: wait once more, never press again (class F2).
+                print("P12 held press \(id): a touch reached the app (last_touch \(lastTouch)); waiting once more, not pressing again")
+                let waitStarted = ProcessInfo.processInfo.systemUptime
+                var latest = settled
+                while ProcessInfo.processInfo.systemUptime - waitStarted < Self.receiptTimeout {
+                    if let state = qa.read() {
+                        latest = state
+                        if state.presses(id) > before.presses(id) && setupEnds(state, step) > ended { return }
+                    }
+                    usleep(Self.heldReadInterval)
+                }
+                throw QAAxError.pressArrivedElsewhere(id: id, lastTouch: lastTouch, before: before.text, after: latest?.text ?? "nil")
+            case .lostProven, .cancelled:
                 break
             }
             if attempt == 2 {
-                throw QAAxError.pressNotDelivered(id: id, attempts: attempt, before: before.text, after: last?.text ?? "nil")
+                throw QAAxError.pressNotDelivered(id: id, attempts: attempt, reason: "proven lost twice: no touch receipt, qa.state did not move",
+                                                  before: before.text, after: settled?.text ?? "nil")
             }
-            let reason = String(format: "presses[%@] and the screen fields did not move within %.0f s of the press", id, Self.receiptTimeout)
+            var reason = String(format: "presses[%@], input.touch_began and the screen fields did not move within %.0f s of the press", id, Self.receiptTimeout)
+            if case let .cancelled(lastTouch) = verdict {
+                reason = String(format: "the touch on %@ was cancelled by UIKit before it ended (last_touch %@) and nothing moved within %.0f s", id, lastTouch, Self.receiptTimeout)
+            }
             qa.session.retries.append("\(id): \(reason)")
+            QAAx.resend(kind: "press-retry", id: id, reason: reason)
             print("P12 held press \(id) lost (\(reason)); pressing once more")
         }
     }

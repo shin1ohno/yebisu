@@ -1115,7 +1115,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "windows 0.61.3",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -2471,7 +2471,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=f9fcab6cd55ad52fd88ee2aaac88700a778e0df7#f9fcab6cd55ad52fd88ee2aaac88700a778e0df7"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=6dcfb65fbd8214e178bdaa7c5bfc56508122548f#6dcfb65fbd8214e178bdaa7c5bfc56508122548f"
 dependencies = [
  "anyhow",
  "block2",
@@ -2657,7 +2657,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -7278,6 +7278,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "dispatch2",
+ "futures",
  "gpui-pre",
  "herdr-ssh",
  "herdr-uikit",

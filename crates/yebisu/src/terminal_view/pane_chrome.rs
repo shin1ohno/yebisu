@@ -1,5 +1,8 @@
 use super::*;
-use crate::{input_geometry::PanePlacement, shell::style};
+use crate::{
+    input_geometry::PanePlacement,
+    shell::{rename::labels::ChipLook, style},
+};
 use sheprd_client::protocol::PaneSurfaceFrame;
 
 // Main.dc.html:162,173 and Herdr2.dc.html:96,104.
@@ -14,13 +17,14 @@ impl TerminalPainter {
         surface: &PaneSurfaceFrame,
         placement: PanePlacement<'_>,
         label: &str,
+        chip: ChipLook,
         cell_width: f32,
         font: &Font,
         highlights: &[Highlight],
         assets: &sheprd_client::SurfaceImages,
         window: &mut Window,
         cx: &mut App,
-    ) {
+    ) -> Bounds<Pixels> {
         let pane = placement.pane;
         let outline = placement.outline;
         let edge = if pane.focused {
@@ -79,7 +83,25 @@ impl TerminalPainter {
             },
         );
 
-        paint_name(label, outline, pane.focused, window, cx);
+        paint_name(label, outline, pane.focused, chip, window, cx)
+    }
+
+    /// A chip for the single pane while its rename is open (issue #143):
+    /// there is no chip otherwise, so the field gets one to cover, inside
+    /// the pane's top edge.
+    pub(crate) fn paint_single_chip(
+        &self,
+        label: &str,
+        grid: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Bounds<Pixels> {
+        let outline = Bounds::new(grid.origin + point(px(0.), px(NAME_HANG)), grid.size);
+        let look = ChipLook {
+            ink: None,
+            hidden: true,
+        };
+        paint_name(label, outline, true, look, window, cx)
     }
 }
 
@@ -87,14 +109,15 @@ fn paint_name(
     label: &str,
     outline: Bounds<Pixels>,
     focused: bool,
+    look: ChipLook,
     window: &mut Window,
     cx: &mut App,
-) {
-    let color = if focused {
+) -> Bounds<Pixels> {
+    let color = look.ink.unwrap_or(if focused {
         style::color::ACCENT
     } else {
         style::color::MUTED
-    };
+    });
     let label: SharedString = label
         .chars()
         .filter(|ch| !ch.is_control())
@@ -120,6 +143,9 @@ fn paint_name(
     let width = (line.width + px(2. * NAME_PADDING)).min(outline.right() - origin.x);
     let background = Bounds::new(origin, size(width, px(NAME_HEIGHT)));
     window.paint_quad(fill(background, rgb(style::color::BACKGROUND)));
+    if look.hidden {
+        return background;
+    }
     window.with_content_mask(Some(ContentMask { bounds: background }), |window| {
         let _ = line.paint(
             origin + point(px(NAME_PADDING), px(0.)),
@@ -130,4 +156,5 @@ fn paint_name(
             cx,
         );
     });
+    background
 }

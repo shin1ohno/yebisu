@@ -21,6 +21,7 @@ fn row(name: &str, confirmed: bool) -> SessionInfo {
         core_id: confirmed.then(|| format!("id-{name}")),
         statuses: Vec::new(),
         created: 0,
+        doc: None,
     }
 }
 

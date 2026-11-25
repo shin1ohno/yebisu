@@ -106,13 +106,24 @@ impl Smoke {
     /// The chrome state the entry-point model and the status bar read.
     pub(crate) fn chrome_state(&self) -> ChromeState {
         let core = self.terminal.core_mode;
+        let connected = self.terminal.live.connected;
+        // A started Herdr 2 worker is not a connection: it may still be
+        // dialing, or it may have failed and left its reason in `live`.
+        let connecting = core
+            && !connected
+            && self
+                .terminal
+                .core
+                .as_ref()
+                .is_some_and(|session| !session.finished());
         ChromeState {
             kind: if core {
                 HerdrKind::Herdr2
             } else {
                 HerdrKind::Herdr1
             },
-            connected: self.terminal.live.connected || (core && self.terminal.core.is_some()),
+            connected,
+            connecting,
             selecting: self.handoff.select_mode || self.handoff.selection.is_some(),
             sheet_open: self.settings_modal,
             find_available: crate::find_view::available(&self.terminal),
@@ -130,6 +141,21 @@ impl Smoke {
             &self.platform_insets(window),
             self.platform_window_controls(window),
         )
+    }
+
+    /// The key band's height now: none while a native field (the search
+    /// panel's or the rename field) is up and owns the keyboard, else the
+    /// fit rule.
+    pub(in crate::shell) fn key_band_now(
+        &self,
+        size: Size,
+        ime: &gpui::Edges<gpui::Pixels>,
+    ) -> f32 {
+        if self.native_field_open() {
+            0.0
+        } else {
+            fit::key_band_height(size, ime, self.hardware_keyboard_attached())
+        }
     }
 
     #[cfg(any(target_os = "ios", test))]
@@ -166,7 +192,7 @@ impl Smoke {
             regions: self.requested_mod_regions(self.fit_now()),
             ..frame_input(size, insets, self.find.is_some())
         };
-        let band = fit::key_band_height(size, &platform.ime, self.hardware_keyboard_attached());
+        let band = self.key_band_now(size, &platform.ime);
         if band > 0.0 {
             layout::compute_with_key_band(&input, band)
         } else {
@@ -183,6 +209,8 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Before any element: the rename field follows its anchor (B-5).
+        self.rename_frame_tick(window, cx);
         if self.compact_window_at(window) {
             return self.render_compact_frame(body, window, cx);
         }
@@ -311,6 +339,12 @@ impl Smoke {
                     .into_any_element()
             });
         }
+        // One handle for the list: a rename scrolls its row into view through
+        // it (issue #143 B-5) and the thumb reads its offset (issue #137).
+        self.shell
+            .indicators
+            .sidebar
+            .share(&self.shell.rename.sidebar_scroll);
         let list = self.render_sidebar_list(cx);
         Some(
             div()
@@ -328,8 +362,9 @@ impl Smoke {
                         .debug_selector(|| "shell-sidebar-list".into())
                         .flex_1()
                         .min_h_0()
+                        // A rename's row scrolls into view (issue #143 B-5).
                         .overflow_y_scroll()
-                        .track_scroll(self.shell.indicators.sidebar.handle())
+                        .track_scroll(&self.shell.rename.sidebar_scroll)
                         .child(list)
                         .child(self.shell.indicators.sidebar.thumb()),
                 )

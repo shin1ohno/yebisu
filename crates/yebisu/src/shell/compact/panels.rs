@@ -110,7 +110,7 @@ impl Smoke {
                     .font_weight(weight::SEMIBOLD)
                     .child("yebisu"),
             )
-            .child(self.render_filter_field())
+            .child(self.render_filter_field(cx))
             .child(self.render_new_space_button(cx))
             .into_any_element()
     }

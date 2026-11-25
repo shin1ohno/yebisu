@@ -3,6 +3,10 @@
 /// a constant in crates/yebisu/src/qa_ax_ids.rs, marked on the control it names;
 /// scripts/ios/qa-ax-ids-check.py fails if a string here is not defined there.
 enum QAIds {
+    // Issue #143 rename in place (SmokeQA+Rename.swift).
+    static let sidebarCurrentSpace = "qa.sidebar.current-space"
+    static let sidebarSpaceRename = "qa.sidebar.space-rename"
+    static let tabsCurrent = "qa.tabs.current"
     static let tabsMore = "qa.tabs.more"
     static let menuPaste = "qa.menu.paste"
     static let menuPasteImage = "qa.menu.paste-image"
@@ -11,6 +15,7 @@ enum QAIds {
     static let menuPane1 = "qa.menu.pane-1"
     static let menuPane2 = "qa.menu.pane-2"
     static let menuDetach = "qa.menu.detach"
+    static let menuNewTab = "qa.menu.new-tab"
     static let bandMark = "qa.band.mark"
     static let bandDelete = "qa.band.delete"
     static let bandCommit = "qa.band.commit"
@@ -28,6 +33,7 @@ enum QAIds {
     static let menuSelectText = "qa.menu.select-text"
     static let settingsPageInput = "qa.settings.page.input"
     static let startDoubleTap = "qa.settings.start-selection.double-tap"
+    static let startDrag = "qa.settings.start-selection.drag"
     static let copyOnSelection = "qa.settings.copy.on-selection"
     // S4: SH1-152 (EditMenuQA). Begin keeps its identifier while it reads "Begun".
     static let sh152Begin = "qa.sh1-152.begin"
@@ -63,4 +69,6 @@ enum QAIds {
     static let sidebarList = "qa.sidebar.list"
     static let sidebarHostAlpha = "qa.sidebar.host.qa-alpha"
     static let sidebarHostBeta = "qa.sidebar.host.qa-beta"
+    static let sidebarSearch = "qa.sidebar.search"
+    static let sidebarFilterClear = "qa.sidebar.filter-clear"
 }

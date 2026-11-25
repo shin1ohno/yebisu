@@ -66,6 +66,12 @@ impl ScrollIndicator {
         &self.handle
     }
 
+    /// Reads `handle`, which the list tracks, instead of its own: for a list
+    /// another feature scrolls too (the sidebar, issue #143's rename).
+    pub(crate) fn share(&mut self, handle: &ScrollHandle) {
+        self.handle = handle.clone();
+    }
+
     /// The thumb painted last, if one was showing.
     pub(crate) fn painted(&self) -> Option<Bounds<Pixels>> {
         self.painted.get()
