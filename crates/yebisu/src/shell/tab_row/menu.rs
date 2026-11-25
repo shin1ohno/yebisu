@@ -94,11 +94,8 @@ impl Smoke {
     }
 
     /// A second tap on a tab's label renames it (the first moved there).
+    /// On Herdr 2 `begin_rename` refuses it with the reason.
     pub(super) fn tab_double_tap(&mut self, host: &str, id: &str, boot: &str, generation: u64) {
-        if self.terminal.core_mode {
-            self.terminal.live.status = HERDR2.into();
-            return;
-        }
         let target = RenameTarget {
             host: host.to_owned(),
             kind: self.terminal.herdr_kind(),

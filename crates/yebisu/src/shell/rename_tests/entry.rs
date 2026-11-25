@@ -8,7 +8,6 @@ use crate::shell::{
         rename_scope_valid, space_long_press_for,
     },
 };
-use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, point};
 use sheprd_commands::Command;
 
 const RENAME: MenuItemId = MenuItemId::Space(SpaceMenuItem::Rename);
@@ -165,32 +164,6 @@ fn rename_space_only_in_space_menu(cx: &mut gpui::TestAppContext) {
                     && entries.iter().any(|e| e.item == RENAME))
         );
     });
-}
-
-fn double_click(cx: &mut VisualTestContext, selector: &'static str) {
-    let at = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("{selector} is not painted"));
-    let position = point(
-        at.origin.x + at.size.width / 2.,
-        at.origin.y + at.size.height / 2.,
-    );
-    for click_count in [1, 2] {
-        cx.simulate_event(MouseDownEvent {
-            button: MouseButton::Left,
-            position,
-            modifiers: Modifiers::none(),
-            click_count,
-            first_mouse: false,
-        });
-        cx.simulate_event(MouseUpEvent {
-            button: MouseButton::Left,
-            position,
-            modifiers: Modifiers::none(),
-            click_count,
-        });
-        cx.run_until_parked();
-    }
 }
 
 #[gpui::test]
