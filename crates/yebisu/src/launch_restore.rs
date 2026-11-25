@@ -92,10 +92,16 @@ impl LaunchRestore {
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 fn qa_launch() -> bool {
     cfg!(all(target_os = "ios", target_abi = "sim"))
-        && std::env::vars_os().any(|(key, _)| {
-            key.to_str()
-                .is_some_and(|key| key.starts_with("YEBISU_") && key.ends_with("_QA"))
-        })
+        && qa_environment(std::env::vars_os().map(|(key, _)| key))
+}
+
+/// Every XCTest launch sets a `YEBISU_` key, and not every set has a
+/// `_QA` one (EditMenuQA: `YEBISU_QA_AX`, `YEBISU_SMOKE_OBSERVE`,
+/// `YEBISU_SH1_152_CASE`). `scripts/ios/sim.sh` sets none, so a manual
+/// Simulator launch still restores.
+fn qa_environment(keys: impl IntoIterator<Item = std::ffi::OsString>) -> bool {
+    keys.into_iter()
+        .any(|key| key.to_str().is_some_and(|key| key.starts_with("YEBISU_")))
 }
 
 fn probe_spaces(host: &str) -> crate::Result<BTreeSet<String>> {

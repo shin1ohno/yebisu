@@ -66,7 +66,7 @@ SH1-155 option 1 は 2026-11-11 にオーナーが選択。Inactive（アプリ�
 - このラベルをタップして `Return: Tap reconnect` に切替。背景から戻った後は `Reconnect` をタップするまで接続しない。再ビルド不要、現在の起動中に保持。
 - 両方とも入力を再送しない。ネットワーク切替で失敗した場合は理由を表示し、Reconnect または次回の背景復帰で再試行。連続 retry はしない。VersionMismatch は自動再接続しない。
 - 保存ホストの内部構造には比較用 variant を作っていない。
-- 起動時（2026-11-25 オーナー決定、task abe91a5c10864985）: 前回開いていた接続を、背景復帰と同じ範囲で戻す（表示中の 1 本と、隠れている保存ホストの接続）。記録はアプリの state directory の `yebisu-connections.json` で、ホスト・Herdr の種類・Herdr 2 のスペース名を持つ。アプリが Active の間、開いているものが変わるたびに UI スレッドの外で書く。`Return: Automatic` では各接続を一度だけ試す。失敗したら理由を表示し、Reconnect を待つ。`Return: Tap reconnect` では表示中の端末だけを接続せずに出し、Reconnect を待つ。保存したスペースがホストの一覧に無ければ `default` を開き、その旨をステータスの詳細に出す。保存ホストから外したホストは戻さない。起動直後にユーザーがホストを開いたときは戻さない。Simulator QA の起動（`YEBISU_*_QA`）では戻さない。
+- 起動時（2026-11-25 オーナー決定、task abe91a5c10864985）: 前回開いていた接続を、背景復帰と同じ範囲で戻す（表示中の 1 本と、隠れている保存ホストの接続）。記録はアプリの state directory の `yebisu-connections.json` で、ホスト・Herdr の種類・Herdr 2 のスペース名を持つ。アプリが Active の間、開いているものが変わるたびに UI スレッドの外で書く。`Return: Automatic` では各接続を一度だけ試す。失敗したら理由を表示し、Reconnect を待つ。`Return: Tap reconnect` では表示中の端末だけを接続せずに出し、Reconnect を待つ。保存したスペースがホストの一覧に無ければ `default` を開き、その旨をステータスの詳細に出す。保存ホストから外したホストは戻さない。起動直後にユーザーがホストを開いたときは戻さない。Simulator の QA 起動（`YEBISU_` で始まる環境変数を持つ起動）では戻さず、記録も書かない。
 
 ## P6 status board density
 

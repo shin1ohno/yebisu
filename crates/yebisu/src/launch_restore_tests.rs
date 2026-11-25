@@ -352,3 +352,26 @@ fn a_space_whose_server_is_down_is_still_listed() {
     );
     assert!(crate::core::listed_spaces(b"\0").is_empty());
 }
+
+#[test]
+fn every_qa_launch_environment_skips_the_restore() {
+    let keys = |keys: &[&str]| {
+        keys.iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>()
+    };
+    // EditMenuQA sets no key ending in `_QA`.
+    let edit_menu = [
+        "YEBISU_SH1_152_CASE",
+        "YEBISU_SMOKE_OBSERVE",
+        "YEBISU_QA_AX",
+    ];
+    assert!(qa_environment(keys(&edit_menu)));
+    assert!(qa_environment(keys(&["HOME", "YEBISU_TERMINAL_QA"])));
+    // `scripts/ios/sim.sh` passes only these through SIMCTL_CHILD_.
+    assert!(!qa_environment(keys(&[
+        "HOME",
+        "RUST_BACKTRACE",
+        "RUST_LOG"
+    ])));
+}
