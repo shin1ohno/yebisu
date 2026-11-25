@@ -1,6 +1,8 @@
 //! L3 sidebar tests (plan v2 7.8), one file per topic.
 use super::*;
 
+#[path = "sidebar_tests/forward.rs"]
+mod forward;
 #[path = "sidebar_tests/identity.rs"]
 mod identity;
 #[path = "sidebar_tests/long_press.rs"]

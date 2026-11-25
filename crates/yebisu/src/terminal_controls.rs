@@ -78,6 +78,45 @@ impl Smoke {
         self.observation
             .record(serde_json::json!({"kind": "keyboard-request", "reason": reason}));
     }
+
+    /// Gives the terminal its input destination, focus and text responder
+    /// back, as a tap on it does. A chrome tap dismisses the keyboard and a
+    /// switch detaches input; without this, typing after either went nowhere
+    /// on a Mac until the terminal was clicked.
+    pub(crate) fn restore_terminal_keys(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        reason: &'static str,
+    ) {
+        self.refresh_terminal_input();
+        if self.terminal.open && self.terminal.input.ready {
+            self.terminal_focus.focus(window, cx);
+            self.request_terminal_keyboard(window, reason);
+            self.request_text_retirement();
+        }
+        window.notify_text_input_changed(&self.terminal_focus);
+    }
+
+    /// Runs a restore a switch or a finished navigation left pending
+    /// (`TerminalView::restore_keys`) once nothing else owns the keys.
+    pub(crate) fn restore_pending_terminal_keys(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.terminal.restore_keys
+            || self.terminal.navigating.is_some()
+            || self.find.is_some()
+            || self.input_modal()
+            || self.actions.palette
+            || self.shell.shortcuts.open
+        {
+            return;
+        }
+        self.terminal.restore_keys = false;
+        self.restore_terminal_keys(window, cx, "switch-restore");
+    }
     /// The status sits in the toolbar's wrapping row (terminal_view.rs): a
     /// longer text moves onto a second row and shrinks the terminal, and that
     /// resize clears a selection. PR 40's "Selection active · press a terminal
