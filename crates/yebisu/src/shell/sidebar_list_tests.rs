@@ -33,6 +33,12 @@ fn shape(rows: &[ListRow]) -> Vec<String> {
             ListRow::Space(space) => {
                 format!("  {:?} {} on {}", space.kind, space.entry.name, space.host)
             }
+            ListRow::Forward(forward) => format!(
+                "  forward {} {} on {}",
+                forward.remote,
+                forward.state.name(),
+                forward.host
+            ),
         })
         .collect()
 }

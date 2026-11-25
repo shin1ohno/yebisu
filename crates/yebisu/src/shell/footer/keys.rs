@@ -22,6 +22,7 @@ pub(crate) enum KeyOwner {
     HostsSheet,
     NewSpaceSheet,
     SettingsSheet,
+    ForwardSheet,
 }
 
 impl Smoke {
@@ -30,6 +31,8 @@ impl Smoke {
             KeyOwner::SettingsSheet
         } else if self.hosts_sheet_modal() {
             KeyOwner::HostsSheet
+        } else if self.forward_sheet_open() {
+            KeyOwner::ForwardSheet
         } else if self.new_space_open() {
             KeyOwner::NewSpaceSheet
         } else {
@@ -43,9 +46,13 @@ impl Smoke {
     }
 
     /// Whether typed text (IME, `insertText:`) belongs to the terminal: a
-    /// terminal is open and neither Hosts nor New space covers it.
+    /// terminal is open and neither Hosts, the forward sheet nor New space
+    /// covers it.
     pub(crate) fn terminal_owns_text_input(&self) -> bool {
-        self.terminal.open && !self.hosts_sheet_modal() && !self.new_space_open()
+        self.terminal.open
+            && !self.hosts_sheet_modal()
+            && !self.forward_sheet_open()
+            && !self.new_space_open()
     }
 
     /// Footer Hosts opened the sheet: give it the window focus and take the
@@ -54,6 +61,29 @@ impl Smoke {
         if self.key_owner() != KeyOwner::HostsSheet || self.terminal_owns_text_input() {
             return;
         }
+        self.take_terminal_input();
+        self.focus.focus(window, cx);
+        window.notify_text_input_changed(&self.terminal_focus);
+    }
+
+    /// The forward sheet opened (issue 140): its port field takes the
+    /// window focus and the terminal's input goes away, as for Hosts.
+    pub(crate) fn hand_keys_to_forward_sheet(
+        &mut self,
+        field: &gpui::FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.key_owner() != KeyOwner::ForwardSheet || self.terminal_owns_text_input() {
+            return;
+        }
+        self.take_terminal_input();
+        field.focus(window, cx);
+        window.notify_text_input_changed(&self.terminal_focus);
+    }
+
+    /// What every sheet over a terminal does before it takes the keys.
+    fn take_terminal_input(&mut self) {
         if let Some(core) = &self.terminal.core {
             core.invalidate_input();
         }
@@ -65,8 +95,6 @@ impl Smoke {
         self.handoff.cancel();
         self.handoff.select_mode = false;
         self.terminal.needs_focus = false;
-        self.focus.focus(window, cx);
-        window.notify_text_input_changed(&self.terminal_focus);
     }
 
     /// The Hosts sheet over a terminal closed: the terminal gets the focus

@@ -199,6 +199,7 @@ impl Render for Smoke {
             .child(self.render_notification(window, cx))
             .children(self.render_shortcuts_popover(window, cx))
             .children(self.render_hosts_sheet(window, cx))
+            .children(self.render_forward_sheet(window, cx))
             .children(self.render_mods_overlay(window, cx))
             .children(self.render_new_space(cx))
             .into_any_element();

@@ -9,6 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "footer_tests/forward_keys.rs"]
+mod forward_keys;
 #[path = "footer_tests/hosts.rs"]
 mod hosts;
 #[path = "footer_tests/items.rs"]

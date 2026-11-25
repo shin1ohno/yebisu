@@ -70,4 +70,11 @@ enum QAIds {
     static let sidebarHostBeta = "qa.sidebar.host.qa-beta"
     static let sidebarSearch = "qa.sidebar.search"
     static let sidebarFilterClear = "qa.sidebar.filter-clear"
+    static let sidebarHostForwardQA = "qa.sidebar.host.forward-qa"
+    static let forwardField = "qa.forward.field"
+    static let forwardSubmit = "qa.forward.submit"
+    static let forwardClose = "qa.forward.close"
+    static let forwardChip = "qa.forward.chip"
+    static let forwardRow = "qa.forward.row"
+    static let hostMenuForward = "qa.host-menu.forward"
 }
