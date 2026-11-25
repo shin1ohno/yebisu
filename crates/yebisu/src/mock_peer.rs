@@ -126,6 +126,12 @@ fn serve(
         "tab.rename",
         "pane.rename"
     ]);
+    // Issue #137: a Herdr that can move a pane's scrollback.
+    if fault == "quiet-scroll"
+        && let Some(methods) = welcome["methods"].as_array_mut()
+    {
+        methods.push("pane.scroll".into());
+    }
     welcome["capabilities"] = serde_json::json!(["surface_interest", "presentation_effects_fence"]);
     let welcome = welcome.to_string();
     for (kind, data) in [
@@ -144,6 +150,7 @@ fn serve(
     for n in 1..=frames {
         let mut frame = surface(7);
         frame.surface_revision = n;
+        scroll_qa_pane(&mut frame, "w1:p1");
         write_message(
             &mut server,
             &ServerMessage::PaneSurface(frame),
@@ -229,7 +236,7 @@ fn serve(
         record(&message, transport, sequence)?;
         let _ = receipts.send(message.clone());
         // Quiet fixtures must not mask missing UI invalidation with geometry responses.
-        if fault == "quiet" {
+        if fault == "quiet" || fault == "quiet-scroll" {
             continue;
         }
         if let ClientMessage::ClientShellEndpointRequest { request, .. } = &message {
@@ -432,6 +439,10 @@ fn serve(
             if std::env::var_os(split::ENV).is_some() {
                 frame.panes = split::herdr1_frame(&mut frame.frame);
             }
+            scroll_qa_pane(
+                &mut frame,
+                board_snapshot.focused_pane_id.as_deref().unwrap_or("w1:p1"),
+            );
             size = Some((surface_size.cols, surface_size.rows));
             // L66: the link fixture again at the new size, so its wrapped
             // address still reaches the right edge.
@@ -473,6 +484,12 @@ pub(crate) fn connect() -> crate::Result<Client> {
 #[cfg(test)]
 pub(crate) fn connect_quiet() -> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
     connect_mode(1, false, "quiet")
+}
+/// A quiet peer that also advertises `pane.scroll` (issue #137).
+#[cfg(test)]
+pub(crate) fn connect_quiet_scroll()
+-> crate::Result<(Client, std::sync::mpsc::Receiver<ClientMessage>)> {
+    connect_mode(1, false, "quiet-scroll")
 }
 
 pub(crate) fn connect_burst(frames: u64) -> crate::Result<Client> {
@@ -632,9 +649,41 @@ fn initial_snapshot() -> Result<String, serde_json::Error> {
     }
     serde_json::to_string(&value)
 }
+/// Issue #137 (`YEBISU_SCROLL_QA`, Simulator only): the frame lists its one
+/// pane over the whole frame, as a Herdr 1 host's frames do, so a swipe in
+/// scroll-check.py has a pane to scroll. Other frames list no pane.
+fn scroll_qa_pane(frame: &mut PaneSurfaceFrame, pane_id: &str) {
+    if !(cfg!(target_abi = "sim") && std::env::var_os("YEBISU_SCROLL_QA").is_some()) {
+        return;
+    }
+    let rect = SurfaceRect {
+        x: 0,
+        y: 0,
+        width: frame.frame.width,
+        height: frame.frame.height,
+    };
+    frame.panes = vec![PaneSurfacePane {
+        pane_id: pane_id.into(),
+        content_revision: frame.surface_revision,
+        rect,
+        inner_rect: rect,
+        scrollbar_rect: None,
+        scroll: None,
+        focused: true,
+        mouse_reporting: false,
+        sgr_pixel_mouse: false,
+        alternate_screen_active: false,
+        pixel_width: 0,
+        pixel_height: 0,
+    }];
+}
 fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurfaceFrame {
     let mut frame = next_surface(snapshot.revision, serial);
     frame.boot_id.clone_from(&snapshot.boot_id);
+    scroll_qa_pane(
+        &mut frame,
+        snapshot.focused_pane_id.as_deref().unwrap_or("w1:p1"),
+    );
     // A target-specific marker proves the surface changed along with metadata.
     if let Some(cell) = frame.frame.cells.first_mut() {
         cell.symbol = if snapshot.focused_pane_id.as_deref() == Some("w2:p2") {

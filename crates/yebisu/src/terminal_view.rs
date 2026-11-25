@@ -45,6 +45,8 @@ pub(crate) struct TerminalView {
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
     pub(crate) link_hover: crate::terminal_links::Hover,
+    /// Wheel and trackpad motion not yet a whole line (issue #137).
+    pub(crate) wheel: crate::upstream::wheel::WheelAccumulator,
     /// #139: the cursor drawn last, to tell the SDK when it moved.
     pub(crate) input_indicator: crate::input_indicator::CursorWatch,
     /// The Herdr 2 spaces this view last listed while connected: the
@@ -584,6 +586,7 @@ impl Smoke {
                         cx.listener(|this, _, window, cx| this.selection_up(window, cx)),
                     )
                     .child(self.edit_menu_canvas(cx))
+                    .child(self.terminal_wheel_canvas(cx))
                     // Last, so no other child's hitbox lies over it.
                     .children(crate::qa_ax::mark(
                         crate::qa_ax::ids::TERMINAL_INPUT,
