@@ -198,3 +198,7 @@ mod tests;
 #[cfg(test)]
 #[path = "inactive_tests.rs"]
 mod inactive_tests;
+
+#[cfg(test)]
+#[path = "return_space_tests.rs"]
+mod return_space_tests;
