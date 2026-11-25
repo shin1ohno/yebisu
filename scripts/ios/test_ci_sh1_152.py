@@ -123,6 +123,7 @@ UNRELATED = {
     "find": "P13 search; test_find_search_change_skips_it keeps search changes off edit-menu pull requests. Its closing-press "
             "check runs on every terminal KeyDown (terminal_controls.rs) but owns no key unless search was open; push to main runs edit-menu",
     "find_view": "P13 search bar and its open/close focus, which no edit-menu check opens (same decision as find)",
+    "forwards": "outside the checks: port forwards (issue 140), polled from app.rs and paused from reconnect.rs; no edit-menu check starts one",
     "front_layer": "outside the checks: P12 front layer, called from app.rs",
     "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
