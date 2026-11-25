@@ -53,6 +53,8 @@ pub(crate) struct Smoke {
     pub(crate) taps: u64,
     image: Arc<RenderImage>,
     pub(crate) observation: Observation,
+    /// Cold-launch restore of what was open, and its record.
+    pub(crate) launch: crate::launch_restore::LaunchRestore,
 }
 
 impl Smoke {
@@ -162,6 +164,7 @@ impl Smoke {
             taps: 0,
             image: Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])),
             observation: Observation::new(),
+            launch: Default::default(),
         }
     }
 }
@@ -433,6 +436,7 @@ pub(crate) fn run() {
                 this.start_settings(cx);
                 this.query_notification_permission();
                 this.start_job(crate::setup::Job::Load, cx);
+                this.start_launch_restore(cx);
             });
             #[cfg(target_abi = "sim")]
             if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {

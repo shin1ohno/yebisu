@@ -258,6 +258,16 @@ pub(super) fn retire_vacant(
     Ok(stopped)
 }
 
+#[cfg(any(target_os = "ios", test))]
+/// Every space a discovery output names, whatever its server's state: a
+/// space is gone only when its host no longer lists it.
+pub(super) fn listed_spaces(output: &[u8]) -> BTreeSet<String> {
+    let Snapshot {
+        observed, unknown, ..
+    } = parse_discovery(output);
+    observed.into_keys().chain(unknown).collect()
+}
+
 fn parse_discovery(output: &[u8]) -> Snapshot {
     let valid = |name: &str| {
         !name.is_empty()

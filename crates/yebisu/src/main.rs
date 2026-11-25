@@ -64,6 +64,9 @@ mod terminal_input;
 mod reconnect;
 
 #[cfg(any(target_os = "ios", test))]
+mod launch_restore;
+
+#[cfg(any(target_os = "ios", test))]
 #[allow(
     dead_code,
     reason = "the forward sheet and the sidebar rows (issue 140's UI) call the entry points, and the iOS test build has no SSH scan caller until then"
