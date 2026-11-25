@@ -277,7 +277,8 @@ fn a_wheel_notch_scrolls_three_lines(cx: &mut TestAppContext) {
 }
 
 /// T3, T4: a finger's pan over the terminal scrolls it and selects
-/// nothing; a finger landing again stops the motion without a tap.
+/// nothing; a finger landing again stops the motion without a tap and
+/// without another wheel event.
 #[gpui::test]
 fn a_finger_pan_scrolls_and_neither_selects_nor_taps(cx: &mut TestAppContext) {
     let (view, cx, wire) = connected(cx);
@@ -327,6 +328,7 @@ fn a_finger_pan_scrolls_and_neither_selects_nor_taps(cx: &mut TestAppContext) {
     ready(&view, cx);
     touch(cx, TouchPhase::Cancelled, start);
     cx.run_until_parked();
+    assert_eq!(wheels(&view, cx, &wire), [], "the landing finger scrolled");
     assert_eq!(view.read_with(cx, |this, _| this.taps), taps);
     view.read_with(cx, |this, _| assert!(this.handoff.selection.is_none()));
 }
@@ -392,15 +394,15 @@ fn a_pane_the_reader_no_longer_lists_gets_nothing(cx: &mut TestAppContext) {
     });
 }
 
-/// T6: an occluding sheet or popover in front of the terminal takes the
-/// scroll; the terminal gets nothing.
+/// T6: an occluding sheet or popover in front of the terminal (•••,
+/// Shortcuts, Settings, Hosts) takes the scroll; the terminal gets nothing.
 #[gpui::test]
 fn an_occluding_sheet_or_popover_keeps_the_scroll(cx: &mut TestAppContext) {
     let (view, cx, wire) = connected(cx);
     install(&view, cx, single(|_| {}));
     let row = cell_height(&view, cx);
     type Open = fn(&mut Smoke);
-    let cases: [(&str, Open, Open); 3] = [
+    let cases: [(&str, Open, Open); 4] = [
         (
             "more menu",
             |this| this.shell.frame.overflow_open = true,
@@ -416,6 +418,15 @@ fn an_occluding_sheet_or_popover_keeps_the_scroll(cx: &mut TestAppContext) {
             |this| this.settings_modal = true,
             |this| this.settings_modal = false,
         ),
+        // As the footer's Hosts button opens it over a terminal (`open_hosts`).
+        (
+            "hosts",
+            |this| {
+                this.shell.hosts_sheet.open_list();
+                this.shell.hosts_sheet.over_terminal = true;
+            },
+            |this| this.shell.hosts_sheet.close(),
+        ),
     ];
     for (name, open, close) in cases {
         view.update(cx, |this, cx| {
@@ -423,6 +434,12 @@ fn an_occluding_sheet_or_popover_keeps_the_scroll(cx: &mut TestAppContext) {
             cx.notify();
         });
         cx.run_until_parked();
+        if name == "hosts" {
+            assert!(
+                cx.debug_bounds("hosts-overlay").is_some(),
+                "the Hosts sheet is not over the terminal"
+            );
+        }
         // The more menu floats over the grid's top right corner.
         let at = if name == "more menu" {
             let menu = cx
