@@ -18,7 +18,10 @@ fn connected(cx: &mut TestAppContext) -> (Entity<Smoke>, &mut VisualTestContext)
     let (client, _receipts) = mock_peer::connect_recorded(1).unwrap_or_else(|e| panic!("peer {e}"));
     view.update(cx, |this, _| {
         this.select_host("sandbox");
-        assert!(this.terminal.restore_keys, "a host switch asks for a restore");
+        assert!(
+            this.terminal.restore_keys,
+            "a host switch asks for a restore"
+        );
         let g = this.terminal.link.reset();
         this.terminal.link.install(g, Ok(client));
     });

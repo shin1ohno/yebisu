@@ -103,7 +103,10 @@ fn code_lists_are_static_names_and_never_collide() {
     assert_eq!(all.len(), count, "a code appears in two lists");
     let mut sorted = UIKIT_CODES.to_vec();
     sorted.sort_unstable();
-    assert_eq!(sorted, UIKIT_CODES, "keep UIKIT_CODES in herdr-uikit's order");
+    assert_eq!(
+        sorted, UIKIT_CODES,
+        "keep UIKIT_CODES in herdr-uikit's order"
+    );
 }
 
 #[test]
