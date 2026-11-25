@@ -20,6 +20,10 @@ use std::collections::{BTreeMap, HashSet};
 
 /// Why New space is refused: the document cannot be written (Q6).
 const NO_DOCUMENT: &str = "Can't read the herdr-app layout; New space needs it";
+/// Why Rename Space or Rename Tab is refused: nothing can be written.
+pub(crate) const NO_RENAME_DOCUMENT: &str = "Can't read the herdr-app layout; Rename needs it";
+/// Why a rename of something the document no longer holds is refused.
+pub(crate) const NOT_IN_DOCUMENT: &str = "It is no longer in the herdr-app layout";
 /// Why a split is refused: the tree is not one yebisu draws (Design F).
 const NOT_SPLITTABLE: &str = "This tab's herdr-app layout can't be split on the iPad";
 
@@ -144,6 +148,28 @@ impl DocTabs {
         workspace.doc_view.tabs.insert(space.clone(), tab);
         self.pending = Some(space);
         Ok(())
+    }
+
+    /// Rename Space or Rename Tab (#144 D3): the intent for a space or tab
+    /// the last read holds. The name shows once a read after the write has
+    /// it; "" is the automatic name.
+    pub(super) fn rename(&self, writer: Option<&DocWriter>, intent: Intent) -> crate::Result<()> {
+        let known = match &intent {
+            Intent::RenameSpace { id, .. } => self.space(id).is_some(),
+            Intent::RenameTab { id, .. } => self.view().is_some_and(|view| {
+                view.spaces
+                    .iter()
+                    .any(|s| s.tabs.iter().any(|t| t.id == *id))
+            }),
+            _ => false,
+        };
+        let writer = writer
+            .filter(|_| self.view().is_some())
+            .ok_or_else(|| crate::Error::Ssh(NO_RENAME_DOCUMENT.into()))?;
+        if !known {
+            return Err(crate::Error::Ssh(NOT_IN_DOCUMENT.into()));
+        }
+        writer.send(intent)
     }
 
     /// The terminal a split starts: with the drawn tab's labels in a
@@ -350,6 +376,7 @@ impl DocTabs {
                 .clone()
                 .filter(|_| self.local.is_some()),
             local_tabs: self.local_tabs(workspace),
+            version: self.version,
         })
     }
 

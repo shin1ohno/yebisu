@@ -119,11 +119,19 @@ fn refusal_texts_in_order(cx: &mut gpui::TestAppContext) {
             ..target.clone()
         };
         assert_eq!(this.rename_unavailable(&other_host), Some(OTHER_HOST));
+        // A Herdr 2 pane is refused before the host is (decision 8); a Herdr 2
+        // space or tab is the document's and goes on to the host (#144 D3).
         let herdr2 = RenameTarget {
             kind: crate::shell::HerdrKind::Herdr2,
+            object: pane("w1:p1"),
             ..other_host.clone()
         };
         assert_eq!(this.rename_unavailable(&herdr2), Some(HERDR2));
+        let herdr2_space = RenameTarget {
+            kind: crate::shell::HerdrKind::Herdr2,
+            ..other_host.clone()
+        };
+        assert_eq!(this.rename_unavailable(&herdr2_space), Some(OTHER_HOST));
         let gone = RenameTarget {
             object: space("w9"),
             ..target.clone()
@@ -149,6 +157,7 @@ fn refusal_texts_in_order(cx: &mut gpui::TestAppContext) {
             object: target.object.clone(),
             text: "x".into(),
             sent_revision: 0,
+            doc: false,
             request: "r".into(),
             state: crate::shell::rename::send::PendingState::Sending,
             sent_at: std::time::Instant::now(),

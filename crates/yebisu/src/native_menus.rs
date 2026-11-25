@@ -77,15 +77,17 @@ pub(crate) fn in_os_menu(row: &actions::Action) -> bool {
 }
 
 /// The menu items' subtitles: on Herdr 2 the disabled Rename items say why
-/// (issue #143 decision 10); none otherwise.
+/// (issue #143 decision 10), with `reason` for each item's name (#144 D3:
+/// Rename Pane is never available, Rename Tab and Rename Space without the
+/// document's); none on Herdr 1 (`reason` is `None`).
 pub(crate) fn rename_subtitles(
     rows: &[MenuRow],
     host_menus: &[(&'static str, Vec<MenuRow>)],
-    herdr2: bool,
+    reason: Option<&dyn Fn(&str) -> &'static str>,
 ) -> Vec<(String, String)> {
-    if !herdr2 {
+    let Some(reason) = reason else {
         return Vec::new();
-    }
+    };
     let renames = [
         "rename_tab",
         "rename_pane",
@@ -94,7 +96,7 @@ pub(crate) fn rename_subtitles(
     rows.iter()
         .chain(host_menus.iter().flat_map(|(_, rows)| rows))
         .filter(|(name, _, enabled)| !enabled && renames.contains(&name.as_str()))
-        .map(|(_, label, _)| (label.clone(), crate::shell::rename::HERDR2.to_owned()))
+        .map(|(name, label, _)| (label.clone(), reason(name).to_owned()))
         .collect()
 }
 /// The Settings sheet supplies its intended terminal focus/scene context.
@@ -373,10 +375,22 @@ impl Smoke {
                 .iter()
                 .map(|(title, rows)| Menu::new(*title).items(rows.iter().map(menu_item))),
         );
+        let terminal = &self.terminal;
+        let reason = |name: &str| -> &'static str {
+            let command = match name {
+                "rename_tab" => Command::RenameTab,
+                "rename_pane" => Command::RenamePane,
+                _ => Command::RenameWorkspace,
+            };
+            crate::shell::rename::herdr2::command_unavailable(terminal, command)
+                .unwrap_or(crate::shell::rename::HERDR2)
+        };
         let subtitles = rename_subtitles(
             &self.native_menus.rows,
             &self.native_menus.host_menus,
-            self.terminal.core_mode,
+            self.terminal
+                .core_mode
+                .then_some(&reason as &dyn Fn(&str) -> &'static str),
         );
         #[cfg(target_os = "ios")]
         herdr_uikit::set_menu_subtitles(subtitles);

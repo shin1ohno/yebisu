@@ -74,8 +74,10 @@ def is_doc(receipt):
 
 
 # testP9HerdrDoc's writes (#144 D4): S5 saves one New tab; S3's New tab is refused once as stale
-# and saved over the newer version; S1 and S4 write nothing.
-DOC_SETS = ("ok", "conflict", "ok")
+# and saved over the newer version; S1 and S4 write nothing. Then testP9HerdrDocRename's (D3,
+# XCTest runs it after testP9HerdrDoc): S2 saves one rename; S3's rename is refused once as stale
+# and saved over the newer version. Renames start no terminal.
+DOC_SETS = ("ok", "conflict", "ok", "ok", "conflict", "ok")
 LABELS = ("herdr.seen", "herdr.space", "herdr.tab")
 
 
@@ -163,7 +165,9 @@ def collect_evidence(directory, result, paints_path, wire_path):
                     shutil.copyfile(export / attachment["exportedFileName"], directory / "screenshot.png")
                 if attachment["suggestedHumanReadableName"].startswith("sh154-core-image"):
                     shutil.copyfile(export / attachment["exportedFileName"], directory / "sh154-core-image.png")
-                if attachment["suggestedHumanReadableName"].startswith("p9-herdr-doc"):
+                if attachment["suggestedHumanReadableName"].startswith("p9-herdr-doc-rename"):
+                    shutil.copyfile(export / attachment["exportedFileName"], directory / "herdr-doc-rename.png")
+                elif attachment["suggestedHumanReadableName"].startswith("p9-herdr-doc"):
                     shutil.copyfile(export / attachment["exportedFileName"], directory / "herdr-doc.png")
     except subprocess.CalledProcessError as error:
         print(f"P9 attachment export failed: {error}", flush=True)
@@ -179,6 +183,8 @@ def xcodebuild_test_command(project, device, derived_data, result):
             "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()",
             # #144: the herdr-app document read from the mock core (SmokeQA+HerdrDoc.swift).
             "-only-testing:SmokeOracle/SmokeQA/testP9HerdrDoc()",
+            # #144 D3: Rename Space writes the document (SmokeQA+HerdrDoc.swift).
+            "-only-testing:SmokeOracle/SmokeQA/testP9HerdrDocRename()",
             # The pure checks of QAAx.press's decisions (no app; under a second).
             "-only-testing:SmokeOracle/QAAxLogicTests",
             "-destination", "id=" + device, "-derivedDataPath", str(derived_data),
@@ -218,6 +224,8 @@ def main():
         raise ValueError("XCTest did not execute SH1-154 screenshot step")
     if not (directory / "herdr-doc.png").is_file():
         raise ValueError("XCTest did not execute the herdr-app document screenshot step")
+    if not (directory / "herdr-doc-rename.png").is_file():
+        raise ValueError("XCTest did not execute the herdr-app rename screenshot step")
     paints = [json.loads(line) for line in paints_path.read_text().splitlines()[previous_paints:]]
     wire = [json.loads(line) for line in wire_path.read_text().splitlines()[previous:]]
     validate(paints, wire)

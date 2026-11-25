@@ -1,6 +1,7 @@
 use super::{
     Command, Observations, Queued, SessionInfo, SessionList, SessionTarget, TabInfo,
     doc_tabs::{self, DocTabs},
+    herdr_doc,
     herdr_doc_sync::{DocMailbox, DocWriter},
     screen::{self, Screen},
     sort_sessions,
@@ -283,6 +284,18 @@ pub(super) fn run(
                 Command::NewDocSpace => {
                     if let Err(error) = doc.new_space(&backend, doc_writer.as_ref(), &mut workspace)
                     {
+                        command_error = Some(error.to_string());
+                    }
+                }
+                Command::RenameSpace { id, name } => {
+                    let intent = herdr_doc::Intent::RenameSpace { id, name };
+                    if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
+                        command_error = Some(error.to_string());
+                    }
+                }
+                Command::RenameTab { id, name } => {
+                    let intent = herdr_doc::Intent::RenameTab { id, name };
+                    if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
                         command_error = Some(error.to_string());
                     }
                 }

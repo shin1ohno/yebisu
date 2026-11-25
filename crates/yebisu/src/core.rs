@@ -79,6 +79,17 @@ pub(crate) enum Command {
     /// Herdr 2's New space: a space in the `default` core's document, never
     /// another session (#144 decision 10).
     NewDocSpace,
+    /// Renames a space of the `default` core's document; "" is the
+    /// automatic name (#144 D3, Design E).
+    RenameSpace {
+        id: String,
+        name: String,
+    },
+    /// Renames a tab of the `default` core's document; "" is its position.
+    RenameTab {
+        id: String,
+        name: String,
+    },
     Focus(usize),
     Orientation,
     #[cfg(test)]
@@ -122,6 +133,9 @@ pub(crate) struct DocCatalog {
     pub(crate) selected: Option<String>,
     /// The iPad-only tabs: terminals of this core in no document block.
     pub(crate) local_tabs: usize,
+    /// The version of the document read: a rename's name counts as shown
+    /// once a later version is read (#144 D3, the optimistic label).
+    pub(crate) version: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
