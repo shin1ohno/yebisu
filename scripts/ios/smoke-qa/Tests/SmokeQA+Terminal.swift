@@ -41,12 +41,15 @@ extension SmokeQA {
         // Issue #142 stage 2: herdr-uikit's touch receipts, counted in qa.state's `input`.
         let touches = try qa.waitState("qa.state carries the input receipts", timeout: 20) { $0.input != nil }
         // Before S6: a tap at the window point (0.5, 0.425), on the same "Tap / type" control.
+        let retried = qa.session.retries.count
         try qa.press(QAIds.p0Tap, what: "the P0 control counted the tap") { ($0.int("taps") ?? 0) >= 1 }
-        let touched = try qa.waitState("one touch receipt for the P0 tap", timeout: 2) {
-            $0.inputCount("touch_began") >= touches.inputCount("touch_began") + 1
+        // One completed touch; a touch UIKit cancelled counts only with the resend that answered it
+        // (QAAx.PressTouches; CI run 45574153676: began, cancelled, press-retry, began, ended).
+        let touched = try qa.waitState("one completed touch for the P0 tap", timeout: 2) {
+            $0.inputCount("touch_ended") >= touches.inputCount("touch_ended") + 1
         }
-        XCTAssertEqual(touched.inputCount("touch_began"), touches.inputCount("touch_began") + 1,
-                       "the P0 tap reached the drawing view once; last_touch=\(String(describing: touched.lastTouch))")
+        let mismatch = PressTouches.mismatch(before: touches, after: touched, resends: qa.session.retries.count - retried)
+        XCTAssertNil(mismatch, "the P0 tap reached the drawing view once; last_touch=\(touched.lastTouchText)")
         app.typeText("P0-input")
         try waitP0Input(qa, "P0-input", what: "typed 'P0-input' received")
         save("initial")
