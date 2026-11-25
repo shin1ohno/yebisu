@@ -4,15 +4,20 @@ use gpui::{AppContext, Entity, TestAppContext, VisualTestContext};
 use sheprd_client::ClientEvent;
 use std::sync::Arc;
 
-/// The five chrome states of plan v2 5.1 rule 2.
+/// The five chrome states of plan v2 5.1 rule 2, each with a selected
+/// host (the menu bar's Forward port… needs one; `forward.rs` covers none).
 pub(super) fn states() -> Vec<ChromeState> {
     let online = ChromeState {
         connected: true,
+        host_selected: true,
         ..ChromeState::default()
     };
     vec![
         online,
-        ChromeState::default(),
+        ChromeState {
+            host_selected: true,
+            ..ChromeState::default()
+        },
         ChromeState {
             kind: HerdrKind::Herdr2,
             ..online

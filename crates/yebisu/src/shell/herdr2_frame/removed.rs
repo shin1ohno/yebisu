@@ -26,6 +26,9 @@ impl Smoke {
             .collect::<Vec<_>>();
         for (host, removal) in hidden {
             self.shell.herdr2.forget_session(&host, &removal.name);
+            if let Some(terminal) = self.board.hidden_core.get_mut(&host) {
+                terminal.listed.forget(&removal.name);
+            }
             match removal.next {
                 Some(next) => {
                     self.shell.herdr2.confirm_session(&host, &next.name);
@@ -44,8 +47,10 @@ impl Smoke {
 
     fn move_selection_from(&mut self, host: &str, removal: Removal, cx: &mut Context<Self>) {
         // Its server is gone: nothing may remember this session as connected
-        // (`remember_connected_core` would select the removed space again).
+        // (`remember_connected_core` would select the removed space again),
+        // and the sidebar does not list it while no session is connected.
         self.terminal.live.connected = false;
+        self.terminal.listed.forget(&removal.name);
         let moved = removal.next.as_ref().is_some_and(|next| {
             self.connect_core_target(
                 SessionTarget {
