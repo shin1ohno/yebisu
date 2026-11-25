@@ -45,11 +45,15 @@ Later moves, oldest first:
   1fab654acee82bda7cc43f8703826c151c6acc34 (Mac title bar hidden so content
   fills the window). That commit also brings PR 23 (trackpad momentum and
   wheel lines, 43fff02b).
+- The Mac title-bar follow-up moves it to herdr-uikit PR 28's head
+  1c73f09023391ce3e39e10baed8cf7a845d88327 (Mac content under the hidden
+  title bar, `traffic_lights_over_content`), which also brings PR 26 (native
+  inline field, 6dcfb65). The PR 28 merge commit replaces it before merge.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 1fab654. A later bump appends its move to this list.
+identical from 99d7928 to 1c73f09. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 1fab654acee82bda7cc43f8703826c151c6acc34.
+The current pin is herdr-uikit 1c73f09023391ce3e39e10baed8cf7a845d88327.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.

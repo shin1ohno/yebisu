@@ -14,7 +14,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 # Test-support Cut/first-query helper (herdr-uikit PR 14), unchanged at the pinned commit.
-SDK = '1fab654acee82bda7cc43f8703826c151c6acc34'
+SDK = '1c73f09023391ce3e39e10baed8cf7a845d88327'
 FIELD = 'crates/yebisu/src/find/field.rs'
 QUERIES = 'crates/yebisu/src/find/native_queries.rs'
 LENGTH = '''    fn text_length_utf16(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<usize> {
