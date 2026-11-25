@@ -98,6 +98,7 @@ pub(crate) fn select(this: &mut Smoke, range: bool, window: &mut Window, cx: &mu
             ),
             cell_width: 8.,
             cell_height: 20.,
+            slide: None,
         };
         this.selection_down(
             &gpui::MouseDownEvent {

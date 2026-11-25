@@ -22,6 +22,8 @@ mod coast;
 mod herdr2;
 #[path = "terminal_wheel_tests/sheets.rs"]
 mod sheets;
+#[path = "terminal_wheel_tests/smooth.rs"]
+mod smooth;
 
 const END: &str = "issue-137-end";
 const FOCUSED: &str = "w1:p1";
