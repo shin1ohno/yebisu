@@ -5,7 +5,7 @@
 use crate::{
     app::Smoke,
     shell::{
-        rename::{HERDR2, RenameAnchor, RenameObject, RenameTarget},
+        rename::{RenameAnchor, RenameObject, RenameTarget},
         sidebar::long_press::row_press_layer,
         style::{color, metric, radius, shadow, text},
     },
@@ -51,14 +51,22 @@ impl Smoke {
         let object = RenameObject::Tab(id.to_owned());
         let plain = self.rename_label(boot, &object).is_none()
             && !self.shell.rename.editing(RenameAnchor::TabLabel, &object);
-        let focused = crate::board::snapshot(&self.terminal.live)
-            .is_some_and(|s| s.focused_tab_id.as_deref() == Some(id));
+        // Herdr 2's snapshot names no tab: the drawn document tab that is
+        // active is the current one (#144 D3).
+        let focused = if self.terminal.core_mode {
+            self.doc_names().is_some_and(|doc| {
+                doc.holds(&object) && doc.drawn.iter().any(|tab| tab.active && tab.id == id)
+            })
+        } else {
+            crate::board::snapshot(&self.terminal.live)
+                .is_some_and(|s| s.focused_tab_id.as_deref() == Some(id))
+        };
         let body = div()
             .debug_selector(move || format!("shell-tab-body-{index}"))
             .relative()
             .min_w_0()
             .font_weight(font_weight)
-            .when(focused && !self.terminal.core_mode, |body| {
+            .when(focused, |body| {
                 body.children(crate::qa_ax::mark(
                     crate::qa_ax::ids::TABS_CURRENT,
                     "Current tab",
@@ -93,12 +101,9 @@ impl Smoke {
             .editing(RenameAnchor::TabLabel, &RenameObject::Tab(id.to_owned()))
     }
 
-    /// A second tap on a tab's label renames it (the first moved there).
+    /// A second tap on a tab's label renames it (the first moved there);
+    /// on Herdr 2 only a document tab (#144 D3), `begin_rename` says why.
     pub(super) fn tab_double_tap(&mut self, host: &str, id: &str, boot: &str, generation: u64) {
-        if self.terminal.core_mode {
-            self.terminal.live.status = HERDR2.into();
-            return;
-        }
         let target = RenameTarget {
             host: host.to_owned(),
             kind: self.terminal.herdr_kind(),
@@ -134,11 +139,7 @@ impl Smoke {
             generation: menu.generation,
             object: RenameObject::Tab(menu.id.clone()),
         };
-        let reason = if menu.core {
-            Some(HERDR2)
-        } else {
-            self.rename_unavailable(&target)
-        };
+        let reason = self.rename_unavailable(&target);
         let item = |id: &'static str, label: &'static str| {
             div()
                 .id(id)

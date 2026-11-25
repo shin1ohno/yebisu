@@ -174,15 +174,18 @@ impl Smoke {
             return None;
         }
         let (anchor, object) = (session.anchor, session.target.object.clone());
+        // Herdr 2's spaces and tabs are the document's (`herdr2.rs`).
+        let herdr2 = session.target.kind == crate::shell::HerdrKind::Herdr2;
         let live = &self.terminal.live;
         let gone = if !live.connected || self.terminal.reconnect.target != session.target.host {
             Some(super::DISCONNECTED)
         } else {
             match snapshot(live) {
                 None => Some(super::DISCONNECTED),
-                Some(s) if s.boot_id != session.target.boot || !object.exists_in(s) => {
-                    Some(object.closed_text())
-                }
+                Some(s) if s.boot_id != session.target.boot => Some(object.closed_text()),
+                Some(_) if herdr2 => (!self.doc_names().is_some_and(|doc| doc.holds(&object)))
+                    .then(|| object.closed_text()),
+                Some(s) if !object.exists_in(s) => Some(object.closed_text()),
                 Some(_) => None,
             }
         };

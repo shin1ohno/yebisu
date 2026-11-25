@@ -21,7 +21,8 @@ const SHEET_OPEN: &str = "Close the sheet first";
 const EDIT_UNFENCED: &str = "Disconnect first: the Hosts sheet does not hold the keyboard yet";
 const OTHER_HOST: &str = "Select this host first";
 const OTHER_SPACE: &str = "Open this space first";
-const HERDR2_NO_RENAME: &str = super::rename::HERDR2;
+/// Herdr 2 renames the spaces of a readable `herdr-app` document only (#144 D3).
+const HERDR2_NO_RENAME: &str = super::rename::herdr2::NO_DOCUMENT;
 
 /// Whether the Hosts sheet fences terminal input while it is open (A6 of
 /// the 2026-11-18 contract amendments, L2b patch 02). Integration 2 landed
@@ -180,6 +181,9 @@ fn space_entry(item: SpaceMenuItem, state: &ChromeState, has_space: bool) -> Men
         (SpaceMenuItem::Detach, HerdrKind::Herdr1) => entry(id, false, HERDR1_NO_DETACH),
         (SpaceMenuItem::Detach, HerdrKind::Herdr2) => entry(id, state.connected, NOT_CONNECTED),
         (SpaceMenuItem::Rename, HerdrKind::Herdr1) => entry(id, state.connected, NOT_CONNECTED),
+        (SpaceMenuItem::Rename, HerdrKind::Herdr2) if state.herdr2_document => {
+            entry(id, state.connected, NOT_CONNECTED)
+        }
         (SpaceMenuItem::Rename, HerdrKind::Herdr2) => entry(id, false, HERDR2_NO_RENAME),
     }
 }
@@ -375,6 +379,7 @@ impl Smoke {
                 HerdrKind::Herdr1
             },
             connected: self.terminal.live.connected,
+            herdr2_document: self.terminal.core_mode && self.doc_names().is_some(),
             sheet_open: self.settings_modal || self.hosts_sheet_modal(),
             ..ChromeState::default()
         }
@@ -401,11 +406,19 @@ impl Smoke {
             return Err(crate::Error::NativeMenu("no space was shown"));
         }
         if item == MenuItemId::Space(SpaceMenuItem::Rename) {
-            let exists = snapshot(&self.terminal.live).is_some_and(|s| {
-                s.workspaces
-                    .iter()
-                    .any(|w| Some(&w.workspace_id) == shown.space.as_ref())
-            });
+            let exists = if self.terminal.core_mode {
+                // Herdr 2: a space of the document (#144 D3).
+                shown.space.clone().is_some_and(|space| {
+                    let object = self.herdr2_object(super::rename::RenameObject::Space(space));
+                    self.doc_names().is_some_and(|doc| doc.holds(&object))
+                })
+            } else {
+                snapshot(&self.terminal.live).is_some_and(|s| {
+                    s.workspaces
+                        .iter()
+                        .any(|w| Some(&w.workspace_id) == shown.space.as_ref())
+                })
+            };
             if !rename_scope_valid(shown, &current, exists) {
                 return Err(crate::Error::NativeMenu("menu target changed"));
             }

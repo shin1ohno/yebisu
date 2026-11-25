@@ -2,7 +2,7 @@
 //! name or a tab's label, the long-press menus (`sidebar/long_press.rs`,
 //! `rail/menu.rs`, `tab_row/menu.rs`), and the palette and the menu bar
 //! (`Rename Tab`, `Rename Space`, `Rename Pane`, run by `actions.rs`).
-use super::{HERDR2, RenameAnchor, RenameObject, RenameTarget};
+use super::{RenameAnchor, RenameObject, RenameTarget};
 use crate::{
     app::Smoke,
     board::snapshot,
@@ -18,7 +18,8 @@ use sheprd_commands::Command;
 impl Smoke {
     /// A space row's name. A double tap renames the space: the first tap
     /// goes on to the row (it moves there), the second stops here, so the
-    /// row moves once. Herdr 2 rows only say why not.
+    /// row moves once. On Herdr 2 only the document's spaces can be renamed
+    /// (#144 D3); `begin_rename` says why for the other rows.
     pub(crate) fn space_name(&self, row: &ListSpace, cx: &mut Context<Self>) -> AnyElement {
         let space = &row.entry;
         let object = RenameObject::Space(space.id.clone());
@@ -40,22 +41,21 @@ impl Smoke {
             .debug_selector(move || selector)
             .relative()
             .min_w_0()
-            .when(row.kind == HerdrKind::Herdr1 && space.current, |name| {
-                name.children(crate::qa_ax::mark(
-                    crate::qa_ax::ids::SIDEBAR_CURRENT_SPACE,
-                    "Current space",
-                ))
-            })
+            // A Herdr 2 document space's row is `default\0<space id>`.
+            .when(
+                space.current && (row.kind == HerdrKind::Herdr1 || space.id.contains('\0')),
+                |name| {
+                    name.children(crate::qa_ax::mark(
+                        crate::qa_ax::ids::SIDEBAR_CURRENT_SPACE,
+                        "Current space",
+                    ))
+                },
+            )
             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                 if event.click_count() != 2 {
                     return;
                 }
                 cx.stop_propagation();
-                if target.kind == HerdrKind::Herdr2 {
-                    this.terminal.live.status = HERDR2.into();
-                    cx.notify();
-                    return;
-                }
                 this.begin_rename(target.clone(), RenameAnchor::SpaceRow);
                 cx.notify();
             }))

@@ -124,6 +124,7 @@ impl Smoke {
             },
             connected,
             connecting,
+            herdr2_document: core && self.doc_names().is_some(),
             selecting: self.handoff.select_mode || self.handoff.selection.is_some(),
             sheet_open: self.settings_modal,
             find_available: crate::find_view::available(&self.terminal),
