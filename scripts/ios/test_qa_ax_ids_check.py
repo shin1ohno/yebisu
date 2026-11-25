@@ -57,6 +57,18 @@ class Mutations(unittest.TestCase):
         problems = self.problems()
         self.assertTrue(any(all(f in p for f in fragments) for p in problems), problems)
 
+    def test_a_native_field_identifier_counts_as_marked(self):
+        rows, problems = ids.check(self.root)
+        self.assertEqual(problems, [])
+        by_id = {row[0]: row for row in rows}
+        self.assertIn("native.rs", by_id["qa.rename.field"][2], "the rename field is the SDK's view")
+        self.assertIn("(native)", by_id["qa.rename.hint"][2])
+
+    def test_a_native_identifier_no_longer_passed_is_unmarked(self):
+        self.rewrite("crates/yebisu/src/shell/rename/native.rs",
+                     "field: qa_ax_ids::RENAME_FIELD.into(),", 'field: String::new(),')
+        self.assertProblem("RENAME_FIELD", "no qa_ax::mark call uses it")
+
     def test_a_scratch_copy_is_clean(self):
         self.assertEqual(self.problems(), [])
 

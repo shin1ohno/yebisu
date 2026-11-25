@@ -9,6 +9,7 @@ use crate::{
     terminal_view::TerminalView,
 };
 use gpui::Keystroke;
+use sheprd_client::Method;
 use sheprd_commands::{Command, CommandInfo};
 use std::collections::BTreeSet;
 
@@ -125,7 +126,40 @@ pub(crate) fn supported(command: Command) -> bool {
             | TabNumber(1..=9)
             | ToggleSidebar
             | Palette
+            // Issue #143: renamed in place in the native inline field.
+            | RenamePane
+            | RenameTab
+            | RenameWorkspace
     )
+}
+fn rename(command: Command) -> bool {
+    matches!(
+        command,
+        Command::RenamePane | Command::RenameTab | Command::RenameWorkspace
+    )
+}
+/// A rename command runs without `request` (it has no fixed RPC): Herdr 1
+/// connected with its method advertised and the target in the snapshot.
+/// A pending navigation does not block it (its result has its own slot).
+fn rename_available(terminal: &TerminalView, command: Command) -> bool {
+    let Some(shown) = snapshot(&terminal.live) else {
+        return false;
+    };
+    let (method, target) = match command {
+        Command::RenamePane => (Method::PaneRename, shown.focused_pane_id.is_some()),
+        Command::RenameTab => (Method::TabRename, shown.focused_tab_id.is_some()),
+        Command::RenameWorkspace => (
+            Method::WorkspaceRename,
+            shown.focused_workspace_id.is_some(),
+        ),
+        _ => return false,
+    };
+    !terminal.core_mode
+        && terminal.live.connected
+        && !terminal.reconnect.suspended
+        && terminal.live.version_mismatch.get().is_none()
+        && target
+        && method.advertised_in(&terminal.live.methods)
 }
 fn local(command: Command) -> bool {
     matches!(command, Command::ToggleSidebar | Command::Palette)
@@ -152,6 +186,8 @@ pub(crate) fn catalog(terminal: &TerminalView) -> Vec<Action> {
             let label = crate::i18n::command(info);
             let available = if info.command == Command::Find {
                 context_available && crate::find_view::available(terminal)
+            } else if rename(info.command) {
+                context_available && rename_available(terminal, info.command)
             } else if terminal.core_mode {
                 context_available
                     && (local(info.command)
@@ -376,6 +412,7 @@ impl Smoke {
                 self.terminal.input.detach();
                 return Ok(());
             }
+            command if rename(command) => return self.run_rename_command(command),
             _ => {}
         }
         if self.terminal.core_mode {

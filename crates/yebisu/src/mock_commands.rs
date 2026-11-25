@@ -1,10 +1,46 @@
 //! P7 sandbox API semantics. IDs and labels are fixture constants, not image-derived.
 use serde_json::Value;
 use sheprd_client::protocol::ClientShellSnapshot;
+/// A rename request (issue #143), which faults can refuse or leave unanswered.
+pub(crate) fn is_rename(request: &Value) -> bool {
+    matches!(
+        request["method"].as_str(),
+        Some("workspace.rename" | "tab.rename" | "pane.rename")
+    )
+}
+
 pub(crate) fn apply(s: &mut ClientShellSnapshot, request: &Value) -> bool {
     let method = request["method"].as_str().unwrap_or_default();
     let params = &request["params"];
+    let label = params["label"].as_str().unwrap_or_default();
     match method {
+        "workspace.rename" => {
+            let id = params["workspace_id"].as_str();
+            let Some(space) = s
+                .workspaces
+                .iter_mut()
+                .find(|w| Some(w.workspace_id.as_str()) == id)
+            else {
+                return false;
+            };
+            space.label = label.into();
+        }
+        "tab.rename" => {
+            let id = params["tab_id"].as_str();
+            let Some(tab) = s.tabs.iter_mut().find(|t| Some(t.tab_id.as_str()) == id) else {
+                return false;
+            };
+            tab.label = label.into();
+            tab.custom_label = true;
+        }
+        "pane.rename" => {
+            let id = params["pane_id"].as_str();
+            let Some(pane) = s.panes.iter_mut().find(|p| Some(p.pane_id.as_str()) == id) else {
+                return false;
+            };
+            // Herdr 1 gives an empty label back its automatic name.
+            pane.label = (!label.is_empty()).then(|| label.into());
+        }
         "tab.create" => {
             let Some(mut tab) = s.tabs.first().cloned() else {
                 return false;
