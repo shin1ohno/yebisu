@@ -109,7 +109,12 @@ class P12QASourceTests(unittest.TestCase):
         for gone in ("qa.press(", "qa.find(", "waitState("):
             self.assertNotIn(gone, held)
         self.assertIn("usleep(Self.heldReadInterval)", held)
-        self.assertIn("PressVerdict.of(before: before, after: last, id: id)", held)
+        # Issue #142 stage 3: the verdict reads the settled state, before any resend.
+        settled = held.index('qa.settledOrReason("after the held press on \\(id)", interval: Self.heldReadInterval)')
+        self.assertLess(settled, held.index("PressVerdict.of(before: before, after: settled, id: id)"))
+        self.assertLess(settled, held.index("qa.session.retries.append("))
+        self.assertIn("case let .arrivedNotCounted(lastTouch):", held)
+        self.assertIn("throw QAAxError.pressArrivedElsewhere(", held)
         self.assertIn("qa.session.dropFirstPress.remove(id)", held)
         self.assertIn("qa.session.retries.append(", held)
         self.assertIn("heldReadInterval: useconds_t = 250_000", swift)
@@ -140,7 +145,7 @@ class P12QASourceTests(unittest.TestCase):
         self.assertLess(opened, ready)
         self.assertLess(ready, hittable)
         self.assertLess(hittable, choose.index("XCTAssertTrue(hittable,"))
-        self.assertLess(choose.index("XCTAssertTrue(hittable,"), choose.index("item.click()"))
+        self.assertLess(choose.index("XCTAssertTrue(hittable,"), choose.index("item.tap()"))
         availability = body(swift, "private func waitForEnabledMenuItem(")
         self.assertLess(availability.index("if item.exists && item.isEnabled"), availability.index("XCTWaiter().wait("))
         self.assertIn("exists == true AND enabled == true", availability)
@@ -173,33 +178,93 @@ class P12QASourceTests(unittest.TestCase):
         driver = (HERE / "p12-check.py").read_text()
         self.assertIn('"-only-testing:P12Oracle/P12MenuBarGeometryTests"', driver)
 
-    def test_native_menu_clicks_use_pointer_and_fixture_presses_still_use_touch(self):
+    def test_pick_and_dismiss_are_touches_again(self):
+        """Issue #142 stage 3 (Owner decision 4): no XCTest pointer in P12; the pick and both
+        dismisses are taps, as before PR 100 (4fe28c1^)."""
         swift = code(SWIFT)
+        self.assertEqual(re.findall(r"hover\(\)|\.click\(\)", SWIFT), [], "grep -nE 'hover\\(\\)|\\.click\\(\\)' must return nothing")
+        self.assertNotIn("supportsPointerInteraction", SWIFT)
+        self.assertNotIn("waitForMenuItemAfterHover", SWIFT)
+        self.assertNotIn("pointer-ready", SWIFT)
         choose = body(swift, "private func choose(")
-        self.assertEqual(choose.count(".tap()"), 1)
+        self.assertIn("item.tap()", choose)
+        self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).tap()", choose)
+        self.assertIn("point.tap()", choose)
         self.assertIn("target.tap()", choose)
-        self.assertIn("point.click()", choose)
-        self.assertIn("item.click()", choose)
-        self.assertIn("try dismissPoint(clearOf: item, caseName: caseName).click()", choose)
-        self.assertIn("XCUIDevice.shared.supportsPointerInteraction", body(swift, "func testInstalledTerminalMenu("))
+        self.assertIn("let tapped = enabled && item.isHittable", choose)
+        self.assertIn('XCTAssertTrue(present, "Native menu disappeared; this is not refusal evidence")', choose)
         self.assertIn("withOffset(point).tap()", body(swift, "private func heldPress("))
 
-    def test_each_pick_moves_the_pointer_then_waits_for_an_actionable_row(self):
-        swift = code(SWIFT)
-        choose = body(swift, "private func choose(")
-        hover = choose.index("if item.exists && item.isEnabled { item.hover() }")
-        wait = choose.index("waitForMenuItemAfterHover(item)")
-        self.assertLess(choose.index("XCTAssertTrue(hittable,"), hover)
-        self.assertLess(choose.index("if observeOnly {"), hover)
-        self.assertLess(hover, wait)
-        self.assertLess(wait, choose.index("let pickStart ="))
-        self.assertLess(choose.index("let pickStart ="), choose.index("if tapped { item.click() }"))
-        self.assertEqual(choose.count("item.hover()"), 1)
-        self.assertEqual(choose.count("item.click()"), 1)
-        after_hover = body(swift, "private func waitForMenuItemAfterHover(")
-        self.assertIn("while item.exists", after_hover)
-        self.assertIn("guard item.isEnabled", after_hover)
-        self.assertIn("!item.frame.isEmpty && item.isHittable", after_hover)
+    def test_a_pick_is_resent_once_only_when_receipts_prove_it_lost(self):
+        """Decision table row 2 (A1): the menu still open 5 s after the pick; the settled state decides."""
+        choose = body(code(SWIFT), "private func choose(")
+        still_open = choose.index("if !closed && tapped {")
+        settled = choose.index('qa.settledOrReason("OS menu still open after the pick', still_open)
+        decide = choose.index("MenuInputDecision.pick(itemEnabled: item.exists && item.isEnabled, before: baseline, after: after)", settled)
+        retry = choose.index('"kind": "pick-retry"', decide)
+        again = choose.index("try sendPick(2)", retry)
+        self.assertLess(choose.index("var closed = waitMenuClosed(item)"), still_open)
+        self.assertLess(again, choose.index('failure = "pick lost twice in case', again))
+        self.assertIn('failure = "OS menu still open 5 s after the pick tap in case \\(caseName), not tapped again: " + why', choose)
+        self.assertEqual(choose.count('"kind": "pick-retry"'), 1)
+        self.assertEqual(choose.count("try sendPick("), 2)
+        self.assertIn("XCTAssertTrue(closed && failure.isEmpty,", choose)
+        # The baseline is read before the swipe, so no app query runs while the menu is open.
+        self.assertIn("swipeBaseline = qa.read()", body(code(SWIFT), "private func revealMenuBar("))
+        self.assertIn("let baseline = swipeBaseline", choose)
+
+    def test_an_open_tap_is_resent_once_only_when_receipts_prove_it_lost(self):
+        """Decision table row 5 (M): the menu item never appeared after the open tap."""
+        choose = body(code(SWIFT), "private func choose(")
+        missing = choose.index("if !available && !item.exists {")
+        decide = choose.index("MenuInputDecision.open(before: baseline, after: after)", missing)
+        self.assertLess(choose.index('qa.settledOrReason("after the open tap', missing), decide)
+        retry = choose.index('"kind": "open-retry"', decide)
+        self.assertLess(retry, choose.index("target.tap()", retry))
+        self.assertEqual(choose.count('"kind": "open-retry"'), 1)
+        self.assertIn('XCTFail("Native command availability wait expired:', choose)
+        self.assertLess(choose.index('openNote = "; not tapped again: " + why'), choose.index('XCTFail("Native command availability wait expired:'))
+
+    def test_the_menu_faults_are_spent_once_and_named(self):
+        choose = body(code(SWIFT), "private func choose(")
+        for fault in ("drop-open:", "drop-pick:", "drop-pick-twice:", "offset-pick:"):
+            with self.subTest(fault=fault):
+                self.assertIn(f'faults.remove("{fault}" + caseName) != nil', choose)
+                self.assertTrue(oracle.valid_fault(fault + "sidebar"))
+
+    def test_menu_bar_presence_is_checked_before_its_frame(self):
+        """Class B2: no StatusBar used to fail at bar.frame with 'Failed to get matching snapshot'."""
+        position = body(code(SWIFT), "private func waitForMenuBarPressPosition(")
+        self.assertLess(position.index("guard bar.exists else {"), position.index("bar.frame"))
+        guard = position[position.index("guard bar.exists else {"):position.index("if button.exists")]
+        self.assertIn("return nil", guard)
+        self.assertIn("continue", guard)
+        reveal = body(code(SWIFT), "private func revealMenuBar(")
+        self.assertIn("app touches during the swipe: began=", reveal)
+        self.assertIn("+ swipeTouches)", body(code(SWIFT), "private func choose("))
+
+    def test_a_press_whose_touch_arrived_is_never_sent_again(self):
+        """Issue #142 stage 3 (class F2): QAAx.press decides on the settled state; a touch that reached the
+        app is waited for once more and then fails with last_touch, never pressed again."""
+        qaax = code((HERE / "smoke-qa/Tests/QAAx.swift").read_text())
+        press = body(qaax, "func press(")
+        settled = press.index('settledOrReason("after the press on \\(id)")')
+        self.assertLess(settled, press.index("PressVerdict.of(before: before, after: after, id: id)"))
+        arrived = press[press.index("case let .arrivedNotCounted(lastTouch):"):press.index("case .lostProven, .cancelled:")]
+        self.assertIn("throw QAAxError.pressArrivedElsewhere(", arrived)
+        self.assertNotIn("break", arrived)
+        self.assertNotIn(".tap()", arrived)
+        unproven = press[press.index("case let .unproven(reason):"):press.index("case let .arrivedNotCounted(lastTouch):")]
+        self.assertIn("throw QAAxError.pressNotDelivered(", unproven)
+        self.assertLess(press.index("case .lostProven, .cancelled:"), press.index('session.retries.append("\\(id): \\(reason)")'))
+
+    def test_failure_text_says_tap_not_click(self):
+        self.assertNotIn("click of '", SWIFT)
+        self.assertNotIn("the click was lost", SWIFT)
+        self.assertIn("the tap was lost", SWIFT)
+        messages = re.findall(r'(?:require|ValueError)\([^\n]*?f?"([^"]*)"', (HERE / "p12-oracle.py").read_text())
+        self.assertTrue(messages)
+        self.assertEqual([m for m in messages if "click" in m], [])
 
     def test_stale_cases_wait_for_mutation_before_opening_the_menu(self):
         swift = code(SWIFT)
