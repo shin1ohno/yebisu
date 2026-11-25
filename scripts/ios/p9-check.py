@@ -6,10 +6,29 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import importlib.util
+
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
     print("P9 COMMAND", list(args), flush=True)
+    if args[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4: streamed as before, and kept for the job's resend budget.
+        # Class D: once more when xcodebuild found no device and ran no test (sim_ready.run_test).
+        result = sim_ready.run_test(list(args), lambda: subprocess.CompletedProcess(list(args), *resend_budget.run_tee(list(args), **kwargs)))
+        resend_budget.record(Path(__file__).stem, result.stdout)
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout)
+        return result
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
@@ -89,6 +108,13 @@ def collect_evidence(directory, result, paints_path, wire_path):
     for source, name in [(paints_path, "paints.jsonl"), (wire_path, "wire.jsonl")]:
         if source.is_file():
             shutil.copyfile(source, directory / name)
+    # Issue #142 stage 4 (classes Q and S): main-thread stalls in the app's own file, reported, not judged.
+    try:
+        gaps = live_jsonl.heartbeat_gaps(live_jsonl.read_records(directory / "paints.jsonl"))
+        (directory / "heartbeat-gaps.json").write_text(json.dumps(gaps, indent=1) + "\n")
+        print("P9 heartbeat gaps:", json.dumps(gaps), flush=True)
+    except (OSError, ValueError) as error:
+        print(f"P9 heartbeat gaps unreadable: {error}", flush=True)
     try:
         export = directory / "attachments"
         run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
@@ -134,6 +160,8 @@ def main():
     previous_paints = len(paints_path.read_text().splitlines()) if paints_path.exists() else 0
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = directory / "result.xcresult"
     try:
         run(*xcodebuild_test_command(project, device, root / "target/ios-smoke/build", result))

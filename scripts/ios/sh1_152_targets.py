@@ -12,6 +12,14 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import importlib.util
+
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST = "testL61SecondaryClickTargets"
@@ -64,9 +72,15 @@ def validate(log):
 
 def run(*args):
     print("L61 COMMAND", list(args), flush=True)
-    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True)
+    if args[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4 (class D): once more when xcodebuild found no device and ran no test.
+        result = sim_ready.run_test(args, lambda: subprocess.run(args, cwd=ROOT, text=True, capture_output=True))
+    else:
+        result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True)
     print(result.stdout, flush=True)
     print(result.stderr, flush=True)
+    if args[:2] == ("xcodebuild", "test"):
+        resend_budget.record(Path(__file__).stem, result.stdout)  # issue #142 stage 4: the job's resend budget
     result.check_returncode()
     return result
 
@@ -79,12 +93,15 @@ def main():
     run("xcrun", "simctl", "install", device, bundle)
     project = ROOT / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result_bundle = directory / "result.xcresult"
     print("L61 COMMAND xcodebuild test", flush=True)
-    result = subprocess.run(["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
+    result = sim_ready.run_test(xctest_command := ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
                              "-destination", "id=" + device, "-derivedDataPath", str(ROOT / "target/ios-smoke/build"),
                              "-resultBundlePath", str(result_bundle), "CODE_SIGNING_ALLOWED=NO",
-                             "-only-testing:SmokeOracle/EditMenuTargetsQA/" + TEST], cwd=ROOT, text=True, capture_output=True)
+                             "-only-testing:SmokeOracle/EditMenuTargetsQA/" + TEST], lambda: subprocess.run(xctest_command, cwd=ROOT, text=True, capture_output=True))
+    resend_budget.record("sh1_152_targets", result.stdout)
     log = result.stdout + result.stderr
     print(log, flush=True)
     (directory / "xctest.log").write_text(log)

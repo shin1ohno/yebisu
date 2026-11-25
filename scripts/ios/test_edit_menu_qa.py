@@ -59,12 +59,12 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn("UIKit destroys the closed scene's session outside the app", EDIT_MENU)
 
     def test_launch_turns_the_qa_layer_on_and_waits_for_the_input_destination(self):
-        launch = body(self.code, "private func launch(")
+        launch = launch_path(self.code)
         self.assertIn('app.launchEnvironment["YEBISU_QA_AX"] = "1"', launch)
         self.assertIn('$0.string("input_pane") != nil', launch)
 
     def test_portrait_is_observed_after_launch_before_the_first_touch(self):
-        launch = body(self.code, "private func launch(")
+        launch = launch_path(self.code)
         self.assertNotIn("XCUIDevice.shared.orientation", launch)
         observed = launch.index("try requirePortraitScreen(name)")
         self.assertLess(launch.index("app.launch()"), observed)
@@ -82,7 +82,7 @@ class EditMenuQAIdentifiers(unittest.TestCase):
     def test_basic_uses_app_window_points_after_observing_the_full_screen(self):
         basic = body(self.code, "func testSH1152Basic(")
         self.assertIn("try launch(name, useWindowFrames: true, automaticMarkers: automaticMarkers)", basic)
-        launch = body(self.code, "private func launch(")
+        launch = launch_path(self.code)
         self.assertIn('app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1"', launch)
         self.assertLess(launch.index("if useWindowFrames && !full"), launch.index("ax.touchReady("))
         qaax = code((TESTS / "QAAx.swift").read_text())
@@ -101,7 +101,7 @@ class EditMenuQAIdentifiers(unittest.TestCase):
         self.assertIn("if !automaticMarkers { try begin(QAIds.sh152Begin, ax) }", basic)
         end_receipt = basic.index('$0.count("sh152_end") == 1 && $0.peerPastes.contains(marker)')
         self.assertLess(basic.index("choose(action, app, ax)"), end_receipt)
-        launch = body(self.code, "private func launch(")
+        launch = launch_path(self.code)
         self.assertIn('if automaticMarkers { app.launchEnvironment["YEBISU_SH1_152_AUTO_MARKERS"] = "1" }', launch)
         receipt = launch.index('$0.count("sh152_start") == 1 && $0.peerPastes.contains(marker)')
         self.assertLess(receipt, launch.index("ax.touchReady("))
@@ -261,6 +261,13 @@ class S4FollowUps(unittest.TestCase):
             self.assertIn(fact, comment)
 
 
+def launch_path(source):
+    """EditMenuQA's launch path in the order it runs: `start` (launch, qa.state, portrait, input
+    destination, frame, markers) and then `launch`'s touch-ready wait and its one relaunch."""
+    return (body(source, "private func launchTakingIssues(") + body(source, "private func start(")
+            + body(source, "private func launch("))
+
+
 class TouchReadyAfterEveryLaunch(unittest.TestCase):
     """PR 84 run 44618790826: E3f-text's first press after its relaunch reached nothing twice (the
     recording showed the window still black). Every EditMenuQA launch now waits for a touch on the
@@ -269,11 +276,44 @@ class TouchReadyAfterEveryLaunch(unittest.TestCase):
     def test_every_launch_goes_through_launch_and_waits_for_a_touch(self):
         source = code(EDIT_MENU)
         self.assertEqual(source.count("app.launch()"), 1, "one launch path")
-        launch = body(source, "private func launch(")
+        launch = launch_path(source)
         self.assertIn("try ax.touchReady(QAIds.sh152Empty", launch)
         self.assertLess(launch.index('frame("launch'), launch.index("touchReady"))
         self.assertLess(launch.index("touchReady"), launch.index("return (app, ax)"))
         self.assertIn('XCTFail("SH1-152 no touch reached GPUI after launch', launch)
+
+    def test_a_launch_whose_touch_never_reaches_gpui_is_relaunched_once(self):
+        """Issue #142 stage 4 (class T, Owner decision 5): one relaunch with the same environment,
+        logged as a relaunch-retry resend; a second miss fails by name with the receipts."""
+        launch = body(code(EDIT_MENU), "private func launch(")
+        self.assertEqual(launch.count('QAAx.resend(kind: "relaunch-retry"'), 1)
+        self.assertEqual(launch.count("relaunched = true"), 1)
+        self.assertIn("var relaunched = false", launch)
+        self.assertLess(launch.index("if relaunched {"), launch.index("relaunched = true"))
+        self.assertIn('XCTFail("SH1-152 no touch reached GPUI after launch \\(name), also after one relaunch: \\(error)")', launch)
+        resend = launch.index('QAAx.resend(kind: "relaunch-retry"')
+        self.assertLess(resend, launch.index("app.terminate()", resend))
+        self.assertLess(launch.index("app.terminate()", resend), launch.index("ax = try start(app, name", resend))
+        self.assertEqual(launch.count("try start(app, name"), 2, "the first launch and the one relaunch")
+
+    def test_a_launch_that_never_started_is_launched_once_more(self):
+        """Issue #142 stage 4 (class L): launch issues are taken while app.launch() runs; only a launch
+        that left the app not running and without qa.state is repeated, once, and every other issue
+        is recorded unchanged."""
+        source = code(EDIT_MENU)
+        record = body(source, "override func record(")
+        self.assertIn("launchIssues?.append(issue)", record)
+        self.assertIn("super.record(issue)", record)
+        taking = body(source, "private func launchTakingIssues(")
+        self.assertLess(taking.index("launchIssues = []"), taking.index("app.launch()"))
+        self.assertLess(taking.index("app.launch()"), taking.index("launchIssues = nil"))
+        start = body(source, "private func start(")
+        guard_ = start.index("if !issues.isEmpty && app.state == .notRunning && ax.read() == nil {")
+        self.assertEqual(start.count('QAAx.resend(kind: "launch-retry"'), 1)
+        self.assertEqual(start.count("launchTakingIssues(app)"), 2, "the launch and its one repeat")
+        self.assertLess(guard_, start.index('QAAx.resend(kind: "launch-retry"'))
+        self.assertLess(start.index("for issue in issues { record(issue) }"), start.index("if !issues.isEmpty { throw SetupError.launchFailed }"))
+        self.assertLess(start.index("for issue in issues { record(issue) }"), start.index('try ax.waitState("launch'))
 
     def test_touch_ready_presses_until_gpui_counts_it(self):
         qaax = code((TESTS / "QAAx.swift").read_text())

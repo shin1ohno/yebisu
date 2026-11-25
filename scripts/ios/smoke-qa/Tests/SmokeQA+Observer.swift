@@ -54,7 +54,9 @@ extension SmokeQA {
         if modal {
             try qa.settleIfMoved("before Close")
             try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
-            XCUIDevice.shared.press(.home)
+            // No state wait here before issue #142 either; a Home that never reached SpringBoard
+            // is still pressed once more (QAAx.pressHome, class K).
+            qa.pressHome("P11 observer Home") { app.wait(for: .runningBackground, timeout: 10) }
             app.activate()
             app.terminate()
             app.launch()
