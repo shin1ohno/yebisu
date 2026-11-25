@@ -103,7 +103,7 @@ fn frame_entry_points(state: &ChromeState, out: &mut Vec<EntryPoint>) {
             });
         }
     }
-    if !state.connected {
+    if state.offers_reconnect() {
         out.push(point(EntryAction::Reconnect, Place::StatusBar, true));
     }
     out.push(point(EntryAction::Shortcuts, Place::StatusBar, true));
@@ -176,7 +176,7 @@ pub(crate) fn required_entry_actions(state: &ChromeState) -> Vec<EntryAction> {
         EntryAction::Select,
         EntryAction::Copy,
     ]);
-    if !state.connected {
+    if state.offers_reconnect() {
         required.push(EntryAction::Reconnect);
     }
     if state.find_available {

@@ -228,6 +228,7 @@ impl Smoke {
         }
         self.poll_hidden(cx);
         self.poll_removed_space(cx);
+        self.poll_launch_restore(cx);
         for hidden in self.board.hidden.values_mut() {
             hidden.report_surface_focus(false);
         }
