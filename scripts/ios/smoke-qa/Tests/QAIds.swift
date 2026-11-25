@@ -3,6 +3,10 @@
 /// a constant in crates/yebisu/src/qa_ax_ids.rs, marked on the control it names;
 /// scripts/ios/qa-ax-ids-check.py fails if a string here is not defined there.
 enum QAIds {
+    // Issue #143 rename in place (SmokeQA+Rename.swift).
+    static let sidebarCurrentSpace = "qa.sidebar.current-space"
+    static let sidebarSpaceRename = "qa.sidebar.space-rename"
+    static let tabsCurrent = "qa.tabs.current"
     static let tabsMore = "qa.tabs.more"
     static let menuPaste = "qa.menu.paste"
     static let menuPasteImage = "qa.menu.paste-image"

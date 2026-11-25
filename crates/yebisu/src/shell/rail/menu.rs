@@ -7,6 +7,7 @@ use crate::{
         HerdrKind,
         herdr2_frame::sidebar::CoreRow,
         host_menus::{HostMenuItem, MenuItemId, MenuScope},
+        rename::RenameAnchor,
         sidebar_status::SidebarStatus,
         style::{color, metric, radius, shadow, weight},
     },
@@ -39,7 +40,11 @@ enum Action {
     Open,
     NewTab,
     Detach,
-    Pin { was_pinned: bool },
+    Pin {
+        was_pinned: bool,
+    },
+    /// Issue #143: the menu stays open and its header becomes the field.
+    Rename,
 }
 
 impl Action {
@@ -49,6 +54,7 @@ impl Action {
             Self::NewTab => "rail-menu-new-tab",
             Self::Detach => "rail-menu-detach",
             Self::Pin { .. } => "rail-menu-pin",
+            Self::Rename => "rail-menu-rename",
         }
     }
 
@@ -59,6 +65,7 @@ impl Action {
             Self::Detach => format!("Detach {}", item.name),
             Self::Pin { was_pinned: true } => "Unpin Agent".into(),
             Self::Pin { was_pinned: false } => "Pin Agent".into(),
+            Self::Rename => "Rename…".into(),
         }
     }
 }
@@ -121,7 +128,7 @@ impl Smoke {
         }
     }
 
-    pub(super) fn dismiss_rail_menu(&mut self) {
+    pub(crate) fn dismiss_rail_menu(&mut self) {
         self.shell.rail.menu = None;
         self.shell.rail.menu_generation = self.shell.rail.menu_generation.wrapping_add(1);
     }
@@ -143,7 +150,30 @@ impl Smoke {
             }
             RailTarget::Agent { .. } => None,
         };
-        let actions = [Action::Open, Action::NewTab].into_iter().chain(extra);
+        let rename = self.rail_rename_target(&menu.item);
+        let renaming = rename.as_ref().is_some_and(|target| {
+            self.shell
+                .rename
+                .editing(RenameAnchor::RailHeader, &target.object)
+        });
+        let actions = [Action::Open, Action::NewTab]
+            .into_iter()
+            .chain(extra)
+            .chain(rename.is_some().then_some(Action::Rename));
+        let header_name = match &rename {
+            Some(target) => self.renamable(
+                div().min_w_0().truncate().font_weight(weight::SEMIBOLD),
+                &target.boot,
+                RenameAnchor::RailHeader,
+                target.object.clone(),
+                menu.item.name.clone(),
+            ),
+            None => div()
+                .min_w_0()
+                .truncate()
+                .font_weight(weight::SEMIBOLD)
+                .child(menu.item.name.clone()),
+        };
         let panel = div()
             .id("rail-row-menu")
             .debug_selector(|| "rail-row-menu".to_owned())
@@ -162,13 +192,7 @@ impl Smoke {
                     .gap(px(metric::INLINE_GAP))
                     .h(px(metric::TOUCH))
                     .px(px(metric::INSET))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .font_weight(weight::SEMIBOLD)
-                            .child(menu.item.name.clone()),
-                    )
+                    .child(header_name)
                     .when(menu.needs > 0, |header| {
                         header.child(
                             div()
@@ -192,12 +216,19 @@ impl Smoke {
                     .flex()
                     .flex_col()
                     .justify_center()
-                    .text_color(rgb(if reason.is_some() {
+                    // While the header is the field, the items below wait.
+                    .text_color(rgb(if reason.is_some() || renaming {
                         color::DISABLED
                     } else {
                         color::TEXT
                     }))
                     .child(div().truncate().child(label))
+                    .when(matches!(action, Action::Rename), |row| {
+                        row.children(crate::qa_ax::mark(
+                            crate::qa_ax::ids::RAIL_MENU_RENAME,
+                            "Rename",
+                        ))
+                    })
                     .when_some(reason, |row, reason| {
                         row.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
                             .child(
@@ -206,7 +237,7 @@ impl Smoke {
                                     .child(reason),
                             )
                     })
-                    .when(reason.is_none(), |row| {
+                    .when(reason.is_none() && !renaming, |row| {
                         row.on_click(cx.listener(move |this, _, window, cx| {
                             if let Err(error) = this.pick_rail_action(action, window, cx) {
                                 this.terminal.live.status = error.to_string();
@@ -238,6 +269,10 @@ impl Smoke {
             Action::NewTab if menu.tab_target.is_none() => Some("No space selected"),
             Action::NewTab => None,
             Action::Pin { .. } => None,
+            Action::Rename => {
+                let target = self.rail_rename_target(item)?;
+                self.rename_unavailable(&target)
+            }
             Action::Detach => {
                 let RailTarget::Host(host) = &item.target else {
                     return Some("Select a host");
@@ -312,6 +347,24 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> crate::Result<()> {
+        if matches!(action, Action::Rename) {
+            // The menu stays open: its header is where the field goes (the
+            // rail is too narrow for it).
+            let menu = self
+                .shell
+                .rail
+                .menu
+                .clone()
+                .ok_or(crate::Error::NativeMenu("no rail row menu"))?;
+            if let Some(reason) = self.rail_action_unavailable(action, &menu) {
+                return Err(crate::Error::NativeMenu(reason));
+            }
+            let target = self
+                .rail_rename_target(&menu.item)
+                .ok_or(crate::Error::NativeMenu("menu target changed"))?;
+            self.begin_rename(target, RenameAnchor::RailHeader);
+            return Ok(());
+        }
         let menu = self
             .shell
             .rail
@@ -366,6 +419,7 @@ impl Smoke {
                     cx,
                 )?;
             }
+            Action::Rename => {}
             Action::Pin { was_pinned } => {
                 let RailTarget::Agent {
                     id,

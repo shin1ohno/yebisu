@@ -211,11 +211,16 @@ wrappers() { # the installed wrappers of this bundle identifier, one per line
   done
 }
 # The path is an argument of the script, never part of its text, so spaces and
-# quotes in it cannot change what Finder is asked to delete.
+# quotes in it cannot change what Finder is asked to delete. The path becomes a
+# file before Finder's tell block: inside it Finder evaluates `POSIX file` of
+# the argument itself and cannot resolve it (-1728), and the variable is not
+# named after a Finder term such as `target`, which inside the block is
+# Finder's own property (both seen on macOS 26.7.3, 2026-11-25).
 trash_wrapper() { # trash_wrapper PATH: one Finder delete; the owner authenticates
   # gate:trash-status begin
   osascript -e 'on run argv' \
-    -e 'tell application "Finder" to delete (POSIX file (item 1 of argv))' \
+    -e 'set wrapperFile to POSIX file (item 1 of argv)' \
+    -e 'tell application "Finder" to delete wrapperFile' \
     -e 'end run' "$1" >&2 || return 1
   # gate:trash-status end
   return 0

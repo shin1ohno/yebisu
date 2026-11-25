@@ -152,9 +152,25 @@ FAKES = {
     # Finder's delete of the path given as the script's argument. MAC_TEST_TRASH:
     # trash (default) moves it to ROOT/Trash; cancel is AppleScript error -128
     # with nothing moved; ignore exits 0 and moves nothing; moved-then-error
-    # moves it, then exits 1.
+    # moves it, then exits 1. First it refuses, as the live Finder does with
+    # -1728 (macOS 26.7.3, 2026-11-25), a script that hands Finder anything but
+    # a file coerced from argv before the tell block, in a variable that is not
+    # a Finder term: inside the block Finder cannot resolve `POSIX file` of the
+    # argument, and `target` names Finder's own property.
     "osascript": r'''
         log("osascript")
+        lines = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-e"]
+        coerced = [line.split()[1] for line in lines
+                   if line.startswith("set ") and line.endswith(" to POSIX file (item 1 of argv)")]
+        tells = [i for i, line in enumerate(lines) if line.startswith('tell application "Finder"')]
+        finder_terms = {"target", "name", "file", "item", "folder", "selection", "desktop", "home",
+                        "trash", "window", "container", "disk"}
+        resolved = (len(coerced) == 1 and coerced[0] not in finder_terms and len(tells) == 1
+                    and lines[tells[0]] == f'tell application "Finder" to delete {coerced[0]}'
+                    and lines.index(f"set {coerced[0]} to POSIX file (item 1 of argv)") < tells[0])
+        if not resolved:
+            print("execution error: Finder got an error: Can’t get POSIX file. (-1728)", file=sys.stderr)
+            sys.exit(1)
         mode = env("MAC_TEST_TRASH", "trash")
         target = pathlib.Path(args[-1])
         if mode in ("trash", "moved-then-error"):
@@ -546,7 +562,8 @@ class MacScriptTests(Harness, unittest.TestCase):
         for args in trashed:
             self.assertEqual(args[:-1], [
                 "-e", "on run argv",
-                "-e", 'tell application "Finder" to delete (POSIX file (item 1 of argv))',
+                "-e", "set wrapperFile to POSIX file (item 1 of argv)",
+                "-e", 'tell application "Finder" to delete wrapperFile',
                 "-e", "end run"])
         self.assertTrue((self.root / "Trash" / "yebisu 2.app").exists())
         self.assertTrue((self.root / "Trash" / "yebisu.app").exists())
@@ -555,6 +572,24 @@ class MacScriptTests(Harness, unittest.TestCase):
         calls = [c["tool"] if c["tool"] != "open" else c["args"][0].rsplit(".", 1)[-1] for c in self.calls()]
         self.assertLess(calls.index("osascript"), calls.index("ipa"))
         self.assertIn(f"Installed {BUNDLE} as {self.applications / 'yebisu.app/Wrapper/yebisu.app'}", result.stderr)
+
+    def test_the_fake_finder_refuses_the_forms_the_live_finder_could_not_resolve(self):
+        # The three forms tried live on 2026-11-25: only the third trashed the wrapper.
+        wrapper = self.wrapper("yebisu.app")
+        osascript = self.root / "tools" / "osascript"
+        refused = [
+            ['tell application "Finder" to delete (POSIX file (item 1 of argv))'],
+            ["set target to POSIX file (item 1 of argv)", 'tell application "Finder" to delete target'],
+        ]
+        for body in refused:
+            argv = ["-e", "on run argv", *[part for line in body for part in ("-e", line)], "-e", "end run"]
+            result = subprocess.run([str(osascript), *argv, str(wrapper)], env=self.env,
+                                    text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 1, body)
+            self.assertIn("(-1728)", result.stderr, body)
+            self.assertTrue(wrapper.exists(), body)
+        self.assertEqual(self.run_mac().returncode, 0)
+        self.assertTrue((self.root / "Trash" / "yebisu.app").exists())
 
     def test_a_path_with_quotes_reaches_finder_as_one_argument(self):
         self.wrapper('odd "name" $x.app')
