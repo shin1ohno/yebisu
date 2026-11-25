@@ -183,13 +183,23 @@ impl Smoke {
         match kind {
             HerdrKind::Herdr1 => self.new_herdr1_space(&host, cx),
             HerdrKind::Herdr2 => {
-                // Keep the daemon namespace short enough for Unix sockets.
-                let stamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                let name = format!("space-{stamp}");
-                let _ = self.connect_named_core(host, name, None, cx);
+                // #144 decision 10: a space in the `default` core's
+                // herdr-app document, never another session. A connection
+                // to that core takes the command before its worker starts.
+                let connected = self.terminal.core_mode
+                    && self.terminal.reconnect.target == host
+                    && self
+                        .terminal
+                        .core
+                        .as_ref()
+                        .is_some_and(|core| core.name() == super::HERDR2_SESSION);
+                let started = connected
+                    || self
+                        .connect_named_core(host, super::HERDR2_SESSION.into(), None, cx)
+                        .is_ok();
+                if started {
+                    let _ = self.try_core_command(crate::core::Command::NewDocSpace);
+                }
             }
         }
         cx.notify();
