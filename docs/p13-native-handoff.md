@@ -18,20 +18,35 @@ the contention clears. A focus change or native identity mismatch is not
 re-armed. Neither terminal taps nor GPUI key events can release this
 P13 fence. No input is buffered or replayed for recovery.
 
-The SDK was pinned to the herdr-uikit PR 14 merge commit
-99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main); L61 moved it
-to the PR 18 merge commit 0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c, which adds
-PR 17 (test-support held-press) and PR 18 (empty edit menu for unpresented
-configurations) and keeps the same helper. The Mac control-letter fix then
-moved it to the herdr-uikit PR 24 merge commit
-bd0d13047de730475166ec95cc5416ef54372c14, which also brings PRs 19, 20 and 22.
-The helper is unchanged; PR 22 only adds a delegate-notification counter
-beside it (`retirement_probe::delegate_notifications`). 99d7928 contains
+The SDK was first pinned to the herdr-uikit PR 14 merge commit
+99d792815864a6dde4cca23b6fad5166327cf319 (on herdr-uikit main). 99d7928 contains
 the earlier fe3a0da query helper, main's 3ec67ca, and a test-support-only
 Cut/first-query helper whose production-path hooks are all
 `cfg(feature = "test-support")`. Only the opt-in `p13-native-probe` feature
-calls that helper. This pin move merges no SDK change itself and does not
+calls that helper. That pin move merges no SDK change itself and does not
 establish its original S/Z acceptance or OS delivery guarantees.
+
+Later moves, oldest first:
+
+- L61 moved it to the PR 18 merge commit
+  af7c496099dd6d308055be1818ddf971a321e4f8, which adds PR 17 (test-support
+  held-press) and PR 18 (empty edit menu for unpresented configurations).
+- yebisu #147 moved it to the PR 20 merge commit
+  f9fcab6cd55ad52fd88ee2aaac88700a778e0df7 (Simulator-only touch and menu
+  receipts).
+- yebisu #156 moved it to the PR 21 merge commit
+  0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c (consumer-replaced native search
+  text). That commit also brings PR 19 (native search panel), PR 22 (input mode
+  indicator, plus a delegate-notification counter,
+  `retirement_probe::delegate_notifications`) and the PR 24 merge commit
+  bd0d13047de730475166ec95cc5416ef54372c14 (Mac control letters, so Ctrl-A
+  reaches Herdr in the Designed for iPad app).
+
+None of these moves changes the helper: `src/window/text_input/probe/` is
+identical from 99d7928 to 0349dcf. A later bump appends its move to this list.
+
+The current pin is herdr-uikit 0349dcf913f5e6cadc13c5bc0fbb80b0ea048b5c.
+
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
 
