@@ -66,6 +66,10 @@ ios-p9:
 ios-p10:
     python3 scripts/guarded.py python3 scripts/ios/p10-check.py
 
+# Input mode indicator at the terminal cursor (#139); Simulator only, not IME proof.
+ios-input-mode:
+    python3 scripts/guarded.py python3 scripts/ios/input-mode-check.py
+
 # Sidebar native search: panel, gate, filter, result taps, terminal restore.
 ios-search:
     python3 scripts/guarded.py python3 scripts/ios/search-check.py --out target/ios-search --label local

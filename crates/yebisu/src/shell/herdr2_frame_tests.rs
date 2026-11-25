@@ -9,8 +9,12 @@ use crate::shell::{
 mod chrome;
 #[path = "herdr2_frame_tests/connection.rs"]
 mod connection;
+#[path = "herdr2_frame_tests/doc_rows.rs"]
+mod doc_rows;
 #[path = "herdr2_frame_tests/entry.rs"]
 mod entry;
+#[path = "herdr2_frame_tests/names.rs"]
+mod names;
 #[path = "herdr2_frame_tests/panes.rs"]
 mod panes_tests;
 #[path = "herdr2_frame_tests/session.rs"]
