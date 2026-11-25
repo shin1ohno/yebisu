@@ -10,6 +10,10 @@ use tracing::{Metadata, Subscriber, field::Visit, span};
 
 pub(crate) const LOG_LOCATION: &str = include_str!("log-location.txt");
 const TARGET: &str = "yebisu::diagnostics";
+/// herdr-uikit's input diagnostics (`herdr_uikit::DIAGNOSTIC_TARGET`): which
+/// view is first responder and why, keyboard dismissals and GPUI text focus.
+/// The same allowlist applies; every one of its codes is in `UIKIT_CODES`.
+const UIKIT_TARGET: &str = "herdr_uikit::diagnostics";
 /// herdr-uikit's Simulator input receipts (`qa_ax_input.rs`): accepted only
 /// by a Simulator QA launch, and never written to the diagnostics log. A
 /// device build does not even carry the name.
@@ -50,6 +54,82 @@ const CODES: &[&str] = &[
     "herdr2_doc_unavailable",
     "panic",
 ];
+/// `herdr_uikit::DIAGNOSTIC_CODES`, repeated here because the host build of
+/// herdr-uikit is empty; an iOS test compares the two (`diagnostics/tests.rs`).
+pub(crate) const UIKIT_CODES: &[&str] = &[
+    // keep-sorted start
+    "dismissal_application",
+    "dismissal_none_did_show",
+    "dismissal_none_focus",
+    "dismissal_none_press",
+    "dismissal_none_show",
+    "dismissal_user_resign",
+    "dismissal_user_will_hide",
+    "keyboard_will_hide",
+    "press_dropped_no_text",
+    "press_recovered_text",
+    "responder_drawing_app_dismissed",
+    "responder_drawing_inactive",
+    "responder_drawing_unfocused",
+    "responder_drawing_user_dismissed",
+    "responder_text",
+    "text_focus_gained",
+    "text_focus_lost",
+    // keep-sorted end
+];
+
+/// The iOS build fails if `UIKIT_CODES` and the pinned herdr-uikit's list
+/// differ, so a code the SDK adds is never silently dropped.
+#[cfg(target_os = "ios")]
+const _: () = assert!(
+    same_codes(UIKIT_CODES, herdr_uikit::DIAGNOSTIC_CODES),
+    "UIKIT_CODES must equal herdr_uikit::DIAGNOSTIC_CODES"
+);
+#[cfg(target_os = "ios")]
+const _: () = assert!(same_bytes(
+    UIKIT_TARGET.as_bytes(),
+    herdr_uikit::DIAGNOSTIC_TARGET.as_bytes()
+));
+
+#[cfg(any(target_os = "ios", test))]
+const fn same_codes(left: &[&str], right: &[&str]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if !same_bytes(left[index].as_bytes(), right[index].as_bytes()) {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+#[cfg(any(target_os = "ios", test))]
+const fn same_bytes(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// The static code `value` names, if any list allows it.
+fn allowed(value: &str) -> Option<&'static str> {
+    CODES
+        .iter()
+        .chain(UIKIT_CODES)
+        .chain(crate::text_gate::CODES)
+        .copied()
+        .find(|code| *code == value)
+}
 
 /// Callers may supply only program-owned static codes. The subscriber checks
 /// the allowlist again and ignores all other fields, messages and span data.
@@ -102,10 +182,10 @@ fn receipts_wanted() -> bool {
     false
 }
 
-/// The event targets the subscriber takes: its own codes, and the receipts
-/// only when `receipts` is set.
+/// The event targets the subscriber takes: its own codes, the receipts only
+/// when `receipts` is set, and herdr-uikit's input diagnostic codes.
 fn accepts(target: &str, receipts: bool) -> bool {
-    target == TARGET || (receipts && is_receipt(target))
+    target == TARGET || (receipts && is_receipt(target)) || target == UIKIT_TARGET
 }
 
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
@@ -127,7 +207,7 @@ struct Code(Option<&'static str>);
 impl Visit for Code {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         if field.name() == "code" {
-            self.0 = CODES.iter().copied().find(|code| *code == value);
+            self.0 = allowed(value);
         }
     }
     fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}

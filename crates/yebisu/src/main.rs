@@ -50,6 +50,8 @@ mod mock_peer;
 mod terminal_links;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_view;
+#[cfg(any(target_os = "ios", test))]
+mod text_gate;
 
 #[cfg(any(target_os = "ios", test))]
 mod input_geometry;
@@ -185,6 +187,9 @@ mod theme_picker;
 
 #[cfg(test)]
 mod discard_recovery_tests;
+
+#[cfg(test)]
+mod switch_restore_tests;
 
 #[cfg(test)]
 mod discard_connection_tests;

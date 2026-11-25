@@ -1,4 +1,6 @@
 use super::*;
+
+mod input;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
