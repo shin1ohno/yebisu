@@ -69,10 +69,11 @@ CASES = [
     # B-8 (d): the timeout waits far longer than 10 s.
     ("no-timeout", "shell/rename/send.rs", "cx.background_executor().timer(CONFIRM_TIMEOUT).await;",
      "cx.background_executor().timer(CONFIRM_TIMEOUT * 60).await;", T + "confirm::timeout_10s"),
-    # B-9: the object left the snapshot and the field stays.
+    # B-9: the object left the snapshot and the field stays (Herdr 1's arm; a
+    # Herdr 2 object is looked up in the document, #144 D3).
     ("removed-target-kept", "shell/rename/slot.rs",
-     "Some(s) if s.boot_id != session.target.boot || !object.exists_in(s) => {",
-     "Some(s) if s.boot_id != session.target.boot => {", T + "confirm::target_removed_closes"),
+     "Some(s) if !object.exists_in(s) => Some(object.closed_text()),",
+     "Some(s) if false && !object.exists_in(s) => Some(object.closed_text()),", T + "confirm::target_removed_closes"),
     # Q-R5: an anchor missing for two frames keeps the field.
     ("anchor-missing-kept", "shell/rename/slot.rs",
      "            } else {\n                2\n            };",
@@ -100,18 +101,22 @@ CASES = [
      "        if self.native_field_open() {\n            return;\n        }\n        if self.terminal.input.requires_gesture()",
      "        if self.search_open() {\n            return;\n        }\n        if self.terminal.input.requires_gesture()",
      T + "terminal::no_retirement_while_rename_open"),
-    # AC15: Herdr 2 treated as Herdr 1.
+    # AC15, as #144 D3 keeps it: Herdr 2 treated as Herdr 1 (its pane is
+    # renamed; D3 renames only the document's spaces and tabs).
     ("herdr2-as-herdr1", "shell/rename.rs",
-     "        if target.kind == HerdrKind::Herdr2 {\n            return Some(HERDR2);",
-     "        if false {\n            return Some(HERDR2);", T + "herdr2::no_request"),
+     "        if target.kind == HerdrKind::Herdr2 {\n            return self.herdr2_rename_unavailable(target);",
+     "        if false {\n            return self.herdr2_rename_unavailable(target);",
+     T + "herdr2::pane_rename_disabled_on_herdr2"),
     # AC15: a double tap on a Herdr 2 tab or space row starts a rename (the
     # double taps have no Herdr 2 check of their own).
     ("herdr2-double-tap", "shell/rename.rs",
-     "        if target.kind == HerdrKind::Herdr2 {\n            return Some(HERDR2);",
-     "        if false {\n            return Some(HERDR2);", T + "herdr2::double_tap_reason_only"),
+     "        if target.kind == HerdrKind::Herdr2 {\n            return self.herdr2_rename_unavailable(target);",
+     "        if false {\n            return self.herdr2_rename_unavailable(target);",
+     T + "herdr2::double_tap_reason_only"),
     # AC15: the palette row's reason line is gone.
-    ("palette-reason-gone", "action_view.rs", "(rename && !enabled && self.terminal.core_mode)",
-     "(false && rename && !enabled && self.terminal.core_mode)", T + "herdr2::palette_row_says_why"),
+    ("palette-reason-gone", "action_view.rs",
+     "        if !rename || enabled || !self.terminal.core_mode {\n            return None;",
+     "        if true {\n            return None;", T + "herdr2::pane_rename_disabled_on_herdr2"),
     # B-7: a name is no longer cut to 160 characters.
     ("no-160-cut", "shell/rename/normalize.rs", "line.trim().chars().take(MAX_CHARS).collect()",
      "line.trim().chars().collect()", T + "normalize::cuts_to_160_characters"),
