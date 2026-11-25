@@ -217,8 +217,8 @@ extension SmokeQA {
         // T-IM-S3: background, then foreground; the text view is first responder again.
         inputModeCase("s3") {
             try qa.press(QAIds.terminalInput, effect: 10, what: "text view first responder again") { self.active($0) }
-            XCUIDevice.shared.press(.home)
-            try requireState(app, [.runningBackground, .runningBackgroundSuspended], "s3 background")
+            // Home goes through QAAx.pressHome (#164): resent once only when it never reached SpringBoard.
+            try leaveForeground(app, qa, "s3 background")
             app.activate()
             try requireState(app, [.runningForeground], "s3 foreground")
             observeUntil(app, qa, "s3-foreground", timeout: 15) { self.active($0) }
