@@ -419,3 +419,9 @@ pub(crate) const NOTIFICATION_TOAST: &str = "qa.notification.toast";
 pub(crate) const SIDEBAR_LIST: &str = "qa.sidebar.list";
 pub(crate) const SIDEBAR_HOST_QA_ALPHA: &str = "qa.sidebar.host.qa-alpha";
 pub(crate) const SIDEBAR_HOST_QA_BETA: &str = "qa.sidebar.host.qa-beta";
+/// The sidebar magnifier (shell/filter.rs, `sidebar-search`): it opens the
+/// native search panel.
+pub(crate) const SIDEBAR_SEARCH: &str = "qa.sidebar.search";
+/// The "Clear filter" button of the sidebar's "Filtered by" row
+/// (shell/filter.rs, `filter-clear`).
+pub(crate) const SIDEBAR_FILTER_CLEAR: &str = "qa.sidebar.filter-clear";

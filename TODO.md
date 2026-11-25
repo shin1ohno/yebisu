@@ -193,21 +193,3 @@ repeating it.
   Close condition: that change merged and the next p10 failure, if any, is
   classified from its artifact; or 10 green layout-smoke runs with it; delete in
   the resolving commit.
-- Rebuild the sidebar filter field as a UIKit text-input target with IME
-  support. Description: since PR 77 the field in the sidebar header takes no
-  keyboard focus and shows `Filter · not available yet`
-  (`shell/filter.rs` `render_filter_field`); the query, matching and the
-  `Clear filter` row are kept but nothing sets the query. Reason: four review
-  rounds of the GPUI field (G1 hardware-keyboard detection, H1 detached
-  keyboard, SF1/S1 Option and Control routing, F1 in review
-  67c755ff05614a56: with a Japanese input source, printable keys go to UIKit
-  composition and the text lands in the terminal) each found keys reaching the
-  remote shell; the owner chose no input for now (2026-11-19,
-  `pr77-filter-no-input-decision.json`). First step: in herdr-uikit, add a
-  text-input target a GPUI element can own (its own `UITextInput` responder
-  with marked text, so composition and commit go to the field and never to
-  the terminal's input handler), then write a host test and a Simulator check
-  that Japanese composition, Option keys, Control-C and the software keyboard
-  each reach only the intended target. Close condition: the field takes text
-  through that target with those tests green and the device check passed;
-  delete in the resolving commit.

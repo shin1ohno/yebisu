@@ -211,6 +211,7 @@ class PathFilterTests(unittest.TestCase):
             "crates/yebisu/src/link.rs", "crates/yebisu/src/theme.rs", "crates/yebisu/src/board.rs", "crates/yebisu/src/i18n.rs",
             "scripts/ios/sh1-156-check.py", "crates/yebisu/src/sh1_156_qa.rs",
             "crates/yebisu/src/input_retirement.rs", "crates/yebisu/src/native_retirement.rs",
+            "scripts/ios/search-check.py", "scripts/ios/test_search_check.py",
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.edit_menu(path))

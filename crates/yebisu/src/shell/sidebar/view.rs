@@ -53,6 +53,13 @@ pub(crate) enum SidebarTap {
     },
 }
 
+/// The sidebar's rows for a query (`Smoke::sidebar_rows`).
+pub(in crate::shell) struct SidebarRows {
+    pub(in crate::shell) hosts: Vec<HostEntry>,
+    pub(in crate::shell) rows: Vec<ListRow>,
+    pub(in crate::shell) agents: Vec<AgentLine>,
+}
+
 /// Host rows for every reader this app holds, in the saved Hosts order.
 /// The receive order is recorded when updates arrive (`record_live`); this
 /// records again only to cover a reader no update has reached yet.
@@ -309,14 +316,16 @@ impl Smoke {
                     .font_weight(weight::SEMIBOLD)
                     .child("yebisu"),
             )
-            .child(self.render_filter_field())
+            .child(self.render_filter_field(cx))
             .child(self.render_new_space_button(cx))
             .into_any_element()
     }
 
-    /// The same sidebar serves both daemon types, with the sessions supplied
-    /// by Herdr 2 replacing their sessionless connection entries.
-    pub(crate) fn render_sidebar_list(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// What the list shows for `query`: the host entries, the host rows with
+    /// the spaces the query and the collapsed hosts leave (in drawing order),
+    /// and the AGENTS lines. The search panel builds its results from the
+    /// same rows (`search::results::build`).
+    pub(in crate::shell) fn sidebar_rows(&mut self, query: &str) -> SidebarRows {
         let state = &mut self.shell.sidebar;
         state.notice_selected_host(&self.terminal.reconnect.target);
         let mut hosts = sources(
@@ -342,12 +351,36 @@ impl Smoke {
         } else {
             order_hosts(&mut hosts, &state.host_order);
         }
-        let query = self.sidebar_filter().to_owned();
         let agents = agents_list_with_pins(&hosts, &|id, boot| {
             self.shell.sidebar.pins.borrow().index(id, boot)
         });
-        let agents = filter::filter_lines(agents, &query);
-        let mut shown = agents.len();
+        let agents = filter::filter_lines(agents, query);
+        let rows = merge(&hosts, &self.setup)
+            .into_iter()
+            .filter(|row| match row {
+                ListRow::Host(_) => true,
+                ListRow::Space(space) => {
+                    !self.shell.sidebar.host_collapsed(&space.host)
+                        && filter::matches(query, &format!("{} {}", space.entry.name, space.host))
+                }
+            })
+            .collect();
+        SidebarRows {
+            hosts,
+            rows,
+            agents,
+        }
+    }
+
+    /// The same sidebar serves both daemon types, with the sessions supplied
+    /// by Herdr 2 replacing their sessionless connection entries.
+    pub(crate) fn render_sidebar_list(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let query = self.sidebar_filter().to_owned();
+        let SidebarRows {
+            hosts,
+            rows,
+            agents,
+        } = self.sidebar_rows(&query);
         let mut list = div()
             .id("sidebar-list")
             .debug_selector(|| "sidebar-list".into())
@@ -359,24 +392,14 @@ impl Smoke {
                 crate::qa_ax::ids::SIDEBAR_LIST,
                 HOSTS_HEADING,
             ));
-        for row in merge(&hosts, &self.setup) {
+        // While a filter is set (also with results), the list says so and
+        // offers to clear it, in the normal and the compact layout.
+        list = list.children(self.render_filter_banner(cx));
+        for row in rows {
             match row {
                 ListRow::Host(host) => list = list.child(self.host_row(&host, cx)),
-                ListRow::Space(space)
-                    if !self.shell.sidebar.host_collapsed(&space.host)
-                        && filter::matches(
-                            &query,
-                            &format!("{} {}", space.entry.name, space.host),
-                        ) =>
-                {
-                    shown += 1;
-                    list = list.child(self.space_row(&space, cx));
-                }
-                ListRow::Space(_) => {}
+                ListRow::Space(space) => list = list.child(self.space_row(&space, cx)),
             }
-        }
-        if let filter::FilterOutcome::Empty { .. } = filter::filter_outcome(&query, shown) {
-            list = list.children(self.render_filter_clear(cx));
         }
         if !agents.is_empty() {
             list = list.child(heading(AGENTS_HEADING));
