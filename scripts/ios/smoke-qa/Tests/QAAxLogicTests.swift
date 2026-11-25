@@ -177,6 +177,33 @@ final class QAAxLogicTests: XCTestCase {
                        .fail("the screen changed (presses[qa.p12.empty])"))
     }
 
+    /// Issue #142 stage 4 (class K): Home is pressed once more only when the app never went inactive
+    /// and XCTest still sees it in the foreground.
+    func testHomeIsResentOnlyWhenTheAppNeverWentInactive() throws {
+        let before = try state(#"{"seq":4,"launch":10,"lifecycle_inactive":1,"presses":{}}"#)
+        let unchanged = try state(#"{"seq":5,"launch":10,"lifecycle_inactive":1,"presses":{}}"#)
+        XCTAssertEqual(HomeDecision.of(before: before, after: unchanged, appForeground: true), .resend)
+        let inactive = try state(#"{"seq":6,"launch":10,"lifecycle_inactive":2,"presses":{}}"#)
+        XCTAssertEqual(HomeDecision.of(before: before, after: inactive, appForeground: true),
+                       .noResend("lifecycle_inactive grew: Home reached the app"))
+        XCTAssertEqual(HomeDecision.of(before: before, after: unchanged, appForeground: false),
+                       .noResend("the app is not in the foreground"))
+        XCTAssertEqual(HomeDecision.of(before: before, after: nil, appForeground: true),
+                       .noResend("qa.state unreadable (the app may have left)"))
+        let relaunched = try state(#"{"seq":1,"launch":11,"lifecycle_inactive":0,"presses":{}}"#)
+        XCTAssertEqual(HomeDecision.of(before: before, after: relaunched, appForeground: true), .noResend("the app relaunched"))
+    }
+
+    /// Class T: where the last touch landed against the pressed point.
+    func testTouchClassNamesWhereTheTouchLanded() {
+        let pressed = CGPoint(x: 100, y: 100)
+        XCTAssertEqual(QAAx.touchClass(expected: pressed, last: nil), "no touch reached the app")
+        XCTAssertEqual(QAAx.touchClass(expected: pressed, last: CGPoint(x: 50, y: 50)), "touch at about half the coordinates")
+        XCTAssertEqual(QAAx.touchClass(expected: pressed, last: CGPoint(x: 200, y: 200)), "touch at about double the coordinates")
+        XCTAssertEqual(QAAx.touchClass(expected: pressed, last: CGPoint(x: 300, y: 40)), "touch elsewhere")
+        XCTAssertEqual(QAAx.touchClass(expected: pressed, last: CGPoint(x: 103, y: 98)), "touch at the pressed point")
+    }
+
     func testInputReceiptFields() throws {
         let value = try state(receipts(base, began: 2, last: #"{"stage":"ended","kind":"pointer","x":10,"y":20.5}"#))
         XCTAssertEqual(value.inputCount("touch_began"), 2)

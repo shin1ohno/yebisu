@@ -51,8 +51,7 @@ extension SmokeQA {
         try tapAppearance(qa, ui: &ui)
         try p15Host(qa, "qa-beta", stale: "qa-alpha", stage: "beta", ui: &ui)
         try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
-        XCUIDevice.shared.press(.home)
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P15 app left the foreground after press(.home)")
+        try leaveForeground(app, qa, "P15 app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "P15 activate() after press(.home)")
         try waitTerminal(qa, "the terminal after returning") { $0.string("theme") == "high-contrast" }

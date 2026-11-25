@@ -49,8 +49,7 @@ extension SmokeQA {
         try qa.waitState("the modal probe ended", timeout: 10) { $0.count("p11_probe_end") == 1 }
         save("p11-modal")
         try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
-        XCUIDevice.shared.press(.home)
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P11 app left the foreground after press(.home)")
+        try leaveForeground(app, qa, "P11 app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "P11 activate() after press(.home)")
         try waitTerminal(qa, "the terminal after returning, with the larger font") { self.fontSize($0) == larger }

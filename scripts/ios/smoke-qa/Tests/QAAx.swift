@@ -182,6 +182,25 @@ enum MenuInputDecision: Equatable {
     }
 }
 
+/// Whether a Home press that left the app in the foreground is pressed once more (issue #142 stage
+/// 4, class K). Only when qa.state shows the app never went inactive (`lifecycle_inactive`,
+/// crates/yebisu/src/qa_ax.rs) and XCTest still sees it in the foreground did Home not reach
+/// SpringBoard. Pure, so QAAxLogicTests checks each branch.
+enum HomeDecision: Equatable {
+    case resend
+    case noResend(String)
+
+    static func of(before: QAState?, after: QAState?, appForeground: Bool) -> HomeDecision {
+        guard let before, let after else { return .noResend("qa.state unreadable (the app may have left)") }
+        guard appForeground else { return .noResend("the app is not in the foreground") }
+        if after.launch != before.launch { return .noResend("the app relaunched") }
+        if after.count("lifecycle_inactive") > before.count("lifecycle_inactive") {
+            return .noResend("lifecycle_inactive grew: Home reached the app")
+        }
+        return .resend
+    }
+}
+
 /// Why a QA layer step failed. XCTest prints the description when a test throws it, so each case
 /// names the identifier or the wait and carries the last state read.
 enum QAAxError: Error, CustomStringConvertible {
@@ -228,6 +247,34 @@ struct QAAx {
     static let state = "qa.state"
     /// Pause between two direct reads of `qa.state`.
     static let readInterval: useconds_t = 50_000
+
+    /// Logs one proven resend for the job's budget (issue #142 stage 4): a `QA-RESEND {json}` line
+    /// in xcodebuild's output, which scripts/ios/resend_budget.py counts. `kind` names the resend
+    /// (`press-retry`, `home-retry`, `relaunch-retry`, P12's `reveal-retry`, `pick-retry`, ...).
+    static func resend(kind: String, id: String, reason: String) {
+        let record: [String: Any] = ["kind": kind, "id": id, "reason": reason, "time": Date().timeIntervalSince1970]
+        let data = (try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])) ?? Data()
+        print("QA-RESEND " + (String(data: data, encoding: .utf8) ?? "{}"))
+    }
+
+    /// Where the last touch the app received lay against the point that was pressed, for a
+    /// `touchReady` that never reached GPUI (class T): no touch at all, about half or double
+    /// the coordinates (a Simulator coordinate mismatch), or elsewhere.
+    static func touchClass(expected: CGPoint, last: CGPoint?) -> String {
+        guard let last else { return "no touch reached the app" }
+        func near(_ factor: CGFloat) -> Bool {
+            abs(last.x - expected.x * factor) <= max(8, expected.x * factor * 0.1)
+                && abs(last.y - expected.y * factor) <= max(8, expected.y * factor * 0.1)
+        }
+        if near(0.5) { return "touch at about half the coordinates" }
+        if near(2) { return "touch at about double the coordinates" }
+        if near(1) { return "touch at the pressed point" }
+        return "touch elsewhere"
+    }
+
+    /// QA_HOME_DROP=<n> (TEST_RUNNER_ from the driver): the first n Home presses of the process are
+    /// not sent, the negative control of `pressHome`.
+    static var homeDrop = Int(ProcessInfo.processInfo.environment["QA_HOME_DROP"] ?? "") ?? 0
 
     /// What one QAAx (one launch) remembers between calls; a class, so the copies of the struct
     /// that tests pass around share it.
@@ -465,6 +512,7 @@ struct QAAx {
                     reason = String(format: "the touch on %@ was cancelled by UIKit before it ended (last_touch %@) and nothing moved within %.0f s", id, lastTouch, timeout)
                 }
                 session.retries.append("\(id): \(reason)")
+                QAAx.resend(kind: "press-retry", id: id, reason: reason)
                 print("QAAX press \(id) lost (\(reason)); pressing once more")
             }
         }
@@ -486,6 +534,7 @@ struct QAAx {
         let empty = try find(id, timeout: 10)
         var drop = QAAx.touchReadyDrop
         QAAx.touchReadyDrop = 0
+        let first = read()
         for attempt in 1...presses {
             let before = try waitState("qa.state before touch-ready press \(attempt) (\(what))", timeout: 5) { _ in true }
             if drop > 0 {
@@ -500,12 +549,60 @@ struct QAAx {
             }
             print("QAAX touch-ready \(what): press \(attempt) reached nothing (presses[\(id)] did not grow in 3 s)")
         }
-        throw QAAxError.pressNotDelivered(id: id, attempts: presses, reason: "touch-ready: presses[\(id)] did not grow",
-                                          before: "touch-ready \(what)", after: read()?.text ?? "nil")
+        // Class T (issue #142 stage 4): say whether any touch reached the app, and where.
+        let after = read()
+        throw QAAxError.pressNotDelivered(id: id, attempts: presses,
+                                          reason: "touch-ready: presses[\(id)] did not grow; " + touchSummary(id, empty, first: first, after: after),
+                                          before: "touch-ready \(what)", after: after?.text ?? "nil")
+    }
+
+    /// What the app's receipts say about presses on `id` that never reached GPUI: how many touches
+    /// began, the last one, the control's centre in window points and `touchClass`.
+    func touchSummary(_ id: String, _ element: XCUIElement, first: QAState?, after: QAState?) -> String {
+        let began = (after?.inputCount("touch_began") ?? 0) - (first?.inputCount("touch_began") ?? 0)
+        let origin = app.frame.origin
+        let centre = after?.windowFrame(id).map { CGPoint(x: $0.midX, y: $0.midY) }
+            ?? CGPoint(x: element.frame.midX - origin.x, y: element.frame.midY - origin.y)
+        let last = after?.lastTouch.map { CGPoint(x: $0.x, y: $0.y) }
+        let place = QAAx.touchClass(expected: centre, last: began > 0 ? last : nil)
+        return String(format: "input.touch_began +%ld, last_touch %@, control centre (%.1f, %.1f): %@", began,
+                      after?.lastTouchText ?? "qa.state unreadable", centre.x, centre.y, place)
     }
 
     /// QA_TOUCH_READY_DROP, spent by the first `touchReady` of the process.
     static var touchReadyDrop = Int(ProcessInfo.processInfo.environment["QA_TOUCH_READY_DROP"] ?? "") ?? 0
+
+    /// Presses Home and returns `background()`, the caller's own wait for the app to leave the
+    /// foreground (issue #142 stage 4, class K). When it did not, Home is pressed once more only
+    /// if `HomeDecision` proves Home never reached SpringBoard; the resend is logged as `home-retry`
+    /// (a QA-RESEND line), and a second miss returns false for the caller's named failure.
+    @discardableResult
+    func pressHome(_ what: String, background: () -> Bool) -> Bool {
+        let before = read()
+        sendHome(what)
+        if background() { return true }
+        let (after, unsettled) = settledOrReason("after Home (\(what))")
+        switch HomeDecision.of(before: before, after: after, appForeground: app.state == .runningForeground) {
+        case .resend:
+            let reason = "the app stayed in the foreground and lifecycle_inactive did not grow: Home did not reach SpringBoard"
+            QAAx.resend(kind: "home-retry", id: what, reason: reason)
+            session.retries.append("home \(what): \(reason)")
+            sendHome(what)
+            return background()
+        case let .noResend(why):
+            print("QAAX Home (\(what)) not pressed again: " + why + (unsettled.isEmpty ? "" : " (" + unsettled + ")"))
+            return false
+        }
+    }
+
+    private func sendHome(_ what: String) {
+        if QAAx.homeDrop > 0 {
+            QAAx.homeDrop -= 1
+            print("QAAX Home (\(what)): injected fault, the press is not sent")
+        } else {
+            XCUIDevice.shared.press(.home)
+        }
+    }
 
     /// Waits until the docked keyboard's height in `qa.state` reads the same twice 0.4 s apart,
     /// so a press does not land while a rising or falling keyboard still moves the controls
