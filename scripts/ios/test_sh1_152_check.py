@@ -152,7 +152,8 @@ class CheckReportTests(unittest.TestCase):
         source = (Path(__file__).with_name("sh1-152-check.py")).read_text()
         main = source[source.index("def main("):]
         run = main.index('result = sim_ready.run_test(xctest_command := ["xcodebuild", "test"')
-        record = main.index('resend_budget.record("sh1-152-check", result.stdout)')
+        record = main.index('\n        resend_budget.record("sh1-152-check", result.stdout)\n')
+        self.assertRegex(main, r'\n        resend_budget\.record\("sh1-152-check", result\.stdout\)\n', "an unconditional statement")
         self.assertLess(run, record)
         self.assertLess(record, main.index("finally:"), "recorded before terminate, whatever XCTest's exit code")
         self.assertLess(record, main.index('raise SystemExit("SH1-152 FAIL'))

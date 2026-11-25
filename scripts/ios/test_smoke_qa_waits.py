@@ -63,6 +63,14 @@ class LifecycleWaits(unittest.TestCase):
         for at in sends:
             self.assertTrue(press_home[at + 1].startswith(("if background()", "return background()")), press_home[at + 1])
         self.assertIn("XCUIDevice.shared.press(.home)", body(qaax, "private func sendHome("))
+        # The resend is decided by the receipts (HomeDecision), never on the timeout alone.
+        home = body(qaax, "func pressHome(")
+        decision = home.index("switch HomeDecision.of(before: before, after: after, appForeground: app.state == .runningForeground) {")
+        self.assertLess(home.index('settledOrReason("after Home'), decision)
+        resend = home[home.index("case .resend:", decision):home.index("case let .noResend(why):", decision)]
+        self.assertIn('QAAx.resend(kind: "home-retry", id: what, reason: reason)', resend)
+        self.assertIn("sendHome(what)", resend)
+        self.assertNotIn("sendHome(what)", home[home.index("case let .noResend(why):"):])
 
     def test_each_wait_is_a_named_state_wait(self):
         text = "\n".join(self.test)
