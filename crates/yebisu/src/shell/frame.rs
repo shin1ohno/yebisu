@@ -132,14 +132,15 @@ impl Smoke {
         )
     }
 
-    /// The key band's height now: none while the native search panel is up
-    /// (its field owns the keyboard), else the fit rule.
+    /// The key band's height now: none while a native field (the search
+    /// panel's or the rename field) is up and owns the keyboard, else the
+    /// fit rule.
     pub(in crate::shell) fn key_band_now(
         &self,
         size: Size,
         ime: &gpui::Edges<gpui::Pixels>,
     ) -> f32 {
-        if self.search_open() {
+        if self.native_field_open() {
             0.0
         } else {
             fit::key_band_height(size, ime, self.hardware_keyboard_attached())
@@ -197,6 +198,8 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Before any element: the rename field follows its anchor (B-5).
+        self.rename_frame_tick(window, cx);
         if self.compact_window_at(window) {
             return self.render_compact_frame(body, window, cx);
         }
@@ -343,6 +346,8 @@ impl Smoke {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
+                        // A rename's row scrolls into view (issue #143 B-5).
+                        .track_scroll(&self.shell.rename.sidebar_scroll)
                         .child(list),
                 )
                 .children(self.render_sidebar_footer(cx))
