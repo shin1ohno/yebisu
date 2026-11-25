@@ -1,0 +1,40 @@
+{
+  "spaces": [
+    {
+      "id": "sp0000000000000000000000000000000b",
+      "name": "",
+      "folder": "/Users/owner/src/alpha",
+      "tabs": [
+        {
+          "id": "tb0000000000000000000000000000000d",
+          "name": "",
+          "root": {
+            "id": "tb0000000000000000000000000000000d",
+            "type": "row",
+            "children": [
+              {
+                "id": "p00000000000000000000000000000016",
+                "type": "block",
+                "pinned": true,
+                "content": {
+                  "terminal": "t1"
+                }
+              },
+              {
+                "id": "p00000000000000000000000000000017",
+                "type": "block",
+                "content": {
+                  "terminal": "t2"
+                }
+              }
+            ],
+            "layout": {
+              "gap": 8,
+              "align": "start"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

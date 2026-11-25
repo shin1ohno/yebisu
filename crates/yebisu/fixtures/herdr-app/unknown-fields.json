@@ -1,0 +1,75 @@
+{
+  "x-top": {
+    "layout": {
+      "gap": 4
+    }
+  },
+  "spaces": [
+    {
+      "id": "sp00000000000000000000000000000001",
+      "name": "",
+      "folder": "/Users/owner/src/alpha",
+      "x-space": {
+        "kept": true
+      },
+      "tabs": [
+        {
+          "id": "tb00000000000000000000000000000001",
+          "name": "",
+          "x-tab": [
+            1,
+            2
+          ],
+          "root": {
+            "id": "tb00000000000000000000000000000001",
+            "type": "row",
+            "children": [
+              {
+                "id": "p00000000000000000000000000000001",
+                "type": "block",
+                "size": {
+                  "weight": 1.0
+                },
+                "x-node": "block",
+                "content": {
+                  "terminal": "t1"
+                }
+              }
+            ],
+            "x-node": "row"
+          }
+        },
+        {
+          "id": "tb00000000000000000000000000000002",
+          "name": "logs",
+          "root": {
+            "id": "tb00000000000000000000000000000002",
+            "type": "row",
+            "children": [
+              {
+                "id": "p00000000000000000000000000000002",
+                "type": "block",
+                "content": {
+                  "terminal": "t2"
+                }
+              }
+            ],
+            "floating": [
+              {
+                "id": "p00000000000000000000000000000003",
+                "type": "block",
+                "x-float": {
+                  "x": 10,
+                  "y": 20
+                },
+                "content": {
+                  "terminal": "t3"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
