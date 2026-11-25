@@ -21,6 +21,7 @@ const SHEET_OPEN: &str = "Close the sheet first";
 const EDIT_UNFENCED: &str = "Disconnect first: the Hosts sheet does not hold the keyboard yet";
 const OTHER_HOST: &str = "Select this host first";
 const OTHER_SPACE: &str = "Open this space first";
+const HERDR2_NO_RENAME: &str = super::rename::HERDR2;
 
 /// Whether the Hosts sheet fences terminal input while it is open (A6 of
 /// the 2026-11-18 contract amendments, L2b patch 02). Integration 2 landed
@@ -41,6 +42,7 @@ pub(crate) enum HostMenuItem {
 pub(crate) enum SpaceMenuItem {
     NewTab,
     Detach,
+    Rename,
 }
 
 /// Menu bar order of the Host menu.
@@ -56,9 +58,17 @@ const HOST_LONG_PRESS: [HostMenuItem; 3] = [
     HostMenuItem::Edit,
 ];
 /// Menu bar order of the Space menu.
-const SPACE_MENU_ITEMS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];
+const SPACE_MENU_ITEMS: [SpaceMenuItem; 3] = [
+    SpaceMenuItem::NewTab,
+    SpaceMenuItem::Detach,
+    SpaceMenuItem::Rename,
+];
 /// Long press of a space row (Q8).
-const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];
+const SPACE_LONG_PRESS: [SpaceMenuItem; 3] = [
+    SpaceMenuItem::NewTab,
+    SpaceMenuItem::Detach,
+    SpaceMenuItem::Rename,
+];
 
 impl HostMenuItem {
     pub(crate) const fn label(self) -> &'static str {
@@ -83,12 +93,14 @@ impl SpaceMenuItem {
         match self {
             Self::NewTab => "New tab",
             Self::Detach => "Detach",
+            Self::Rename => "Rename Space",
         }
     }
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::NewTab => "space.new_tab",
             Self::Detach => "space.detach",
+            Self::Rename => "space.rename",
         }
     }
 }
@@ -167,6 +179,8 @@ fn space_entry(item: SpaceMenuItem, state: &ChromeState, has_space: bool) -> Men
         (SpaceMenuItem::NewTab, HerdrKind::Herdr2) => entry(id, false, HERDR2_NO_NEW_TAB),
         (SpaceMenuItem::Detach, HerdrKind::Herdr1) => entry(id, false, HERDR1_NO_DETACH),
         (SpaceMenuItem::Detach, HerdrKind::Herdr2) => entry(id, state.connected, NOT_CONNECTED),
+        (SpaceMenuItem::Rename, HerdrKind::Herdr1) => entry(id, state.connected, NOT_CONNECTED),
+        (SpaceMenuItem::Rename, HerdrKind::Herdr2) => entry(id, false, HERDR2_NO_RENAME),
     }
 }
 
@@ -246,9 +260,37 @@ pub(crate) fn space_long_press_for(
         return elsewhere(entries, OTHER_HOST);
     }
     if row.space.is_none() || row.space != current.space {
-        return elsewhere(entries, OTHER_SPACE);
+        // Rename needs no open space (`workspace.rename` names any space of
+        // the host), so it stays usable on another space's row.
+        let (rename, others): (Vec<_>, Vec<_>) = entries
+            .into_iter()
+            .partition(|e| e.item == MenuItemId::Space(SpaceMenuItem::Rename));
+        return elsewhere(others, OTHER_SPACE)
+            .into_iter()
+            .chain(rename)
+            .collect();
     }
     entries
+}
+
+/// Whether a Rename shown for `shown` may still run: the same host, and its
+/// space (any space, not only the focused one) still in the snapshot.
+pub(crate) fn rename_scope_valid(
+    shown: &MenuScope,
+    current: &MenuScope,
+    space_exists: bool,
+) -> bool {
+    !shown.host.is_empty() && shown.host == current.host && shown.space.is_some() && space_exists
+}
+
+/// A long-press item's label: Rename edits the row's own name ("Rename…");
+/// the others name their target as the menu bar does.
+pub(crate) fn long_press_label(item: MenuItemId, target: &str) -> String {
+    if item == MenuItemId::Space(SpaceMenuItem::Rename) {
+        "Rename…".to_owned()
+    } else {
+        menu_item_label(item, target)
+    }
 }
 
 /// `name` cut to [`MENU_NAME_MAX`] characters, ending in "…" when cut.
@@ -312,10 +354,15 @@ impl Smoke {
         let shown = snapshot(&self.terminal.live)?;
         let id = shown.focused_workspace_id.as_ref()?;
         let space = shown.workspaces.iter().find(|w| &w.workspace_id == id)?;
-        Some(if space.label.is_empty() {
+        let label = self.shown_name(
+            &shown.boot_id,
+            &super::rename::RenameObject::Space(id.clone()),
+            space.label.clone(),
+        );
+        Some(if label.is_empty() {
             format!("Space {}", space.number)
         } else {
-            format!("Space {} · {}", space.number, space.label)
+            format!("Space {} · {}", space.number, label)
         })
     }
 
@@ -353,7 +400,16 @@ impl Smoke {
         if shown.space.is_none() && matches!(item, MenuItemId::Space(_)) {
             return Err(crate::Error::NativeMenu("no space was shown"));
         }
-        if !scope_still_valid(&target, &current) {
+        if item == MenuItemId::Space(SpaceMenuItem::Rename) {
+            let exists = snapshot(&self.terminal.live).is_some_and(|s| {
+                s.workspaces
+                    .iter()
+                    .any(|w| Some(&w.workspace_id) == shown.space.as_ref())
+            });
+            if !rename_scope_valid(shown, &current, exists) {
+                return Err(crate::Error::NativeMenu("menu target changed"));
+            }
+        } else if !scope_still_valid(&target, &current) {
             return Err(crate::Error::NativeMenu("menu target changed"));
         }
         let state = self.menu_chrome_state();
@@ -389,6 +445,16 @@ impl Smoke {
             }
             MenuItemId::Space(SpaceMenuItem::NewTab) => {
                 self.run_action(sheprd_commands::Command::Tab)?;
+            }
+            MenuItemId::Space(SpaceMenuItem::Rename) => {
+                let space = shown
+                    .space
+                    .clone()
+                    .ok_or(crate::Error::NativeMenu("no space was shown"))?;
+                let target = self
+                    .rename_target(super::rename::RenameObject::Space(space))
+                    .ok_or(crate::Error::NativeMenu("menu target changed"))?;
+                self.begin_rename(target, super::rename::RenameAnchor::SpaceRow);
             }
         }
         Ok(())

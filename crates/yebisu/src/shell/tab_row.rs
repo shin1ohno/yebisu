@@ -4,8 +4,10 @@
 //! split and overflow buttons stay at the right edge. Each tab carries its own 32×36 × button, a separate hit
 //! from the tab body (S-9).
 pub(super) mod icons;
+pub(crate) mod menu;
 
 use super::{
+    rename::RenameObject,
     sidebar_status::from_agent_status,
     style::{color, metric, radius, shadow, tint, weight},
 };
@@ -325,6 +327,7 @@ impl Smoke {
                 .text_color(rgb(color::TEXT))
                 .children(switcher)
                 .child(strip)
+                .children(self.render_tab_menu(cx))
                 .child(new_tab)
                 .child(div().flex_1())
                 .child(pinned)
@@ -351,6 +354,17 @@ impl Smoke {
             .map(|tab| from_agent_status(tab.agent_status).dot_color())
             .unwrap_or(color::SLATE);
         let appearance = tab_appearance(focused);
+        let editing = self.tab_editing(&id);
+        let press = menu::TabMenu {
+            host: host.clone(),
+            id: id.clone(),
+            boot: boot.clone(),
+            generation,
+            core: core_mode,
+            at: Default::default(),
+        };
+        let (rename_host, rename_id, rename_boot) = (host.clone(), id.clone(), boot.clone());
+        let name = self.tab_label(index, &label, &boot, &id, appearance.weight);
         div()
             .id(("shell-tab", index))
             .debug_selector(move || format!("shell-tab-{index}"))
@@ -359,6 +373,8 @@ impl Smoke {
             .flex_none()
             .items_center()
             .max_w(px(MAX_TAB_WIDTH))
+            // The field covers the name: the tab is as wide as it may get.
+            .when(editing, |tab| tab.w(px(MAX_TAB_WIDTH)))
             .h_full()
             .border_r_1()
             .border_color(rgb(color::RAISED))
@@ -394,29 +410,36 @@ impl Smoke {
                                 .debug_selector(|| "shell-selected-tab-status-dot".into()),
                         )
                     })
-                    .child(
-                        div()
-                            .debug_selector(move || format!("shell-tab-body-{index}"))
-                            .min_w_0()
-                            .truncate()
-                            .font_weight(appearance.weight)
-                            .child(label.clone()),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.terminal.core_mode != core_mode {
-                            return;
-                        }
-                        let result = if core_mode {
-                            this.core_tab_action(&select_host, generation, &select_id, false)
-                        } else {
-                            this.focus_tab(&select_host, &select_id, &select_boot, generation)
-                        };
-                        if let Err(error) = result {
-                            this.terminal.live.status = error.to_string();
-                        }
-                        window.dismiss_virtual_keyboard();
-                        cx.notify();
-                    })),
+                    .child(name)
+                    .child(self.tab_press_layer(press, cx))
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            if this.terminal.core_mode != core_mode {
+                                return;
+                            }
+                            // The first tap moved to the tab; the second renames it.
+                            if event.click_count() == 2 {
+                                this.tab_double_tap(
+                                    &rename_host,
+                                    &rename_id,
+                                    &rename_boot,
+                                    generation,
+                                );
+                                cx.notify();
+                                return;
+                            }
+                            let result = if core_mode {
+                                this.core_tab_action(&select_host, generation, &select_id, false)
+                            } else {
+                                this.focus_tab(&select_host, &select_id, &select_boot, generation)
+                            };
+                            if let Err(error) = result {
+                                this.terminal.live.status = error.to_string();
+                            }
+                            window.dismiss_virtual_keyboard();
+                            cx.notify();
+                        }),
+                    ),
             )
             .child(
                 div()
@@ -496,7 +519,11 @@ impl Smoke {
         let shown = snapshot(&self.terminal.live)?;
         let id = shown.focused_workspace_id.as_deref()?;
         let workspace = shown.workspaces.iter().find(|w| w.workspace_id == id)?;
-        let label = workspace_name(workspace);
+        let label = self.shown_name(
+            &shown.boot_id,
+            &RenameObject::Space(workspace.workspace_id.clone()),
+            workspace_name(workspace),
+        );
         let dot = from_agent_status(workspace.agent_status).dot_color();
         Some(
             div()
@@ -572,7 +599,11 @@ impl Smoke {
                     .iter()
                     .enumerate()
                     .map(|(index, workspace)| {
-                        let label = workspace_name(workspace);
+                        let label = self.shown_name(
+                            &shown.boot_id,
+                            &RenameObject::Space(workspace.workspace_id.clone()),
+                            workspace_name(workspace),
+                        );
                         let host = host.clone();
                         let boot = shown.boot_id.clone();
                         let id = workspace.workspace_id.clone();
