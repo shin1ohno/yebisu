@@ -32,7 +32,7 @@ fn sidebar_header_has_collapse_title_search_and_new_space(cx: &mut TestAppContex
     let controls = [
         "shell-sidebar-toggle",
         "sidebar-title",
-        "sidebar-filter-unavailable",
+        "sidebar-search",
         "shell-footer-new-space",
     ];
     let bounds = controls.map(|id| {

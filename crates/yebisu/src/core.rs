@@ -4,6 +4,11 @@ mod discovery_tests;
 #[cfg(all(test, unix))]
 mod empty_space_tests;
 mod ended;
+// The document sync thread reads it from #144 D2 on.
+#[cfg_attr(not(test), allow(dead_code))]
+mod herdr_doc;
+#[cfg(test)]
+mod herdr_doc_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(all(test, unix))]

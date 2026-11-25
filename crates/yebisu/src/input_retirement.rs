@@ -79,6 +79,11 @@ impl Smoke {
 
     #[cfg(not(target_os = "ios"))]
     pub(crate) fn request_text_retirement(&mut self) {
+        // The search panel's field holds first responder until
+        // `InputRestored`; the next transition after it submits.
+        if self.search_open() {
+            return;
+        }
         if self.terminal.input.requires_gesture() {
             self.retirement.reason = Some("Text input paused · native retirement unavailable");
         }

@@ -73,6 +73,24 @@ impl Icon {
         label: impl Into<gpui::SharedString>,
         enabled: bool,
     ) -> Stateful<Div> {
+        self.button_with_ink(
+            id,
+            label,
+            if enabled {
+                color::MUTED
+            } else {
+                color::DISABLED
+            },
+        )
+    }
+
+    /// `button` drawn in `ink` (the magnifier is accent while filtering).
+    pub(crate) fn button_with_ink(
+        self,
+        id: &'static str,
+        label: impl Into<gpui::SharedString>,
+        ink: u32,
+    ) -> Stateful<Div> {
         div()
             .id(id)
             .debug_selector(move || id.to_owned())
@@ -84,10 +102,6 @@ impl Icon {
             .justify_center()
             .size(px(metric::TOUCH))
             .rounded(px(radius::CONTROL))
-            .child(self.draw(if enabled {
-                color::MUTED
-            } else {
-                color::DISABLED
-            }))
+            .child(self.draw(ink))
     }
 }

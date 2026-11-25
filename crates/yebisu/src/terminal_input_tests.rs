@@ -733,3 +733,36 @@ fn retirement_revision_survives_detach_and_rejects_stale_or_exhausted_receipt() 
     assert!(!input.acknowledge_retirement(u64::MAX));
     assert!(input.requires_gesture());
 }
+/// Issue #138: the native search panel's restore releases a discard fence
+/// only with the revision read right after the open's detach.
+#[test]
+fn release_after_native_search_needs_the_revision_at_open() {
+    let mut input = marked();
+    input.detach();
+    let at_open = input.retirement_revision();
+    assert!(
+        input.requires_gesture(),
+        "fixture: the open discarded a composition"
+    );
+    assert!(input.release_after_native_search(at_open));
+    assert!(
+        !input.requires_gesture(),
+        "a matching revision kept the fence"
+    );
+
+    let mut input = marked();
+    input.detach();
+    let at_open = input.retirement_revision();
+    input.detach();
+    assert!(!input.release_after_native_search(at_open));
+    assert!(
+        input.requires_gesture(),
+        "a detach since the open released the fence"
+    );
+
+    let mut input = marked();
+    input.detach();
+    input.retirement_revision = u64::MAX;
+    assert!(!input.release_after_native_search(u64::MAX));
+    assert!(input.requires_gesture());
+}

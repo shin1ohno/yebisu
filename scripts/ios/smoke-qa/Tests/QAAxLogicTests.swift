@@ -2,7 +2,8 @@ import XCTest
 
 /// The decisions QAAx.press makes when a press did not show up in `presses[id]` (review SF3 of
 /// PR 76): which fields count as "something else took it" (`QAState.takenElsewhere`), and when
-/// the press is reported as a relaunch, as taken elsewhere, or as lost (`PressVerdict.of`).
+/// the press is reported as a relaunch, as taken elsewhere, as proven lost, as arrived but not
+/// counted, or as unproven (`PressVerdict.of`, issue #142 stage 3: by the app's input receipts).
 /// Pure: no app is launched, so p9-check.py runs these on every simulator-smoke job.
 final class QAAxLogicTests: XCTestCase {
     private func state(_ json: String) throws -> QAState {
@@ -50,12 +51,147 @@ final class QAAxLogicTests: XCTestCase {
     }
 
     func testVerdictTakenElsewhereAndLost() throws {
-        let before = try state(base)
+        let before = try state(receipts(base, began: 3))
         let menu = try state(#"{"seq":5,"launch":10,"screen":"terminal","sheet":null,"menu":"overflow","presses":{"qa.tabs.more":1}}"#)
         XCTAssertEqual(PressVerdict.of(before: before, after: menu, id: "qa.tabs.more"), .takenElsewhere(["menu"]))
-        let quiet = try state(#"{"seq":8,"launch":10,"screen":"terminal","sheet":null,"menu":null,"presses":{"qa.tabs.more":1},"copied":2}"#)
-        XCTAssertEqual(PressVerdict.of(before: before, after: quiet, id: "qa.tabs.more"), .lost)
-        XCTAssertEqual(PressVerdict.of(before: before, after: nil, id: "qa.tabs.more"), .lost, "no state read: press once more")
+        let quiet = try state(receipts(#"{"seq":8,"launch":10,"screen":"terminal","sheet":null,"menu":null,"presses":{"qa.tabs.more":1},"copied":2}"#, began: 3))
+        XCTAssertEqual(PressVerdict.of(before: before, after: quiet, id: "qa.tabs.more"), .lostProven,
+                       "no touch receipt and nothing on screen moved: proven lost, press once more")
+    }
+
+    /// `base` with qa.state's `input` field (crates/yebisu/src/qa_ax_input.rs) counting `began` touches.
+    private func receipts(_ json: String, began: Int, last: String = "null") -> String {
+        let input = #","input":{"touch_began":\#(began),"touch_ended":\#(began),"touch_cancelled":0,"menu_perform":0,"# +
+            #""menu_performed":0,"menu_delivered":0,"menu_dropped":0,"menu_global":0,"dropped":0,"unknown":0,"last_touch":\#(last)}}"#
+        return String(json.dropLast()) + input
+    }
+
+    func testVerdictWithoutAReadableStateIsUnprovenNotLost() throws {
+        // Before issue #142 an unreadable state counted as lost and the press was sent again.
+        let before = try state(receipts(base, began: 3))
+        XCTAssertEqual(PressVerdict.of(before: before, after: nil, id: "qa.tabs.more"), .unproven("qa.state unreadable"))
+    }
+
+    func testVerdictWithoutInputReceiptsIsUnproven() throws {
+        let before = try state(base)
+        let quiet = try state(#"{"seq":8,"launch":10,"screen":"terminal","sheet":null,"menu":null,"presses":{"qa.tabs.more":1}}"#)
+        XCTAssertEqual(PressVerdict.of(before: before, after: quiet, id: "qa.tabs.more"), .unproven("qa.state has no input receipts"),
+                       "no receipts: a lost press cannot be proven, so it fails closed")
+    }
+
+    func testVerdictTouchThatArrivedIsNeverPressedAgain() throws {
+        // Class F2: the press reached the app 5-9 s late; a resend ran its setup twice. touch_began 3 -> 4
+        // with presses[id] unchanged is a touch that arrived and is not lost.
+        let before = try state(receipts(base, began: 3))
+        let after = try state(receipts(base, began: 4, last: #"{"stage":"began","kind":"direct","x":516.0,"y":559.5}"#))
+        XCTAssertEqual(after.presses("qa.tabs.more"), before.presses("qa.tabs.more"))
+        XCTAssertEqual(PressVerdict.of(before: before, after: after, id: "qa.tabs.more"),
+                       .arrivedNotCounted(lastTouch: "began direct (516.0, 559.5)"))
+    }
+
+    /// CI run 45388075978 (sh1-152 E3f-key, E3g-text): UIKit cancelled the touch 0.2 s after it began, so
+    /// GPUI got no tap; such a press is proven lost and sent once more. A touch that ended is not.
+    func testVerdictTouchThatUIKitCancelledIsProvenLost() throws {
+        let before = try counted(["touch_began": 5, "touch_ended": 5])
+        let cancelled = try counted(["touch_began": 6, "touch_ended": 5, "touch_cancelled": 1])
+        XCTAssertEqual(PressVerdict.of(before: before, after: cancelled, id: "qa.sh1-152.end"),
+                       .cancelled(lastTouch: "ended direct (934.0, 117.5)"))
+        let ended = try counted(["touch_began": 6, "touch_ended": 6])
+        XCTAssertEqual(PressVerdict.of(before: before, after: ended, id: "qa.sh1-152.end"),
+                       .arrivedNotCounted(lastTouch: "ended direct (934.0, 117.5)"))
+        let both = try counted(["touch_began": 7, "touch_ended": 6, "touch_cancelled": 1])
+        XCTAssertEqual(PressVerdict.of(before: before, after: both, id: "qa.sh1-152.end"),
+                       .arrivedNotCounted(lastTouch: "ended direct (934.0, 117.5)"), "one touch completed: not lost")
+    }
+
+    func testVerdictOrderRelaunchedThenElsewhereThenReceipts() throws {
+        let before = try state(receipts(base, began: 3))
+        // A changed screen field wins over a grown touch count: something else took it.
+        let menu = try state(receipts(#"{"seq":5,"launch":10,"screen":"terminal","sheet":null,"menu":"overflow","presses":{"qa.tabs.more":1}}"#, began: 4))
+        XCTAssertEqual(PressVerdict.of(before: before, after: menu, id: "qa.tabs.more"), .takenElsewhere(["menu"]))
+        let relaunched = try state(#"{"seq":1,"launch":11,"screen":"p0","sheet":null,"menu":null,"presses":{}}"#)
+        XCTAssertEqual(PressVerdict.of(before: before, after: relaunched, id: "qa.tabs.more"), .relaunched)
+    }
+
+    /// qa.state with `input` counters set; the rest of the counters are 0.
+    private func counted(_ counters: [String: Int], screen: String = "terminal", launch: Int = 10, presses: String = "{}") throws -> QAState {
+        let names = ["touch_began", "touch_ended", "touch_cancelled", "menu_perform", "menu_performed", "menu_delivered",
+                     "menu_dropped", "menu_global", "dropped", "unknown"]
+        let input = names.map { "\"\($0)\":\(counters[$0] ?? 0)" }.joined(separator: ",")
+        let last = (counters["touch_began"] ?? 0) > 0 ? #"{"stage":"ended","kind":"direct","x":934.0,"y":117.5}"# : "null"
+        return try state(#"{"seq":3,"launch":\#(launch),"screen":"\#(screen)","sheet":null,"menu":null,"active":true,"presses":\#(presses),"# +
+                         #""input":{\#(input),"last_touch":\#(last)}}"#)
+    }
+
+    /// Issue #142 stage 3, decision table row 2 (class A1): the menu stayed open 5 s after the pick, no
+    /// menu-perform, no touch reached the app, nothing on screen moved: the same item is tapped once more.
+    func testMenuPickStillOpenWithNothingReceivedIsResentOnce() throws {
+        let before = try counted(["touch_began": 2])
+        XCTAssertEqual(MenuInputDecision.pick(itemEnabled: true, before: before, after: try counted(["touch_began": 2])), .resend)
+        XCTAssertEqual(MenuInputDecision.pick(itemEnabled: false, before: before, after: try counted(["touch_began": 2])),
+                       .fail("the item is no longer enabled"))
+    }
+
+    /// Row 4: menu-perform no_tag, a failed menu-deliver or menu-global is an SDK or app defect, never resent.
+    func testMenuPickThatTheAppDroppedFailsWithoutResend() throws {
+        let before = try counted(["touch_began": 2])
+        for key in ["menu_dropped", "menu_global"] {
+            let after = try counted(["touch_began": 2, "menu_perform": 1, key: 1])
+            guard case let .fail(why) = MenuInputDecision.pick(itemEnabled: true, before: before, after: after) else {
+                return XCTFail("\(key) grew: must fail without a resend")
+            }
+            XCTAssertTrue(why.contains("an SDK or app defect") && why.contains(key), why)
+        }
+        guard case let .fail(why) = MenuInputDecision.pick(itemEnabled: true, before: before, after: try counted(["touch_began": 2, "menu_perform": 1])) else {
+            return XCTFail("a menu-perform reached the app: the pick was not lost")
+        }
+        XCTAssertEqual(why, "the app received menu-perform")
+    }
+
+    /// A pick tap that reached the app (the offset-pick control) is not lost: it fails by name.
+    func testMenuPickTapThatReachedTheAppFailsByName() throws {
+        let decision = MenuInputDecision.pick(itemEnabled: true, before: try counted(["touch_began": 2]), after: try counted(["touch_began": 3]))
+        XCTAssertEqual(decision, .fail("pick tap reached the app (touch_began +1, last_touch ended direct (934.0, 117.5))"))
+        let moved = MenuInputDecision.pick(itemEnabled: true, before: try counted([:]), after: try counted([:], screen: "p0"))
+        XCTAssertEqual(moved, .fail("the screen changed (screen)"))
+    }
+
+    /// Without receipts or a readable state nothing proves the loss: fail closed.
+    func testMenuDecisionsFailClosedWithoutReceipts() throws {
+        let before = try counted([:])
+        XCTAssertEqual(MenuInputDecision.pick(itemEnabled: true, before: before, after: nil), .fail("qa.state unreadable"))
+        XCTAssertEqual(MenuInputDecision.pick(itemEnabled: true, before: nil, after: before), .fail("qa.state unreadable"))
+        let bare = try state(base)
+        XCTAssertEqual(MenuInputDecision.open(before: bare, after: bare), .fail("qa.state has no input receipts"))
+        XCTAssertEqual(MenuInputDecision.open(before: before, after: try counted([:], launch: 11)), .fail("the app relaunched"))
+    }
+
+    /// Row 5 (class M): the menu item never appeared, no touch reached the app and nothing moved: the
+    /// open tap is sent once more. A touch the app received means the open tap missed the menu bar.
+    func testMenuOpenTapLostIsResentOnlyWhenNothingReachedTheApp() throws {
+        let before = try counted(["touch_began": 2])
+        XCTAssertEqual(MenuInputDecision.open(before: before, after: try counted(["touch_began": 2])), .resend)
+        XCTAssertEqual(MenuInputDecision.open(before: before, after: try counted(["touch_began": 3])),
+                       .fail("open tap reached the app (touch_began +1, last_touch ended direct (934.0, 117.5))"))
+        XCTAssertEqual(MenuInputDecision.open(before: before, after: try counted(["touch_began": 2], presses: #"{"qa.p12.empty":1}"#)),
+                       .fail("the screen changed (presses[qa.p12.empty])"))
+    }
+
+    func testInputReceiptFields() throws {
+        let value = try state(receipts(base, began: 2, last: #"{"stage":"ended","kind":"pointer","x":10,"y":20.5}"#))
+        XCTAssertEqual(value.inputCount("touch_began"), 2)
+        XCTAssertEqual(value.inputCount("menu_perform"), 0)
+        XCTAssertEqual(value.inputCount("no_such_counter"), 0)
+        XCTAssertEqual(value.lastTouch?.stage, "ended")
+        XCTAssertEqual(value.lastTouch?.kind, "pointer")
+        XCTAssertEqual(value.lastTouch?.x, 10)
+        XCTAssertEqual(value.lastTouch?.y, 20.5)
+        XCTAssertEqual(value.lastTouchText, "ended pointer (10.0, 20.5)")
+        let none = try state(base)
+        XCTAssertNil(none.input)
+        XCTAssertNil(none.lastTouch)
+        XCTAssertEqual(none.lastTouchText, "none")
+        XCTAssertEqual(try state(receipts(base, began: 0)).lastTouchText, "none")
     }
 
     func testTakenElsewhereNamesTheSystemTakingTheWindow() throws {
