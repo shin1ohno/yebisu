@@ -68,6 +68,7 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
             "surface",
             "pane",
             "core",
+            "herdr_doc",
             "input_pane",
             "generation",
             "rows",

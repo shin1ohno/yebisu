@@ -422,3 +422,41 @@ pub(crate) const NOTIFICATION_TOAST: &str = "qa.notification.toast";
 pub(crate) const SIDEBAR_LIST: &str = "qa.sidebar.list";
 pub(crate) const SIDEBAR_HOST_QA_ALPHA: &str = "qa.sidebar.host.qa-alpha";
 pub(crate) const SIDEBAR_HOST_QA_BETA: &str = "qa.sidebar.host.qa-beta";
+/// The sidebar magnifier (shell/filter.rs, `sidebar-search`): it opens the
+/// native search panel.
+pub(crate) const SIDEBAR_SEARCH: &str = "qa.sidebar.search";
+/// The "Clear filter" button of the sidebar's "Filtered by" row
+/// (shell/filter.rs, `filter-clear`).
+pub(crate) const SIDEBAR_FILTER_CLEAR: &str = "qa.sidebar.filter-clear";
+/// Rename in place (issue #143). The field, its clear overlay and its hint
+/// are herdr-uikit's UIKit views: yebisu passes these identifiers in
+/// `NativeInlineFieldIdentifiers` (shell/rename/native.rs) instead of
+/// `qa_ax::mark` (scripts/ios/qa-ax-ids-check.py, NATIVE).
+#[cfg_attr(
+    not(target_os = "ios"),
+    allow(dead_code, reason = "only the iOS SDK adapter names them")
+)]
+pub(crate) const RENAME_FIELD: &str = "qa.rename.field";
+#[cfg_attr(
+    not(target_os = "ios"),
+    allow(dead_code, reason = "only the iOS SDK adapter names them")
+)]
+pub(crate) const RENAME_OVERLAY: &str = "qa.rename.overlay";
+#[cfg_attr(
+    not(target_os = "ios"),
+    allow(dead_code, reason = "only the iOS SDK adapter names them")
+)]
+pub(crate) const RENAME_HINT: &str = "qa.rename.hint";
+/// The Rename items of the long-press menus: a space row's
+/// (shell/sidebar/long_press.rs), an agent row's, the rail's
+/// (shell/rail/menu.rs) and a tab's (shell/tab_row/menu.rs), with the
+/// tab menu's Close Tab.
+pub(crate) const SIDEBAR_SPACE_RENAME: &str = "qa.sidebar.space-rename";
+pub(crate) const SIDEBAR_AGENT_RENAME: &str = "qa.sidebar.agent-rename";
+pub(crate) const RAIL_MENU_RENAME: &str = "qa.rail.menu-rename";
+pub(crate) const TAB_MENU_RENAME: &str = "qa.tab.menu-rename";
+pub(crate) const TAB_MENU_CLOSE: &str = "qa.tab.menu-close";
+/// The current space's name in its sidebar row and the current tab's label,
+/// where the rename QA (SmokeQA+Rename.swift) long-presses and double-taps.
+pub(crate) const SIDEBAR_CURRENT_SPACE: &str = "qa.sidebar.current-space";
+pub(crate) const TABS_CURRENT: &str = "qa.tabs.current";

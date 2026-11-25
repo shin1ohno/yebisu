@@ -247,6 +247,8 @@ fn edit_bar_surface() -> gpui::Stateful<gpui::Div> {
         .shadow(vec![shadow::EDIT_BAR.box_shadow()])
         .font_weight(weight::MEDIUM)
         .overflow_x_scroll()
+        // A vertical swipe does not move the bar sideways.
+        .restrict_scroll_to_axis()
         .occlude()
 }
 

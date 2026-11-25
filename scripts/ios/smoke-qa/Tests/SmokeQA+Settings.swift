@@ -49,8 +49,7 @@ extension SmokeQA {
         try qa.waitState("the modal probe ended", timeout: 10) { $0.count("p11_probe_end") == 1 }
         save("p11-modal")
         try qa.press(QAIds.settingsClose, what: "the settings sheet is closed") { $0.isNull("sheet") }
-        XCUIDevice.shared.press(.home)
-        try requireState(app, [.runningBackground, .runningBackgroundSuspended], "P11 app left the foreground after press(.home)")
+        try leaveForeground(app, qa, "P11 app left the foreground after press(.home)")
         app.activate()
         try requireState(app, [.runningForeground], "P11 activate() after press(.home)")
         try waitTerminal(qa, "the terminal after returning, with the larger font") { self.fontSize($0) == larger }
@@ -99,6 +98,11 @@ extension SmokeQA {
         let header = try qa.coordinate(close, id: QAIds.settingsClose, at: CGVector(dx: 0, dy: 0.5))
         let insideContent = header.withOffset(CGVector(dx: -100, dy: 540))
         insideContent.press(forDuration: 0.08, thenDragTo: insideContent.withOffset(CGVector(dx: 0, dy: -230)))
+        // Issue #142 stage 3: the first tap within about 1.5 s after this drag reaches the app but is not
+        // taken (CI run 45388075978 and a local run: touch began and ended on the control, no press). QAAx no
+        // longer sends such a press again, so first prove taps are taken: press the selected Drag option
+        // (no change) until GPUI counts it (QAAx.touchReady), not a fixed pause.
+        try qa.touchReady(QAIds.startDrag, what: "Settings › Input after the scroll")
         try qa.press(QAIds.startDoubleTap, what: "Start a selection is Double tap") { $0.bool("drag_select") == false }
         try qa.press(QAIds.copyOnSelection, what: "Copy is On selection") { $0.bool("copy_on_select") == true }
         // Before S4: sleep(2). The settings worker wrote both edits (the sheet's "Saved").

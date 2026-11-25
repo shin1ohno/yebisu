@@ -185,7 +185,7 @@ impl Drop for Sandbox {
     }
 }
 
-fn text(live: &Live) -> String {
+pub(super) fn text(live: &Live) -> String {
     live.surface
         .as_ref()
         .map(|s| s.frame.cells.iter().map(|c| c.symbol.as_str()).collect())
@@ -193,7 +193,7 @@ fn text(live: &Live) -> String {
 }
 
 /// What the view shows now, for the failure message and the report.
-fn seen(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> String {
+pub(super) fn seen(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> String {
     view.update(cx, |this, _| {
         let live = &this.terminal.live;
         let panes = live.surface.as_ref().map_or(0, |s| s.panes.len());
@@ -207,7 +207,7 @@ fn seen(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> String {
 }
 
 #[track_caller]
-fn wait(
+pub(super) fn wait(
     view: &Entity<Smoke>,
     cx: &mut gpui::VisualTestContext,
     what: &str,
@@ -232,7 +232,7 @@ fn wait(
     }
 }
 
-fn command(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, command: Command) {
+pub(super) fn command(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, command: Command) {
     view.update(cx, |this, _| {
         this.terminal
             .core
@@ -243,7 +243,7 @@ fn command(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, command: Comm
     });
 }
 
-fn type_text(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, text: &str) {
+pub(super) fn type_text(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, text: &str) {
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);
@@ -255,7 +255,7 @@ fn type_text(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, text: &str)
 }
 
 /// Control-D through the key path a hardware keyboard takes.
-fn control_d(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
+pub(super) fn control_d(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
     cx.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.terminal_focus.focus(window, cx);
@@ -283,7 +283,7 @@ fn control_d(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
     });
 }
 
-fn panes(live: &Live) -> usize {
+pub(super) fn panes(live: &Live) -> usize {
     live.surface.as_ref().map_or(0, |s| s.panes.len())
 }
 
@@ -319,7 +319,7 @@ fn split_session<'a>(
 }
 
 /// The shell that keeps running still runs a command typed into it.
-fn survivor_runs(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
+pub(super) fn survivor_runs(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) {
     type_text(view, cx, "echo SURV$((40+2))IVOR\r");
     wait(view, cx, "survivor output", |live| {
         live.connected && text(live).contains("SURV42IVOR")
@@ -352,7 +352,7 @@ fn live_core_control_d_in_one_pane_keeps_the_session(cx: &mut TestAppContext) {
 }
 
 /// The tabs the worker last listed for the view's own session.
-fn tabs(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> Vec<TabInfo> {
+pub(super) fn tabs(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> Vec<TabInfo> {
     view.update(cx, |this, _| {
         let epoch = this.terminal.live.input_epoch;
         let core = this
@@ -370,7 +370,7 @@ fn tabs(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext) -> Vec<TabInfo> 
 }
 
 /// Waits until the worker lists `id` as the tab in use.
-fn wait_tab(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, id: &str) {
+pub(super) fn wait_tab(view: &Entity<Smoke>, cx: &mut gpui::VisualTestContext, id: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !tabs(view, cx).iter().any(|tab| tab.id == id && tab.active) {
         view.update(cx, |this, cx| this.poll_terminal(cx));

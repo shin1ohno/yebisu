@@ -211,6 +211,8 @@ pub(crate) fn render_key_row(
         .gap(px(ROW_GAP))
         .px(px(ROW_GAP))
         .overflow_x_scroll()
+        // A vertical swipe does not move the band sideways.
+        .restrict_scroll_to_axis()
         .child(group(app, &LEFT, cx))
         .child(middle.unwrap_or_else(|| div().flex_1().min_w_0()))
         .child(group(app, &RIGHT, cx))
@@ -507,6 +509,11 @@ impl Smoke {
     }
 
     fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        // A tap that began on the band before the search panel took the
+        // keyboard: Hide must not become a keyboard dismissal, nor any key input.
+        if self.native_field_open() {
+            return;
+        }
         // Any band key ends an earlier key binding's failure reason (L57).
         self.actions.key_status = None;
         if action == Action::Hide {

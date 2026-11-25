@@ -6,10 +6,29 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import importlib.util
+
+_ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
+_budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
+resend_budget = importlib.util.module_from_spec(_budget_spec)
+_budget_spec.loader.exec_module(resend_budget)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 
 
 def run(*args, **kwargs):
     print("P9 COMMAND", list(args), flush=True)
+    if args[:2] == ("xcodebuild", "test"):
+        # Issue #142 stage 4: streamed as before, and kept for the job's resend budget.
+        # Class D: once more when xcodebuild found no device and ran no test (sim_ready.run_test).
+        result = sim_ready.run_test(list(args), lambda: subprocess.CompletedProcess(list(args), *resend_budget.run_tee(list(args), **kwargs)))
+        resend_budget.record(Path(__file__).stem, result.stdout)
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout)
+        return result
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
@@ -29,7 +48,7 @@ def validate(paints, wire):
         raise ValueError("no core frame after reattachment")
     by_terminal = {}
     for receipt in wire:
-        if receipt.get("method") == "terminal.put":
+        if receipt.get("method") == "terminal.put" or is_doc(receipt):
             continue
         identity = receipt["terminal"]
         by_terminal.setdefault(identity, bytearray()).extend(receipt["bytes"])
@@ -47,10 +66,31 @@ def validate(paints, wire):
           "terminals", {key: list(value) for key, value in by_terminal.items()}, flush=True)
 
 
+def is_doc(receipt):
+    """A herdr-app receipt of the mock core (#144): a doc.* call, or a terminal.run with the
+    official app's labels. validate_doc reads those; the other observers skip them."""
+    method = str(receipt.get("method", ""))
+    return method.startswith("doc.") or method == "terminal.run"
+
+
+def validate_doc(wire, expected=0):
+    """#144: the doc.set receipts the mock core wrote, each with the version it was sent over.
+    While yebisu only reads the document (D2) there must be none."""
+    sets = [receipt for receipt in wire if receipt.get("method") == "doc.set"]
+    for receipt in sets:
+        if type(receipt.get("version")) is not int or type(receipt.get("bytes")) is not int:
+            raise ValueError("malformed doc.set receipt: %r" % (receipt,))
+    if len(sets) != expected:
+        raise ValueError("expected %d doc.set receipts, found %d: %r" % (expected, len(sets), sets))
+    print("HERDR DOC receiving-system PASS: doc.set receipts", len(sets), flush=True)
+
+
 def validate_images(wire):
     pending = None
     puts = pasted = shadows = 0
     for receipt in wire:
+        if is_doc(receipt):
+            continue
         if receipt.get("method") == "terminal.put":
             if pending is not None or receipt.get("name") != "paste.png":
                 raise ValueError("overlapping or malformed put")
@@ -89,6 +129,13 @@ def collect_evidence(directory, result, paints_path, wire_path):
     for source, name in [(paints_path, "paints.jsonl"), (wire_path, "wire.jsonl")]:
         if source.is_file():
             shutil.copyfile(source, directory / name)
+    # Issue #142 stage 4 (classes Q and S): main-thread stalls in the app's own file, reported, not judged.
+    try:
+        gaps = live_jsonl.heartbeat_gaps(live_jsonl.read_records(directory / "paints.jsonl"))
+        (directory / "heartbeat-gaps.json").write_text(json.dumps(gaps, indent=1) + "\n")
+        print("P9 heartbeat gaps:", json.dumps(gaps), flush=True)
+    except (OSError, ValueError) as error:
+        print(f"P9 heartbeat gaps unreadable: {error}", flush=True)
     try:
         export = directory / "attachments"
         run("xcrun", "xcresulttool", "export", "attachments", "--path", str(result), "--output-path", str(export))
@@ -98,6 +145,8 @@ def collect_evidence(directory, result, paints_path, wire_path):
                     shutil.copyfile(export / attachment["exportedFileName"], directory / "screenshot.png")
                 if attachment["suggestedHumanReadableName"].startswith("sh154-core-image"):
                     shutil.copyfile(export / attachment["exportedFileName"], directory / "sh154-core-image.png")
+                if attachment["suggestedHumanReadableName"].startswith("p9-herdr-doc"):
+                    shutil.copyfile(export / attachment["exportedFileName"], directory / "herdr-doc.png")
     except subprocess.CalledProcessError as error:
         print(f"P9 attachment export failed: {error}", flush=True)
 
@@ -110,6 +159,8 @@ def xcodebuild_test_command(project, device, derived_data, result):
     return ["xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle",
             "-test-timeouts-enabled", "YES",
             "-only-testing:SmokeOracle/SmokeQA/testP9Core()", "-only-testing:SmokeOracle/SmokeQA/testSH154CoreImage()",
+            # #144: the herdr-app document read from the mock core (SmokeQA+HerdrDoc.swift).
+            "-only-testing:SmokeOracle/SmokeQA/testP9HerdrDoc()",
             # The pure checks of QAAx.press's decisions (no app; under a second).
             "-only-testing:SmokeOracle/QAAxLogicTests",
             "-destination", "id=" + device, "-derivedDataPath", str(derived_data),
@@ -134,6 +185,8 @@ def main():
     previous_paints = len(paints_path.read_text().splitlines()) if paints_path.exists() else 0
     project = root / "scripts/ios/smoke-qa"
     run("xcodegen", "generate", "--spec", str(project / "project.yml"), "--project", str(project))
+    # Class D (issue #142 stage 4): a new Simulator can be missing from xcodebuild's list for a while.
+    sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = directory / "result.xcresult"
     try:
         run(*xcodebuild_test_command(project, device, root / "target/ios-smoke/build", result))
@@ -145,10 +198,13 @@ def main():
         raise ValueError("XCTest did not execute the P9 screenshot step")
     if not (directory / "sh154-core-image.png").is_file():
         raise ValueError("XCTest did not execute SH1-154 screenshot step")
+    if not (directory / "herdr-doc.png").is_file():
+        raise ValueError("XCTest did not execute the herdr-app document screenshot step")
     paints = [json.loads(line) for line in paints_path.read_text().splitlines()[previous_paints:]]
     wire = [json.loads(line) for line in wire_path.read_text().splitlines()[previous:]]
     validate(paints, wire)
     validate_images(wire)
+    validate_doc(wire)
     (directory / "receipts.json").write_text(json.dumps({"paints": paints, "wire": wire}))
     print("P9 screenshot", directory / "screenshot.png", flush=True)
 

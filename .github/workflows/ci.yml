@@ -201,7 +201,7 @@ jobs:
           # testflight.yml in a test.
           check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
           # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
-          smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|live_jsonl\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|smoke-qa/|p12-qa/)'
+          smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|live_jsonl\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|sim_ready\.py|resend_budget\.py|smoke-qa/|p12-qa/)'
           # edit-menu is narrower than $build:
           # a pull request runs it only when a file the four checks drive
           # changes, so a change to other crates/yebisu code (search, hosts,
@@ -306,6 +306,10 @@ jobs:
           #     qa_ax*.rs         the QA accessibility layer, its identifiers, the
           #                       UIKit view, the root fields, the counters and
           #                       the mock peers' receipts (qa_ax_peer.rs)
+          #   Added with #138 (sidebar search):
+          #     search-check.py, test_search_check.py
+          #                       search-check.py drives the native search panel
+          #                       (just ios-search); shell/search*.rs is under shell/
           #   find and find_view (P13 search) stay out, as
           #   test_find_search_change_skips_it decides.
           # A new module is not picked up by this list. test_ci_sh1_152.py fails
@@ -314,7 +318,7 @@ jobs:
           # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) skips edit-menu.
-          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|sh1_152_[a-z]+\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|terminal_jump|terminal_wheel|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|qa_ax|qa_ax_core|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
+          menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|search-check\.py|test_search_check\.py|sh1_152_[a-z]+\.py|sim_ready\.py|resend_budget\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_jump|terminal_view|terminal_wheel|input|input_geometry|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|qa_ax|qa_ax_core|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|diagnostics|qa_ax_input|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
           # Plan section 4.2: mutation targets, their tests and build inputs.
           mutations='^(crates/yebisu/src/(layout|shell|settings|settings_pages|core/screen|terminal_input)(\.rs$|/|_tests)|scripts/ios/layout-mutations\.py$|scripts/guarded\.py$|\.github/workflows/ci\.yml$|Cargo\.(lock|toml)$|crates/yebisu/Cargo\.toml$|rust-toolchain\.toml$|\.cargo/|justfile$)'
           emit() {
@@ -428,6 +432,10 @@ jobs:
         run: just guarded cargo fetch --locked
       - name: Native edit menu receiving-system checks
         run: just guarded python3 scripts/ios/ci-sh1-152.py
+      # Issue #142 stage 4 (Owner decision 5): more than 3 proven resends in this job fail it.
+      - name: Simulator input resend budget
+        if: always()
+        run: python3 scripts/ios/resend_budget.py judge target/sim-resends.jsonl
       - name: Upload menu receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -439,6 +447,7 @@ jobs:
             target/ios-p8-native/
             target/ios-selection-settings/
             target/ios-sh1-156/
+            target/sim-resends.jsonl
             target/disk.log
   simulator-smoke:
     needs: changes
@@ -483,6 +492,10 @@ jobs:
         run: just guarded python3 scripts/ios/ci-smoke.py --p9
       - name: Verify installed keyless native menus
         run: just guarded python3 scripts/ios/p12-ci.py
+      # Issue #142 stage 4 (Owner decision 5): more than 3 proven resends in this job fail it.
+      - name: Simulator input resend budget
+        if: always()
+        run: python3 scripts/ios/resend_budget.py judge target/sim-resends.jsonl
       - name: Upload native menu evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -497,6 +510,7 @@ jobs:
           path: |
             target/ios-smoke/*/
             target/ios-p9/*/
+            target/sim-resends.jsonl
             !target/ios-smoke/build/
   check:
     needs: changes

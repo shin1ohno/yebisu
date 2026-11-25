@@ -189,7 +189,7 @@ impl State {
     /// Records the latest outcome. The text stays in `status` (the notification
     /// settings page shows it), but the on-screen overlay shows it only for
     /// `STATUS_TTL`, like the toast, so it never lingers over the terminal.
-    fn set_status(&mut self, text: impl Into<String>) {
+    pub(crate) fn set_status(&mut self, text: impl Into<String>) {
         self.status = text.into();
         self.status_until = Some(Instant::now() + STATUS_TTL);
     }

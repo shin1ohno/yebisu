@@ -224,6 +224,12 @@ impl TerminalInput {
         }
         true
     }
+    /// The native search panel closed and UIKit gave the text view first
+    /// responder back. Same rule as a retirement receipt: only a revision
+    /// unchanged since the search opened releases a discard fence.
+    pub fn release_after_native_search(&mut self, revision: u64) -> bool {
+        self.acknowledge_retirement(revision)
+    }
     /// An explicit terminal gesture (Paste, Select off, a tap on the terminal)
     /// starts new input under the settled P8 contract (docs/p8-contract.md).
     /// A hardware key press never calls this: only native retirement releases

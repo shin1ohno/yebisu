@@ -1,3 +1,5 @@
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod input_mode_qa;
 mod pane_names;
 mod surface;
 
@@ -41,8 +43,19 @@ pub(crate) struct TerminalView {
     pub(crate) link_hover: crate::terminal_links::Hover,
     /// Wheel and trackpad motion not yet a whole line (issue #137).
     pub(crate) wheel: crate::upstream::wheel::WheelAccumulator,
+    /// #139: the cursor drawn last, to tell the SDK when it moved.
+    pub(crate) input_indicator: crate::input_indicator::CursorWatch,
 }
 impl TerminalView {
+    /// #139: the cursor cell moved since the last frame. GPUI then reports
+    /// the new caret to the platform (`update_ime_position`), where the
+    /// system's input mode indicator follows it; nothing else changes the
+    /// terminal's selection, which stays at 0..0. One count per report.
+    pub(crate) fn notify_cursor_moved(&mut self, window: &gpui::Window) {
+        self.input_indicator.reported();
+        window.invalidate_character_coordinates();
+    }
+
     pub(crate) fn resize_if_ready(&mut self, options: ConnectOptions) {
         if self.navigating.is_some() || self.size == Some(options) {
             return;
@@ -187,6 +200,14 @@ impl Smoke {
         cx.notify();
     }
     pub(crate) fn poll_terminal(&mut self, cx: &mut Context<Self>) {
+        // #139: UIKit showed or hid the input mode indicator, which draws
+        // no GPUI frame; ask for one so qa.state carries it (QA only).
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        input_mode_qa::poll(cx);
+        // herdr-uikit's input receipts (Simulator QA only), before the
+        // refresh so a moved counter is published by this poll.
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        crate::qa_ax::input::drain(&self.observation);
         // A qa.state counter or the mock peer moved: publish it (QA only).
         crate::qa_ax::refresh_if_wanted(cx);
         // L66: Herdr's answer to where a pressed address ends.
@@ -208,6 +229,8 @@ impl Smoke {
             self.start_herdr1_connection(host, cx);
         }
         self.poll_hidden(cx);
+        self.poll_removed_space(cx);
+        self.poll_launch_restore(cx);
         for hidden in self.board.hidden.values_mut() {
             hidden.report_surface_focus(false);
         }
@@ -257,13 +280,15 @@ impl Smoke {
             // The canvas can extend past an ancestor's clip. Use the same
             // visible rectangle for the wire size, painting and input.
             let bounds = bounds.intersect(&window.content_mask().bounds);
-            let current = entity.update(cx,|this,cx| {
-                    if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return false; }
+            let (current, moved) = entity.update(cx,|this,cx| {
+                    if !this.terminal.open || this.board.selection != selection || !this.terminal.link.current(generation) { return (false, false); }
                     let (font_size,line_height) = this.terminal_font_metrics(window);
                     let face = font(this.terminal.font.family.clone());
                     let search_highlights = this.find_highlights();
                     let search_highlight_count = search_highlights.len();
                     let search_receipt = this.find.as_ref().map(|bar|serde_json::json!({"query":bar.search.query,"state":format!("{:?}",bar.search.state),"result_revision":bar.search.result.as_ref().map(|r|r.content_revision),"current":bar.search.result.as_ref().and_then(|r|r.current),"pane":bar.search.scope.pane}));
+                    // #139: GPUI can report the caret only when bounds_for_range answers.
+                    let owns_text = !this.settings_modal && this.terminal_owns_text_input();
                     let terminal = &mut this.terminal;
                     terminal.painter.set_appearance(font_size,line_height,Theme::from_palette(this.local_theme));
                     let cell_width = terminal.painter.cell_width(&face,window,cx);
@@ -291,18 +316,26 @@ impl Smoke {
                         }
                     }
                     terminal.input.sync(&terminal.live, generation, terminal.size);
+                    // A move while bounds_for_range cannot answer is not recorded, so
+                    // the next frame that can answer reports it.
+                    let moved = owns_text
+                        && terminal.input.destination.is_some()
+                        && terminal.input_indicator.moved(terminal.geometry.cursor(terminal.live.surface.as_deref()));
+                    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+                    input_mode_qa::report(terminal, &face, window);
                     if let Some((snapshot, surface)) = shown.as_ref() {
                         let mut highlights = this.handoff.selection.as_ref()
                             .map(|selection| selection.surface_highlights(surface))
                             .unwrap_or_default();
                         highlights.extend(search_highlights);
-                        terminal.paint_surface((snapshot, surface), &panes, &highlights, &face, window, cx);
+                        let chip = this.shell.rename.chip(&snapshot.boot_id);
+                        terminal.paint_surface((snapshot, surface), &panes, &highlights, &face, &chip, window, cx);
                         terminal.paint_link_hover(surface, &panes, window);
                         this.observation.record(serde_json::json!({"kind":"terminal","p13_search":search_receipt,"p13_highlights":search_highlight_count,"settings_modal":this.settings_modal,"theme":this.local_theme.key(),"image_assets":terminal.live.surface_images.len(),"image_placements":surface.graphics.placements.len(),"host":terminal.reconnect.target,"pane":snapshot.focused_pane_id,"tab":snapshot.focused_tab_id,"tab_count":snapshot.tabs.iter().filter(|t|Some(&t.workspace_id)==snapshot.focused_workspace_id.as_ref()).count(),"pane_count":snapshot.panes.iter().filter(|p|Some(&p.tab_id)==snapshot.focused_tab_id.as_ref()).count(),"surface_marker":surface.frame.cells.first().map(|c|c.symbol.as_str()),"input_pane":terminal.input.destination.as_ref().and_then(|d|match &d.target { crate::terminal::InputTarget::Pane(id)=>Some(id), _=>None }),"generation":generation,"select_mode":this.handoff.select_mode,"selection_blocks_input":this.handoff.blocks_input(),"text_input_paused":terminal.input.requires_gesture(),"input_ready":terminal.input.ready,"boot":snapshot.boot_id,"projection":snapshot.revision,"surface":surface.surface_revision,"cols":surface.frame.width,"rows":surface.frame.height,"compact":compact,"cell_size":[options.cell_width_px,options.cell_height_px],"font_size":font_size,"line_height":line_height,"font_family":terminal.font.family,"marked":terminal.input.composition.text,"selected":[terminal.input.composition.selected.start,terminal.input.composition.selected.end],"viewport":[f32::from(bounds.size.width),f32::from(bounds.size.height)]}));
                         #[cfg(all(target_os = "ios", target_abi = "sim"))]
                         this.sh1_152_advance_e1_text(window, cx);
                     }
-                    true
+                    (true, moved)
                 });
             if !current {
                 return;
@@ -313,6 +346,9 @@ impl Smoke {
                 crate::actions::herdr_keys::TerminalInputHandler::new(bounds, input_entity),
                 cx,
             );
+            if moved {
+                entity.update(cx, |this, _| this.terminal.notify_cursor_moved(window));
+            }
         }
     }
     pub(crate) fn render_terminal(

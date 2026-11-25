@@ -26,7 +26,11 @@ pub(crate) mod overlay;
 pub(crate) mod qa_strip;
 pub(crate) mod rail;
 pub(crate) mod rail_badges;
+pub(crate) mod rename;
 pub(crate) mod scroll_indicator;
+pub(crate) mod search;
+#[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
+pub(crate) mod search_qa;
 pub(crate) mod shortcuts;
 pub(crate) mod sidebar;
 pub(crate) mod sidebar_list;
@@ -56,6 +60,9 @@ pub(crate) enum HerdrKind {
 pub(crate) struct ChromeState {
     pub(crate) kind: HerdrKind,
     pub(crate) connected: bool,
+    /// Herdr 2 only: the session is still being dialed (no frame yet and its
+    /// worker has not stopped). Neither connected nor failed.
+    pub(crate) connecting: bool,
     pub(crate) selecting: bool,
     pub(crate) sheet_open: bool,
     pub(crate) find_available: bool,
@@ -63,6 +70,13 @@ pub(crate) struct ChromeState {
     /// The width, not the user, holds the sidebar at the rail: Command-B and
     /// the sidebar toggles cannot change anything (Integration 2, L4 review F1).
     pub(crate) sidebar_forced: bool,
+}
+
+impl ChromeState {
+    /// Reconnect is offered once a connection is down, not while one dials.
+    pub(crate) fn offers_reconnect(&self) -> bool {
+        !self.connected && !self.connecting
+    }
 }
 
 /// A product entry point (plan v2 5.2, the 19-row table).
@@ -129,6 +143,8 @@ pub(crate) struct ShellState {
     pub(crate) single_pane: single_pane::SinglePaneState,
     pub(crate) herdr2: herdr2_frame::Herdr2State,
     pub(crate) fit: fit::FitState,
+    pub(crate) search: search::SearchState,
+    pub(crate) rename: rename::RenameState,
     /// Issue #137 PR 5: the scroll thumb of each list.
     pub(crate) indicators: scroll_indicator::Indicators,
 }

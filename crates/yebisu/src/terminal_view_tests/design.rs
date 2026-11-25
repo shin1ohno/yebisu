@@ -112,6 +112,7 @@ fn pane_borders_draw_the_name_above_a_one_point_border(cx: &mut TestAppContext) 
                         &surface,
                         placement,
                         label,
+                        crate::shell::rename::labels::ChipLook::default(),
                         10.,
                         &font("Menlo"),
                         &[],
