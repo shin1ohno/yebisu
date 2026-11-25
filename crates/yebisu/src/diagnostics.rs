@@ -170,10 +170,10 @@ fn receipts_wanted() -> bool {
     false
 }
 
-/// The event targets the subscriber takes: its own codes, and the receipts
-/// only when `receipts` is set.
+/// The event targets the subscriber takes: its own codes, the receipts only
+/// when `receipts` is set, and herdr-uikit's input diagnostic codes.
 fn accepts(target: &str, receipts: bool) -> bool {
-    target == TARGET || target == UIKIT_TARGET || (receipts && is_receipt(target))
+    target == TARGET || (receipts && is_receipt(target)) || target == UIKIT_TARGET
 }
 
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
