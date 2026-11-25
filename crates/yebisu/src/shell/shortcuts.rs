@@ -447,13 +447,7 @@ impl Smoke {
     pub(crate) fn close_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.shell.shortcuts.open = false;
         self.shell.shortcuts.expanded = None;
-        self.refresh_terminal_input();
-        if self.terminal.open && self.terminal.input.ready {
-            self.terminal_focus.focus(window, cx);
-            self.request_terminal_keyboard(window, "shortcuts-close");
-            self.request_text_retirement();
-        }
-        window.notify_text_input_changed(&self.terminal_focus);
+        self.restore_terminal_keys(window, cx, "shortcuts-close");
         cx.notify();
     }
 

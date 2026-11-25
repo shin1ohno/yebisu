@@ -170,6 +170,7 @@ pub(crate) fn finish_navigation(terminal: &mut TerminalView) {
         || terminal.live.failed_request.as_ref() == Some(&nav.request)
     {
         terminal.navigating = None;
+        terminal.restore_keys = true;
     }
 }
 
@@ -279,6 +280,7 @@ impl Smoke {
         self.terminal.size = None;
         self.terminal.open = true;
         self.terminal.needs_focus = true;
+        self.terminal.restore_keys = true;
         self.board.selection = self.board.selection.wrapping_add(1);
     }
     pub(crate) fn record_board(&self, host: &str, live: &Live) {

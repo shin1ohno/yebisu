@@ -37,6 +37,10 @@ pub(crate) struct TerminalView {
     pub(crate) canvas_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     pub show_options: bool,
     pub needs_focus: bool,
+    /// A switch (host, tab, space, pane) or navigation finished: the next
+    /// render gives the terminal its focus, text responder and input
+    /// destination back (`Smoke::restore_pending_terminal_keys`).
+    pub(crate) restore_keys: bool,
     pub reconnect_pending: bool,
     pub navigating: Option<crate::board::Navigation>,
     /// L66: the pointer's rest over the terminal, for the Command underline.
@@ -358,6 +362,7 @@ impl Smoke {
             self.terminal_focus.focus(window, cx);
             self.terminal.needs_focus = false;
         }
+        self.restore_pending_terminal_keys(window, cx);
         // Submit once when an invalidated search hands focus back, again after
         // a NativeCallbackInFlight refusal, and again while the owner is busy
         // or moved (begin/complete_find_retirement); other refusals stay fenced.

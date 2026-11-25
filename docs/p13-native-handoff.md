@@ -51,11 +51,15 @@ Later moves, oldest first:
 - yebisu #169 moved it to the PR 28 merge commit
   4486cb1712ab404bef3656b4679f22a2f2026283 (Mac content under the hidden
   title bar, `traffic_lights_over_content`), a descendant of 6dcfb65.
+- The Mac keyboard input loss fix moved it to
+  de2f17f47fc9b874e0cab7e3b27c25c9b7c2324a (Mac keyboard hides are not user
+  dismissals, printable presses take the text responder back, and the input
+  diagnostic codes), a descendant of 4486cb1.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 4486cb1. A later bump appends its move to this list.
+identical from 99d7928 to de2f17f. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 4486cb1712ab404bef3656b4679f22a2f2026283.
+The current pin is herdr-uikit de2f17f47fc9b874e0cab7e3b27c25c9b7c2324a.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
