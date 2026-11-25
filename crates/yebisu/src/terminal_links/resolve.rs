@@ -4,8 +4,10 @@
 //! that advertises `pane.link.resolve` answers from its own terminal, which
 //! knows its soft wraps, with the cells the address covers; only that
 //! answer, read from the shown frame, opens, and a joined address is shown
-//! whole in the status line as it opens. Herdr 2 has no such request, so
-//! there the press opens nothing and says why.
+//! whole in the status line as it opens. Herdr 2 has no such request: its
+//! frames carry the emulator's soft-wrap marks instead (`super::wrap`), so
+//! there only a candidate the marks cannot settle reaches here, and it opens
+//! nothing and says why.
 use super::{Refusal, plain};
 use crate::{app::Smoke, live::Live, terminal::in_rect};
 use gpui::Context;
@@ -111,8 +113,9 @@ fn region_text(
 
 impl Smoke {
     /// Asks Herdr where the address at frame cell (`column`, `row`) ends.
-    /// Returns false when this connection cannot ask: Herdr 2, or a daemon
-    /// that does not advertise the request.
+    /// Returns false when this connection cannot ask: Herdr 2, whose frames
+    /// prove their wraps with soft-wrap marks instead, or a daemon that does
+    /// not advertise the request.
     pub(super) fn resolve_link(
         &mut self,
         surface: &PaneSurfaceFrame,

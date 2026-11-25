@@ -36,6 +36,7 @@ fn snapshot(value: &Value, live: &[&str]) -> DocSnapshot {
         read: Read::Readable(parse_view(value).unwrap_or_else(|e| panic!("view: {e}"))),
         live: live.iter().map(|t| (*t).to_owned()).collect(),
         names: BTreeMap::new(),
+        stats: Default::default(),
     }
 }
 

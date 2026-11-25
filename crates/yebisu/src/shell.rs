@@ -15,6 +15,7 @@ pub(crate) mod entry_points;
 pub(crate) mod filter;
 pub(crate) mod fit;
 pub(crate) mod footer;
+pub(crate) mod forward_sheet;
 pub(crate) mod frame;
 pub(crate) mod herdr2_frame;
 pub(crate) mod host_menus;
@@ -70,6 +71,9 @@ pub(crate) struct ChromeState {
     /// The width, not the user, holds the sidebar at the rail: Command-B and
     /// the sidebar toggles cannot change anything (Integration 2, L4 review F1).
     pub(crate) sidebar_forced: bool,
+    /// A host is selected: the menu bar's and the popover's Forward port…
+    /// have a host to forward from.
+    pub(crate) host_selected: bool,
 }
 
 impl ChromeState {
@@ -95,6 +99,7 @@ pub(crate) enum EntryAction {
     Split,
     Shortcuts,
     ToggleSidebar,
+    ForwardPort,
 }
 
 /// Where an entry point lives (plan v2 5.2 legend).
@@ -145,6 +150,7 @@ pub(crate) struct ShellState {
     pub(crate) fit: fit::FitState,
     pub(crate) search: search::SearchState,
     pub(crate) rename: rename::RenameState,
+    pub(crate) forward_sheet: forward_sheet::ForwardSheetState,
     /// Issue #137 PR 5: the scroll thumb of each list.
     pub(crate) indicators: scroll_indicator::Indicators,
 }

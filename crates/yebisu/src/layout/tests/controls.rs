@@ -177,3 +177,57 @@ fn the_threshold_splits_measured_gaps() {
         assert_eq!(layout(at(1032.0, sample)).controls, expected, "{sample:?}");
     }
 }
+
+/// herdr-uikit's reach on a Mac with its traffic lights over the content
+/// (macOS 26.7.3): the Mac's 80 pt at its 0.77 scale on the left.
+const TRAFFIC_LIGHTS: ControlsReach = ControlsReach {
+    left: 103.92,
+    right: 0.0,
+};
+
+#[test]
+fn the_rail_pads_its_tab_row_past_the_traffic_lights() {
+    let clearance = TRAFFIC_LIGHTS.clearance();
+    // The rail (72 pt) and its rule: the tab row starts at 73.
+    let leading =
+        clearance.tab_row_leading(true, 0.0, super::super::RAIL_WIDTH + super::super::RULE);
+    assert!((leading - (103.92 - 73.0)).abs() < 1e-3, "{leading}");
+}
+
+#[test]
+fn no_sidebar_pads_its_tab_row_by_the_whole_reach() {
+    assert_eq!(
+        TRAFFIC_LIGHTS.clearance().tab_row_leading(true, 0.0, 0.0),
+        103.92
+    );
+}
+
+#[test]
+fn the_full_sidebar_tab_row_needs_no_padding() {
+    let start = super::super::SIDEBAR_WIDTH + super::super::RULE;
+    assert_eq!(
+        TRAFFIC_LIGHTS.clearance().tab_row_leading(true, 0.0, start),
+        0.0
+    );
+}
+
+#[test]
+fn an_ipad_never_pads_its_tab_row() {
+    // The flag is false on an iPad, whatever the controls reach and wherever
+    // the tab row starts, including with no sidebar at all.
+    for reach in [CONTROLS, FULL_SCREEN, CONTROLS_RIGHT, NONE, TRAFFIC_LIGHTS] {
+        for start in [0.0, 73.0, 301.0] {
+            assert_eq!(reach.clearance().tab_row_leading(false, 0.0, start), 0.0);
+        }
+    }
+}
+
+#[test]
+fn traffic_lights_on_the_right_leave_the_tab_row_start_alone() {
+    // A right-to-left Mac: the trailing clearance covers them.
+    let right = ControlsReach {
+        left: 0.0,
+        right: 103.92,
+    };
+    assert_eq!(right.clearance().tab_row_leading(true, 0.0, 0.0), 0.0);
+}

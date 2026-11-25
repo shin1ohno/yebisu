@@ -76,6 +76,9 @@ pub(crate) enum Command {
     /// Draws a document space of the `default` session, or the iPad-only
     /// tabs for `None` (#144 D2, owner answer D2-1).
     SelectDocSpace(Option<String>),
+    /// Herdr 2's New space: a space in the `default` core's document, never
+    /// another session (#144 decision 10).
+    NewDocSpace,
     Focus(usize),
     Orientation,
     #[cfg(test)]
@@ -386,13 +389,17 @@ impl Session {
         std::thread::Builder::new()
             .name("yebisu-core".into())
             .spawn(move || {
+                let mut dialed = false;
                 let result = (|| {
+                    crate::diagnostics::record("herdr2_connecting");
                     let backend = connect()?;
+                    dialed = true;
                     // Hello may finish after this connection was retired. Never spawn,
                     // attach or persist a terminal for that obsolete completion.
                     if stopped.load(Ordering::Acquire) {
                         return Ok(());
                     }
+                    crate::diagnostics::record("herdr2_connected");
                     // Its own thread, never the worker loop below. Dropped
                     // (stopped, joined within status::JOIN_BOUND) when the
                     // worker returns.
@@ -413,7 +420,7 @@ impl Session {
                     // (#144 Design A); its reader is dropped with the worker.
                     let doc_mailbox =
                         (target.name == "default").then(herdr_doc_sync::DocMailbox::default);
-                    let _doc = match &doc_mailbox {
+                    let reader = match &doc_mailbox {
                         Some(mailbox) => herdr_doc_sync::DocSync::start(
                             doc,
                             (&backend, &target.host),
@@ -427,7 +434,10 @@ impl Session {
                         None => None,
                     };
                     // Without a reader nothing is ever published to wait for.
-                    let doc_mailbox = doc_mailbox.filter(|_| _doc.is_some());
+                    let (_doc, doc) = match reader {
+                        Some((reader, writer)) => (Some(reader), doc_mailbox.zip(Some(writer))),
+                        None => (None, None),
+                    };
                     #[cfg(all(target_os = "ios", not(test)))]
                     let _discovery = if cfg!(target_abi = "sim")
                         && std::env::var_os("YEBISU_CORE_QA").is_some()
@@ -450,11 +460,14 @@ impl Session {
                         generation,
                         (&shared, &worker_sessions, &worker_removal),
                         (&stopped, &worker_epoch, &column),
-                        (receive, doc_mailbox),
+                        (receive, doc),
                         root,
                     )
                 })();
                 stopped.store(true, Ordering::Release);
+                if let Err(error) = &result {
+                    crate::diagnostics::record(ended_code(dialed, error));
+                }
                 if let Err(error) = result {
                     tracing::warn!(%error, "Herdr 2 connection stopped");
                     if let Ok(mut live) = shared.lock() {
@@ -697,6 +710,15 @@ use poll::{due_vacancies, record_discovery, retire_vacant};
 
 /// The session itself, then the other spaces its host last showed, in the
 /// sidebar's order.
+/// The diagnostics code of a Herdr 2 link that ended with `error`.
+fn ended_code(dialed: bool, error: &crate::Error) -> &'static str {
+    match error {
+        _ if !dialed => "herdr2_dial_failed",
+        crate::Error::Core(sheprd_core_client::Error::Lost) => "herdr2_ended_lost",
+        _ => "herdr2_ended_error",
+    }
+}
+
 fn merged_sessions(lists: &SessionLists, own: &str, rows: &[SessionInfo]) -> Vec<SessionInfo> {
     let Some(external) = &lists.discovery.rows else {
         return rows.to_vec();

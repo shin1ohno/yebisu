@@ -143,7 +143,7 @@ fn herdr2_sessions_merge_into_the_sidebar_list(cx: &mut TestAppContext) {
                 .iter()
                 .filter_map(|row| match row {
                     ListRow::Space(space) => Some((space.entry.id.as_str(), space.generation)),
-                    ListRow::Host(_) => None,
+                    ListRow::Host(_) | ListRow::Forward(_) => None,
                 })
                 .collect::<Vec<_>>(),
             [

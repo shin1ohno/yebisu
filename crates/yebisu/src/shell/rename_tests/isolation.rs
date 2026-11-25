@@ -1,9 +1,10 @@
 //! A rename waiting for its result shares nothing with navigation (issue
-//! AC12): `live.pending_request` stays as it is, and a move and a palette
-//! command still run. (The sheprd client queues a request behind one the
+//! AC12): `live.pending_request` stays as it is, a move and a palette
+//! command still run, and the terminal's input is left as it is. (The sheprd client queues a request behind one the
 //! host never answers, so the moves here run on the answering peer while
 //! the rename's answer is not yet read.)
 use super::*;
+use crate::shell::search::tests::mark_text;
 use crate::{board::Target, mock_peer};
 
 fn silent(cx: &mut gpui::TestAppContext) -> (Entity<Smoke>, Receipts, &mut VisualTestContext) {
@@ -103,4 +104,54 @@ fn palette_runs_while_pending(cx: &mut gpui::TestAppContext) {
         methods(&view, &receipts, cx),
         ["workspace.rename", "tab.create"]
     );
+}
+
+/// The terminal is not the rename's channel (issue: `terminal.input` does
+/// not change): a composition started after the field closed survives the
+/// host's answer and nothing of the rename reaches the pane.
+#[gpui::test]
+fn terminal_input_untouched(cx: &mut gpui::TestAppContext) {
+    let (view, receipts, cx) = terminal(cx);
+    let fake = install_fake(&view, cx);
+    sent(&view, &receipts, cx);
+    opened(&view, &fake, cx, space("w1"), RenameAnchor::SpaceRow);
+    commit(&fake, cx, "ship");
+    assert_eq!(phase(&view, cx), None, "fixture: the field closed");
+    mark_text(&view, cx, "にほ");
+    let before = view.read_with(cx, |this, _| {
+        assert!(
+            this.shell
+                .rename
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.sending()),
+            "fixture: the answer is read after the composition starts"
+        );
+        assert_eq!(this.terminal.input.composition.text, "にほ", "fixture");
+        (
+            this.terminal.input.retirement_revision(),
+            this.terminal.navigating.is_none(),
+        )
+    });
+    assert!(
+        sent(&view, &receipts, cx).is_empty(),
+        "the rename reached the pane"
+    );
+    wait(&view, cx, "the host did not answer the rename", |this| {
+        this.shell.rename.pending.is_none()
+    });
+    view.read_with(cx, |this, _| {
+        assert_eq!(
+            this.terminal.input.composition.text, "にほ",
+            "the rename's answer dropped the terminal's composition"
+        );
+        assert_eq!(
+            (
+                this.terminal.input.retirement_revision(),
+                this.terminal.navigating.is_none(),
+            ),
+            before,
+            "the rename's answer changed the terminal's input or navigation"
+        );
+    });
 }

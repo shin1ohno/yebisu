@@ -7,6 +7,7 @@ mod grid;
 mod images;
 #[path = "../terminal_view/pane_chrome.rs"]
 mod pane_chrome;
+mod slide;
 
 use self::area::whole;
 pub(crate) use self::area::{Layer, Part, Span, cell_ranges, clip, covers};
@@ -22,6 +23,7 @@ use self::grid::{background_extent, grid_corners, grid_rect, last_row_has_separa
 use self::images::{ImageCache, ImageGeometry, below_text};
 pub(crate) use self::images::{ImageTarget, PlacedImages};
 pub(crate) use self::images::{fit_bgra, texture};
+pub(crate) use self::slide::{Sliding, SlidingFrame};
 use crate::terminal::*;
 use crate::theme::Theme;
 use gpui::*;

@@ -95,6 +95,11 @@ impl Smoke {
                 column = column.child(self.shortcut_row(action, row, cx));
             }
             if group == ShortcutGroup::App {
+                // Under Settings (board 45).
+                let row = super::forward_port_row(&state);
+                column = column.child(self.shortcut_row(PopoverAction::ForwardPort, row, cx));
+            }
+            if group == ShortcutGroup::App {
                 column = column.child(group_header("EDIT"));
                 let edit = [
                     (
@@ -249,8 +254,10 @@ impl Smoke {
         let enabled = row.enabled;
         let focus_directions =
             !self.actions.herdr_prefix && action == PopoverAction::Focus(ShortcutGroup::Panes);
+        let selector = format!("shell-shortcut-{id}");
         div()
-            .id(gpui::ElementId::Name(format!("shell-shortcut-{id}").into()))
+            .id(gpui::ElementId::Name(selector.clone().into()))
+            .debug_selector(move || selector.clone())
             .h(px(ROW_HEIGHT))
             .w(relative(1.))
             .px(px(metric::SMALL_INSET))
@@ -303,6 +310,11 @@ impl Smoke {
                         PopoverAction::Paste => {
                             this.close_shortcuts(window, cx);
                             this.start_paste(false, cx);
+                        }
+                        PopoverAction::ForwardPort => {
+                            let host = this.terminal.reconnect.target.clone();
+                            this.close_shortcuts(window, cx);
+                            this.open_forward_sheet(host, window, cx);
                         }
                     }))
             })

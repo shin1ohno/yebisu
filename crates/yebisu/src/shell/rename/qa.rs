@@ -4,6 +4,7 @@
 use super::{Phase, RenameAnchor, RenameObject};
 use crate::app::Smoke;
 use serde_json::{Value, json};
+use sheprd_commands::Command;
 
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 thread_local! {
@@ -56,7 +57,38 @@ pub(crate) fn snapshot(app: &Smoke) -> Value {
             "sending": p.sending(),
         })),
         "status": app.terminal.live.status,
+        // S8, S10: the menus a rename starts from, and the palette's rows.
+        "rail": app.actions.board_hidden,
+        "rail_menu": app.shell.rail.menu_open(),
+        "tab_menu": app.shell.rename.tab_menu.as_ref().map(|menu| json!({
+            "core": menu.core,
+            "rename_reason": app.tab_menu_rename(menu).1,
+        })),
+        "palette": app.actions.palette.then(|| palette_rows(app)),
     })
+}
+
+/// The palette's Rename rows: enabled, and the reason line under a disabled
+/// one (`palette_reason`, what the row draws).
+fn palette_rows(app: &Smoke) -> Value {
+    let rows = crate::actions::catalog(&app.terminal)
+        .into_iter()
+        .filter(|a| {
+            matches!(
+                a.info.command,
+                Command::RenameTab | Command::RenameWorkspace | Command::RenamePane
+            )
+        })
+        .map(|a| {
+            json!({
+                "name": a.info.name,
+                "label": a.label,
+                "enabled": a.available,
+                "reason": app.palette_reason(a.info.command, a.available),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!(rows)
 }
 
 /// Publishes yebisu's side with the SDK's field of `window` in `qa.state`,
@@ -82,6 +114,11 @@ pub(crate) fn publish(
             "should_change_while_marked": sdk.should_change_while_marked,
             "late_drops": sdk.late_drops,
         });
+    }
+    // S7: once the field is open over an agent row, the wire peer adds an
+    // agent above it (`YEBISU_RENAME_QA_INSERT`).
+    if mine["phase"] == "Open" && mine["anchor"] == "AgentRow" {
+        crate::mock_peer::request_agent_insert();
     }
     crate::qa_ax::report("rename", || mine.clone());
     let changed = LAST_RECORD.with_borrow_mut(|last| {

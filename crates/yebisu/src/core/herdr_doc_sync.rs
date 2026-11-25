@@ -10,9 +10,17 @@
 //! document block whose terminal is gone is not drawn). The result goes into
 //! a latest-state mailbox the session owns; a change marks the shared `Live`
 //! dirty, and the worker, the only publisher of the session's rows, takes it.
-use super::herdr_doc::{self, View};
+//!
+//! The same thread writes (#144 D4): the worker queues intents, and this
+//! thread applies each to the latest document, checks it (D-4) and sends it
+//! over the version it read, one at a time (D-6). A stale version is read
+//! again and the intent applied to the newer document, at most `MAX_SENDS`
+//! times (owner decision 5); the previous value is never sent again under a
+//! newer version. Every write is read back and checked (R1).
+use super::herdr_doc::{self, Applied, Intent, View, WriteCheck};
 use crate::live::Live;
-use sheprd_core_client::{CoreBackend, event::Notice, wire::TerminalState};
+use serde_json::Value;
+use sheprd_core_client::{CoreBackend, Error as CoreError, event::Notice, wire::TerminalState};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -33,6 +41,14 @@ const EVENT_WAIT: Duration = Duration::from_millis(250);
 const FIRST_READ: Duration = Duration::from_secs(10);
 /// How often a thread without a stream checks that it should stop.
 const STOP_CHECK: Duration = Duration::from_millis(50);
+/// Intents waiting for the reader; the worker never waits for a write.
+const WRITE_QUEUE: usize = 16;
+/// At most this many `doc.set`s per intent (owner decision 5).
+pub(crate) const MAX_SENDS: usize = 3;
+/// The notices of an intent that was not saved.
+pub(crate) const CHANGED_ELSEWHERE: &str = "Changed elsewhere; the iPad change was not saved";
+const REFUSED: &str = "The herdr-app layout change failed a check and was not sent";
+const NOT_READABLE: &str = "Can't read the herdr-app layout; the iPad change was not sent";
 
 /// What the last read found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +68,53 @@ pub(crate) struct DocSnapshot {
     pub(crate) live: Vec<String>,
     /// Automatic space names by folder (owner decision 9).
     pub(crate) names: BTreeMap<String, String>,
+    pub(crate) stats: WriteStats,
+}
+
+/// What became of the intents so far (`qa.state.herdr_doc`, the status).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WriteStats {
+    /// `doc.set`s herdr-core accepted.
+    pub(crate) writes: u64,
+    /// `doc.set`s refused as stale.
+    pub(crate) conflicts: u64,
+    /// The last intent: `saved`, `unchanged`, `conflict-lost`,
+    /// `check-failed:<gate>`, `not-readable` or `unknown`.
+    pub(crate) last: Option<String>,
+    /// What the user is told about the last intent, when it was not saved.
+    pub(crate) notice: Option<String>,
+    /// Intents finished, so a notice shows again for the next one.
+    pub(crate) finished: u64,
+}
+
+/// The worker's end of the write queue.
+#[derive(Clone)]
+pub(crate) struct DocWriter(mpsc::SyncSender<Intent>);
+
+impl DocWriter {
+    /// Queues `intent`; `Err` when the queue is full or the reader ended.
+    pub(crate) fn send(&self, intent: Intent) -> crate::Result<()> {
+        self.0.try_send(intent).map_err(|_| crate::Error::CoreQueue)
+    }
+}
+
+/// Intents whose send the connection lost, by host (D-7). The next reader
+/// of that host applies each once more after its first read: an intent
+/// that did land is then `Unchanged`, so nothing is sent twice.
+static UNSENT: Mutex<BTreeMap<String, Intent>> = Mutex::new(BTreeMap::new());
+
+fn unsent() -> std::sync::MutexGuard<'static, BTreeMap<String, Intent>> {
+    UNSENT.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// How one intent ended.
+enum Outcome {
+    Unchanged,
+    Saved,
+    Lost,
+    Refused(WriteCheck),
+    NotReadable,
+    Unknown,
 }
 
 /// The session's latest document read. The count grows with each change,
@@ -135,31 +198,36 @@ pub(crate) struct DocSync {
 }
 
 impl DocSync {
-    /// The reader for `host`'s `default` core, or `None` for a plan
-    /// without reads.
+    /// The reader (and writer) for `host`'s `default` core, or `None` for
+    /// a plan without reads.
     pub(crate) fn start(
         plan: DocPlan,
         (backend, host): (&CoreBackend, &str),
         mailbox: DocMailbox,
         inbox: Arc<Mutex<Live>>,
         session_stop: Arc<AtomicBool>,
-    ) -> std::io::Result<Option<Self>> {
+    ) -> std::io::Result<Option<(Self, DocWriter)>> {
         match plan.source {
             DocSource::Core => {}
             #[cfg(test)]
             DocSource::Off => return Ok(None),
         }
+        let (writer, writes) = mpsc::sync_channel(WRITE_QUEUE);
         let mut reader = Reader {
             backend: backend.clone(),
             host: host.to_owned(),
             mailbox,
             inbox,
             held: None,
+            doc: None,
             live: Vec::new(),
             names: BTreeMap::new(),
             asked: None,
             period: plan.period,
+            stats: WriteStats::default(),
+            reported: None,
         };
+        let mut unsent = unsent().remove(host);
         let stop = Arc::new(AtomicBool::new(false));
         let own = stop.clone();
         let (ended_tx, ended) = mpsc::channel::<()>();
@@ -188,13 +256,23 @@ impl DocSync {
                         reader.read(&stopped);
                         last_read = Some(Instant::now());
                     }
+                    // One intent at a time, each applied to the latest read.
+                    if last_read.is_some() && !stopped() {
+                        let next = unsent.take().or_else(|| writes.try_recv().ok());
+                        if let Some(intent) = next {
+                            reader.write(intent, &stopped);
+                        }
+                    }
                 }
             })?;
-        Ok(Some(Self {
-            stop,
-            ended,
-            thread: Some(thread),
-        }))
+        Ok(Some((
+            Self {
+                stop,
+                ended,
+                thread: Some(thread),
+            },
+            DocWriter(writer),
+        )))
     }
 }
 
@@ -225,12 +303,18 @@ struct Reader {
     inbox: Arc<Mutex<Live>>,
     /// The version of the last read.
     held: Option<u64>,
+    /// The last read's value and version while it was readable; `None`
+    /// refuses every write (D-5).
+    doc: Option<(Value, u64)>,
     live: Vec<String>,
     names: BTreeMap<String, String>,
     /// The folders last asked about, and when.
     #[cfg_attr(not(all(target_os = "ios", not(test))), allow(dead_code))]
     asked: Option<(Vec<String>, Instant)>,
     period: Duration,
+    stats: WriteStats,
+    /// The diagnostics code of the last read's result, recorded on change.
+    reported: Option<&'static str>,
 }
 
 impl Reader {
@@ -250,11 +334,15 @@ impl Reader {
 
     fn read(&mut self, stopped: &impl Fn() -> bool) {
         let core = self.backend.core();
+        self.doc = None;
         let read = match core.doc_get(herdr_doc::NAME) {
             Ok(doc) => {
                 self.held = Some(doc.version);
                 match herdr_doc::parse_view(&doc.value) {
-                    Ok(view) => Read::Readable(view),
+                    Ok(view) => {
+                        self.doc = Some((doc.value, doc.version));
+                        Read::Readable(view)
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "Herdr 2 document");
                         Read::Unreadable
@@ -263,6 +351,15 @@ impl Reader {
             }
             Err(error) => Read::Unavailable(error.to_string()),
         };
+        let code = match &read {
+            Read::Readable(_) => "herdr2_doc_readable",
+            Read::Unreadable => "herdr2_doc_unreadable",
+            Read::Unavailable(_) => "herdr2_doc_unavailable",
+        };
+        if self.reported != Some(code) {
+            crate::diagnostics::record(code);
+            self.reported = Some(code);
+        }
         // A failed list keeps the last one: a pane is not dropped for it.
         if let Ok(list) = core.list(false) {
             self.live = list
@@ -280,6 +377,7 @@ impl Reader {
             read,
             live: self.live.clone(),
             names: self.names.clone(),
+            stats: self.stats.clone(),
         };
         if self.mailbox.publish(snapshot)
             && let Ok(mut live) = self.inbox.lock()
@@ -323,6 +421,75 @@ impl Reader {
     }
 }
 
+impl Reader {
+    /// One intent, start to end; nothing else is sent meanwhile (D-6).
+    fn write(&mut self, intent: Intent, stopped: &impl Fn() -> bool) {
+        let outcome = self.send(&intent, stopped);
+        let (last, notice) = match &outcome {
+            Outcome::Unchanged => ("unchanged".to_owned(), None),
+            Outcome::Saved => ("saved".to_owned(), None),
+            Outcome::Lost => ("conflict-lost".to_owned(), Some(CHANGED_ELSEWHERE)),
+            Outcome::Refused(gate) => (format!("check-failed:{gate}"), Some(REFUSED)),
+            Outcome::NotReadable => ("not-readable".to_owned(), Some(NOT_READABLE)),
+            Outcome::Unknown => ("unknown".to_owned(), None),
+        };
+        if let Outcome::Unknown = outcome {
+            unsent().insert(self.host.clone(), intent);
+        }
+        tracing::info!(last = %last, "Herdr 2 document write");
+        self.stats.last = Some(last);
+        self.stats.notice = notice.map(str::to_owned);
+        self.stats.finished += 1;
+        self.read(stopped);
+    }
+
+    fn send(&mut self, intent: &Intent, stopped: &impl Fn() -> bool) -> Outcome {
+        let mut sent: Option<Value> = None;
+        for _ in 0..MAX_SENDS {
+            let Some((value, version)) = self.doc.clone() else {
+                return Outcome::NotReadable;
+            };
+            let candidate = match herdr_doc::apply(&value, intent) {
+                Ok(Applied::Unchanged) => return Outcome::Unchanged,
+                Ok(Applied::Changed(candidate)) => candidate,
+                Err(error) => {
+                    tracing::warn!(%error, "Herdr 2 document intent");
+                    return Outcome::NotReadable;
+                }
+            };
+            if let Err(gate) = herdr_doc::check_write(&value, &candidate, intent) {
+                return Outcome::Refused(gate);
+            }
+            // Never the same value again under a newer version (D-3).
+            if sent.as_ref() == Some(&candidate) {
+                return Outcome::Lost;
+            }
+            match self
+                .backend
+                .core()
+                .doc_set(herdr_doc::NAME, &candidate, version)
+            {
+                Ok(_) => {
+                    self.stats.writes += 1;
+                    return Outcome::Saved;
+                }
+                Err(CoreError::Refused {
+                    kind: Some(kind), ..
+                }) if kind == "conflict" => {
+                    self.stats.conflicts += 1;
+                    sent = Some(candidate);
+                    self.read(stopped);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Herdr 2 document write");
+                    return Outcome::Unknown;
+                }
+            }
+        }
+        Outcome::Lost
+    }
+}
+
 fn wait(period: Duration, stopped: &impl Fn() -> bool) {
     let mut waited = Duration::ZERO;
     while waited < period && !stopped() {
@@ -335,3 +502,6 @@ fn wait(period: Duration, stopped: &impl Fn() -> bool) {
 #[cfg(test)]
 #[path = "herdr_doc_sync_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "herdr_doc_write_tests.rs"]
+mod write_tests;

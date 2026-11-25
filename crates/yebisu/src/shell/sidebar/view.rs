@@ -17,7 +17,7 @@ use crate::{
         HerdrKind, filter,
         herdr2_frame::sidebar::{CoreRow, herdr2_hosts},
         rename::{RenameAnchor, RenameObject},
-        sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
+        sidebar_list::{ListHost, ListRow, ListSpace, merge, sources, with_forwards},
         style::{color, metric, radius, text, tint, weight},
     },
     terminal_view::TerminalView,
@@ -135,11 +135,13 @@ fn heading(text: &'static str) -> gpui::Div {
 
 /// The QA accessibility mark of a host row (UI test redesign S6): only P15's
 /// fixture hosts have one, labelled with the host name.
-fn host_mark(host: &str) -> Option<AnyElement> {
+fn host_mark(host: &str, name: &str) -> Option<AnyElement> {
     use crate::qa_ax::ids;
-    match host {
-        "qa-alpha" => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_ALPHA, "qa-alpha"),
-        "qa-beta" => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_BETA, "qa-beta"),
+    match (host, name) {
+        ("qa-alpha", _) => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_ALPHA, "qa-alpha"),
+        ("qa-beta", _) => crate::qa_ax::mark(ids::SIDEBAR_HOST_QA_BETA, "qa-beta"),
+        // scripts/ios/forward-check.py saves its private sshd under this name.
+        (_, "forward-qa") => crate::qa_ax::mark(ids::SIDEBAR_HOST_FORWARD_QA, "forward-qa"),
         _ => None,
     }
 }
@@ -356,10 +358,14 @@ impl Smoke {
             self.shell.sidebar.pins.borrow().index(id, boot)
         });
         let agents = filter::filter_lines(agents, query);
-        let rows = merge(&hosts, &self.setup)
+        let rows = with_forwards(merge(&hosts, &self.setup), &self.forwards)
             .into_iter()
             .filter(|row| match row {
                 ListRow::Host(_) => true,
+                // Not hidden by a collapsed host: a running forward stays in view.
+                ListRow::Forward(forward) => {
+                    filter::matches(query, &format!("{} {}", forward.remote, forward.host))
+                }
                 ListRow::Space(space) => {
                     !self.shell.sidebar.host_collapsed(&space.host)
                         && filter::matches(query, &format!("{} {}", space.entry.name, space.host))
@@ -396,9 +402,14 @@ impl Smoke {
         // While a filter is set (also with results), the list says so and
         // offers to clear it, in the normal and the compact layout.
         list = list.children(self.render_filter_banner(cx));
+        let mut first_forward = true;
         for row in rows {
             match row {
                 ListRow::Host(host) => list = list.child(self.host_row(&host, cx)),
+                ListRow::Forward(forward) => {
+                    list = list.child(self.forward_row(&forward, first_forward, cx));
+                    first_forward = false;
+                }
                 ListRow::Space(space) => list = list.child(self.space_row(&space, cx)),
             }
         }
@@ -431,7 +442,7 @@ impl Smoke {
         let retry_target = target.clone();
         let row_id = format!("sidebar-host-{target}");
         let chevron_id = format!("sidebar-chevron-{target}");
-        let qa = host_mark(&target);
+        let qa = host_mark(&target, host.name.display());
         div()
             .id(gpui::ElementId::Name(row_id.clone().into()))
             .debug_selector(move || row_id.clone())
@@ -623,6 +634,11 @@ impl Smoke {
         let name_id = format!("{row_id}-name");
         let boot = host.boot.clone();
         let generation = host.generation;
+        // The rename QA's agent row (S7): the focused pane's, on Herdr 1.
+        let current_agent = id.kind == HerdrKind::Herdr1
+            && id.host == self.terminal.reconnect.target
+            && snapshot(&self.terminal.live)
+                .is_some_and(|s| s.focused_pane_id.as_deref() == Some(id.pane.as_str()));
         div()
             .id(gpui::ElementId::Name(row_id.clone().into()))
             .debug_selector(move || row_id.clone())
@@ -702,6 +718,12 @@ impl Smoke {
             )
             .when(id.kind == HerdrKind::Herdr1, |row| {
                 row.child(agent_press_layer(press, cx))
+            })
+            .when(current_agent, |row| {
+                row.children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::SIDEBAR_CURRENT_AGENT,
+                    "Current agent",
+                ))
             })
             .on_click(cx.listener(move |this, _, window, cx| match id.kind {
                 HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),

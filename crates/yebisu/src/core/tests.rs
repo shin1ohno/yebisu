@@ -152,6 +152,7 @@ fn core_wire_receives_uikit_callbacks_for_all_input_options(cx: &mut TestAppCont
                     ),
                     cell_width: 8.,
                     cell_height: 20.,
+                    slide: None,
                 };
                 let bounds = this
                     .bounds_for_range(1..3, this.terminal.geometry.grid, window, cx)
@@ -422,4 +423,14 @@ fn run_after_saved_attach_never_reuses_existing_terminal_id() -> crate::Result<(
             .any(|terminal| terminal.id == created.id)
     );
     Ok(())
+}
+
+#[test]
+fn an_ended_herdr2_link_is_named_by_its_reason() {
+    let lost = crate::Error::Core(sheprd_core_client::Error::Lost);
+    let other = crate::Error::Ssh("refused".into());
+    assert_eq!(ended_code(false, &lost), "herdr2_dial_failed");
+    assert_eq!(ended_code(false, &other), "herdr2_dial_failed");
+    assert_eq!(ended_code(true, &lost), "herdr2_ended_lost");
+    assert_eq!(ended_code(true, &other), "herdr2_ended_error");
 }
