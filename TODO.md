@@ -194,3 +194,4 @@ repeating it.
   Close condition: that change merged and the next p10 failure, if any, is
   classified from its artifact; or 10 green layout-smoke runs with it; delete in
   the resolving commit.
+- Cold-launch restore acceptance awaits the owner (task abe91a5c10864985). Reason: host tests drive the restore with in-process peers; a real relaunch, SSH space listing and the Return setting need the Mac and the iPad, and no Simulator scenario relaunches with a saved record yet. First step: on the Mac (Designed for iPad) and on M5, open a disposable Herdr 2 space beside a Herdr 1 host, quit and relaunch; repeat with Return: Tap reconnect, with the host unreachable, and after removing the space. Close condition: PR QA records both devices with OS versions for each case; delete in the resolving commit.

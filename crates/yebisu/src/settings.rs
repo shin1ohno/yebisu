@@ -353,6 +353,11 @@ impl SettingsHost {
         self.flush();
     }
 
+    /// The worker answered the first load (values, or an error kept as such).
+    pub fn loaded(&self) -> bool {
+        self.loaded
+    }
+
     pub fn ready(&self) -> bool {
         self.loaded && !self.blocked && self.saved == self.revision
     }
