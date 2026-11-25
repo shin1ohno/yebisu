@@ -13,7 +13,7 @@ impl Smoke {
             && self.terminal.navigating.is_none()
             && !self.actions.palette
             && !self.terminal.reconnect.suspended
-            && !self.search_open()
+            && !self.native_field_open()
         {
             let Ok(live) = self.terminal.link.inbox.try_lock() else {
                 return;

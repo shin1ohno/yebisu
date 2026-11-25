@@ -70,6 +70,13 @@ Verified on 2026-11-24 on a Mac17,9 with macOS 26.7.3 and Xcode 27.2:
 - A zip whose root is `Payload/yebisu.app`, named `.ipa` and opened with
   `open`, installs `/Applications/yebisu.app`; the bundle itself is
   `/Applications/yebisu.app/Wrapper/yebisu.app`.
+- Finder resolves the wrapper only as a file made from the path before its
+  `tell` block, in a variable that is not a Finder term. Verified on
+  2026-11-25 (macOS 26.7.3) with a TestFlight wrapper in place: `delete (POSIX
+  file (item 1 of argv))` inside the block fails with -1728 before any dialog,
+  and so does a variable named `target`, which inside the block is Finder's
+  own property. `just mac` sets `wrapperFile` first; the test fake refuses the
+  other forms.
 - Opening that wrapper (`open /Applications/yebisu.app`, or `open -b
   com.shin1ohno.yebisu` while it is the only copy) starts it under launchd, from
   a translocated copy whose path ends in `Wrapper/yebisu.app/yebisu`. Its

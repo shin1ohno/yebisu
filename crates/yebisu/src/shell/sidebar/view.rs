@@ -16,6 +16,7 @@ use crate::{
     shell::{
         HerdrKind, filter,
         herdr2_frame::sidebar::{CoreRow, herdr2_hosts},
+        rename::{RenameAnchor, RenameObject},
         sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
         style::{color, metric, radius, text, tint, weight},
     },
@@ -555,14 +556,7 @@ impl Smoke {
                     .gap(px(metric::INLINE_GAP))
                     .min_w_0()
                     .child(Dot::filled(space.dot.dot_color()).draw())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(text::NAME))
-                            .when(space.current, |name| name.font_weight(weight::BOLD))
-                            .child(space.name.clone()),
-                    )
+                    .child(self.space_name(row, cx))
                     .child(
                         div()
                             .flex_none()
@@ -682,12 +676,17 @@ impl Smoke {
                                     .gap(px(agent_icon::AGENTS.gap))
                                     .child(line.row.icon.draw(&icon_row, agent_icon::AGENTS))
                                     .child(
-                                        div()
-                                            .debug_selector(move || name_id)
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .child(line.shown.clone()),
+                                        self.renamable(
+                                            div()
+                                                .debug_selector(move || name_id)
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate(),
+                                            &host.boot,
+                                            RenameAnchor::AgentRow,
+                                            RenameObject::Pane(id.pane.clone()),
+                                            line.shown.clone(),
+                                        ),
                                     ),
                             )
                             .child(
