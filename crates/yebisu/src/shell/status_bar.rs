@@ -3,7 +3,8 @@
 //! L5 `edit_bar::paused_typing_status`, L9 `fit::status_bar_overflow`,
 //! L9 `mods::mods_item`, L6 `Smoke::open_shortcuts`.
 //!
-//! One line: "connection · Herdr 1/2 · state", then Reconnect (disconnected
+//! One line: "connection · Herdr 1/2 · state" (Connected, Connecting while a
+//! Herdr 2 session dials, or Disconnected), then Reconnect (disconnected
 //! only), "Expand sidebar ⌘B" (sidebar hidden only), and Shortcuts at the
 //! right. A long connection name is cut with an ellipsis on screen and kept
 //! whole in the accessibility label (S-8).
@@ -86,6 +87,8 @@ fn status_bar_model_for_host(state: &ChromeState, connection: &HostName) -> Stat
     let connection = one_line(connection.display());
     let status = if state.connected {
         "Connected"
+    } else if state.connecting {
+        "Connecting"
     } else {
         "Disconnected"
     };
@@ -95,7 +98,7 @@ fn status_bar_model_for_host(state: &ChromeState, connection: &HostName) -> Stat
         connection,
         kind: state.kind,
         state: status.to_owned(),
-        show_reconnect: !state.connected,
+        show_reconnect: state.offers_reconnect(),
         // While the width forces the rail, "Show sidebar" could not show it.
         show_sidebar_hint: state.sidebar_hidden && !state.sidebar_forced,
         sidebar_label: format!("{SHOW_SIDEBAR} ⌘B"),
@@ -260,6 +263,8 @@ impl Smoke {
                 .child(div().flex_none().size(px(DOT_WIDTH)).rounded_full().bg(rgb(
                     if state.connected {
                         color::GREEN
+                    } else if state.connecting {
+                        color::YELLOW
                     } else {
                         color::RED
                     },
@@ -427,3 +432,7 @@ fn chip(
 #[cfg(test)]
 #[path = "status_bar_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "status_bar_connecting_tests.rs"]
+mod connecting_tests;

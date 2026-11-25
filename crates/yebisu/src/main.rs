@@ -54,12 +54,17 @@ mod terminal_view;
 #[cfg(any(target_os = "ios", test))]
 mod input_geometry;
 #[cfg(any(target_os = "ios", test))]
+mod input_indicator;
+#[cfg(any(target_os = "ios", test))]
 mod terminal_controls;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_input;
 
 #[cfg(any(target_os = "ios", test))]
 mod reconnect;
+
+#[cfg(any(target_os = "ios", test))]
+mod launch_restore;
 
 #[cfg(any(target_os = "ios", test))]
 mod keep_awake;
