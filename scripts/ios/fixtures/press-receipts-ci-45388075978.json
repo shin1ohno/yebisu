@@ -1,0 +1,149 @@
+{
+ "source": "CI run 45388075978, edit-menu job 138424249109 (artifact edit-menu-evidence): the input-receipt touch records around three presses the old timeout rule sent again; times are seconds from the press's first touch",
+ "cases": [
+  {
+   "name": "sh1-152 E3f-key, qa.sh1-152.end: UIKit cancelled the touch",
+   "timeout": 5.0,
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 774.5,
+     "y": 1248.5,
+     "touches": 1,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "cancelled",
+     "x": 774.5,
+     "y": 1248.5,
+     "touches": 1,
+     "time": 0.177
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 774.5,
+     "y": 1248.5,
+     "touches": 1,
+     "time": 5.674
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "ended",
+     "x": 774.5,
+     "y": 1248.5,
+     "touches": 1,
+     "time": 5.854
+    }
+   ]
+  },
+  {
+   "name": "sh1-152 E3g-text, qa.sh1-152.begin: UIKit cancelled the touch",
+   "timeout": 5.0,
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 339.0,
+     "y": 865.5,
+     "touches": 1,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "cancelled",
+     "x": 339.0,
+     "y": 865.5,
+     "touches": 1,
+     "time": 0.195
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 339.0,
+     "y": 865.5,
+     "touches": 1,
+     "time": 5.647
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "ended",
+     "x": 339.0,
+     "y": 865.5,
+     "touches": 1,
+     "time": 5.728
+    }
+   ]
+  },
+  {
+   "name": "SH1-151, qa.settings.start-selection.double-tap after the scroll: the touch ended, not taken",
+   "timeout": 5.0,
+   "records": [
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 937.5,
+     "y": 810.5,
+     "touches": 1,
+     "time": 0.0
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "ended",
+     "x": 937.5,
+     "y": 810.5,
+     "touches": 1,
+     "time": 0.036
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 937.5,
+     "y": 810.5,
+     "touches": 1,
+     "time": 5.576
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "ended",
+     "x": 937.5,
+     "y": 810.5,
+     "touches": 1,
+     "time": 5.661
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "began",
+     "x": 933.0,
+     "y": 870.5,
+     "touches": 1,
+     "time": 6.231
+    },
+    {
+     "kind": "input-receipt",
+     "receipt": "touch",
+     "stage": "ended",
+     "x": 933.0,
+     "y": 870.5,
+     "touches": 1,
+     "time": 6.308
+    }
+   ]
+  }
+ ]
+}

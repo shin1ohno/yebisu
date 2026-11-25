@@ -119,6 +119,21 @@ class LifecycleWaits(unittest.TestCase):
         self.assertIn("idle_report(", driver)
 
 
+class SelectionAfterScroll(unittest.TestCase):
+    """Issue #142 stage 3: QAAx no longer sends a press again once its touch reached the app, and the first tap
+    after SH1-151's scroll reaches the app untaken; the test proves taps are taken before pressing Double tap."""
+
+    def test_taps_are_proven_taken_after_the_scroll_before_the_edit(self):
+        test = statements(body(swift_source(), "func testSH1151SelectionSettings("))
+        drag = next(at for at, line in enumerate(test) if "thenDragTo:" in line)
+        ready = test.index('try qa.touchReady(QAIds.startDrag, what: "Settings › Input after the scroll")')
+        press = next(at for at, line in enumerate(test) if line.startswith("try qa.press(QAIds.startDoubleTap"))
+        self.assertEqual((drag + 1, ready + 1), (ready, press), "drag, then touch-ready on the selected Drag option, then the edit")
+        self.assertNotIn("sleep(", "\n".join(test[drag:press]))
+        ids = (TESTS / "QAIds.swift").read_text()
+        self.assertIn('static let startDrag = "qa.settings.start-selection.drag"', ids)
+
+
 class P9Timeout(unittest.TestCase):
     def test_xcodebuild_enforces_test_timeouts(self):
         command = p9.xcodebuild_test_command(Path("project"), "DEVICE", Path("derived"), Path("result.xcresult"))

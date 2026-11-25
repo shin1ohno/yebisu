@@ -45,6 +45,11 @@ impl Smoke {
     }
 
     pub(crate) fn request_text_retirement(&mut self) {
+        // The search panel's field holds first responder until
+        // `InputRestored`; the next transition after it submits.
+        if self.search_open() {
+            return;
+        }
         if let Some(receipt) = self.retirement.receipt.clone()
             && matches!(receipt.status(), Status::Queued { .. } | Status::Preparing)
         {
@@ -83,6 +88,9 @@ impl Smoke {
     }
 
     fn submit_text_retirement(&mut self) {
+        if self.search_open() {
+            return;
+        }
         if let Some(receipt) = self.retirement.receipt.as_ref()
             && matches!(receipt.status(), Status::Queued { .. } | Status::Preparing)
         {

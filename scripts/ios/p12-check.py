@@ -38,6 +38,34 @@ def terminate(device):
         raise RuntimeError("could not terminate the app before reading its files (simctl exit %d)" % result.returncode)
 
 
+def negative_control(directory, fault, tested, ui, screenshots, identity):
+    """A control that must fail by name without a resend (drop-pick-twice, offset-pick): the run passes
+    only when XCTest or the oracle failed naming its case and words (oracle.failed_as_expected); a run
+    that passed, or failed for another reason, fails here. Never used without P12_QA_FAULT."""
+    failure = (directory / "xctest.stdout").read_text()
+    oracle_error = ""
+    if ui is not None:
+        try:
+            oracle.validate(live_jsonl.read_records(directory / "app.jsonl"), live_jsonl.read_records(directory / "peer.jsonl"),
+                            ui, screenshots)
+        except (OSError, ValueError) as error:
+            oracle_error = str(error)
+    if tested.returncode == 0 and not oracle_error:
+        raise SystemExit(f"negative control {fault} did not fail: the pick it disturbs succeeded")
+    if not oracle.failed_as_expected(fault, failure + "\n" + oracle_error, ui or []):
+        raise SystemExit(f"negative control {fault} failed, but not by its name or with a resend; oracle: {oracle_error!r}")
+    words, case = oracle.expected_failure(fault)
+    line = next((line for line in (failure + "\n" + oracle_error).splitlines() if words in line and f"case {case}" in line), "")
+    try:
+        retries = oracle.validate_retries(ui) if ui is not None else None
+    except ValueError as error:
+        retries = {"invalid": str(error)}
+    verdict = {"negative_control": "failed as expected", "failure": line.strip(), "xctest_exit": tested.returncode,
+               "retries": retries, **identity}
+    (directory / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
+    print(json.dumps(verdict), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -118,7 +146,9 @@ def main():
     result_path = directory / "result.xcresult"
     derived = directory / "xcode-derived"
     fault = os.environ.get("P12_QA_FAULT", "")
-    oracle.require(oracle.valid_fault(fault), f"P12_QA_FAULT must be drop-tap:<step> or skip-swipe:<case> items, got {fault!r}")
+    oracle.require(oracle.valid_fault(fault), "P12_QA_FAULT must be drop-tap:<step>, or skip-swipe, drop-open, drop-pick, "
+                   f"drop-pick-twice or offset-pick:<case> items, got {fault!r}")
+    expected = oracle.expected_failure(fault)
     try:
         tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),
             "-scheme", "P12Oracle", "-destination", "id=" + device, "-derivedDataPath", str(derived),
@@ -144,6 +174,9 @@ def main():
             if name.startswith("p12-ui-events"):
                 ui = json.loads(data)
             screenshots.update(oracle.screenshot_names(name, data))
+    if expected:
+        negative_control(directory, fault, tested, ui, screenshots, dict(head=head, device=device, fault=fault))
+        return
     tested.check_returncode()
     oracle.require(ui is not None, "actual XCTest UI event attachment missing")
     records = live_jsonl.read_records(directory / "app.jsonl")

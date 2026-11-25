@@ -28,6 +28,7 @@ enum QAIds {
     static let menuSelectText = "qa.menu.select-text"
     static let settingsPageInput = "qa.settings.page.input"
     static let startDoubleTap = "qa.settings.start-selection.double-tap"
+    static let startDrag = "qa.settings.start-selection.drag"
     static let copyOnSelection = "qa.settings.copy.on-selection"
     // S4: SH1-152 (EditMenuQA). Begin keeps its identifier while it reads "Begun".
     static let sh152Begin = "qa.sh1-152.begin"
@@ -63,4 +64,6 @@ enum QAIds {
     static let sidebarList = "qa.sidebar.list"
     static let sidebarHostAlpha = "qa.sidebar.host.qa-alpha"
     static let sidebarHostBeta = "qa.sidebar.host.qa-beta"
+    static let sidebarSearch = "qa.sidebar.search"
+    static let sidebarFilterClear = "qa.sidebar.filter-clear"
 }
