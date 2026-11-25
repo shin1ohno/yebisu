@@ -61,7 +61,7 @@ CASES = [
      "return Some(if x >= right {",
      "shell::tab_row::tests::close_hit_closes_and_does_not_select"),
     # L2a: Reconnect shows in the status bar while connected too.
-    ("l2a-reconnect-condition", "shell/status_bar.rs", "show_reconnect: !state.connected,",
+    ("l2a-reconnect-condition", "shell/status_bar.rs", "show_reconnect: state.offers_reconnect(),",
      "show_reconnect: true,",
      "shell::status_bar::tests::reconnect_shows_only_when_disconnected"),
     # L2a: Paste drops out of the entry-point set (the ... menu place, B-1).
