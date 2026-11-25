@@ -623,6 +623,11 @@ impl Smoke {
         let name_id = format!("{row_id}-name");
         let boot = host.boot.clone();
         let generation = host.generation;
+        // The rename QA's agent row (S7): the focused pane's, on Herdr 1.
+        let current_agent = id.kind == HerdrKind::Herdr1
+            && id.host == self.terminal.reconnect.target
+            && snapshot(&self.terminal.live)
+                .is_some_and(|s| s.focused_pane_id.as_deref() == Some(id.pane.as_str()));
         div()
             .id(gpui::ElementId::Name(row_id.clone().into()))
             .debug_selector(move || row_id.clone())
@@ -702,6 +707,12 @@ impl Smoke {
             )
             .when(id.kind == HerdrKind::Herdr1, |row| {
                 row.child(agent_press_layer(press, cx))
+            })
+            .when(current_agent, |row| {
+                row.children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::SIDEBAR_CURRENT_AGENT,
+                    "Current agent",
+                ))
             })
             .on_click(cx.listener(move |this, _, window, cx| match id.kind {
                 HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),

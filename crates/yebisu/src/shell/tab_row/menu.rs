@@ -58,7 +58,7 @@ impl Smoke {
             .relative()
             .min_w_0()
             .font_weight(font_weight)
-            .when(focused && !self.terminal.core_mode, |body| {
+            .when(focused, |body| {
                 body.children(crate::qa_ax::mark(
                     crate::qa_ax::ids::TABS_CURRENT,
                     "Current tab",
@@ -117,13 +117,9 @@ impl Smoke {
         })
     }
 
-    /// The open tab menu, drawn over everything at the press.
-    pub(super) fn render_tab_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let menu = self.shell.rename.tab_menu.clone()?;
-        if self.input_modal() || menu.core != self.terminal.core_mode {
-            self.shell.rename.tab_menu = None;
-            return None;
-        }
+    /// The tab menu's rename target and why Rename… is disabled, if it is
+    /// (the menu and `qa.state.rename.tab_menu` both read it).
+    pub(crate) fn tab_menu_rename(&self, menu: &TabMenu) -> (RenameTarget, Option<&'static str>) {
         let target = RenameTarget {
             host: menu.host.clone(),
             kind: self.terminal.herdr_kind(),
@@ -136,6 +132,17 @@ impl Smoke {
         } else {
             self.rename_unavailable(&target)
         };
+        (target, reason)
+    }
+
+    /// The open tab menu, drawn over everything at the press.
+    pub(super) fn render_tab_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let menu = self.shell.rename.tab_menu.clone()?;
+        if self.input_modal() || menu.core != self.terminal.core_mode {
+            self.shell.rename.tab_menu = None;
+            return None;
+        }
+        let (target, reason) = self.tab_menu_rename(&menu);
         let item = |id: &'static str, label: &'static str| {
             div()
                 .id(id)

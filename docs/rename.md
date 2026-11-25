@@ -74,6 +74,9 @@ just guarded cargo test --locked -p yebisu -- shell::rename::tests shell::host_m
 just guarded python3 scripts/ios/rename-mutations.py      # each guard's named test fails without it
 python3 -I -B -m unittest scripts/ios/test_rename_check.py
 just guarded python3 scripts/ios/rename-check.py --out /abs/dir --label run   # Simulator, HERDR_IOS_SIMULATOR
+just guarded python3 scripts/ios/rename-check.py --out /abs/dir2 --label more --suite more     # S7, S8
+just guarded python3 scripts/ios/rename-check.py --out /abs/dir3 --label h2 --suite herdr2     # S10
+just guarded python3 scripts/ios/rename-check.py --out /abs/dir4 --label menus --suite menus   # S9
 ```
 
 `rename-check.py` runs `SmokeQA/testRenameInPlace`: R1 a space's long press,
@@ -83,11 +86,26 @@ Command-B while the field is up (nothing reaches the terminal); R5 Japanese
 romaji after Control-Space (the input source and any composition are
 recorded, not required).
 
+`--suite more` runs `SmokeQA/testRenameMore`: S7 opens the field over the
+focused pane's agent row, then the wire peer (`YEBISU_RENAME_QA_INSERT`,
+`mock_peer.rs`) sends a snapshot with an agent above it; the row's slot must
+move and the field's frame stay within 1 pt of the rectangle over it, also
+after the window turns to portrait and back. S8 renames the current space
+from the rail's long-press menu (one `workspace.rename`). `--suite herdr2`
+runs `SmokeQA/testRenameHerdr2` on the Herdr 2 mock: S10, the palette's
+Rename rows and the tab menu's Rename… are disabled with "Not available on
+Herdr 2 yet" and no field opens. `--suite menus` runs `P12QA/testRenameMenus`
+(scripts/ios/p12-qa): S9, the OS menu bar's Rename Tab and Space › Rename
+Space — name open the field over the tab and the space row. The menu bar is
+revealed by P12's swipe, which can flake (issue #142).
+
 ## Simulator and device
 
 | Behaviour | Where it is proved |
 |---|---|
 | Field first responder, GPUI views off its chain, GPUI keeps drawing | herdr-uikit probe; R1-R5 `rename-state` records |
+| Field frame over the label (rectangle) | herdr-uikit probe `p1-frame-matches-label-within-1pt`; S7 |
+| Field text on the label's baseline | device D1, D4 (a UIKit capture in the probe does not see GPUI's Metal layer) |
 | Return and Escape while composing keep the field | herdr-uikit probe (marked text set directly); device D2, D3 |
 | Japanese IME conversion | device D1-D3 (the Simulator's XCUITest typing did not compose) |
 | Escape from a hardware keyboard | device D3 (XCUITest's Escape never reaches a presented field) |

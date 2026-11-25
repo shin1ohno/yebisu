@@ -140,6 +140,40 @@ final class P12QA: XCTestCase {
                        "os": ProcessInfo.processInfo.operatingSystemVersionString])
     }
 
+    /// Issue #143 S9 for scripts/ios/rename-check.py (`--suite menus`, an app built with
+    /// `test-support`): the OS menu bar's Rename Tab (application menu) and Space › Rename Space —
+    /// <name> each open the rename field over its own anchor. rename-check.py judges that from the
+    /// app's `rename-state` records, split by the `RENAME_STEP` lines; while the field is up this
+    /// test queries nothing (a presented controller's AX may not answer) and acts on a schedule.
+    func testRenameMenus() throws {
+        continueAfterFailure = false
+        app.terminate()
+        app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
+        app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
+        app.launchEnvironment["YEBISU_P12_QA"] = "1"
+        app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        try qa.waitState("the P12 fixture is up: the terminal is connected and the panel idle", timeout: 60) {
+            $0.string("screen") == "terminal" && $0.bool("connected") == true && self.pending($0) == false
+        }
+        try locateFixtures()
+        try touchReady()
+        let rename = { (state: QAState) in state.raw["rename"] as? [String: Any] ?? [:] }
+        for (step, menu, title) in [("S9-tab", "yebisu", "Rename Tab"),
+                                    ("S9-space", "Space", "Rename Space — Space 1 · repo")] {
+            print(String(format: "RENAME_STEP %@ %.3f", step, Date().timeIntervalSince1970))
+            try choose(title, caseName: step, negative: false, menu: menu)
+            sleep(4)
+            screenshot("rename-" + step)
+            // A tap outside the field, on the terminal above the software keyboard, cancels it.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.15)).tap()
+            sleep(3)
+            try qa.waitState("the rename field closed after \(step)", timeout: 20) { rename($0)["open"] as? Bool == false }
+        }
+        print(String(format: "RENAME_STEP end %.3f", Date().timeIntervalSince1970))
+    }
+
     /// A point that dismisses the open OS menu: the centre of the fixture panel's empty strip
     /// (qa.p12.empty), beside the menu, never on it. A fixed window point landed inside the menu once
     /// Integration 2 (L2b) added New Space and the menu reached y 0.86 with its right edge at x 0.52
@@ -158,7 +192,10 @@ final class P12QA: XCTestCase {
         return empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
     }
 
-    private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false) throws {
+    /// `menu` is the OS menu bar's menu to open: "yebisu" (the application menu, which holds the
+    /// Terminal menu's items) or another top-level menu such as "Space" (issue #143 S9).
+    private func choose(_ title: String, caseName: String, negative: Bool, observeOnly: Bool = false,
+                        menu: String = "yebisu") throws {
         // Recorded before the swipe so a reveal that fails can say which
         // precondition was missing (L17 class B), not only that the bar is absent.
         recordRevealPrecondition(caseName)
@@ -180,7 +217,10 @@ final class P12QA: XCTestCase {
         // showed nothing (PR 84: app queries in that window went with lost Springboard taps).
         let baseline = swipeBaseline
         let target: XCUICoordinate
-        if pressPosition.useButton {
+        if menu != "yebisu" {
+            let button = menuBar.buttons.matching(NSPredicate(format: "label == %@", menu)).firstMatch
+            target = button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        } else if pressPosition.useButton {
             target = applicationMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         } else {
             let offset = CGVector(dx: pressPosition.point.x - appOrigin.x, dy: pressPosition.point.y - appOrigin.y)
