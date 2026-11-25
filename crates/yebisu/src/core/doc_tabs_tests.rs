@@ -319,6 +319,7 @@ fn doc_view_round_trips_through_the_file() {
             space: Some(B1.into()),
             tabs: BTreeMap::from([(B1.to_owned(), "tbx".to_owned())]),
         },
+        migrated: None,
     };
     store::save_workspace(Some(&root), "pro-dev", "default", &workspace)
         .unwrap_or_else(|e| panic!("save: {e}"));

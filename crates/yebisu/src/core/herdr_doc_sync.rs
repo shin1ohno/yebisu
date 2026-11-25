@@ -499,6 +499,12 @@ fn wait(period: Duration, stopped: &impl Fn() -> bool) {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "herdr_doc_live_tests.rs"]
+mod live_tests;
+#[cfg(test)]
+#[path = "herdr_doc_migrate_tests.rs"]
+mod migrate_tests;
 #[cfg(test)]
 #[path = "herdr_doc_sync_tests.rs"]
 mod tests;

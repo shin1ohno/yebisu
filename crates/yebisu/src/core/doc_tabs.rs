@@ -8,7 +8,7 @@
 //! space and tab (`doc_view`, decision 11), never document tabs.
 use super::{
     DocCatalog, DocRows, DocSpace, SessionInfo, TabInfo,
-    herdr_doc::{Axis, Drawable, Intent, SpaceView, View, new_id},
+    herdr_doc::{Axis, Drawable, Intent, MigratedTab, SpaceView, View, new_id},
     herdr_doc_sync::{DocSnapshot, DocWriter, Read, WriteStats},
     store::{Saved, Tab, Workspace},
 };
@@ -53,6 +53,11 @@ pub(super) struct DocTabs {
     stats: WriteStats,
     /// The intents whose outcome was already told.
     told: u64,
+    /// The migration in flight: its new space, and the intents finished
+    /// when it was queued (Design G).
+    migrating: Option<(String, u64)>,
+    /// A migration failed on this connection; the next one tries again.
+    tried: bool,
 }
 
 impl DocTabs {
@@ -72,6 +77,7 @@ impl DocTabs {
         self.version = snapshot.version;
         self.stats = snapshot.stats;
         self.prune(workspace);
+        self.settle_migration(workspace);
         let pending = self.pending.take();
         let space = match pending.clone().filter(|id| self.space(id).is_some()) {
             Some(created) => Some(created),
@@ -86,6 +92,80 @@ impl DocTabs {
         };
         self.draw(space, workspace);
         true
+    }
+
+    /// Whether the iPad's saved `default` tabs should move into the document
+    /// now: it is readable, the tabs are there, and no migration ran before
+    /// or is running (Design G, AC12).
+    pub(super) fn migration_due(&self, workspace: &Workspace) -> bool {
+        workspace.migrated.is_none()
+            && self.migrating.is_none()
+            && !self.tried
+            && self.view().is_some()
+            && self.local_tabs(workspace) > 0
+    }
+
+    /// Queues the one intent that moves every iPad-only tab into a new
+    /// space "iPad" (decision 4), after `backup` kept the iPad file. The
+    /// terminals keep no labels (Design G). Tried once per connection.
+    pub(super) fn migrate(
+        &mut self,
+        writer: Option<&DocWriter>,
+        workspace: &Workspace,
+        backup: impl FnOnce() -> crate::Result<()>,
+    ) -> crate::Result<()> {
+        self.tried = true;
+        let writer = writer.ok_or(crate::Error::CoreQueue)?;
+        backup()?;
+        let tabs = match &self.local {
+            Some((tabs, _)) => tabs,
+            None => &workspace.tabs,
+        };
+        let tabs = tabs
+            .iter()
+            .map(|tab| {
+                let panes = tab.layout.ids.iter().map(|terminal| {
+                    Ok::<_, crate::Error>((id("p")?, terminal.as_str().to_owned()))
+                });
+                Ok(MigratedTab {
+                    tab_id: id("tb")?,
+                    panes: panes.collect::<crate::Result<_>>()?,
+                    vertical: tab.layout.vertical,
+                })
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+        let space = id("sp")?;
+        writer.send(Intent::Migrate {
+            space_id: space.clone(),
+            tabs,
+        })?;
+        self.migrating = Some((space, self.stats.finished));
+        Ok(())
+    }
+
+    /// Records the migration once the document shows it: its space, or no
+    /// iPad-only tab left (a migration that landed before). A migration
+    /// that ended otherwise stays undone until the next connection.
+    fn settle_migration(&mut self, workspace: &mut Workspace) {
+        if workspace.migrated.is_some() || self.view().is_none() {
+            return;
+        }
+        let none_left = self.local_tabs(workspace) == 0;
+        match self.migrating.clone() {
+            Some((space, _)) if self.space(&space).is_some() || none_left => {
+                workspace.migrated = Some(self.version);
+                self.pending = Some(space);
+                self.migrating = None;
+            }
+            Some((_, before)) if self.stats.finished > before => {
+                self.migrating = None;
+                self.tried = true;
+            }
+            Some(_) => {}
+            // Nothing saved to move: there is nothing to migrate later.
+            None if none_left && !self.tried => workspace.migrated = Some(self.version),
+            None => {}
+        }
     }
 
     /// The notice of an intent that was not saved, once per intent.
@@ -334,6 +414,7 @@ impl DocTabs {
             tabs,
             active,
             doc_view: workspace.doc_view.clone(),
+            migrated: workspace.migrated,
         }
     }
 
