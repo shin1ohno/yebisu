@@ -624,3 +624,32 @@ the UI test redesign S5 and S6.)
   the item; SpringBoard's open menu takes the tap and closes, the app receives no
   touch, so the case fails as `tap lost (class A2) in case <case>`); `p12-check.py` reports
   `"negative_control": "failed as expected"` and exits 0 only then.
+
+## Input mode indicator check (#139)
+
+`just ios-input-mode` (`scripts/ios/input-mode-check.py`) is a local check on
+`HERDR_IOS_SIMULATOR`, not a CI job: setting the Simulator's input sources
+from a script is undocumented, so it stays where a failure can be looked at.
+It writes the device's `AppleKeyboards` (`en_US`, `ja_JP-Romaji`) and
+Shortcut style = Herdr prefix, runs `SmokeQA/testInputModeIndicator`
+(`SmokeQA+InputMode.swift`), and prints one `INPUT_MODE <case> PASS|FAIL`
+line per T-IM-S1..S8, with `summary.json` and the screenshots in
+`target/ios-input-mode` (or `--out DIR`). The test only records: each step
+prints `INPUT_MODE_OBS` with `qa.state.input_mode`; the script judges
+(`scripts/ios/test_input_mode_check.py` covers the judging).
+
+`qa.state.input_mode` holds herdr-uikit's selection display state
+(`herdr_uikit::input_mode_indicator_state`: `text_first_responder`,
+`activated`, `interactions`, `text_input_is_current`, `cursor_class`,
+`accessory_frame`, `caret_rect`, `needs_update_calls`), the terminal's
+`cursor` and `composition_bounds` in window points, the `marked` text, and
+`invalidations` (cursor moves reported to GPUI). UIKit shows and hides the
+indicator without a GPUI frame, so the terminal poll asks for a frame when
+the SDK's state changed. The same poll fills `shown` (how often the indicator
+appeared, its last frame and the caret then): XCUITest can wait 60 s for the
+app to idle after a key, past the indicator, so a switch is judged by `shown`
+growing since the `before-<step>` read. Marked text reaches `qa.state` a frame
+or more after the key, so the test waits on it rather than sleeping. The keys
+are XCUITest hardware keys: Shift puts the Simulator in the hardware keyboard
+state and Control-Space switches the input source. The result does not prove real IME or hardware keyboard
+behaviour; the owner's iPad checks D1-D7 (PR) do.
