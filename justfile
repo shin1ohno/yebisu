@@ -22,8 +22,8 @@ lint-ios:
 
 test:
     python3 scripts/guarded.py cargo test --locked --workspace
-    python3 -I -B -m unittest discover -s scripts/tests -p 'test_*.py'
-    python3 -I -B -m unittest discover -s scripts/ios -p 'test_*.py'
+    # The same unittest discovery, one process per test module in parallel.
+    python3 -I -B scripts/run-python-tests.py scripts/tests scripts/ios
 
 bump-fork REV:
     python3 scripts/bump-fork.py {{REV}}
