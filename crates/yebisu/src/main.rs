@@ -62,6 +62,9 @@ mod terminal_input;
 mod reconnect;
 
 #[cfg(any(target_os = "ios", test))]
+mod launch_restore;
+
+#[cfg(any(target_os = "ios", test))]
 mod keep_awake;
 
 #[cfg(any(target_os = "ios", test))]

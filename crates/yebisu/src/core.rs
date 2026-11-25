@@ -494,6 +494,31 @@ done
     })
 }
 
+/// The spaces `host` lists, by the discovery poll's own query (it never
+/// starts a server). Used before reopening a saved space at launch.
+#[cfg(target_os = "ios")]
+pub(crate) fn probe_spaces(host: &str) -> crate::Result<std::collections::BTreeSet<String>> {
+    let (exit, output) = sheprd_client::run_ssh_command(
+        host,
+        DISCOVER,
+        std::time::Duration::from_secs(3),
+        48_000,
+        || false,
+    )
+    .map_err(|error| crate::Error::Ssh(error.to_string()))?;
+    if !exit.success() {
+        return Err(crate::Error::Ssh(
+            "Herdr 2 space listing did not finish".into(),
+        ));
+    }
+    Ok(poll::listed_spaces(&output))
+}
+
+#[cfg(test)]
+pub(crate) fn listed_spaces(output: &[u8]) -> std::collections::BTreeSet<String> {
+    poll::listed_spaces(output)
+}
+
 #[cfg(target_os = "ios")]
 pub(crate) fn workspace_root() -> Option<std::path::PathBuf> {
     let root = sheprd_client::local_path::state_dir()?.join("herdr2");
