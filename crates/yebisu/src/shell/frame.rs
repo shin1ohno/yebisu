@@ -130,6 +130,7 @@ impl Smoke {
             // The rail is on screen when the user chose it or the width forces it.
             sidebar_hidden: self.actions.board_hidden || self.shell.frame.sidebar_collapsed,
             sidebar_forced: self.sidebar_forced_rail(),
+            host_selected: !self.terminal.reconnect.target.is_empty(),
         }
     }
 

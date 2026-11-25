@@ -91,6 +91,29 @@ enum PopoverAction {
     Settings,
     Copy,
     Paste,
+    /// Forward port… for the selected host (issue 140).
+    ForwardPort,
+}
+
+/// The App group's Forward port… row, under Settings: no key, and only
+/// with a host selected to forward from.
+pub(crate) fn forward_port_row(state: &ChromeState) -> ShortcutRow {
+    ShortcutRow {
+        label: host_menus::HostMenuItem::ForwardPort.label().into(),
+        keys: String::new(),
+        enabled: state.host_selected && !state.sheet_open,
+    }
+}
+
+/// Why [`forward_port_row`] is disabled, if it is.
+pub(crate) fn forward_port_reason(state: &ChromeState) -> Option<&'static str> {
+    if state.sheet_open {
+        Some("Close the sheet first")
+    } else if !state.host_selected {
+        Some(host_menus::NO_HOST)
+    } else {
+        None
+    }
 }
 
 fn is_grouped_focus(command: Command) -> bool {
@@ -371,6 +394,12 @@ pub(crate) fn shortcuts_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
             out.push(point(action, Place::ShortcutsPopover, row.enabled, reason));
         }
     }
+    out.push(point(
+        EntryAction::ForwardPort,
+        Place::ShortcutsPopover,
+        forward_port_row(state).enabled,
+        forward_port_reason(state),
+    ));
     let menus = host_menus::menu_bar(state, true);
     let long_press = host_menus::host_long_press(state)
         .into_iter()
@@ -387,6 +416,9 @@ pub(crate) fn shortcuts_entry_points(state: &ChromeState) -> Vec<EntryPoint> {
             }
             host_menus::MenuItemId::Host(host_menus::HostMenuItem::Edit) => EntryAction::Hosts,
             host_menus::MenuItemId::Space(host_menus::SpaceMenuItem::NewTab) => EntryAction::NewTab,
+            host_menus::MenuItemId::Host(host_menus::HostMenuItem::ForwardPort) => {
+                EntryAction::ForwardPort
+            }
             _ => continue,
         };
         out.push(point(action, place, entry.enabled, entry.reason));
@@ -399,7 +431,7 @@ impl Smoke {
     /// the Hosts sheet (L7) counted as a sheet, since it is modal too.
     pub(crate) fn popover_chrome_state(&self) -> ChromeState {
         let mut state = self.chrome_state();
-        state.sheet_open |= self.hosts_sheet_modal();
+        state.sheet_open |= self.hosts_sheet_modal() || self.forward_sheet_open();
         state
     }
 
@@ -408,7 +440,7 @@ impl Smoke {
     /// it is handled and does nothing, so the palette does not open under
     /// the sheet (review S7).
     pub(crate) fn open_shortcuts(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.settings_modal || self.hosts_sheet_modal() {
+        if self.settings_modal || self.hosts_sheet_modal() || self.forward_sheet_open() {
             return true;
         }
         self.shell.shortcuts.open ^= true;
@@ -447,20 +479,18 @@ impl Smoke {
     pub(crate) fn close_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.shell.shortcuts.open = false;
         self.shell.shortcuts.expanded = None;
-        self.refresh_terminal_input();
-        if self.terminal.open && self.terminal.input.ready {
-            self.terminal_focus.focus(window, cx);
-            self.request_terminal_keyboard(window, "shortcuts-close");
-            self.request_text_retirement();
-        }
-        window.notify_text_input_changed(&self.terminal_focus);
+        self.restore_terminal_keys(window, cx, "shortcuts-close");
         cx.notify();
     }
 
     /// Whether the popover stays open this frame. A sheet or the palette
     /// closes it: they exclude each other both ways (S6).
     pub(crate) fn shortcuts_shown(&mut self) -> bool {
-        if self.settings_modal || self.hosts_sheet_modal() || self.actions.palette {
+        if self.settings_modal
+            || self.hosts_sheet_modal()
+            || self.forward_sheet_open()
+            || self.actions.palette
+        {
             self.shell.shortcuts.open = false;
         }
         self.shell.shortcuts.open

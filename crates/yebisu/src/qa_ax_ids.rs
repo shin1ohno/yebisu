@@ -461,3 +461,18 @@ pub(crate) const TABS_CURRENT: &str = "qa.tabs.current";
 /// which the rename QA long-presses (S7, S8).
 pub(crate) const SIDEBAR_CURRENT_AGENT: &str = "qa.sidebar.current-agent";
 pub(crate) const RAIL_CURRENT_SPACE: &str = "qa.rail.current-space";
+/// The host row of the saved host named `forward-qa` (scripts/ios/forward-check.py).
+pub(crate) const SIDEBAR_HOST_FORWARD_QA: &str = "qa.sidebar.host.forward-qa";
+/// The forward sheet (issue 140, shell/forward_sheet/view.rs): its Remote
+/// port field, Forward, Close, and the first of the host's listening-port
+/// chips. Identifiers are constants, so one names the first chip rather
+/// than a port.
+pub(crate) const FORWARD_FIELD: &str = "qa.forward.field";
+pub(crate) const FORWARD_SUBMIT: &str = "qa.forward.submit";
+pub(crate) const FORWARD_CLOSE: &str = "qa.forward.close";
+pub(crate) const FORWARD_CHIP: &str = "qa.forward.chip";
+/// The sidebar's first forward row (shell/sidebar/forward_row.rs): a tap
+/// opens a listening forward's page in Safari.
+pub(crate) const FORWARD_ROW: &str = "qa.forward.row";
+/// Forward port… in a host row's long-press menu (shell/sidebar/long_press.rs).
+pub(crate) const HOST_MENU_FORWARD: &str = "qa.host-menu.forward";

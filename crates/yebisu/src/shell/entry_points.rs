@@ -187,6 +187,8 @@ pub(crate) fn required_entry_actions(state: &ChromeState) -> Vec<EntryAction> {
         EntryAction::Split,
         EntryAction::Shortcuts,
         EntryAction::ToggleSidebar,
+        // Issue 140: the Host menu, a host row's long press and Shortcuts.
+        EntryAction::ForwardPort,
     ]);
     required
 }
