@@ -52,6 +52,7 @@ fn finished_terminal_closes_its_pane_then_its_empty_tab() {
             tab("c", &["t4"]),
         ],
         active: 1,
+        ..Workspace::default()
     };
     assert!(remove_terminal(&mut workspace, &id("t2")));
     assert_eq!(workspace.tabs[0].layout.ids, vec![id("t1")]);

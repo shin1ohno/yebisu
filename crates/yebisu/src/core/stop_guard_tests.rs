@@ -131,6 +131,7 @@ fn a_per_socket_timeout_deletes_nothing() {
             },
         }],
         active: 0,
+        ..Workspace::default()
     };
     store::save_workspace(Some(&root), "slow", "s9", &workspace).unwrap_or_else(|e| panic!("{e}"));
     let output = fleet.discover();

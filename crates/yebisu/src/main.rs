@@ -54,12 +54,24 @@ mod terminal_view;
 #[cfg(any(target_os = "ios", test))]
 mod input_geometry;
 #[cfg(any(target_os = "ios", test))]
+mod input_indicator;
+#[cfg(any(target_os = "ios", test))]
 mod terminal_controls;
 #[cfg(any(target_os = "ios", test))]
 mod terminal_input;
 
 #[cfg(any(target_os = "ios", test))]
 mod reconnect;
+
+#[cfg(any(target_os = "ios", test))]
+mod launch_restore;
+
+#[cfg(any(target_os = "ios", test))]
+#[allow(
+    dead_code,
+    reason = "the forward sheet and the sidebar rows (issue 140's UI) call the entry points, and the iOS test build has no SSH scan caller until then"
+)]
+mod forwards;
 
 #[cfg(any(target_os = "ios", test))]
 mod keep_awake;
