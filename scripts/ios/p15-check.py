@@ -347,7 +347,7 @@ def build_owned(session, directory, source, device, environment, head):
                     sdk=[dict(name='herdr-uikit', url='https://github.com/shin1ohno/herdr-uikit',
                               revision='4486cb1712ab404bef3656b4679f22a2f2026283'),
                          dict(name='herdr-ssh', url='https://github.com/shin1ohno/herdr-gpui',
-                              revision='9327f4482faeb0b9ccfb086c912a300a98ebad61')])
+                              revision='fb5d95c4555413161021e0cba074f8e223044c6e')])
     return session.build_install(directory, source, device,
                                  ['--package', 'yebisu', '--bin', 'yebisu'],
                                  environment, expected=expected)
