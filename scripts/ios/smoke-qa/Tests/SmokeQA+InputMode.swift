@@ -63,10 +63,22 @@ extension SmokeQA {
     }
 
     /// One input source switch, once no earlier indicator is visible; records the indicator.
+    /// The app counts the indicator's appearances (`shown`), so a switch is judged even when
+    /// XCUITest's idle wait after the key outlasts the indicator; `before-<step>` holds the count.
     private func switchSource(_ app: XCUIApplication, _ qa: QAAx, _ step: String) {
-        _ = try? qa.waitState("no indicator before \(step)", timeout: 6) { !self.shown($0) }
+        let before = (try? qa.waitState("no indicator before \(step)", timeout: 6) { !self.shown($0) }) ?? qa.read()
+        observe(app, "before-\(step)", before)
+        let count = shownCount(before)
         app.typeKey(" ", modifierFlags: .control)
-        observeUntil(app, qa, step, timeout: 3) { self.shown($0) }
+        observeUntil(app, qa, step, timeout: 3) { self.shown($0) || self.shownCount($0) > count }
+    }
+
+    private func marked(_ state: QAState?) -> String {
+        inputMode(state)?["marked"] as? String ?? ""
+    }
+
+    private func shownCount(_ state: QAState?) -> Int {
+        (inputMode(state)?["shown"] as? [String: Any])?["count"] as? Int ?? 0
     }
 
     private func hardwareState(_ app: XCUIApplication) {
@@ -167,16 +179,17 @@ extension SmokeQA {
                 observeUntil(app, qa, "\(step)-closed", timeout: 10) { self.active($0) }
             }
         }
-        // The ... menu's "Command palette" row opens the Shortcuts popover (shell/shortcuts.rs);
-        // an outside press closes it (XCUITest's Escape did not), here on the terminal, which may
-        // count the press or not. Find is not run: its row did not run with this Herdr 1 peer,
-        // and AC5 does not list it (owner check D6 covers it).
+        // The ... menu's "Command palette" row toggles the command palette (actions.rs
+        // Command::Palette), which detaches the terminal's input; the terminal takes text input
+        // again only once the palette is closed (input.rs terminal_owns_text_input), so the row
+        // closes it and a press on the terminal takes the keyboard back. Find is not run: its
+        // row did not run with this Herdr 1 peer, and AC5 does not list it (owner check D6).
         inputModeCase("s5-palette") {
-            try menuItem(qa, QIds.palette, what: "the Shortcuts popover is open") { _ in true }
+            try menuItem(qa, QIds.palette, what: "the command palette is open") { _ in true }
             observeUntil(app, qa, "s5-palette-open", timeout: 5) { self.inactive($0) }
-            _ = try? qa.press(QAIds.terminalInput)
-            if !(qa.read().map { self.active($0) } ?? false) {
-                _ = try? qa.press(QAIds.terminalInput)
+            try menuItem(qa, QIds.palette, what: "the command palette is closed") { _ in true }
+            try qa.press(QAIds.terminalInput, effect: 10, what: "terminal text input after the palette") {
+                self.active($0)
             }
             observeUntil(app, qa, "s5-palette-closed", timeout: 10) { self.active($0) }
         }
@@ -236,23 +249,26 @@ extension SmokeQA {
         inputModeCase("s4") {
             app.typeText("\nyebisu-139-tick\n")
             sleep(1)
-            for n in 1...4 {
+            for n in 1...6 {
                 switchSource(app, qa, "s4-switch-\(n)")
+                // Type once the switch's indicator is gone.
+                _ = try? qa.waitState("s4 switch \(n) settled", timeout: 4) { !self.shown($0) }
                 app.typeKey("n", modifierFlags: [])
-                usleep(800_000)
-                let marked = self.inputMode(qa.read())?["marked"] as? String ?? ""
-                print("INPUT_MODE s4 switch \(n): marked \(marked)")
-                if !marked.isEmpty { break }
+                // qa.state carries the marked text a frame or more later: wait for it, never sleep.
+                let state = try? qa.waitState("s4 switch \(n) composes", timeout: 3) { !self.marked($0).isEmpty }
+                print("INPUT_MODE s4 switch \(n): marked \(self.marked(state))")
+                if state != nil { break }
                 app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-                usleep(600_000)
+                _ = try? qa.waitState("s4 switch \(n) cleared", timeout: 3) { self.marked($0).isEmpty }
             }
             for key in ["i", "h", "o", "n"] {
                 app.typeKey(key, modifierFlags: [])
                 usleep(400_000)
             }
-            observe(app, "s4-composing", qa.read())
+            // "nihon" composes as にほn; wait for the lagging qa.state, as above.
+            let held = observeUntil(app, qa, "s4-composing", timeout: 5) { self.marked($0).count >= 3 }
             // The next dot moves the cursor within about 2 s.
-            let composing = inputMode(qa.read())?["cursor"] as? [Double]
+            let composing = inputMode(held)?["cursor"] as? [Double]
             observeUntil(app, qa, "s4-after-output", timeout: 30) {
                 (self.inputMode($0)?["cursor"] as? [Double]) != composing
             }

@@ -53,6 +53,26 @@ class CaseTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("precondition", reason)
 
+    def test_a_switch_counts_an_indicator_the_app_saw_after_the_read_missed_it(self):
+        seen = {"count": 2, "frame": [272, 227, 108, 43], "caret": CARET}
+        rows = [line("s1-focused")]
+        for n in (1, 2, 3):
+            rows += [line(f"before-s1-switch-{n}", shown={"count": 1, "frame": None, "caret": None}),
+                     line(f"s1-switch-{n}", shown=seen)]
+        self.assertTrue(check.judge_s1(obs(*rows))[0])
+        # The count did not move since the read before the switch: nothing was shown.
+        stale = [line("s1-focused")] + [line(f"s1-switch-{n}", shown=seen) for n in (1, 2, 3)]
+        stale += [line(f"before-s1-switch-{n}", shown=seen) for n in (1, 2, 3)]
+        self.assertFalse(check.judge_s1(obs(*stale))[0])
+        # No read before the switch: an earlier appearance cannot be told apart.
+        self.assertIsNone(check.indicator(obs(line("s7-switch", shown=seen)), "s7-switch"))
+        far = dict(seen, frame=[600, 227, 108, 43])
+        ok, reason = check.judge_s7(obs(line("s7-prefix-armed"), line("before-s7-switch", shown={"count": 0}),
+                                        line("s7-switch", shown=far)))
+        self.assertTrue(ok, reason)  # S7 needs the indicator, not adjacency
+        self.assertEqual(check.indicator(obs(line("before-s7-switch", shown={"count": 0}),
+                                             line("s7-switch", shown=far)), "s7-switch")[0], far["frame"])
+
     def test_s5_wants_off_while_a_sheet_is_open_and_on_after(self):
         rows = [line(f"{row}-open", activated=False) for row in check.OFF_WHILE_OPEN]
         rows += [line(f"{row}-closed") for row in check.OFF_WHILE_OPEN]

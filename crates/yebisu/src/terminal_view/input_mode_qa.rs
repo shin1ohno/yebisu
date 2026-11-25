@@ -9,6 +9,20 @@ use std::{cell::RefCell, collections::BTreeMap};
 thread_local! {
     /// The SDK state last seen per window, so a change asks for one frame.
     static SEEN: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
+    /// Per window, the indicator as the poll saw it (`shown` in qa.state).
+    static SHOWN: RefCell<BTreeMap<String, Shown>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// How often the indicator appeared, its last visible frame and the caret
+/// then. XCUITest can wait 60 s for the app to idle after a key, past the
+/// indicator's display, so the check reads this instead of hoping to catch
+/// the indicator on screen.
+#[derive(Default)]
+struct Shown {
+    count: u64,
+    visible: bool,
+    frame: Option<[f64; 4]>,
+    caret: Option<[f64; 4]>,
 }
 
 /// From the terminal poll (every 33 ms): UIKit shows and hides the
@@ -19,8 +33,19 @@ pub(super) fn poll(cx: &mut gpui::App) {
         return;
     }
     for handle in cx.windows() {
-        let state = format!("{:?}", herdr_uikit::input_mode_indicator_state(handle));
+        let sdk = herdr_uikit::input_mode_indicator_state(handle);
         let window = format!("{:?}", handle.window_id());
+        let frame = sdk.as_ref().and_then(|s| s.accessory_frame);
+        SHOWN.with_borrow_mut(|shown| {
+            let shown = shown.entry(window.clone()).or_default();
+            if frame.is_some() {
+                shown.count += u64::from(!shown.visible);
+                shown.frame = frame;
+                shown.caret = sdk.as_ref().and_then(|s| s.caret_rect);
+            }
+            shown.visible = frame.is_some();
+        });
+        let state = format!("{sdk:?}");
         let changed =
             SEEN.with_borrow_mut(|seen| seen.insert(window, state.clone()) != Some(state));
         if changed {
@@ -59,6 +84,14 @@ pub(super) fn report(terminal: &TerminalView, face: &gpui::Font, window: &gpui::
             window,
         );
         let sdk = herdr_uikit::input_mode_indicator_state(window.window_handle());
+        let shown = SHOWN.with_borrow(|shown| {
+            let shown = shown.get(&format!("{:?}", window.window_handle().window_id()));
+            serde_json::json!({
+                "count": shown.map_or(0, |s| s.count),
+                "frame": shown.and_then(|s| s.frame),
+                "caret": shown.and_then(|s| s.caret),
+            })
+        });
         serde_json::json!({
             "text_first_responder": sdk.as_ref().map(|s| s.text_first_responder),
             "activated": sdk.as_ref().map(|s| s.activated),
@@ -72,6 +105,7 @@ pub(super) fn report(terminal: &TerminalView, face: &gpui::Font, window: &gpui::
             "composition_bounds": rect(composition_bounds),
             "marked": composition.text,
             "invalidations": terminal.input_indicator.invalidations(),
+            "shown": shown,
         })
     });
 }

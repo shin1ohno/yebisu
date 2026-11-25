@@ -21,8 +21,8 @@ import sys
 
 KEYBOARDS = ['en_US@sw=QWERTY;hw=Automatic', 'ja_JP-Romaji@sw=QWERTY-Japanese;hw=Automatic']
 CASES = ('T-IM-S1', 'T-IM-S2', 'T-IM-S3', 'T-IM-S4', 'T-IM-S5', 'T-IM-S6', 'T-IM-S7', 'T-IM-S8')
-# The rows a sheet or popover switches the interaction off for (AC5): Settings, its Shortcuts
-# and Hosts & keys pages, and the Shortcuts popover (the ... menu's "Command palette" row).
+# The rows a sheet or panel switches the interaction off for (AC5): Settings, its Shortcuts
+# and Hosts & keys pages, and the command palette (the ... menu's "Command palette" row).
 # Find is not run here (AC5 does not list it; owner check D6 covers it).
 OFF_WHILE_OPEN = ('s5-settings', 's5-shortcuts', 's5-hosts', 's5-palette')
 
@@ -85,9 +85,26 @@ def follows(obs, step, tolerance=0.5):
     return abs(caret[0] - bounds[0]) <= tolerance and abs(caret[1] - bounds[1]) <= tolerance
 
 
+def indicator(obs, step):
+    """(frame, caret) of the indicator a switch showed, or None: on screen at the read, or else
+    counted by the app's 33 ms poll since `before-<step>` (`shown`); XCUITest can wait 60 s for
+    the app to idle after the key, past the indicator's display."""
+    m = mode(obs, step)
+    if rect(m.get('accessory_frame')):
+        return m['accessory_frame'], m.get('caret_rect')
+    now, before = m.get('shown'), mode(obs, f'before-{step}').get('shown')
+    if not (isinstance(now, dict) and isinstance(before, dict)):
+        return None
+    if not (isinstance(now.get('count'), int) and isinstance(before.get('count'), int)):
+        return None
+    if now['count'] <= before['count'] or not rect(now.get('frame')):
+        return None
+    return now['frame'], now.get('caret')
+
+
 def shown_switches(obs, prefix):
     steps = sorted(s for s in obs if s.startswith(prefix))
-    return steps, [s for s in steps if rect(mode(obs, s).get('accessory_frame'))]
+    return steps, [s for s in steps if indicator(obs, s)]
 
 
 def judge_s1(obs):
@@ -96,7 +113,7 @@ def judge_s1(obs):
     steps, shown = shown_switches(obs, 's1-switch-')
     if len(steps) != 3:
         return False, f'{len(steps)} of 3 switches recorded'
-    far = [s for s in shown if not adjacent(mode(obs, s)['accessory_frame'], mode(obs, s).get('caret_rect'))]
+    far = [s for s in shown if not adjacent(*indicator(obs, s))]
     if len(shown) < 2 or far:
         return False, f'{len(shown)}/3 switches showed the indicator; not at the caret: {far}'
     return True, f'{len(shown)}/3 switches showed the indicator at the caret'
@@ -159,7 +176,7 @@ def judge_s7(obs):
         return False, 'precondition: not active with the prefix armed'
     if not active(obs, 's7-switch'):
         return False, 'the interaction went off after the switch'
-    if not rect(mode(obs, 's7-switch').get('accessory_frame')):
+    if not indicator(obs, 's7-switch'):
         return False, 'no indicator for the switch with the prefix armed'
     return True, 'the indicator followed the input source with the prefix armed'
 
