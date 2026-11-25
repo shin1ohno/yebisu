@@ -36,6 +36,18 @@ const CODES: &[&str] = &[
     "keep_awake_on",
     "keep_awake_off",
     "keep_awake_refused",
+    // Herdr 2 (herdr-core) links: a dial, its outcome, how a link ended, a
+    // space removed with its last tab, and each change of what the
+    // `herdr-app` document read found. Codes only: no space or host name.
+    "herdr2_connecting",
+    "herdr2_connected",
+    "herdr2_dial_failed",
+    "herdr2_ended_lost",
+    "herdr2_ended_error",
+    "herdr2_space_removed",
+    "herdr2_doc_readable",
+    "herdr2_doc_unreadable",
+    "herdr2_doc_unavailable",
     "panic",
 ];
 

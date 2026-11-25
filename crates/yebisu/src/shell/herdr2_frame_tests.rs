@@ -15,6 +15,8 @@ mod doc_rows;
 mod entry;
 #[path = "herdr2_frame_tests/names.rs"]
 mod names;
+#[path = "herdr2_frame_tests/offline_rows.rs"]
+mod offline_rows;
 #[path = "herdr2_frame_tests/panes.rs"]
 mod panes_tests;
 #[path = "herdr2_frame_tests/session.rs"]
@@ -71,7 +73,7 @@ fn host_entry(
     rows::host_entry(
         entry,
         HERDR2_SESSION,
-        &rows::bootstrap_catalog(HERDR2_SESSION),
+        (&rows::bootstrap_catalog(HERDR2_SESSION), &[]),
         statuses,
         state,
     )
