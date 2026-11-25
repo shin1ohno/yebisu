@@ -85,8 +85,8 @@ extension SmokeQA {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// #144 D3: Rename Space on Herdr 2 writes the document. S2: the current space row's menu ›
-    /// Rename…, a name, Return: one write over the version read, and the row shows the name.
+    /// #144 D3: Rename Space on Herdr 2 writes the document. S2: a double tap on the current
+    /// space's name, a name, Return: one write over the version read, and the row shows the name.
     /// S3: the first write finds a newer document; the rename is applied to it and sent again.
     func testP9HerdrDocRename() throws {
         continueAfterFailure = false
@@ -106,16 +106,13 @@ extension SmokeQA {
             try qa.hideKeyboard("herdr doc rename launch")
             return (app, qa)
         }
-        /// A long press on the current space's row opens its menu (confirmed by qa.state), its
-        /// Rename… opens the native field, and the name and Return commit it.
+        /// A double tap on the current space's name opens the native field (as #165's R2b;
+        /// a Herdr 2 row has no long-press menu, `sidebar/view.rs`), and the name and Return
+        /// commit it. QAAx places the taps from the mark's painted frame.
         func renameCurrentSpace(_ app: XCUIApplication, _ qa: QAAx, to name: String) throws {
-            // A long press reaches the row's press layer, not the mark's tap count, so it is
-            // confirmed by the menu it opens; QAAx places it from the mark's painted frame.
             let row = try qa.find(QAIds.sidebarCurrentSpace)
             try qa.coordinate(row, id: QAIds.sidebarCurrentSpace, at: CGVector(dx: 0.5, dy: 0.5))
-                .press(forDuration: 1.2)
-            _ = try qa.waitState("the space row's menu is open") { $0.string("row_menu") == "space" }
-            try qa.press(QAIds.sidebarSpaceRename)
+                .doubleTap()
             let field = app.textFields.firstMatch
             XCTAssertTrue(field.waitForExistence(timeout: 15), "the rename field opened")
             app.typeText(name + "\n")
