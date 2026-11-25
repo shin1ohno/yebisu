@@ -106,13 +106,24 @@ impl Smoke {
     /// The chrome state the entry-point model and the status bar read.
     pub(crate) fn chrome_state(&self) -> ChromeState {
         let core = self.terminal.core_mode;
+        let connected = self.terminal.live.connected;
+        // A started Herdr 2 worker is not a connection: it may still be
+        // dialing, or it may have failed and left its reason in `live`.
+        let connecting = core
+            && !connected
+            && self
+                .terminal
+                .core
+                .as_ref()
+                .is_some_and(|session| !session.finished());
         ChromeState {
             kind: if core {
                 HerdrKind::Herdr2
             } else {
                 HerdrKind::Herdr1
             },
-            connected: self.terminal.live.connected || (core && self.terminal.core.is_some()),
+            connected,
+            connecting,
             selecting: self.handoff.select_mode || self.handoff.selection.is_some(),
             sheet_open: self.settings_modal,
             find_available: crate::find_view::available(&self.terminal),
