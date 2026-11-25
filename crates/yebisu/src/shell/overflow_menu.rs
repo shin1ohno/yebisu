@@ -98,6 +98,7 @@ pub(crate) struct OverflowEntry {
 
 pub(crate) const NOT_CONNECTED: &str = "Not connected";
 pub(crate) const ALREADY_CONNECTED: &str = "Already connected";
+pub(crate) const STILL_CONNECTING: &str = "Still connecting";
 pub(crate) const FIND_UNAVAILABLE: &str = "Find is not available for this terminal";
 
 fn entry(item: OverflowItem, enabled: bool, reason: &'static str) -> OverflowEntry {
@@ -115,7 +116,15 @@ pub(crate) fn overflow_menu_items(state: &ChromeState) -> Vec<OverflowEntry> {
         entry(OverflowItem::Paste, online, NOT_CONNECTED),
         entry(OverflowItem::PasteImage, online, NOT_CONNECTED),
     ];
-    let reconnect = entry(OverflowItem::Reconnect, !online, ALREADY_CONNECTED);
+    let reconnect = entry(
+        OverflowItem::Reconnect,
+        state.offers_reconnect(),
+        if state.connecting {
+            STILL_CONNECTING
+        } else {
+            ALREADY_CONNECTED
+        },
+    );
     let select = entry(OverflowItem::SelectText, online, NOT_CONNECTED);
     let find = entry(OverflowItem::Find, state.find_available, FIND_UNAVAILABLE);
     let mut items = Vec::new();

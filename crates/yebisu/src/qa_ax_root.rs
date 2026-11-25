@@ -105,6 +105,7 @@ impl Smoke {
             ("pane", pane.map_or(Value::Null, Value::from)),
             // Herdr 2's pane layout as the core worker last published it.
             ("core", super::core::layout_field()),
+            ("herdr_doc", super::core::doc_field()),
             // UI test redesign S4 (the edit-menu tests): where typed input
             // goes, the link generation and the terminal rows (a changed
             // keyboard resizes them), whether typing is paused for a

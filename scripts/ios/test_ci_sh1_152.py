@@ -127,9 +127,13 @@ UNRELATED = {
     "handoff_qa": "YEBISU_HANDOFF_QA is set only by testSH154CoreImage (SmokeQA.swift:532), which none of the four checks runs",
     "host_settings_availability": "referenced only by p15_settings_view and host_settings tests",
     "hosts": "outside the checks: host list, called from terminal_view.rs",
+    "input_indicator": "#139: tells the SDK the cursor cell moved (invalidate_character_coordinates); decides no "
+                       "selection, edit or menu. Its call site is in terminal_view.rs, which the pattern matches",
     "keep_awake": "display idle timer synced by app.rs and reconnect.rs; the edit-menu checks assert selection, "
                   "editing and input behavior without testing display sleep",
     "keys": "outside the checks: device keys, called from settings/key_ops.rs",
+    "launch_restore": "outside the checks: cold-launch restore, called from app.rs and terminal_view.rs; a "
+                      "Simulator launch with any YEBISU_ variable skips it, so no edit-menu check reaches it",
     "native_menus_qa": "P12 native menu QA scene (YEBISU_P12_QA), called from app.rs",
     "notification_settings": "unreferenced",
     "notification_view": "outside the checks: notification banner, called from app.rs",

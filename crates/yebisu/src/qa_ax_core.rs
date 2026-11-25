@@ -21,6 +21,8 @@ thread_local! {
 
 /// The last layout the core worker published (`layout`).
 static LAYOUT: Mutex<Option<Value>> = Mutex::new(None);
+/// The `herdr-app` document as the core worker last took it (`doc`, #144).
+static DOC: Mutex<Option<Value>> = Mutex::new(None);
 
 /// Adds one to the counter `key` and reports it to `qa.state`. Call it on
 /// GPUI's foreground thread. Does nothing unless the layer is on.
@@ -67,6 +69,27 @@ pub(crate) fn layout(
 pub(crate) fn layout_field() -> Value {
     LAYOUT
         .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .unwrap_or(Value::Null)
+}
+
+/// Called by the core worker each time it publishes its catalog: the
+/// document's state, version and spaces, the drawn space, the iPad-only
+/// tabs and the writes (`doc_tabs::DocTabs::qa_value`). Any thread.
+pub(crate) fn doc(value: impl FnOnce() -> Value) {
+    if !super::enabled() {
+        return;
+    }
+    *DOC.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value());
+    super::request_frame();
+}
+
+/// `qa.state.herdr_doc`: null until a `default` session read the document.
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+pub(crate) fn doc_field() -> Value {
+    DOC.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
         .unwrap_or(Value::Null)
