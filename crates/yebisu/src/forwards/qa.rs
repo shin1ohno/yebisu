@@ -11,9 +11,8 @@ static LINE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 /// The device key's `authorized_keys` line once read; the first call starts
 /// the read. `None` without `YEBISU_FORWARD_QA` or while reading.
 pub(super) fn device_key_line() -> Option<String> {
-    if std::env::var_os("YEBISU_FORWARD_QA").is_none() {
-        return None;
-    }
+    // Only a forward-check.py run asks for the line.
+    std::env::var_os("YEBISU_FORWARD_QA")?;
     let slot = LINE.get_or_init(|| {
         let _ = std::thread::Builder::new()
             .name("yebisu-forward-qa-key".into())
