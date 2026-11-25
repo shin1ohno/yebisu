@@ -48,6 +48,7 @@ impl Store {
                 },
             }],
             active: 0,
+            ..Workspace::default()
         };
         store::save_workspace(self.root(), host, space, &workspace)
             .unwrap_or_else(|e| panic!("save {space}: {e}"));
