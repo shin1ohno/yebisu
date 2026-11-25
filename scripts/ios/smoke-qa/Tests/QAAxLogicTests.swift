@@ -104,6 +104,29 @@ final class QAAxLogicTests: XCTestCase {
                        .arrivedNotCounted(lastTouch: "ended direct (934.0, 117.5)"), "one touch completed: not lost")
     }
 
+    /// CI run 45574153676 (main d0aa07c; 45585296675 and 45578440109 the same): the first P0 touch began and
+    /// UIKit cancelled it 0.15 s later, the press was resent once (press-retry), and the second touch began
+    /// and ended. One completed touch plus one cancelled touch answered by one resend agree; the check
+    /// before, `touch_began` +1 exactly, failed it (SmokeQA+Terminal.swift:48, "2" is not equal to "1").
+    func testPressTouchesAgreeWithTheResendThatAnsweredACancelledTouch() throws {
+        let before = try counted([:], screen: "p0")
+        let after = try counted(["touch_began": 2, "touch_ended": 1, "touch_cancelled": 1], screen: "p0")
+        XCTAssertNil(PressTouches.mismatch(before: before, after: after, resends: 1))
+        XCTAssertNotNil(PressTouches.mismatch(before: before, after: after, resends: 0), "a cancelled touch needs its resend")
+    }
+
+    func testPressTouchesThatDisagreeAreNamed() {
+        XCTAssertNil(PressTouches.mismatch(began: 1, ended: 1, cancelled: 0, resends: 0), "one tap")
+        XCTAssertNil(PressTouches.mismatch(began: 1, ended: 1, cancelled: 0, resends: 1), "lost before the app, then resent")
+        XCTAssertEqual(PressTouches.mismatch(began: 2, ended: 1, cancelled: 1, resends: 0),
+                       "touch_began +2, touch_ended +1, touch_cancelled +1, 0 proven resend(s): a touch UIKit cancelled that no resend answered")
+        XCTAssertEqual(PressTouches.mismatch(began: 2, ended: 2, cancelled: 0, resends: 1),
+                       "touch_began +2, touch_ended +2, touch_cancelled +0, 1 proven resend(s): one press must end in exactly one touch")
+        XCTAssertEqual(PressTouches.mismatch(began: 2, ended: 1, cancelled: 0, resends: 1),
+                       "touch_began +2, touch_ended +1, touch_cancelled +0, 1 proven resend(s): a touch began that neither ended nor was cancelled")
+        XCTAssertNotNil(PressTouches.mismatch(began: 1, ended: 0, cancelled: 1, resends: 1), "resent, and still no completed touch")
+    }
+
     func testVerdictOrderRelaunchedThenElsewhereThenReceipts() throws {
         let before = try state(receipts(base, began: 3))
         // A changed screen field wins over a grown touch count: something else took it.
