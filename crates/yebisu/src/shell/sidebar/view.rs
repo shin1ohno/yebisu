@@ -587,7 +587,6 @@ impl Smoke {
             .when(kind == HerdrKind::Herdr1, |row| {
                 row.child(long_press_layer(press, cx))
             })
-
             .on_click(cx.listener(move |this, _, window, cx| match kind {
                 HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
                 HerdrKind::Herdr2 => {
