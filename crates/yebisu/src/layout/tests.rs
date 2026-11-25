@@ -6,6 +6,7 @@ mod artboards;
 mod clamps;
 mod controls;
 mod find_bar;
+mod footer;
 mod insets;
 mod minimum;
 mod panes;

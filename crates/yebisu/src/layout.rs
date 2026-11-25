@@ -34,9 +34,11 @@ pub const FIND_BAR_HEIGHT: f32 = 44.0;
 pub const SIDEBAR_HEADER_HEIGHT: f32 = 44.0;
 /// Leading and trailing padding of the full sidebar's header.
 pub const SIDEBAR_HEADER_PADDING: f32 = 12.0;
-/// Sidebar footer under the list and M1: rule 1, padding 4 + 4 and one
-/// 44 pt Hosts and Settings row (SplitHalf.dc.html:125–127).
-pub const SIDEBAR_FOOTER_HEIGHT: f32 = 53.0;
+/// Sidebar footer under the list and M1: rule 1 and one 44 pt Hosts and
+/// Settings row (SplitHalf.dc.html:125–127, without its 4 + 4 padding), the
+/// status bar's own rule and height, so the two top rules line up (owner
+/// decision 2026-11-25).
+pub const SIDEBAR_FOOTER_HEIGHT: f32 = RULE + STATUS_BAR_HEIGHT;
 
 /// One pane's minimum, about 28 columns × 8 rows (Q1).
 pub const TERMINAL_MIN_WIDTH: f32 = 280.0;
