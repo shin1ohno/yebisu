@@ -2,7 +2,7 @@
 //! the terminal gets nothing. The ••• menu's list is checked in
 //! `shell/frame_overlay_tests/wave1_follow_up.rs`. The Shortcuts popover's
 //! rows carry no debug selector (`shell/shortcuts/view.rs`, `shortcut_row`),
-//! so its list is checked through the scroll handle PR 5 attaches to it.
+//! so its list is checked through its scroll indicator's handle.
 use super::*;
 use crate::settings::SettingsHost;
 use std::path::PathBuf;
@@ -91,5 +91,38 @@ fn the_hosts_sheet_scrolls_its_list_over_the_terminal(cx: &mut TestAppContext) {
     pan(&view, cx, at, -240.);
     let after = bounds(cx, "host-open-0");
     assert!(after.top() < before.top(), "{before:?} -> {after:?}");
+    assert_eq!(wheels(&view, cx, &wire), []);
+}
+
+/// T6, Shortcuts: the popover's rows, open over the terminal, scroll under
+/// the finger. Its rows have no debug selector, so the rows' scroll handle
+/// (the one its indicator reads) tells.
+#[gpui::test]
+fn the_shortcuts_popover_scrolls_its_rows_over_the_terminal(cx: &mut TestAppContext) {
+    let (view, cx, wire) = connected(cx);
+    install(&view, cx, single(|_| {}));
+    // Narrower than the two-column popover (`popover_columns`) and short, so
+    // its single column of rows overflows.
+    cx.simulate_resize(size(px(780.), px(560.)));
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        this.shell.shortcuts.open = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let rows = view.read_with(cx, |this, _| {
+        this.shell.indicators.shortcuts.handle().clone()
+    });
+    assert!(
+        rows.max_offset().y > px(0.),
+        "the rows fit {:?}; nothing to scroll",
+        rows.bounds()
+    );
+    let at = rows.bounds().center();
+    over_the_grid(&view, cx, at);
+    let before = rows.offset();
+    pan(&view, cx, at, -120.);
+    let after = rows.offset();
+    assert!(after.y < before.y, "{before:?} -> {after:?}");
     assert_eq!(wheels(&view, cx, &wire), []);
 }
