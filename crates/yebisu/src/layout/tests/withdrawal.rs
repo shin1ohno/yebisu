@@ -82,7 +82,7 @@ fn height_shortage_withdraws_m4_then_shrinks_m3() {
 #[test]
 fn sidebar_bottom_needs_120() {
     assert_eq!(M1_MIN_HEIGHT, 120.0);
-    // Sidebar = window height: header 44 + list + M1 + one-row footer 53.
+    // Sidebar = window height: header 44 + list + M1 + one-row footer 45.
     let with_m1 = |height| {
         layout(Input {
             regions: Regions {
@@ -92,11 +92,11 @@ fn sidebar_bottom_needs_120() {
             ..window(1000.0, height)
         })
     };
-    let fits = with_m1(44.0 + LIST_HEIGHT + 120.0 + 53.0);
+    let fits = with_m1(44.0 + LIST_HEIGHT + 120.0 + 45.0);
     let m1 = fits.m1.unwrap_or_else(|| panic!("M1 shown"));
     assert_eq!((m1.width, m1.height), (300.0, 120.0));
     assert_eq!(m1.y, 44.0 + LIST_HEIGHT);
-    let short = with_m1(44.0 + LIST_HEIGHT + 119.0 + 53.0);
+    let short = with_m1(44.0 + LIST_HEIGHT + 119.0 + 45.0);
     assert_eq!(short.m1, None);
     assert_eq!(short.withdrawn, vec![Region::M1]);
     // The rail has no list and no M1.

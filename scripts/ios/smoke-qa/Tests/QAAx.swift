@@ -136,6 +136,31 @@ enum PressVerdict: Equatable {
     }
 }
 
+/// Whether the touches one press left in the app's input receipts agree with the resends QAAx.press
+/// proved for it. A press ends in exactly one completed touch. A touch UIKit cancelled before it
+/// ended gave GPUI no tap, and QAAx.press answers it with one `press-retry` (`PressVerdict.cancelled`),
+/// so each cancelled touch needs a resend. A touch lost before the app adds none. CI run 45574153676
+/// (main d0aa07c; runs 45585296675 and 45578440109 the same): the first P0 touch began, UIKit cancelled
+/// it 0.15 s later, the press was resent once, and the second touch began and ended. The earlier
+/// check, `touch_began` +1 exactly, failed that press. Pure, mirrored by press_receipts.py's
+/// `touches_mismatch`. nil when they agree, otherwise why not.
+enum PressTouches {
+    static func mismatch(began: Int, ended: Int, cancelled: Int, resends: Int) -> String? {
+        let counts = "touch_began +\(began), touch_ended +\(ended), touch_cancelled +\(cancelled), \(resends) proven resend(s)"
+        if ended != 1 { return counts + ": one press must end in exactly one touch" }
+        if began != ended + cancelled { return counts + ": a touch began that neither ended nor was cancelled" }
+        if cancelled > resends { return counts + ": a touch UIKit cancelled that no resend answered" }
+        return nil
+    }
+
+    static func mismatch(before: QAState, after: QAState, resends: Int) -> String? {
+        mismatch(began: after.inputCount("touch_began") - before.inputCount("touch_began"),
+                 ended: after.inputCount("touch_ended") - before.inputCount("touch_ended"),
+                 cancelled: after.inputCount("touch_cancelled") - before.inputCount("touch_cancelled"),
+                 resends: resends)
+    }
+}
+
 /// What P12 does when an OS menu input shows no result (issue #142 stage 3, its decision table).
 /// `before` is qa.state read before the menu was revealed (no app query runs while the menu is
 /// open unless an input is missing), `after` the settled state read once the input showed nothing.

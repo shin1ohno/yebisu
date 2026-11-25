@@ -48,11 +48,14 @@ Later moves, oldest first:
 - yebisu #143 moved it to the PR 26 merge commit
   6dcfb65fbd8214e178bdaa7c5bfc56508122548f (the native inline field and menu
   item subtitles, for rename in place).
+- yebisu #169 moved it to the PR 28 merge commit
+  4486cb1712ab404bef3656b4679f22a2f2026283 (Mac content under the hidden
+  title bar, `traffic_lights_over_content`), a descendant of 6dcfb65.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 6dcfb65. A later bump appends its move to this list.
+identical from 99d7928 to 4486cb1. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 6dcfb65fbd8214e178bdaa7c5bfc56508122548f.
+The current pin is herdr-uikit 4486cb1712ab404bef3656b4679f22a2f2026283.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.

@@ -73,6 +73,28 @@ impl Default for ControlsClearance {
     }
 }
 
+impl ControlsClearance {
+    /// Padding before the tab row's first item, for a tab row starting at
+    /// `tab_row_x` in a window whose sidebar column starts at `sidebar_x`:
+    /// on a Mac whose traffic lights sit over the content's top row
+    /// (herdr-uikit `traffic_lights_over_content`) with them on the left, how
+    /// far the row's start falls short of the reach the full sidebar's header
+    /// keeps (`header_leading`). The full sidebar ends past the traffic lights,
+    /// so its tab row gets none; the 72 pt rail, or no sidebar at all, does
+    /// not. 0 on an iPad: iPadOS 26's window controls keep today's layout.
+    pub fn tab_row_leading(
+        self,
+        traffic_lights_over_content: bool,
+        sidebar_x: f32,
+        tab_row_x: f32,
+    ) -> f32 {
+        if !traffic_lights_over_content || self.rail_top <= 0.0 {
+            return 0.0;
+        }
+        (sidebar_x + self.header_leading - tab_row_x).max(0.0)
+    }
+}
+
 impl ControlsReach {
     /// The clearance the shell chrome keeps for this reach (`clearance`),
     /// for a surface drawn over the shell, such as the Settings sheet.

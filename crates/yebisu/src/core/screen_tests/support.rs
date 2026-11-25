@@ -36,6 +36,16 @@ pub(super) fn screen(symbol: &str, cols: u16, rows: u16) -> Screen {
     }
 }
 
+/// Marks `row` of `screen` as one its emulator wrapped into the next (#141):
+/// `SOFT_WRAP` on the row's last cell, as sheprd-terminal sets it.
+pub(super) fn wrap_row(screen: &mut Screen, row: u16) {
+    let Some(frame) = screen.frame.as_mut() else {
+        panic!("fixture screen has a frame");
+    };
+    let at = (usize::from(row) + 1) * usize::from(frame.width) - 1;
+    frame.cells[at].modifier |= crate::terminal_links::SOFT_WRAP;
+}
+
 pub(super) fn saved(active: usize, vertical: bool) -> crate::Result<Saved> {
     Ok(Saved {
         ids: vec![TerminalId::new("t1")?, TerminalId::new("t2")?],

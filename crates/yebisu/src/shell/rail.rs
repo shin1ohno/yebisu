@@ -38,6 +38,13 @@ pub(crate) struct RailState {
     menu_generation: u64,
 }
 
+impl RailState {
+    /// A rail item's long-press menu is open (`qa.state.rename.rail_menu`).
+    pub(crate) fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum SidebarMode {
     #[default]

@@ -29,6 +29,17 @@ pub(crate) use hover::Hover;
 /// The most bytes of text read around a press, as in the fork.
 const MAX_ROW_BYTES: usize = 32768;
 
+/// sheprd-terminal's `SOFT_WRAP` (fork crates/sheprd-terminal/src/lib.rs):
+/// set on a Herdr 2 row's last cell when the emulator wrapped the row into
+/// the next one. Herdr 1 frames never carry it.
+pub(crate) const SOFT_WRAP: u16 = 1 << 9;
+
+/// yebisu's own mark, never on the wire: the Herdr 2 composer
+/// (`core/screen.rs`) sets it on the first cell of each row of a pane whose
+/// emulator frame is not the pane's width yet, so that pane's soft-wrap
+/// marks prove nothing.
+pub(crate) const UNMARKED: u16 = 1 << 15;
+
 /// What a link in a pane points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -47,8 +58,10 @@ pub(crate) enum Refusal {
     Path,
     /// An explicit hyperlink whose target is no address this client reads.
     Malformed,
-    /// A web address at a row edge that Herdr cannot say where it ends
-    /// (Herdr 2, or a daemon without `pane.link.resolve`).
+    /// A web address at a row edge whose end nothing proves: a Herdr 1
+    /// daemon without `pane.link.resolve`, or a Herdr 2 address the frame's
+    /// soft-wrap marks cannot settle (at the pane's top-left, past
+    /// `MAX_WRAPPED_ROWS` rows, or in a pane not yet resized).
     Unproven,
     /// Herdr did not answer where the address ends, or answered an error.
     Unanswered,
@@ -89,9 +102,12 @@ pub(crate) struct Link {
     pub(crate) continued: Vec<(u16, Range<u16>)>,
     /// Whether this web address meets a row edge where the terminal may have
     /// wrapped it: read across rows, or running into the right edge of a row
-    /// whose next row could go on with it. The surface carries no soft-wrap
-    /// flag, so such an address is only a candidate and opens only once
-    /// Herdr says where it ends (`resolve`), never as read here.
+    /// whose next row could go on with it. A Herdr 1 surface carries no
+    /// soft-wrap flag, so there such an address is only a candidate and opens
+    /// only once Herdr says where it ends (`resolve`), never as read here.
+    /// Herdr 2 frames carry the emulator's soft-wrap mark, which proves a
+    /// wrap or a line end; only what the mark cannot settle stays a
+    /// candidate there (`wrap`).
     pub(crate) unproven: bool,
 }
 
@@ -129,10 +145,16 @@ fn pane_area(
 }
 
 /// The link of either kind, explicit or read from the text, at frame cell
-/// (`column`, `row`) of a pane.
-pub(crate) fn pane_link_at(surface: &PaneSurfaceFrame, column: u16, row: u16) -> Option<Link> {
+/// (`column`, `row`) of a pane. `marked` says the frame carries the
+/// emulator's soft-wrap marks: a Herdr 2 frame.
+pub(crate) fn pane_link_at(
+    surface: &PaneSurfaceFrame,
+    column: u16,
+    row: u16,
+    marked: bool,
+) -> Option<Link> {
     let (columns, rows) = pane_area(surface, column, row)?;
-    frame_link(&surface.frame, column, row, columns, rows)
+    frame_link(&surface.frame, column, row, columns, rows, marked)
 }
 
 /// Whether an explicit hyperlink covers the pane cell at (`column`, `row`),
@@ -207,13 +229,14 @@ fn explicit_target(destination: &str) -> Target {
 }
 
 /// The link at cell (`column`, `row`) of the pane that covers `columns` and
-/// `rows` of `frame`, which it never leaves.
+/// `rows` of `frame`, which it never leaves; `marked` as for `pane_link_at`.
 fn frame_link(
     frame: &FrameData,
     column: u16,
     row: u16,
     columns: Range<u16>,
     rows: Range<u16>,
+    marked: bool,
 ) -> Option<Link> {
     if !rows.contains(&row) {
         return None;
@@ -244,21 +267,40 @@ fn frame_link(
             unproven: false,
         });
     }
+    text_link(frame, (row, source), columns, rows, marked)
+}
+
+/// The address or word read from the text around cell `source` of `row`.
+fn text_link(
+    frame: &FrameData,
+    (row, source): (u16, usize),
+    columns: Range<u16>,
+    rows: Range<u16>,
+    marked: bool,
+) -> Option<Link> {
     // Most rows end their line before the right edge and are read alone;
     // an address that runs into the edge, or starts a row under one that
-    // does, is read with the rows it may span, as one line: a candidate.
-    let area = wrap::Area::new(frame, columns, rows);
+    // does, is read with the rows it may span, as one line.
+    let area = wrap::Area::new(frame, columns.clone(), rows.clone(), marked);
     let lines = area.around(row, source);
     let run = area.read(lines.rows.clone())?;
     let found = plain::read(&run.text, run.start_of(row, source)?)?;
+    let proven = area.marks(&lines.rows);
+    // An address that starts the pane's first row may go on from the row
+    // above, which the frame does not show: marks or not, it is read as a
+    // frame without them reads it (owner decision Q1-B on #141).
+    if proven && *lines.rows.start() == rows.start && found.range.start == 0 {
+        return text_link(frame, (row, source), columns, rows, false);
+    }
     let segments = run.segments(&found.range);
-    // The address may go on past what was read: across a row edge the
-    // terminal may or may not have wrapped, to the right edge of a row whose
-    // next row is not certainly a new line, or above the rows read.
-    let unproven = matches!(found.target, Target::Web(_))
-        && (segments.len() > 1
-            || (found.open && !area.ends_line(*lines.rows.end()))
-            || (found.range.start == 0 && lines.cut_above));
+    // The address may go on past what was read: to the right edge of a row
+    // whose next row is not certainly a new line, or above the rows read.
+    // Without marks, also across any row edge, where the terminal may or
+    // may not have wrapped; with them, every edge read was a proven wrap.
+    let edge = found.open && !area.ends_line(*lines.rows.end());
+    let cut = found.range.start == 0 && lines.cut_above;
+    let unproven =
+        matches!(found.target, Target::Web(_)) && (edge || cut || (!proven && segments.len() > 1));
     let mut segments = segments.into_iter();
     let (row, columns) = segments.next()?;
     Some(Link {

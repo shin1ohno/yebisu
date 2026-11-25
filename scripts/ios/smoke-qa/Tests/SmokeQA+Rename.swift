@@ -10,19 +10,19 @@ import XCTest
 // not typed: XCUITest's Escape never reached a presented field (herdr-uikit
 // docs/native-inline-field.md); the device checks D2, D3 cover it.
 extension SmokeQA {
-    private static let renameEnvironment = [
+    static let renameEnvironment = [
         "YEBISU_TERMINAL_QA": "1",
         "YEBISU_SMOKE_OBSERVE": "1",
         "YEBISU_QA_AX": "1",
         "YEBISU_INPUT_QA": "1",
     ]
 
-    private func renameStep(_ name: String) {
+    func renameStep(_ name: String) {
         print(String(format: "RENAME_STEP %@ %.3f", name, Date().timeIntervalSince1970))
     }
 
     /// Types into the terminal once the field is closed and input came back.
-    private func renameMarker(_ app: XCUIApplication, _ letter: String) {
+    func renameMarker(_ app: XCUIApplication, _ letter: String) {
         sleep(3)
         app.typeText(letter)
         print("RENAME marker \(letter)")
@@ -31,7 +31,7 @@ extension SmokeQA {
 
     /// Long press of the current space's row, then its menu's Rename…. A long press reaches the
     /// row's press layer, not the mark's tap count, so it is confirmed by the menu it opens.
-    private func renameSpace(_ qa: QAAx) throws {
+    func renameSpace(_ qa: QAAx) throws {
         let row = try qa.find(QAIds.sidebarCurrentSpace)
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
         _ = try qa.waitState("the space row's menu is open") { $0.string("row_menu") == "space" }
@@ -40,7 +40,7 @@ extension SmokeQA {
     }
 
     /// A tap far from the field, on the terminal above the software keyboard.
-    private func outside(_ app: XCUIApplication) {
+    func outside(_ app: XCUIApplication) {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: app.frame.width - 160, dy: 160)).tap()
         sleep(3)

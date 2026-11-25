@@ -457,6 +457,10 @@ pub(crate) const TAB_MENU_CLOSE: &str = "qa.tab.menu-close";
 /// where the rename QA (SmokeQA+Rename.swift) long-presses and double-taps.
 pub(crate) const SIDEBAR_CURRENT_SPACE: &str = "qa.sidebar.current-space";
 pub(crate) const TABS_CURRENT: &str = "qa.tabs.current";
+/// The Herdr 1 agent row of the focused pane and the rail's current space,
+/// which the rename QA long-presses (S7, S8).
+pub(crate) const SIDEBAR_CURRENT_AGENT: &str = "qa.sidebar.current-agent";
+pub(crate) const RAIL_CURRENT_SPACE: &str = "qa.rail.current-space";
 /// The host row of the saved host named `forward-qa` (scripts/ios/forward-check.py).
 pub(crate) const SIDEBAR_HOST_FORWARD_QA: &str = "qa.sidebar.host.forward-qa";
 /// The forward sheet (issue 140, shell/forward_sheet/view.rs): its Remote

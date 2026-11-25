@@ -12,6 +12,11 @@ search-check.py).
 Prints one `RENAME <step> PASS|FAIL <reason>` line per step, writes summary.json into --out and
 exits non-zero on any failed step. Simulator results do not prove real IME, hardware keyboard,
 Escape or Pencil behavior (AGENTS.md; docs/rename.md).
+
+`--suite` picks the test: `inplace` (R1-R5, the default), `more` (S7 the field follows its agent
+row when the peer adds an agent above it and when the window turns, S8 the rail's Rename),
+`herdr2` (S10 Herdr 2's disabled Renames) or `menus` (S9 the OS menu bar's Rename Tab and Rename
+Space, run by P12QA in scripts/ios/p12-qa).
 """
 import argparse
 import json
@@ -25,6 +30,17 @@ BUNDLE = 'com.shin1ohno.yebisu'
 STEPS = ('R1', 'R2', 'R2b', 'R3', 'R4', 'R5')
 MARKERS = {'R1': 'z', 'R2': 'y', 'R2b': 'u', 'R3': 'x', 'R4': 'w', 'R5': 'v'}
 PASTED = 'renamepasteword'
+HERDR2 = 'Not available on Herdr 2 yet'
+# `--suite more`: the marker typed after each step's close.
+MORE_ORDER = (('S7', 't'), ('S8', 's'))
+SMOKE = ('scripts/ios/smoke-qa', 'SmokeOracle.xcodeproj', 'SmokeOracle', 'target/ios-smoke/build')
+SUITES = {
+    'inplace': SMOKE + ('SmokeOracle/SmokeQA/testRenameInPlace',),
+    'more': SMOKE + ('SmokeOracle/SmokeQA/testRenameMore',),
+    'herdr2': SMOKE + ('SmokeOracle/SmokeQA/testRenameHerdr2',),
+    'menus': ('scripts/ios/p12-qa', 'P12Oracle.xcodeproj', 'P12Oracle', 'target/ios-p12-rename/build',
+              'P12Oracle/P12QA/testRenameMenus'),
+}
 
 
 def run(*command, **kwargs):
@@ -62,11 +78,11 @@ def peer_events(record):
     return found
 
 
-def split_peer(records):
+def split_peer(records, order=None):
     """The peer's events before each step's marker, in step order; `rest` after the last."""
     flat = [item for record in records for item in peer_events(record)]
     steps, current, index = {}, [], 0
-    order = [(step, MARKERS[step]) for step in STEPS]
+    order = list(order) if order is not None else [(step, MARKERS[step]) for step in STEPS]
     for item in flat:
         if index < len(order) and item[:2] == ('text', order[index][1]):
             steps[order[index][0]] = current
@@ -179,6 +195,79 @@ def verdicts(windows, steps, cancelled=None):
     return result
 
 
+def expected_frame(slot):
+    """The field's rectangle over the anchor's slot (herdr-uikit's default style: 4 pt and 2 pt
+    past the label, at least 120 pt wide)."""
+    x, y, w, h = slot
+    return [x - 4, y - 2, max(w + 8, 120), h + 4]
+
+
+def aligned(record):
+    """The SDK's field frame is within 1 pt of the rectangle over yebisu's slot."""
+    slot, frame = record.get('slot'), (record.get('sdk') or {}).get('frame')
+    if not (isinstance(slot, list) and isinstance(frame, list) and len(slot) == len(frame) == 4):
+        return False
+    return all(abs(a - b) <= 1 for a, b in zip(frame, expected_frame(slot)))
+
+
+def more_verdicts(windows, steps, inserted):
+    """S7, S8 (`--suite more`). `inserted` holds the times the peer added the agent above."""
+    result = {}
+    s7_names = ('S7', 'S7-portrait', 'S7-landscape')
+    s7 = [r for name in s7_names for r in windows.get(name, [])]
+    shown = [r for r in s7 if up(r) and r.get('anchor') == 'AgentRow' and r.get('slot')]
+    at = inserted[0] if inserted else None
+    before = [r['slot'] for r in shown if at is not None and r['time'] < at]
+    after = [r['slot'] for r in shown if at is not None and r['time'] >= at]
+    moved = bool(before and after and after[-1] != before[0])
+    last = {name: next((r for r in reversed(windows.get(name, []))
+                        if up(r) and r.get('anchor') == 'AgentRow' and r.get('slot')), None)
+            for name in s7_names}
+    lined = {name: bool(r and aligned(r)) for name, r in last.items()}
+    s7_peer = steps.get('S7', [])
+    result['S7'] = (bool(shown) and moved and all(lined.values()) and not renames(s7_peer)
+                    and not inputs(s7_peer),
+                    f'opened={bool(shown)} inserted={inserted[:1]} slot {before[:1]} -> {after[-1:]} '
+                    f'aligned={lined} last={ {n: (r or {}).get("slot") for n, r in last.items()} } '
+                    f'frames={ {n: ((r or {}).get("sdk") or {}).get("frame") for n, r in last.items()} } '
+                    f'renames={renames(s7_peer)} inputs={inputs(s7_peer)}')
+    s8 = windows.get('S8', [])
+    s8_peer = steps.get('S8', [])
+    header = any(up(r) and r.get('anchor') == 'RailHeader' for r in s8)
+    rail = any(r.get('rail') is True for r in s8)
+    sent = [e[2] for e in renames(s8_peer, 'workspace.rename')]
+    result['S8'] = (header and rail and len(renames(s8_peer)) == 1 and len(sent) == 1
+                    and (sent[0] or {}).get('label') == 'railname' and not inputs(s8_peer),
+                    f'rail={rail} header_field={header} renames={renames(s8_peer)} inputs={inputs(s8_peer)}')
+    return result
+
+
+def herdr2_verdicts(windows):
+    """S10 (`--suite herdr2`): the palette's and the tab menu's Rename disabled with the reason,
+    and no field ever opened."""
+    every = [r for records in windows.values() for r in records]
+    rows = [row for r in windows.get('S10-palette', []) for row in (r.get('palette') or [])]
+    disabled = {row.get('label') for row in rows if row.get('enabled') is False and row.get('reason') == HERDR2}
+    menus = [r.get('tab_menu') for r in windows.get('S10-tab', []) if r.get('tab_menu')]
+    tab = any(m.get('core') is True and m.get('rename_reason') == HERDR2 for m in menus)
+    opened = any(r.get('open') is True for r in every)
+    return {
+        'S10-palette': ('Rename Space' in disabled and not opened,
+                        f'disabled_with_reason={sorted(disabled)} rows={rows[-3:]} opened={opened}'),
+        'S10-tab': (tab and not opened, f'tab_menus={menus[-1:]} opened={opened}'),
+    }
+
+
+def menus_verdicts(windows):
+    """S9 (`--suite menus`): each OS menu pick opened the field over its own anchor."""
+    def over(name, anchor):
+        return any(up(r) and r.get('anchor') == anchor for r in windows.get(name, []))
+    return {
+        'S9-tab': (over('S9-tab', 'TabLabel'), f'records={len(windows.get("S9-tab", []))}'),
+        'S9-space': (over('S9-space', 'SpaceRow'), f'records={len(windows.get("S9-space", []))}'),
+    }
+
+
 def read_jsonl(path):
     records = []
     if path.is_file():
@@ -194,7 +283,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--label', required=True)
+    parser.add_argument('--suite', choices=sorted(SUITES), default='inplace')
     args = parser.parse_args()
+    spec_dir, project, scheme, derived, only = SUITES[args.suite]
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
     out = args.out.resolve()
@@ -214,15 +305,23 @@ def main():
     for leftover in ('p4-peer.jsonl', 'p0-smoke.jsonl'):
         if (documents / leftover).exists():
             (documents / leftover).unlink()
-    spec = root / 'scripts/ios/smoke-qa'
+    spec = root / spec_dir
+    if args.suite == 'menus':
+        # As p12-check.py: P12QA builds from a copy with SmokeQA's QA layer helper beside it.
+        copy = out / 'p12-project'
+        if copy.exists():
+            shutil.rmtree(copy)
+        shutil.copytree(spec, copy)
+        shutil.copyfile(root / 'scripts/ios/smoke-qa/Tests/QAAx.swift', copy / 'Tests/QAAx.swift')
+        spec = copy
     run('xcodegen', 'generate', '--spec', str(spec / 'project.yml'), '--project', str(spec))
     result = out / 'result.xcresult'
     if result.exists():
         shutil.rmtree(result)
-    test = subprocess.run(['xcodebuild', 'test', '-project', str(spec / 'SmokeOracle.xcodeproj'), '-scheme', 'SmokeOracle',
-                           '-destination', 'id=' + device, '-derivedDataPath', str(root / 'target/ios-smoke/build'),
+    test = subprocess.run(['xcodebuild', 'test', '-project', str(spec / project), '-scheme', scheme,
+                           '-destination', 'id=' + device, '-derivedDataPath', str(root / derived),
                            '-resultBundlePath', str(result), 'CODE_SIGNING_ALLOWED=NO',
-                           '-only-testing:SmokeOracle/SmokeQA/testRenameInPlace'],
+                           '-only-testing:' + only],
                           text=True, capture_output=True)
     (out / 'xctest.stdout').write_text(test.stdout)
     (out / 'xctest.stderr').write_text(test.stderr)
@@ -234,10 +333,23 @@ def main():
     records, peer = read_jsonl(out / 'app.jsonl'), read_jsonl(out / 'peer.jsonl')
     times = step_times(test.stdout)
     windows = by_step(records, times)
-    flat, steps = split_peer(peer)
-    cancelled = {name: cancelled_touches(records, times, name) for name in STEPS}
-    outcome = verdicts(windows, steps, cancelled)
+    if args.suite == 'more':
+        flat, steps = split_peer(peer, MORE_ORDER)
+        inserted = [r['time'] for r in peer if isinstance(r, dict) and r.get('kind') == 'rename-agent-inserted'
+                    and isinstance(r.get('time'), (int, float))]
+        outcome = more_verdicts(windows, steps, inserted)
+    elif args.suite == 'herdr2':
+        flat, steps = split_peer(peer, ())
+        outcome = herdr2_verdicts(windows)
+    elif args.suite == 'menus':
+        flat, steps = split_peer(peer, ())
+        outcome = menus_verdicts(windows)
+    else:
+        flat, steps = split_peer(peer)
+        cancelled = {name: cancelled_touches(records, times, name) for name in STEPS}
+        outcome = verdicts(windows, steps, cancelled)
     summary = {
+        'suite': args.suite,
         'label': args.label,
         'xcodebuild_exit': test.returncode,
         'records': len(records),

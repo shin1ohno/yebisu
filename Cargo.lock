@@ -2471,7 +2471,7 @@ dependencies = [
 [[package]]
 name = "herdr-uikit"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-uikit?rev=6dcfb65fbd8214e178bdaa7c5bfc56508122548f#6dcfb65fbd8214e178bdaa7c5bfc56508122548f"
+source = "git+https://github.com/shin1ohno/herdr-uikit?rev=4486cb1712ab404bef3656b4679f22a2f2026283#4486cb1712ab404bef3656b4679f22a2f2026283"
 dependencies = [
  "anyhow",
  "block2",
@@ -7297,6 +7297,7 @@ dependencies = [
  "sheprd-core-client",
  "sheprd-credentials",
  "sheprd-i18n",
+ "sheprd-terminal",
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "tracing",

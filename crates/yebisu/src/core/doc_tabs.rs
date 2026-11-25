@@ -8,18 +8,20 @@
 //! space and tab (`doc_view`, decision 11), never document tabs.
 use super::{
     DocCatalog, DocRows, DocSpace, SessionInfo, TabInfo,
-    herdr_doc::{Drawable, SpaceView, View},
-    herdr_doc_sync::{DocSnapshot, Read},
+    herdr_doc::{Axis, Drawable, Intent, SpaceView, View, new_id},
+    herdr_doc_sync::{DocSnapshot, DocWriter, Read, WriteStats},
     store::{Saved, Tab, Workspace},
 };
 use crate::shell::herdr2_frame::{names, session::one_line};
 use serde_json::{Value, json};
-use sheprd_backend::TerminalId;
+use sheprd_backend::{Spawn, TerminalId};
+use sheprd_core_client::{CoreBackend, wire::Run};
 use std::collections::{BTreeMap, HashSet};
 
-/// The refusal of a change that only a later build writes to the document
-/// (owner answer D2-1).
-pub(super) const NOT_YET: &str = "Not available in Herdr 2 document spaces yet";
+/// Why New space is refused: the document cannot be written (Q6).
+const NO_DOCUMENT: &str = "Can't read the herdr-app layout; New space needs it";
+/// Why a split is refused: the tree is not one yebisu draws (Design F).
+const NOT_SPLITTABLE: &str = "This tab's herdr-app layout can't be split on the iPad";
 
 enum Taken {
     Readable {
@@ -42,6 +44,11 @@ pub(super) struct DocTabs {
     /// A terminal past a tab's first two that was focused: that tab draws
     /// it alone (Design F, "the rest by switching").
     shown: Option<(String, String)>,
+    /// A space this iPad created, drawn as soon as a read has it.
+    pending: Option<String>,
+    stats: WriteStats,
+    /// The intents whose outcome was already told.
+    told: u64,
 }
 
 impl DocTabs {
@@ -59,14 +66,134 @@ impl DocTabs {
             Read::Unavailable(_) => return false,
         };
         self.version = snapshot.version;
+        self.stats = snapshot.stats;
         self.prune(workspace);
-        let space = workspace.doc_view.space.clone();
+        let pending = self.pending.take();
+        let space = match pending.clone().filter(|id| self.space(id).is_some()) {
+            Some(created) => Some(created),
+            None => {
+                self.pending = pending_again(pending, &self.taken);
+                workspace.doc_view.space.clone()
+            }
+        };
         let space = match space.filter(|id| self.space(id).is_some()) {
             Some(space) => Some(space),
             None => self.first(workspace),
         };
         self.draw(space, workspace);
         true
+    }
+
+    /// The notice of an intent that was not saved, once per intent.
+    pub(super) fn notice(&mut self) -> Option<String> {
+        if self.stats.finished == self.told {
+            return None;
+        }
+        self.told = self.stats.finished;
+        self.stats.notice.clone()
+    }
+
+    /// New tab in the drawn document space (Design C, `NewTab`): a
+    /// terminal with the official app's labels, then the intent. The tab is
+    /// drawn when the document read after the write has it.
+    pub(super) fn new_tab(
+        &mut self,
+        backend: &CoreBackend,
+        writer: Option<&DocWriter>,
+        workspace: &mut Workspace,
+    ) -> crate::Result<()> {
+        let space = workspace
+            .doc_view
+            .space
+            .clone()
+            .filter(|_| self.local.is_some())
+            .ok_or(crate::Error::CoreState)?;
+        let writer = writer.ok_or(crate::Error::CoreQueue)?;
+        let (tab, pane) = (id("tb")?, id("p")?);
+        let terminal = run(backend, &space, &tab)?;
+        writer.send(Intent::NewTab {
+            space: space.clone(),
+            tab_id: tab.clone(),
+            pane_id: pane,
+            terminal: terminal.address,
+        })?;
+        workspace.doc_view.tabs.insert(space, tab);
+        Ok(())
+    }
+
+    /// Herdr 2's New space (decision 10): a document space whose folder is
+    /// the new terminal's. Refused while the document cannot be written.
+    pub(super) fn new_space(
+        &mut self,
+        backend: &CoreBackend,
+        writer: Option<&DocWriter>,
+        workspace: &mut Workspace,
+    ) -> crate::Result<()> {
+        let writer = writer
+            .filter(|_| self.view().is_some())
+            .ok_or_else(|| crate::Error::Ssh(NO_DOCUMENT.into()))?;
+        let (space, tab, pane) = (id("sp")?, id("tb")?, id("p")?);
+        let terminal = run(backend, &space, &tab)?;
+        writer.send(Intent::NewSpace {
+            space_id: space.clone(),
+            folder: terminal.cwd,
+            tab_id: tab.clone(),
+            pane_id: pane,
+            terminal: terminal.address,
+        })?;
+        workspace.doc_view.tabs.insert(space.clone(), tab);
+        self.pending = Some(space);
+        Ok(())
+    }
+
+    /// The terminal a split starts: with the drawn tab's labels in a
+    /// document space, which splits only a one-pane tree (Design F).
+    pub(super) fn split_spawn(&self, workspace: &Workspace) -> crate::Result<Spawn> {
+        if self.local.is_none() {
+            return Ok(Spawn::default());
+        }
+        let (space, tab) = self.drawn_ids(workspace).ok_or(crate::Error::CoreState)?;
+        let one = self
+            .space(&space)
+            .and_then(|view| view.tabs.iter().find(|doc| doc.id == tab))
+            .is_some_and(|doc| doc.drawable == Drawable::One && self.shown.is_none());
+        if !one {
+            return Err(crate::Error::Ssh(NOT_SPLITTABLE.into()));
+        }
+        let labels = labels(&space, &tab);
+        Ok(Spawn {
+            labels: labels
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+            ..Spawn::default()
+        })
+    }
+
+    /// The split's intent, once its terminal runs (Design C, `Split`).
+    pub(super) fn split_written(
+        &self,
+        writer: Option<&DocWriter>,
+        first: &TerminalId,
+        new: &TerminalId,
+        vertical: bool,
+    ) -> crate::Result<()> {
+        if self.local.is_none() {
+            return Ok(());
+        }
+        writer.ok_or(crate::Error::CoreQueue)?.send(Intent::Split {
+            terminal: first.as_str().to_owned(),
+            axis: if vertical { Axis::Column } else { Axis::Row },
+            new_pane: id("p")?,
+            new_container: id("s")?,
+            new_terminal: new.as_str().to_owned(),
+        })
+    }
+
+    fn drawn_ids(&self, workspace: &Workspace) -> Option<(String, String)> {
+        let space = workspace.doc_view.space.clone()?;
+        let tab = workspace.tabs.get(workspace.active)?.id.clone();
+        Some((space, tab))
     }
 
     /// Draws document space `space`, or the iPad-only tabs for `None`.
@@ -243,7 +370,8 @@ impl DocTabs {
         json!({"state": state, "version": self.version, "spaces": spaces,
             "selected": catalog.and_then(|catalog| catalog.selected),
             "local_tabs": self.local_tabs(workspace),
-            "writes": 0, "conflicts": 0, "last": null})
+            "writes": self.stats.writes, "conflicts": self.stats.conflicts,
+            "last": self.stats.last})
     }
 
     fn local_tabs(&self, workspace: &Workspace) -> usize {
@@ -372,6 +500,38 @@ impl DocTabs {
             })
             .collect()
     }
+}
+
+/// A created space not in this read keeps waiting while the document is
+/// readable; an unreadable one cannot have it.
+fn pending_again(pending: Option<String>, taken: &Option<Taken>) -> Option<String> {
+    pending.filter(|_| matches!(taken, Some(Taken::Readable { .. })))
+}
+
+fn id(prefix: &str) -> crate::Result<String> {
+    new_id(prefix).map_err(|error| crate::Error::Ssh(error.to_string()))
+}
+
+/// The labels the official app gives its own terminals (Design C), so it
+/// takes this one into the same space and tab even before the write lands.
+fn labels<'a>(space: &'a str, tab: &'a str) -> BTreeMap<&'static str, &'a str> {
+    BTreeMap::from([
+        ("herdr.space", space),
+        ("herdr.tab", tab),
+        ("herdr.seen", "0"),
+    ])
+}
+
+fn run(
+    backend: &CoreBackend,
+    space: &str,
+    tab: &str,
+) -> crate::Result<sheprd_core_client::wire::Terminal> {
+    Ok(backend.core().run(&Run {
+        keep: true,
+        labels: labels(space, tab),
+        ..Run::default()
+    })?)
 }
 
 /// The drawn tab's id and panes, to tell whether it must attach again.

@@ -120,5 +120,92 @@ class Parsing(unittest.TestCase):
         self.assertEqual(check.step_times(stdout), [("R1", 10.5), ("R2", 11.0)])
 
 
+
+def shown(time, slot, frame, anchor="AgentRow", **extra):
+    record = field(time)
+    record.update({"anchor": anchor, "slot": slot, **extra})
+    record["sdk"]["frame"] = frame
+    return record
+
+
+MORE_TIMES = [("S7", 10.0), ("S7-portrait", 20.0), ("S7-landscape", 30.0), ("S8", 40.0), ("end", 50.0)]
+
+
+class More(unittest.TestCase):
+    """S7: the field follows its agent row within 1 pt; S8: the rail header renames once."""
+
+    def records(self, off=0.0):
+        return [
+            shown(11.0, [20.0, 400.0, 150.0, 20.0], [16.0, 398.0, 158.0, 24.0]),
+            shown(13.0, [20.0, 444.0, 150.0, 20.0], [16.0, 442.0 + off, 158.0, 24.0]),
+            shown(21.0, [20.0, 444.0, 150.0, 20.0], [16.0, 442.0, 158.0, 24.0]),
+            shown(31.0, [20.0, 444.0, 150.0, 20.0], [16.0, 442.0, 158.0, 24.0]),
+            shown(41.0, [10.0, 80.0, 60.0, 20.0], [6.0, 78.0, 120.0, 24.0], anchor="RailHeader", rail=True),
+        ]
+
+    def peer(self):
+        return [text("t"), rpc("workspace.rename", workspace_id="w1", label="railname"), text("s")]
+
+    def verdicts(self, records, peer, inserted=(12.0,)):
+        windows = check.by_step(records, MORE_TIMES)
+        _, steps = check.split_peer(peer, check.MORE_ORDER)
+        return check.more_verdicts(windows, steps, list(inserted))
+
+    def test_a_clean_run_passes(self):
+        result = self.verdicts(self.records(), self.peer())
+        self.assertEqual({k: ok for k, (ok, _) in result.items()}, {"S7": True, "S8": True})
+
+    def test_a_field_2pt_off_its_row_fails_s7(self):
+        records = self.records()
+        records[3]["sdk"]["frame"] = [16.0, 444.0, 158.0, 24.0]
+        self.assertFalse(self.verdicts(records, self.peer())["S7"][0])
+
+    def test_no_insert_fails_s7(self):
+        self.assertFalse(self.verdicts(self.records(), self.peer(), inserted=())["S7"][0])
+
+    def test_a_row_that_never_moved_fails_s7(self):
+        records = self.records()
+        records[0]["slot"] = [20.0, 444.0, 150.0, 20.0]
+        records[0]["sdk"]["frame"] = [16.0, 442.0, 158.0, 24.0]
+        self.assertFalse(self.verdicts(records, self.peer())["S7"][0])
+
+    def test_two_renames_or_another_name_fail_s8(self):
+        peer = self.peer()
+        peer.insert(1, rpc("workspace.rename", workspace_id="w1", label="railname"))
+        self.assertFalse(self.verdicts(self.records(), peer)["S8"][0])
+        peer = [text("t"), rpc("workspace.rename", workspace_id="w1", label="other"), text("s")]
+        self.assertFalse(self.verdicts(self.records(), peer)["S8"][0])
+
+
+class Herdr2AndMenus(unittest.TestCase):
+    TIMES = [("S10-palette", 10.0), ("S10-tab", 20.0), ("end", 30.0)]
+
+    def records(self):
+        rows = [{"label": "Rename Space", "enabled": False, "reason": check.HERDR2},
+                {"label": "Rename Tab", "enabled": False, "reason": check.HERDR2}]
+        return [{"kind": "rename-state", "time": 11.0, "open": False, "palette": rows},
+                {"kind": "rename-state", "time": 21.0, "open": False,
+                 "tab_menu": {"core": True, "rename_reason": check.HERDR2}}]
+
+    def test_disabled_with_reason_passes_s10(self):
+        result = check.herdr2_verdicts(check.by_step(self.records(), self.TIMES))
+        self.assertEqual({k: ok for k, (ok, _) in result.items()}, {"S10-palette": True, "S10-tab": True})
+
+    def test_an_enabled_row_or_an_open_field_fails_s10(self):
+        records = self.records()
+        records[0]["palette"][0]["enabled"] = True
+        self.assertFalse(check.herdr2_verdicts(check.by_step(records, self.TIMES))["S10-palette"][0])
+        records = self.records()
+        records[1]["open"] = True
+        self.assertFalse(check.herdr2_verdicts(check.by_step(records, self.TIMES))["S10-tab"][0])
+
+    def test_s9_needs_the_field_over_each_anchor(self):
+        times = [("S9-tab", 10.0), ("S9-space", 20.0), ("end", 30.0)]
+        records = [dict(field(11.0), anchor="TabLabel"), dict(field(21.0), anchor="SpaceRow")]
+        self.assertTrue(all(ok for ok, _ in check.menus_verdicts(check.by_step(records, times)).values()))
+        records[1]["anchor"] = "TabLabel"
+        self.assertFalse(check.menus_verdicts(check.by_step(records, times))["S9-space"][0])
+
+
 if __name__ == "__main__":
     unittest.main()
