@@ -40,8 +40,9 @@ CASES = [
     ("rename-space-in-terminal-menu", "native_menus.rs",
      "row.info.command != Command::Find && row.info.command != Command::RenameWorkspace",
      "row.info.command != Command::Find", T + "entry::rename_space_only_in_space_menu"),
-    # B-7: an empty tab or space name is sent.
-    ("empty-tab-sent", "shell/rename/send.rs", "if text.is_empty() && !target.object.allows_empty() {",
+    # B-7: an empty tab or space name is sent (Herdr 1; a Herdr 2 one is the
+    # document's automatic name, #144 D3, so the guard asks the target).
+    ("empty-tab-sent", "shell/rename/send.rs", "if text.is_empty() && !target.allows_empty() {",
      "if false {", T + "send::tab_space_empty_never_sent"),
     # B-7: a key name swapped.
     ("tab-key-swapped", "shell/rename.rs", 'serde_json::json!({ "tab_id": id, "label": label })',
