@@ -212,6 +212,11 @@ impl Smoke {
         }
         let sidebar = self.render_sidebar_column(&layout, cx);
         let geometry = frame_geometry(&layout, sidebar.is_some());
+        let tab_row_leading = layout.controls.tab_row_leading(
+            self.platform_traffic_lights_over_content(),
+            layout.sidebar.x,
+            geometry.tab_row.x,
+        );
         let mut body = Some(body);
         // The bar fits the terminal column it floats over (L5 N-3).
         self.set_edit_bar_width(Some(geometry.tab_row.width));
@@ -226,7 +231,11 @@ impl Smoke {
         for slot in COLUMN_ORDER {
             column = match slot {
                 ColumnSlot::TabRow => column
-                    .children(self.render_tab_row(layout.controls.tab_row_trailing, cx))
+                    .children(self.render_tab_row(
+                        tab_row_leading,
+                        layout.controls.tab_row_trailing,
+                        cx,
+                    ))
                     .child(rule()),
                 ColumnSlot::FindBar => column.children(self.render_find_bar(cx)),
                 // The edit bar is absolute (edit_bar.rs): placed inside the
@@ -376,3 +385,7 @@ mod overlay_tests;
 #[cfg(test)]
 #[path = "frame_controls_tests.rs"]
 mod controls_tests;
+
+#[cfg(test)]
+#[path = "frame_traffic_lights_tests.rs"]
+mod traffic_lights_tests;

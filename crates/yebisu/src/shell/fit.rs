@@ -70,6 +70,10 @@ pub(crate) struct FitState {
     /// (herdr-uikit is iOS-only); all zero is a window without controls.
     #[cfg(test)]
     pub(crate) window_controls: Option<Edges<Pixels>>,
+    /// Tests make the window a Mac's with its traffic lights over the
+    /// content (herdr-uikit `traffic_lights_over_content`).
+    #[cfg(test)]
+    pub(crate) traffic_lights_over_content: bool,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -312,6 +316,24 @@ impl Smoke {
     /// it.
     pub(crate) fn platform_window_controls(&self, window: &Window) -> ControlsReach {
         controls_reach(self.sampled_window_controls(window))
+    }
+
+    /// Whether this is a Mac whose traffic lights sit over the content's top
+    /// row (herdr-uikit `traffic_lights_over_content`), so every top-row
+    /// layout keeps clear of them; false on an iPad and off iOS.
+    pub(crate) fn platform_traffic_lights_over_content(&self) -> bool {
+        #[cfg(test)]
+        if self.shell.fit.traffic_lights_over_content {
+            return true;
+        }
+        #[cfg(target_os = "ios")]
+        {
+            herdr_uikit::traffic_lights_over_content()
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            false
+        }
     }
 
     fn sampled_window_controls(&self, window: &Window) -> Edges<Pixels> {
