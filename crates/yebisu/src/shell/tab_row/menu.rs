@@ -39,7 +39,7 @@ pub(crate) fn split_label(label: &str) -> (&str, &str) {
 
 impl Smoke {
     /// A tab's label: its number and its name, the name renamable over
-    /// `TabLabel`.
+    /// `TabLabel`. `focused` is the row's own flag (Herdr 1 and Herdr 2).
     pub(super) fn tab_label(
         &self,
         index: usize,
@@ -47,20 +47,11 @@ impl Smoke {
         boot: &str,
         id: &str,
         font_weight: FontWeight,
+        focused: bool,
     ) -> AnyElement {
         let object = RenameObject::Tab(id.to_owned());
         let plain = self.rename_label(boot, &object).is_none()
             && !self.shell.rename.editing(RenameAnchor::TabLabel, &object);
-        // Herdr 2's snapshot names no tab: the drawn document tab that is
-        // active is the current one (#144 D3).
-        let focused = if self.terminal.core_mode {
-            self.doc_names().is_some_and(|doc| {
-                doc.holds(&object) && doc.drawn.iter().any(|tab| tab.active && tab.id == id)
-            })
-        } else {
-            crate::board::snapshot(&self.terminal.live)
-                .is_some_and(|s| s.focused_tab_id.as_deref() == Some(id))
-        };
         let body = div()
             .debug_selector(move || format!("shell-tab-body-{index}"))
             .relative()
@@ -125,13 +116,9 @@ impl Smoke {
         })
     }
 
-    /// The open tab menu, drawn over everything at the press.
-    pub(super) fn render_tab_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let menu = self.shell.rename.tab_menu.clone()?;
-        if self.input_modal() || menu.core != self.terminal.core_mode {
-            self.shell.rename.tab_menu = None;
-            return None;
-        }
+    /// The tab menu's rename target and why Rename… is disabled, if it is
+    /// (the menu and `qa.state.rename.tab_menu` both read it).
+    pub(crate) fn tab_menu_rename(&self, menu: &TabMenu) -> (RenameTarget, Option<&'static str>) {
         let target = RenameTarget {
             host: menu.host.clone(),
             kind: self.terminal.herdr_kind(),
@@ -140,6 +127,17 @@ impl Smoke {
             object: RenameObject::Tab(menu.id.clone()),
         };
         let reason = self.rename_unavailable(&target);
+        (target, reason)
+    }
+
+    /// The open tab menu, drawn over everything at the press.
+    pub(super) fn render_tab_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let menu = self.shell.rename.tab_menu.clone()?;
+        if self.input_modal() || menu.core != self.terminal.core_mode {
+            self.shell.rename.tab_menu = None;
+            return None;
+        }
+        let (target, reason) = self.tab_menu_rename(&menu);
         let item = |id: &'static str, label: &'static str| {
             div()
                 .id(id)

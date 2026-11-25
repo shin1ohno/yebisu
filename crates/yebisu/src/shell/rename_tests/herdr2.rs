@@ -12,6 +12,7 @@ use crate::{
             AUTOMATIC_NAME, HERDR2,
             herdr2::{NO_DOCUMENT, NOT_IN_DOCUMENT},
         },
+        sidebar_list::ListRow,
         single_pane::Mailbox,
     },
 };
@@ -302,4 +303,55 @@ fn subtitles_say_why_on_herdr2() {
 
 fn build_boot(this: &Smoke) -> String {
     crate::board::snapshot(&this.terminal.live).map_or_else(String::new, |s| s.boot_id.clone())
+}
+
+/// A double tap on a Herdr 2 tab's label or space row's name only says why
+/// (#143 plan §3.3): no field, no session. `begin_rename`'s Herdr 2 refusal
+/// (`rename_unavailable`) is the one check on both paths. This session reads
+/// no `herdr-app` document, so the reason is that only its spaces and tabs
+/// can be renamed (#144 D3).
+#[gpui::test]
+fn double_tap_reason_only(cx: &mut TestAppContext) {
+    let (backend, _) =
+        crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("mock core: {e}"));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    cx.simulate_resize(gpui::size(gpui::px(1210.), gpui::px(834.)));
+    view.update(cx, |this, cx| {
+        this.select_host("rename-core");
+        this.connect_core_using(cx, move |_| Ok(backend));
+    });
+    wait(&view, cx, "the Herdr 2 host did not connect", |this| {
+        this.terminal.live.connected && !this.row_tabs().is_empty()
+    });
+    let fake = install_fake(&view, cx);
+    draw(&view, cx);
+    let row = view.update(cx, |this, _| {
+        this.sidebar_rows("")
+            .rows
+            .into_iter()
+            .find_map(|row| match row {
+                ListRow::Space(space) if space.kind == HerdrKind::Herdr2 => Some(format!(
+                    "sidebar-space-name-{}-{}",
+                    space.host, space.entry.id
+                )),
+                _ => None,
+            })
+    });
+    let row: &'static str = Box::leak(
+        row.unwrap_or_else(|| panic!("fixture: no Herdr 2 space row"))
+            .into_boxed_str(),
+    );
+    for selector in ["shell-tab-body-0", row] {
+        view.update(cx, |this, _| this.terminal.live.status.clear());
+        double_click(cx, selector);
+        draw(&view, cx);
+        view.read_with(cx, |this, _| {
+            assert!(
+                this.shell.rename.session.is_none(),
+                "{selector}: a Herdr 2 rename started"
+            );
+            assert_eq!(this.terminal.live.status, NOT_IN_DOCUMENT, "{selector}");
+        });
+        assert_eq!(fake.presents(), 0, "{selector}: the field was presented");
+    }
 }

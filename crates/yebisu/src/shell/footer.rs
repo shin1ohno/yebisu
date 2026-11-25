@@ -13,10 +13,11 @@ pub(crate) mod keys;
 pub(crate) const NEW_SPACE: &str = "New space";
 pub(crate) const HOSTS: &str = "Hosts";
 pub(crate) const SETTINGS: &str = "Settings";
-/// One footer row (Main.dc.html: buttons 44 high).
+/// One footer row (Main.dc.html: buttons 44 high). The row fills the footer
+/// under its rule with no padding above or below (Main.dc.html has 4 pt), so
+/// the footer is as tall as the status bar beside it
+/// (`layout::SIDEBAR_FOOTER_HEIGHT`).
 pub(crate) const FOOTER_ROW_HEIGHT: f32 = metric::TOUCH;
-/// Padding above and below the footer row (Main.dc.html `padding: 4px 8px`).
-pub(crate) const FOOTER_PADDING: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FooterItem {
@@ -166,7 +167,6 @@ impl Smoke {
                 .border_t_1()
                 .border_color(rgb(color::RAISED))
                 .px(px(metric::INLINE_GAP))
-                .py(px(FOOTER_PADDING))
                 .children(
                     footer_items(self.chrome_state().kind)
                         .into_iter()

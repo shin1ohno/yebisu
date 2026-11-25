@@ -56,6 +56,25 @@ pub(crate) fn doc_names(terminal: &TerminalView) -> Option<DocNames> {
     })
 }
 
+/// Why there is nothing to rename: the drawn `default` session read a
+/// document the official app's rules reject (`NO_DOCUMENT`), or the drawn
+/// session reads none: another session, or none read yet
+/// (`NOT_IN_DOCUMENT`).
+fn no_names(terminal: &TerminalView) -> &'static str {
+    let unreadable = terminal
+        .core
+        .as_ref()
+        .is_some_and(|core| core.name() == HERDR2_SESSION)
+        && crate::actions::current_core_session(terminal)
+            .and_then(|row| row.doc)
+            .is_some_and(|doc| doc.state == DocRows::Unreadable);
+    if unreadable {
+        NO_DOCUMENT
+    } else {
+        NOT_IN_DOCUMENT
+    }
+}
+
 /// Why the palette's and the menu bar's `command` is off on Herdr 2, or
 /// `None` when it can run.
 pub(crate) fn command_unavailable(
@@ -70,7 +89,7 @@ pub(crate) fn command_unavailable(
         return Some(NOT_CONNECTED);
     }
     let Some(doc) = doc_names(terminal) else {
-        return Some(NO_DOCUMENT);
+        return Some(no_names(terminal));
     };
     let held = match command {
         C::RenameWorkspace => doc.selected.is_some(),
@@ -194,7 +213,7 @@ impl Smoke {
             return Some(NOT_CONNECTED);
         }
         let Some(doc) = self.doc_names() else {
-            return Some(NO_DOCUMENT);
+            return Some(no_names(&self.terminal));
         };
         if snapshot(live).is_none_or(|shown| shown.boot_id != target.boot) {
             return Some(target.object.closed_text());
