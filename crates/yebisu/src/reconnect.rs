@@ -41,6 +41,8 @@ impl Smoke {
         self.flush_before_suspension(phase);
         // Outside it as well, so that early return cannot keep the display lit.
         self.keep_awake.lifecycle(phase);
+        // And so it cannot keep a port forward listening off screen.
+        self.forwards_lifecycle(phase);
         self.sync_keep_awake(cx);
     }
 

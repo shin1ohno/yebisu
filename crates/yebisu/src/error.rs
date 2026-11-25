@@ -28,6 +28,8 @@ pub enum Error {
     Storage(#[from] std::io::Error),
     #[error("SSH operation failed: {0}")]
     Ssh(String),
+    #[error(transparent)]
+    Forward(#[from] herdr_ssh::forward::Error),
     #[error("could not open the GPUI window: {0}")]
     Window(String),
 }

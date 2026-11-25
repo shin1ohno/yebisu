@@ -12,6 +12,7 @@ const P0_TAP_LABEL: &str = "Tap / type";
 pub(crate) struct Smoke {
     pub(crate) find: Option<crate::find_view::FindBar>,
     pub(crate) find_handoff: crate::find::retirement::Handoff,
+    pub(crate) forwards: crate::forwards::Forwards,
     pub(crate) notifications: crate::notification_view::State,
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
     pub(crate) observer: crate::p11_observer::Harness,
@@ -104,6 +105,7 @@ impl Smoke {
                         this.poll_settings(cx);
                         this.poll_find(cx);
                         this.poll_terminal(cx);
+                        this.poll_forwards(cx);
                         this.collect_notifications(cx);
                         // After the polls, so it sees each host's latest status.
                         this.sync_keep_awake(cx);
@@ -118,6 +120,7 @@ impl Smoke {
         Self {
             find: None,
             find_handoff: Default::default(),
+            forwards: crate::forwards::Forwards::new(),
             notifications: Default::default(),
             #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
             observer: Default::default(),
