@@ -91,9 +91,11 @@ fn code_lists_are_static_names_and_never_collide() {
         .chain(crate::text_gate::CODES)
         .copied()
         .collect();
+    // Static names: lowercase ASCII, digits (`herdr2_connecting`) and `_`.
     for code in &all {
         assert!(
-            code.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+            code.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
             "{code}"
         );
     }
