@@ -20,6 +20,8 @@ const NO_SPACE: &str = "No space selected";
 const SHEET_OPEN: &str = "Close the sheet first";
 const EDIT_UNFENCED: &str = "Disconnect first: the Hosts sheet does not hold the keyboard yet";
 const OTHER_HOST: &str = "Select this host first";
+/// The menu bar's Forward port… with no selected host to forward from.
+pub(crate) const NO_HOST: &str = "Select a host first";
 const OTHER_SPACE: &str = "Open this space first";
 const HERDR2_NO_RENAME: &str = super::rename::HERDR2;
 
@@ -36,6 +38,9 @@ pub(crate) enum HostMenuItem {
     Reconnect,
     Detach,
     Edit,
+    /// Opens the forward sheet for the host (issue 140). Unlike the others
+    /// it works on any saved host's row, connected or not (owner decision 7).
+    ForwardPort,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,16 +51,18 @@ pub(crate) enum SpaceMenuItem {
 }
 
 /// Menu bar order of the Host menu.
-const HOST_MENU_ITEMS: [HostMenuItem; 3] = [
+const HOST_MENU_ITEMS: [HostMenuItem; 4] = [
     HostMenuItem::Reconnect,
     HostMenuItem::Detach,
     HostMenuItem::Edit,
+    HostMenuItem::ForwardPort,
 ];
 /// Long press of a host row (Q8: the same items as the menu bar).
-const HOST_LONG_PRESS: [HostMenuItem; 3] = [
+const HOST_LONG_PRESS: [HostMenuItem; 4] = [
     HostMenuItem::Reconnect,
     HostMenuItem::Detach,
     HostMenuItem::Edit,
+    HostMenuItem::ForwardPort,
 ];
 /// Menu bar order of the Space menu.
 const SPACE_MENU_ITEMS: [SpaceMenuItem; 3] = [
@@ -76,6 +83,7 @@ impl HostMenuItem {
             Self::Reconnect => "Reconnect",
             Self::Detach => "Detach",
             Self::Edit => "Edit",
+            Self::ForwardPort => "Forward port…",
         }
     }
     /// The `NativeCommand` name of the menu bar item.
@@ -84,6 +92,7 @@ impl HostMenuItem {
             Self::Reconnect => "host.reconnect",
             Self::Detach => "host.detach",
             Self::Edit => "host.edit",
+            Self::ForwardPort => "host.forward_port",
         }
     }
 }
@@ -163,6 +172,8 @@ fn host_entry(item: HostMenuItem, state: &ChromeState) -> MenuEntry {
             HerdrKind::Herdr2 => entry(id, state.connected, NOT_CONNECTED),
         },
         HostMenuItem::Edit => entry(id, HOSTS_SHEET_FENCED || !state.connected, EDIT_UNFENCED),
+        // Herdr 1 or 2, connected or not: the forward has its own connection.
+        HostMenuItem::ForwardPort => entry(id, true, SHEET_OPEN),
     }
 }
 
@@ -194,7 +205,13 @@ pub(crate) fn menu_bar(
             HOST_MENU,
             HOST_MENU_ITEMS
                 .into_iter()
-                .map(|item| host_entry(item, state))
+                .map(|item| match item {
+                    // The menu bar's item forwards from the selected host.
+                    HostMenuItem::ForwardPort if !state.host_selected && !state.sheet_open => {
+                        entry(MenuItemId::Host(item), false, NO_HOST)
+                    }
+                    _ => host_entry(item, state),
+                })
                 .collect(),
         ),
         (
@@ -224,17 +241,22 @@ pub(crate) fn space_long_press(state: &ChromeState) -> Vec<MenuEntry> {
 }
 
 /// `entries` with every item disabled for `reason`: the row pressed is not
-/// the target the items would run on.
+/// the target the items would run on. Forward port… keeps its own state: it
+/// runs on the row's host, whichever host is selected (owner decision 7).
 fn elsewhere(entries: Vec<MenuEntry>, reason: &'static str) -> Vec<MenuEntry> {
     entries
         .into_iter()
-        .map(|e| entry(e.item, false, reason))
+        .map(|e| match e.item {
+            MenuItemId::Host(HostMenuItem::ForwardPort) => e,
+            item => entry(item, false, reason),
+        })
         .collect()
 }
 
 /// The long-press menu of the host row for `row` while `current` is the
 /// selected target (review S4). The items run on the selected host, so a
-/// row of another host lists them disabled, with the reason.
+/// row of another host lists them disabled, with the reason; Forward port…
+/// runs on the row's own host and stays as it is.
 pub(crate) fn host_long_press_for(
     state: &ChromeState,
     row: &str,
@@ -375,7 +397,10 @@ impl Smoke {
                 HerdrKind::Herdr1
             },
             connected: self.terminal.live.connected,
-            sheet_open: self.settings_modal || self.hosts_sheet_modal(),
+            sheet_open: self.settings_modal
+                || self.hosts_sheet_modal()
+                || self.forward_sheet_open(),
+            host_selected: !self.terminal.reconnect.target.is_empty(),
             ..ChromeState::default()
         }
     }
@@ -389,6 +414,9 @@ impl Smoke {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> crate::Result<()> {
+        if item == MenuItemId::Host(HostMenuItem::ForwardPort) {
+            return self.run_forward_port(shown, window, cx);
+        }
         let current = self.current_menu_scope();
         let target = match item {
             MenuItemId::Host(_) => MenuScope {
@@ -456,7 +484,29 @@ impl Smoke {
                     .ok_or(crate::Error::NativeMenu("menu target changed"))?;
                 self.begin_rename(target, super::rename::RenameAnchor::SpaceRow);
             }
+            MenuItemId::Host(HostMenuItem::ForwardPort) => {
+                return self.run_forward_port(shown, window, cx);
+            }
         }
+        Ok(())
+    }
+
+    /// Forward port… shown for `shown.host`. It is not held to the selected
+    /// host (S-10 asks the shown target to be the current one): the host
+    /// it was shown for must still be saved, and no sheet may be open.
+    fn run_forward_port(
+        &mut self,
+        shown: &MenuScope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        if shown.host.is_empty() || !self.setup.hosts.contains(&shown.host) {
+            return Err(crate::Error::NativeMenu("menu target changed"));
+        }
+        if self.menu_chrome_state().sheet_open {
+            return Err(crate::Error::NativeMenu("menu item unavailable"));
+        }
+        self.open_forward_sheet(shown.host.clone(), window, cx);
         Ok(())
     }
 }

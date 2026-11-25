@@ -37,9 +37,16 @@ fn long_press_opens_the_rows_items_bound_to_the_row(cx: &mut TestAppContext) {
             this.shell.shortcuts.edit_host = None;
             this.sidebar_long_press(PressedRow::Host("beta".into()), at);
             let menu = this.shell.sidebar.long_press.clone();
-            assert!(
-                menu.is_some_and(|m| m.entries.iter().all(|e| !e.enabled && e.reason.is_some()))
-            );
+            // Forward port… runs on the row's own host (issue 140, owner
+            // decision 7); the others are disabled with why.
+            let forward = MenuItemId::Host(HostMenuItem::ForwardPort);
+            assert!(menu.as_ref().is_some_and(|m| {
+                m.entries
+                    .iter()
+                    .filter(|e| e.item != forward)
+                    .all(|e| !e.enabled && e.reason.is_some())
+            }));
+            assert!(menu.is_some_and(|m| m.entries.iter().any(|e| e.item == forward && e.enabled)));
             assert!(this.pick_long_press(edit, window, cx).is_err());
             assert_eq!(this.shell.shortcuts.edit_host, None);
             // A space row of the selected host that is not the focused space.

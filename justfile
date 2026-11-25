@@ -34,6 +34,10 @@ triage-upstream:
 ios-sim wait="5":
     python3 scripts/guarded.py python3 scripts/ios/smoke-check.py --wait {{wait}}
 
+# Issue 140: a port forward to a private sshd on this Mac, read in the Simulator's Safari.
+ios-forward:
+    python3 scripts/guarded.py python3 scripts/ios/forward-check.py
+
 ios-p2:
     python3 scripts/guarded.py python3 scripts/ios/p2-check.py
 

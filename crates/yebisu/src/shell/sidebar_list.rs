@@ -123,6 +123,45 @@ impl ListSpace {
 pub(crate) enum ListRow {
     Host(ListHost),
     Space(ListSpace),
+    Forward(ListForward),
+}
+
+/// A port forward of a host (issue 140): drawn under its host row, before
+/// the host's spaces, whatever the host's connection.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ListForward {
+    /// The host's destination.
+    pub(crate) host: String,
+    pub(crate) remote: u16,
+    pub(crate) state: crate::forwards::State,
+}
+
+/// `rows` with each host's forwards right after its host row, in the
+/// order they were started. Forwards live beside the readers, outliving a
+/// connection and existing for an offline host, so they are not part of
+/// [`merge`]'s input.
+pub(crate) fn with_forwards(
+    rows: Vec<ListRow>,
+    forwards: &crate::forwards::Forwards,
+) -> Vec<ListRow> {
+    let mut out = Vec::with_capacity(rows.len() + forwards.entries().len());
+    for row in rows {
+        let host = match &row {
+            ListRow::Host(host) => Some(host.name.destination().to_owned()),
+            _ => None,
+        };
+        out.push(row);
+        if let Some(host) = host {
+            out.extend(forwards.for_host(&host).map(|forward| {
+                ListRow::Forward(ListForward {
+                    host: host.clone(),
+                    remote: forward.remote.get(),
+                    state: forward.state,
+                })
+            }));
+        }
+    }
+    out
 }
 
 /// The one input of [`merge`]: Herdr 1 connections from

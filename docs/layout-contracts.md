@@ -150,7 +150,7 @@ its module. "New" means the stream creates it.
 | L3 | `shell/sidebar.rs`, `shell/sidebar/**`, `shell/sidebar_tests/**`, `shell/sidebar_status.rs`, `board.rs`, `board_tests.rs`, `notifications.rs`, `notifications/**` |
 | L4 | `shell/rail.rs`, `shell/rail_badges.rs`, `shell/filter.rs` |
 | L5 | `shell/edit_bar.rs`, `shell/edit_bar_tests/**` |
-| L6 | `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/shortcuts_tests/**`, `shell/host_menus.rs`, `shell/host_menus_tests/**`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py` |
+| L6 | `shell/shortcuts.rs`, `shell/shortcuts/**`, `shell/shortcuts_tests/**`, `shell/host_menus.rs`, `shell/host_menus_tests/**`, `native_menus.rs`, `native_menus_tests.rs`, `scripts/ios/p12-mutations.py`, `shell/forward_sheet.rs`, `shell/forward_sheet/**`, `shell/forward_sheet_tests.rs` |
 | L7 | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `shell/hosts_sheet_tests/**`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
 | L8 | `shell/herdr2_frame.rs`, `core.rs`, `core/store.rs`, `core_view.rs`, `core_mock.rs`, `core_mock/**`, `scripts/ios/p9-check.py` |
 | L9 | `shell/fit.rs`, `shell/mods.rs`, `shell/overlay.rs`, `shell/disconnect.rs`, `terminal_input.rs`, `terminal_input_tests.rs` |
@@ -423,7 +423,8 @@ it (so the stream does not need to edit them).
     `pub(crate) fn popover_columns(_width: f32) -> u8`,
     `pub(crate) fn shortcuts_entry_points(_state: &ChromeState) -> Vec<EntryPoint>`,
     `impl Smoke { pub(crate) fn open_shortcuts(&mut self, _cx: &mut Context<Self>) -> bool; pub(crate) fn render_shortcuts_popover(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> }`.
-  - `host_menus.rs`: `pub(crate) enum HostMenuItem { Reconnect, Detach, Edit }`,
+  - `host_menus.rs`: `pub(crate) enum HostMenuItem { Reconnect, Detach, Edit, ForwardPort }`
+    (`ForwardPort`, issue 140, runs on the row's own host, docs/port-forward.md),
     `pub(crate) enum SpaceMenuItem { NewTab, Detach }`,
     `pub(crate) struct MenuScope { host: String, space: Option<String> }`,
     `pub(crate) fn scope_still_valid(_shown: &MenuScope, _current: &MenuScope) -> bool`.
