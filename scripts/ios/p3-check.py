@@ -116,12 +116,11 @@ def main():
     sim_ready.wait_for_destination(project / "SmokeOracle.xcodeproj", "SmokeOracle", device)
     result = directory / "result.xcresult"
     try:
-        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart", capture_output=True)
+        tested = run("xcodebuild", "test", "-project", str(project / "SmokeOracle.xcodeproj"), "-scheme", "SmokeOracle", "-only-testing:SmokeOracle/SmokeQA/testP3Terminal", "-destination", "id=" + device, "-derivedDataPath", str(root / "target/ios-smoke/build"), "-resultBundlePath", str(result), "CODE_SIGNING_ALLOWED=NO", "-skip-testing:SmokeOracle/SmokeQA/testInputAndLifecycleReceipts", "-skip-testing:SmokeOracle/SmokeQA/testP2KeysAndRestart")
     finally:
         # Stopped before p0-smoke.jsonl is copied, also when XCTest failed.
         terminate(device)
-    print(tested.stdout, flush=True)
-    print(tested.stderr, flush=True)
+    # run() streamed xcodebuild's output as it came; `tested.stdout` holds stdout and stderr together.
     # Xcode can exit 0 with an unmatched test filter: require execution too.
     if "testP3Terminal]' passed" not in tested.stdout:
         raise RuntimeError("terminal XCTest did not execute and pass")
