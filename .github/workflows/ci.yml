@@ -13,9 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || 'on-demand' }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # Select PR jobs from the whole diff against the merge base. On a main push,
-  # only reuse complete PR jobs that tested the same tree. The nightly run
-  # bypasses both decisions.
+  # Select PR jobs from the whole diff against the merge base; a PR runs no
+  # Simulator job. On a main push, only reuse complete PR jobs that tested the
+  # same tree. The nightly run bypasses both decisions.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -200,12 +200,15 @@ jobs:
           # unit test under scripts/, the provenance register, and reads
           # testflight.yml in a test.
           check="$build|"'^(clippy\.toml$|scripts/|PROVENANCE\.tsv$|NOTICE$|\.github/workflows/testflight\.yml$)'
+          # The Simulator patterns below (smoke, menu) name the files each job
+          # drives. A PR runs neither job; its log says which area the diff
+          # touches, so the local gate knows which Simulator check to run.
           # simulator-smoke: ci-smoke.py with --p9, then p12-ci.py.
           smoke="$build|"'^scripts/ios/(sim\.sh|screenshot-color\.py|ci-smoke\.py|smoke-check\.py|smoke_oracle\.py|live_jsonl\.py|p9-check\.py|p12-ci\.py|p12-check\.py|p12-oracle\.py|sim_ready\.py|resend_budget\.py|smoke-qa/|p12-qa/)'
-          # edit-menu is narrower than $build:
-          # a pull request runs it only when a file the four checks drive
-          # changes, so a change to other crates/yebisu code (search, hosts,
-          # notifications, ...) skips it. The files, and why each is listed:
+          # edit-menu's area is narrower than $build:
+          # only the files the four checks drive, so a change to other
+          # crates/yebisu code (search, hosts, notifications, ...) is outside
+          # it. The files, and why each is listed:
           #   build harness     every check runs scripts/ios/bundle.sh, which
           #                     cargo-builds the crate (Cargo.toml and Cargo.lock
           #                     pin the SDK and GPUI, rust-toolchain.toml and
@@ -317,7 +320,7 @@ jobs:
           # reviewed exclusion list, so adding one forces a decision.
           # A PR that touches only docs/, P12 files (scripts/ios/p12-*, p12-qa/),
           # other scripts/ios files or other crates/yebisu code (find, hosts,
-          # notifications, ...) skips edit-menu.
+          # notifications, ...) is outside edit-menu's area.
           menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|search-check\.py|test_search_check\.py|sh1_152_[a-z]+\.py|sim_ready\.py|resend_budget\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_view|terminal_wheel|input|input_geometry|text_gate|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|qa_ax|qa_ax_core|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|diagnostics|qa_ax_input|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
           # Plan section 4.2: mutation targets, their tests and build inputs.
           mutations='^(crates/yebisu/src/(layout|shell|settings|settings_pages|core/screen|terminal_input)(\.rs$|/|_tests)|scripts/ios/layout-mutations\.py$|scripts/guarded\.py$|\.github/workflows/ci\.yml$|Cargo\.(lock|toml)$|crates/yebisu/Cargo\.toml$|rust-toolchain\.toml$|\.cargo/|justfile$)'
@@ -338,9 +341,22 @@ jobs:
               emit "$1" false
             fi
           }
+          # Pull requests merge on local tests (owner decision 2026-11-26), so
+          # a PR runs no Simulator job; main pushes, nightly and manual runs
+          # select them as before.
+          simulator() {
+            if [[ "$EVENT_NAME" != pull_request ]]; then
+              decide "$1" "$2"
+              return
+            fi
+            emit "$1" false
+            if [[ "$diff_available" == true ]] && grep -Eq "$2" "$changed"; then
+              echo "  the diff touches $1's area: run it locally; main runs it after the merge"
+            fi
+          }
           decide check "$check"
-          decide simulator-smoke "$smoke"
-          decide edit-menu "$menu"
+          simulator simulator-smoke "$smoke"
+          simulator edit-menu "$menu"
           if [[ "$EVENT_NAME" == pull_request ]]; then
             emit layout-smoke false
             if [[ "$diff_available" == true ]] && grep -Eq "$mutations" "$changed"; then
@@ -375,7 +391,7 @@ jobs:
           python3 scripts/release/check-commit-messages.py range "$range"
   edit-menu:
     needs: changes
-    if: needs.changes.outputs.edit-menu == 'true'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.edit-menu == 'true'
     runs-on: macos-26
     timeout-minutes: 90
     steps:
@@ -451,7 +467,7 @@ jobs:
             target/disk.log
   simulator-smoke:
     needs: changes
-    if: needs.changes.outputs.simulator-smoke == 'true'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.simulator-smoke == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
