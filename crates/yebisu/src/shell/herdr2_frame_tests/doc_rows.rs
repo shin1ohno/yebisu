@@ -409,3 +409,92 @@ fn a_document_change_elsewhere_keeps_the_input_epoch(cx: &mut TestAppContext) {
     });
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// AC11: while `default` reads the document, a session other than `default`
+/// keeps its own "iPad only" row next to the document space rows, and
+/// pressing that row still opens the session.
+#[gpui::test]
+fn other_session_row_still_opens(cx: &mut TestAppContext) {
+    let root = std::env::temp_dir().join(format!("yebisu-doc-other-{}", std::process::id()));
+    let host = Host::default();
+    host.doc().set_silent(
+        serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
+            .unwrap_or_else(|e| panic!("fixture: {e}")),
+    );
+    let (backend, _) = host.recorded(false).unwrap_or_else(|e| panic!("mock: {e}"));
+    let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
+    view.update(cx, |this, _| {
+        this.select_host("pro-dev");
+        let generation = this.terminal.link.reset_for_core();
+        this.terminal.core_mode = true;
+        this.terminal.live = crate::live::Live::default();
+        this.terminal.core = Some(
+            Session::start_doc(
+                "pro-dev".into(),
+                generation,
+                this.terminal.link.inbox.clone(),
+                move || Ok(backend),
+                Some(root.clone()),
+                Mailbox::detached(),
+                herdr_doc_sync::DocPlan {
+                    source: herdr_doc_sync::DocSource::Core,
+                    period: Duration::from_millis(200),
+                },
+            )
+            .unwrap_or_else(|e| panic!("start: {e}")),
+        );
+    });
+    wait_for(&view, cx, "the first document space", |this| {
+        tab_labels(this) == ["1", "logs"] && this.terminal.live.connected
+    });
+    view.update(cx, |this, cx| {
+        let core = this
+            .terminal
+            .core
+            .as_ref()
+            .unwrap_or_else(|| panic!("default core"));
+        core.publish_discovery(
+            Some(&root),
+            "pro-dev",
+            br#"["setup",["c0ffee",[{"address":"t1","state":"live","name":"shell","status":{"state":"idle","title":"Shell"}}]]]"#,
+        )
+        .unwrap_or_else(|e| panic!("catalog: {e}"));
+        let row = herdr2_hosts(&this.shell.sidebar, &this.terminal, &this.board.hidden)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("host row"));
+        let rows = row
+            .spaces
+            .iter()
+            .map(|s| (s.id.as_str(), s.name.as_str(), s.detail.as_str()))
+            .collect::<Vec<_>>();
+        let documented = rows
+            .iter()
+            .filter(|(id, _, _)| id.starts_with("default\0"))
+            .map(|(_, name, _)| *name)
+            .collect::<Vec<_>>();
+        assert_eq!(documented, ["Build", "beta"], "{rows:?}");
+        assert!(
+            rows.contains(&("setup", "setup", "iPad only")),
+            "the other session keeps its own row: {rows:?}"
+        );
+        let (peer, _) =
+            crate::core_mock::recorded(false).unwrap_or_else(|e| panic!("setup peer: {e}"));
+        this.terminal.core_test_backend = Some(peer);
+        this.open_herdr2_row(
+            &row.host,
+            &row.boot,
+            row.generation,
+            CoreRow::Space("setup".into()),
+            cx,
+        )
+        .unwrap_or_else(|e| panic!("open setup: {e}"));
+    });
+    wait_for(&view, cx, "the setup session", |this| {
+        this.shell.herdr2.selected_session("pro-dev") == "setup" && this.terminal.live.connected
+    });
+    view.update(cx, |this, _| {
+        this.terminal.core.take();
+    });
+    let _ = std::fs::remove_dir_all(root);
+}
