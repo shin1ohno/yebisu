@@ -238,7 +238,8 @@ pub(crate) struct Session {
     sessions: SessionList,
     /// Set once by the worker when it removed its own space.
     removal: Arc<Mutex<Option<vacate::Removal>>>,
-    #[cfg(test)]
+    /// Set by the worker thread when it returns, after any failure reason
+    /// is in `live`.
     pub finished: Arc<AtomicBool>,
 }
 impl Drop for Session {
@@ -466,9 +467,12 @@ impl Session {
             name,
             sessions,
             removal,
-            #[cfg(test)]
             finished,
         })
+    }
+    /// The worker has stopped: dial failure, a lost session or a retirement.
+    pub fn finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
     }
     // Cancels queued consumer commands. Already-published SDK transport writes
     // require an SDK writer fence and are not claimed cancelled by this epoch.
