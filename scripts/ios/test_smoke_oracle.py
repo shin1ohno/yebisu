@@ -32,6 +32,9 @@ class SmokeOracleTests(unittest.TestCase):
                         color=colors[(xx//50)%len(colors)]
                         rows[yy][xx*4:xx*4+4]=bytes.fromhex(color+'ff')
             events.append({'kind':'input','input':text,'marked':None,'time':timestamp-0.2})
+            if stage == 'initial':
+                events.append({'kind':'input-receipt','receipt':'touch','stage':'began','touch_kind':'direct',
+                               'x':50.0,'y':42.5,'touches':1,'time':timestamp-0.3})
             oracle.write_png(self.positive/(stage+'.png'),100,100,4,rows)
         (self.positive/'stages.json').write_text(json.dumps(stages))
         (self.positive/'app.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
@@ -58,7 +61,7 @@ class SmokeOracleTests(unittest.TestCase):
             oracle.validate(self.positive, verbose=False)
 
     def test_each_independent_fault_is_rejected_for_its_own_reason(self):
-        for mode, reason in [('text','text region'), ('quad','quad region'), ('image','image region'), ('input','input result'), ('counter-background','counter did not advance across background'), ('counter-idle','counter did not advance across idle')]:
+        for mode, reason in [('text','text region'), ('quad','quad region'), ('image','image region'), ('input','input result'), ('touch-receipt','input-receipt touch'), ('counter-background','counter did not advance across background'), ('counter-idle','counter did not advance across idle')]:
             with self.subTest(mode=mode):
                 negative = self.root / mode
                 oracle.negative_fixture(self.positive, negative, mode)

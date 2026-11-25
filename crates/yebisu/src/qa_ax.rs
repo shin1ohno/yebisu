@@ -22,6 +22,9 @@ use gpui::AnyElement;
 pub(crate) mod core;
 #[path = "qa_ax_ids.rs"]
 pub(crate) mod ids;
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+#[path = "qa_ax_input.rs"]
+pub(crate) mod input;
 #[path = "qa_ax_keys.rs"]
 mod keys;
 #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]

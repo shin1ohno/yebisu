@@ -367,8 +367,64 @@ class P12OracleTests(unittest.TestCase):
 
     def test_lost_tap_without_gui_close_record_is_named_with_nearby_build(self):
         # An older artifact has no menu-close failure; the oracle itself still names the lost tap.
-        self.rejected(self.lose_tap("host"), r"tap lost \(class A\) in case host: the pick reached no native menu callback; "
+        self.rejected(self.lose_tap("host"), r"tap lost \(class A2\) in case host: no menu-perform; "
                                              r"rebuild build at \+0\.30 s \(changed=True, host=h, boot=b, pane=w1:p3, epoch=0\)")
+
+    def lose_at(self, case, *receipts):
+        """A lost pick (lose_tap) with the app's input receipts inside the pick window."""
+        def edit(r,m,u,s):
+            self.lose_tap(case)(r,m,u,s)
+            pick = select(u,"os-menu-pick",case)
+            for n, receipt in enumerate(receipts):
+                r.append(dict(kind="input-receipt", time=pick["started"]+.1+n*.01, **receipt))
+        return edit
+
+    def test_each_lost_stage_is_named(self):
+        """Issue #142 stage 2-6: the A2 failure names where the command stopped, by the app's receipts."""
+        performed = dict(receipt="menu-perform", outcome="performed", generation=3, index=1, current=3, keyed=False)
+        cases = {
+            "no menu-perform": [dict(receipt="touch", stage="began", touch_kind="direct", x=1.0, y=2.0, touches=1)],
+            "menu-perform no_tag": [dict(receipt="menu-perform", outcome="no_tag", current=3)],
+            "menu-deliver stale_generation": [performed, dict(receipt="menu-deliver", outcome="stale_generation",
+                                                              generation=3, index=1, current=4)],
+            "menu-deliver no_callback": [performed, dict(receipt="menu-deliver", outcome="no_callback", generation=3, index=1, current=3)],
+            "menu-deliver callback_running": [performed, dict(receipt="menu-deliver", outcome="callback_running",
+                                                              generation=3, index=1, current=3)],
+            "menu-global": [performed, dict(receipt="menu-deliver", outcome="delivered", generation=3, index=1, current=3),
+                            dict(receipt="menu-global")],
+            "menu-perform no_sender": [dict(receipt="menu-perform", outcome="no_sender", current=-1)],
+            "menu-perform without menu-deliver": [performed],
+        }
+        for stage, receipts in cases.items():
+            with self.subTest(stage=stage):
+                self.rejected(self.lose_at("sidebar", *receipts), rf"tap lost \(class A2\) in case sidebar: {stage}; ")
+
+    def test_a_delivered_command_without_a_callback_stopped_in_gpui_or_yebisu(self):
+        receipts = [dict(receipt="menu-perform", outcome="performed", generation=3, index=1, current=3, keyed=False),
+                    dict(receipt="menu-deliver", outcome="delivered", generation=3, index=1, current=3)]
+        self.rejected(self.lose_at("palette", *receipts), r"tap lost \(class A2\) in case palette: menu-deliver delivered: "
+                                                          r"the command reached GPUI; it stopped in GPUI or yebisu; ")
+
+    def test_receipts_outside_the_pick_window_are_not_its_stage(self):
+        def edit(r,m,u,s):
+            self.lose_tap("sidebar")(r,m,u,s)
+            pick = select(u,"os-menu-pick","sidebar")
+            r.append(dict(kind="input-receipt", receipt="menu-global", time=pick["ended"]+5))
+        self.rejected(edit, r"in case sidebar: no menu-perform; ")
+
+    def test_input_receipts_are_counted_in_the_verdict(self):
+        records, messages, ui, shots = fixture()
+        self.assertEqual(p12.validate(records, messages, ui, shots)["input_receipts"], {})
+        records.append(dict(kind="input-receipt", receipt="touch", time=1))
+        records.append(dict(kind="input-receipt", receipt="touch", time=2))
+        records.append(dict(kind="input-receipt", receipt="menu-perform", time=3))
+        self.assertEqual(p12.validate(records, messages, ui, shots)["input_receipts"], {"menu-perform": 1, "touch": 2})
+
+    def test_an_unexpected_peer_message_is_named_by_its_kind(self):
+        """Issue #142 stage 2-4: the next class P failure names the message, never its payload."""
+        def edit(r,m,u,s):
+            insert_ingress(m, m[1]["time"], dict(other_message=True, message_kind="Detach"))
+        self.rejected(edit, r"unexpected peer message: \['Detach'\]")
 
     def test_menu_still_open_after_pick_is_named(self):
         def edit(r,m,u,s):
