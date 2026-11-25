@@ -57,6 +57,7 @@ fn readable(spaces: Vec<DocSpace>, selected: Option<&str>, local_tabs: usize) ->
         state: DocRows::Readable(spaces),
         selected: selected.map(str::to_owned),
         local_tabs,
+        version: 1,
     }
 }
 
@@ -143,6 +144,7 @@ fn unreadable_shows_one_row_with_reason() {
         state: DocRows::Unreadable,
         selected: None,
         local_tabs: 1,
+        version: 1,
     };
     let catalog = [session("default", vec![tab("t1", &["t1"])], Some(doc))];
     assert_eq!(

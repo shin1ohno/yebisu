@@ -17,6 +17,7 @@ use sheprd_client::{Method, protocol::ClientShellSnapshot};
 use std::task::{Context as TaskContext, Poll};
 
 pub(crate) mod entry;
+pub(crate) mod herdr2;
 pub(crate) mod labels;
 #[cfg(target_os = "ios")]
 mod native;
@@ -154,6 +155,14 @@ pub(crate) struct RenameTarget {
     pub(crate) boot: String,
     pub(crate) generation: u64,
     pub(crate) object: RenameObject,
+}
+
+impl RenameTarget {
+    /// Whether "" may be committed: a Herdr 1 pane, or a Herdr 2 space or
+    /// tab, whose "" is the document's automatic name (#144 Design E).
+    pub(crate) fn allows_empty(&self) -> bool {
+        self.kind == HerdrKind::Herdr2 || self.object.allows_empty()
+    }
 }
 
 /// Why the field closed (the SDK's `NativeInlineDismissReason`).
@@ -421,7 +430,7 @@ impl Smoke {
             return Some(FIND_OPEN);
         }
         if target.kind == HerdrKind::Herdr2 {
-            return Some(HERDR2);
+            return self.herdr2_rename_unavailable(target);
         }
         if target.host != self.terminal.reconnect.target
             || target.generation != self.terminal.link.generation
@@ -459,9 +468,15 @@ impl Smoke {
     /// The selected host's `object` as a rename target.
     pub(crate) fn rename_target(&self, object: RenameObject) -> Option<RenameTarget> {
         let shown = snapshot(&self.terminal.live)?;
+        let kind = self.terminal.herdr_kind();
+        let object = if kind == HerdrKind::Herdr2 {
+            self.herdr2_object(object)
+        } else {
+            object
+        };
         Some(RenameTarget {
             host: self.terminal.reconnect.target.clone(),
-            kind: self.terminal.herdr_kind(),
+            kind,
             boot: shown.boot_id.clone(),
             generation: self.terminal.link.generation,
             object,
@@ -531,17 +546,35 @@ impl Smoke {
             return;
         };
         let (font_size, font_weight) = slot::font(anchor);
+        // Herdr 2's names are the document's (`herdr2.rs`), not the
+        // synthesized snapshot's, which holds no spaces or tabs.
+        let (text, accessibility_label) = match target.kind {
+            HerdrKind::Herdr2 => {
+                let Some(doc) = self.doc_names().filter(|doc| doc.holds(&target.object)) else {
+                    self.end_rename(id, Some(target.object.closed_text()), cx);
+                    return;
+                };
+                (
+                    doc.name(&target.object),
+                    doc.accessibility_label(&target.object),
+                )
+            }
+            HerdrKind::Herdr1 => (
+                target.object.host_name(shown),
+                target.object.accessibility_label(shown),
+            ),
+        };
         let request = FieldRequest {
             frame: placed.frame,
             clip: placed.clip,
-            text: target.object.host_name(shown),
-            placeholder: if target.object.allows_empty() {
+            placeholder: if target.allows_empty() {
                 AUTOMATIC_NAME.into()
             } else {
-                target.object.host_name(shown)
+                text.clone()
             },
-            accessibility_label: target.object.accessibility_label(shown),
-            allow_empty: target.object.allows_empty(),
+            text,
+            accessibility_label,
+            allow_empty: target.allows_empty(),
             font_size,
             font_weight,
         };

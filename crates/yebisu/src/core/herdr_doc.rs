@@ -136,6 +136,12 @@ pub(crate) enum Intent {
         new_container: String,
         new_terminal: String,
     },
+    /// The iPad's saved `default` tabs, moved once into one new space
+    /// named "iPad" (Design G, owner decision 4).
+    Migrate {
+        space_id: String,
+        tabs: Vec<MigratedTab>,
+    },
     /// Tests: write this value as it is, so each gate is tested alone.
     #[cfg(test)]
     Replace(Value),
@@ -146,6 +152,18 @@ pub(crate) enum Intent {
         name: String,
     },
 }
+
+/// One saved tab for `Intent::Migrate`: its new id, each pane's new id and
+/// terminal, and whether its two panes are stacked.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MigratedTab {
+    pub(crate) tab_id: String,
+    pub(crate) panes: Vec<(String, String)>,
+    pub(crate) vertical: bool,
+}
+
+/// The name of the space the iPad's saved tabs move into (decision 4).
+pub(crate) const MIGRATED_SPACE: &str = "iPad";
 
 /// `Unchanged` is the idempotent case: nothing to write.
 #[derive(Debug, Clone, PartialEq)]
@@ -393,6 +411,41 @@ pub(crate) fn apply(value: &Value, intent: &Intent) -> Result<Applied, DocError>
             push(&mut next, "spaces", space)?;
             Ok(Applied::Changed(next))
         }
+        Intent::Migrate { space_id, tabs } => {
+            // A terminal the document already names stays where it is, so
+            // a migration that landed once adds nothing the second time.
+            let tabs = tabs
+                .iter()
+                .filter_map(|tab| {
+                    let panes = tab
+                        .panes
+                        .iter()
+                        .filter(|(_, terminal)| !holds(terminal))
+                        .map(|(pane, terminal)| {
+                            json!({"id": pane, "type": "block", "content": {"terminal": terminal}})
+                        })
+                        .collect::<Vec<_>>();
+                    let kind = if tab.vertical && panes.len() == 2 {
+                        "column"
+                    } else {
+                        "row"
+                    };
+                    (!panes.is_empty()).then(|| {
+                        json!({"id": tab.tab_id, "name": "", "root":
+                            {"id": tab.tab_id, "type": kind, "children": panes}})
+                    })
+                })
+                .collect::<Vec<_>>();
+            if tabs.is_empty() {
+                return Ok(Applied::Unchanged);
+            }
+            let space = json!({"id": space_id, "name": MIGRATED_SPACE, "folder": "", "tabs": tabs});
+            if next.is_null() {
+                next = json!({});
+            }
+            push(&mut next, "spaces", space)?;
+            Ok(Applied::Changed(next))
+        }
         Intent::Split {
             terminal,
             axis,
@@ -605,7 +658,7 @@ fn only_intended(original: &Value, candidate: &Value, intent: &Intent) -> bool {
             .iter()
             .position(|known| known.id == *space)
             .is_some_and(|i| unpush(original, &mut undone, &["spaces".into(), i.into()], "tabs")),
-        Intent::NewSpace { .. } => {
+        Intent::NewSpace { .. } | Intent::Migrate { .. } => {
             let undone_top = unpush(original, &mut undone, &[], "spaces");
             if original.is_null() && undone.as_object().is_some_and(Map::is_empty) {
                 undone = Value::Null;

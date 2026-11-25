@@ -64,6 +64,9 @@ pub(crate) struct ChromeState {
     /// Herdr 2 only: the session is still being dialed (no frame yet and its
     /// worker has not stopped). Neither connected nor failed.
     pub(crate) connecting: bool,
+    /// Herdr 2 only: the drawn `default` session's `herdr-app` document is
+    /// readable, so its spaces can be renamed (#144 D3).
+    pub(crate) herdr2_document: bool,
     pub(crate) selecting: bool,
     pub(crate) sheet_open: bool,
     pub(crate) find_available: bool,

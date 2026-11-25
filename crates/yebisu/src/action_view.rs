@@ -41,13 +41,18 @@ impl Smoke {
             .into_any_element()
     }
     /// The small line under a disabled palette row (issue #143 AC15): on
-    /// Herdr 2 the Rename rows say why they are disabled.
+    /// Herdr 2 the Rename rows say why they are disabled (Rename Pane
+    /// always; Rename Space and Rename Tab without the document's, #144 D3).
     pub(crate) fn palette_reason(&self, command: Command, enabled: bool) -> Option<&'static str> {
         let rename = matches!(
             command,
             Command::RenamePane | Command::RenameTab | Command::RenameWorkspace
         );
-        (rename && !enabled && self.terminal.core_mode).then_some(crate::shell::rename::HERDR2)
+        if !rename || enabled || !self.terminal.core_mode {
+            return None;
+        }
+        crate::shell::rename::herdr2::command_unavailable(&self.terminal, command)
+            .or(Some(crate::shell::rename::HERDR2))
     }
 
     /// The commands the palette list shows (the whole supported catalog
