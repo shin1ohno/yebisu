@@ -98,9 +98,16 @@ extension SmokeQA {
         save("forward-sheet")
         // A tap on the field gives it the text input and the keyboard, as a finger would.
         try qa.press(QAIds.forwardField, timeout: 10)
-        app.typeText("\(port)")
-        _ = try qa.waitState("the field holds \(port)", timeout: 10) {
-            (self.sheet($0)?["field"] as? String) == "\(port)"
+        // One digit at a time, each confirmed in qa.state, as a finger types:
+        // typeText("8000") in one burst once left only "8" in the field.
+        var typed = ""
+        for digit in "\(port)" {
+            typed.append(digit)
+            app.typeText(String(digit))
+            let want = typed
+            _ = try qa.waitState("the field holds \(want)", timeout: 10) {
+                (self.sheet($0)?["field"] as? String) == want
+            }
         }
         try qa.press(QAIds.forwardSubmit, timeout: 10, what: "the forward starts and the sheet closes") {
             self.sheet($0) == nil && self.forward($0, remote: port) != nil
