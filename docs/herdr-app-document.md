@@ -78,6 +78,40 @@ For each official-app release:
    document's shape: change `parse_view` and the gates in `herdr_doc.rs` before
    yebisu writes to that release.
 
+## Moving the iPad's saved tabs (D5)
+
+An earlier yebisu kept the `default` session's tabs only in the iPad file
+`herdr2/core-<host hex>-default.json`. The first readable document of a
+`default` connection takes them once, in one version-checked write, as a new
+space named `iPad` (owner decision 4). Two panes become a `row`, or a `column`
+when they were stacked.
+
+- Before the file is rewritten, it is copied once to
+  `core-<host hex>-default.v2.json`. An existing copy is never overwritten, and
+  the session list ignores the copy. To undo the move, put the copy back as the
+  `default` file and remove its `migrated` key.
+- The file records `"migrated": <document version>` and keeps only the iPad's
+  own view (`doc_view`), never document tabs. No connection migrates again.
+- A write that landed without the record is recognised by its terminals already
+  being in the document: the record is written and no second space is made. A
+  migration that fails is tried again at the next connection.
+- The moved terminals keep no `herdr.space` or `herdr.tab` labels: the pinned
+  client has no `terminal.label`. Reading the official app's source says it
+  shows a terminal its tree names without the labels, but nobody has seen it.
+  This is owner check O5 in the D5 pull request; if the tabs do not appear, the
+  fix is a herdr-gpui issue to add `terminal.label`.
+
+The opt-in test `core::herdr_doc_sync::live_tests` checks the document
+semantics against a real herdr-core: version 0 for a document never written, a
+stale version refused as `conflict` with nothing changed, the `doc` event,
+values over 1 MiB refused, and value, version and unknown fields kept across a
+restart. It starts its own core with the private fleet of `core/space_fleet.rs`,
+in the session `test-doc` (checked to start with `test-`), reaches it through
+`hc connect` as the iPad does, and stops only that core. Like the other fleet
+tests it runs one at a time:
+
+    YEBISU_HERDR_CORE_TEST_BINARY=/path/to/herdr-core cargo test -p yebisu herdr_doc_live -- --ignored --test-threads=1
+
 ## Still to check against a real document
 
 - The split rule: halving a `weight`, a block without `size`, and wrapping a

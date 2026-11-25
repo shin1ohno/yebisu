@@ -105,6 +105,11 @@ pub(super) fn run(
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
+    // #144 D5: the file as it was, before its tabs ever move into the document.
+    if doc_mailbox.is_some() && workspace.migrated.is_none() {
+        let _ = store::backup_once(root.as_deref(), &host)
+            .inspect_err(|error| tracing::warn!(%error, "Herdr 2 layout backup"));
+    }
     store::save_workspace(root.as_deref(), &host, &name, &doc.saved(&workspace))?;
     let mut sessions = catalog_sessions(root.as_deref(), &host, Observations::new())?;
     sessions.retain(|row| row.name != name);
@@ -134,16 +139,24 @@ pub(super) fn run(
             .and_then(|mailbox| mailbox.since(&mut doc_seen))
         {
             let (before, view) = (doc_tabs::drawn(&workspace), workspace.doc_view.clone());
+            let migrated = workspace.migrated;
             if doc.take(snapshot, &mut workspace) {
                 if before != doc_tabs::drawn(&workspace) {
                     active = Active::attach(&backend, &mut workspace, size, column.latest())?;
                     epoch += 1;
                     changed = true;
                 }
-                persist = view != workspace.doc_view;
+                persist = view != workspace.doc_view || migrated != workspace.migrated;
                 refresh(&mut sessions, &name, &workspace, &doc);
                 rows_changed = true;
                 command_error = doc.notice();
+            }
+        }
+        // #144 D5: the iPad's saved `default` tabs move in once.
+        if doc.migration_due(&workspace) {
+            let backup = || store::backup_once(root.as_deref(), &host);
+            if let Err(error) = doc.migrate(doc_writer.as_ref(), &workspace, backup) {
+                command_error = Some(error.to_string());
             }
         }
         for command in commands.try_iter().take(256) {
