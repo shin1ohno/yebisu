@@ -11,7 +11,6 @@ enum QAIds {
     static let railCurrentSpace = "qa.rail.current-space"
     static let railMenuRename = "qa.rail.menu-rename"
     static let tabMenuRename = "qa.tab.menu-rename"
-    static let menuCommandPalette = "qa.menu.command-palette"
     static let tabsCurrent = "qa.tabs.current"
     static let tabsMore = "qa.tabs.more"
     static let menuPaste = "qa.menu.paste"

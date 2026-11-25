@@ -39,7 +39,7 @@ pub(crate) fn split_label(label: &str) -> (&str, &str) {
 
 impl Smoke {
     /// A tab's label: its number and its name, the name renamable over
-    /// `TabLabel`.
+    /// `TabLabel`. `focused` is the row's own flag (Herdr 1 and Herdr 2).
     pub(super) fn tab_label(
         &self,
         index: usize,
@@ -47,12 +47,11 @@ impl Smoke {
         boot: &str,
         id: &str,
         font_weight: FontWeight,
+        focused: bool,
     ) -> AnyElement {
         let object = RenameObject::Tab(id.to_owned());
         let plain = self.rename_label(boot, &object).is_none()
             && !self.shell.rename.editing(RenameAnchor::TabLabel, &object);
-        let focused = crate::board::snapshot(&self.terminal.live)
-            .is_some_and(|s| s.focused_tab_id.as_deref() == Some(id));
         let body = div()
             .debug_selector(move || format!("shell-tab-body-{index}"))
             .relative()

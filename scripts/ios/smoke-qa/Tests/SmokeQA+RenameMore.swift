@@ -92,8 +92,13 @@ extension SmokeQA {
         }
         let reason = "Not available on Herdr 2 yet"
 
+        // Herdr 2's ... menu has no Command palette item: the palette opens with Command-Shift-P
+        // once the terminal has the keyboard.
+        try qa.press(QAIds.terminalInput, effect: 10, what: "the software keyboard is up") { $0.keyboardUp }
+        try qa.settledKeyboard("rename-herdr2 keyboard up")
         renameStep("S10-palette")
-        let palette = try menuItem(qa, QAIds.menuCommandPalette, what: "the palette is open") {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        let palette = try qa.waitState("the palette is open") {
             (self.renameState($0)["palette"] as? [[String: Any]])?.isEmpty == false
         }
         save("rename-s10-palette")
@@ -101,7 +106,8 @@ extension SmokeQA {
         let space = rows.first { $0["label"] as? String == "Rename Space" }
         XCTAssertEqual(space?["enabled"] as? Bool, false, "palette rows: \(rows)")
         XCTAssertEqual(space?["reason"] as? String, reason, "palette rows: \(rows)")
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        // Command-Shift-P toggles the palette (XCUITest's Escape did not close it).
+        app.typeKey("p", modifierFlags: [.command, .shift])
         _ = try qa.waitState("the palette closed") { self.renameState($0)["palette"] is NSNull }
 
         renameStep("S10-tab")

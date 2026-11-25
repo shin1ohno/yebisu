@@ -359,7 +359,7 @@ impl Smoke {
             at: Default::default(),
         };
         let (rename_host, rename_id, rename_boot) = (host.clone(), id.clone(), boot.clone());
-        let name = self.tab_label(index, &label, &boot, &id, appearance.weight);
+        let name = self.tab_label(index, &label, &boot, &id, appearance.weight, focused);
         div()
             .id(("shell-tab", index))
             .debug_selector(move || format!("shell-tab-{index}"))
