@@ -2,6 +2,8 @@
 pub(crate) mod doc;
 pub(crate) mod paste;
 #[cfg(test)]
+mod qa_tick_tests;
+#[cfg(test)]
 pub(crate) mod transport;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
@@ -41,6 +43,55 @@ fn qa_statuses() -> bool {
 /// spawned pane report nothing (status-less shells, Q4).
 pub(crate) fn qa_status(id: &str) -> Option<Value> {
     (id == "t2").then(|| json!({"app":"qa","state":"error","title":"QA error agent"}))
+}
+
+/// T-IM-S4 (#139): the mock has no shell to run a background job, so under
+/// `YEBISU_CORE_QA` the typed line `yebisu-139-tick` makes its channel print
+/// one `.` per interval for a while. The output moves the cursor while the
+/// Simulator check holds a composition open.
+struct QaTicks {
+    enabled: bool,
+    every: Duration,
+    typed: Vec<u8>,
+    // (channel, next tick, ticks left)
+    due: Option<(u32, std::time::Instant, u32)>,
+}
+impl QaTicks {
+    const LINE: &[u8] = b"yebisu-139-tick\r";
+    fn new(enabled: bool, every: Duration) -> Self {
+        Self {
+            enabled,
+            every,
+            typed: Vec::new(),
+            due: None,
+        }
+    }
+    fn typed(&mut self, channel: u32, bytes: &[u8]) {
+        if !self.enabled {
+            return;
+        }
+        // Return may arrive as either byte.
+        self.typed
+            .extend(bytes.iter().map(|&b| if b == b'\n' { b'\r' } else { b }));
+        let stale = self.typed.len().saturating_sub(Self::LINE.len());
+        self.typed.drain(..stale);
+        if self.typed == Self::LINE {
+            self.due = Some((channel, std::time::Instant::now() + self.every, 60));
+        }
+    }
+    fn tick(&mut self) -> Option<u32> {
+        let (channel, next, left) = self.due.as_mut()?;
+        if std::time::Instant::now() < *next {
+            return None;
+        }
+        let channel = *channel;
+        *next += self.every;
+        *left -= 1;
+        if *left == 0 {
+            self.due = None;
+        }
+        Some(channel)
+    }
 }
 
 type Receipts = mpsc::Receiver<(u32, Vec<u8>)>;
@@ -105,12 +156,18 @@ impl Host {
                 let mut next_channel = 1;
                 let mut channels = std::collections::BTreeMap::new();
                 let mut pending = std::collections::BTreeMap::<usize, Value>::new();
+                let mut ticks = QaTicks::new(qa_statuses(), Duration::from_secs(2));
                 // Event subscriptions never echo input; `seen` counts doc events.
                 let (mut subscriptions, mut seen) = (std::collections::BTreeSet::new(), 0);
                 loop {
                     let frame: Frame = loop {
                         if probe.close.load(std::sync::atomic::Ordering::Acquire) {
                             return Ok(());
+                        }
+                        if let Some(channel) = ticks.tick()
+                            && channels.contains_key(&channel)
+                        {
+                            server.write_all(&encode(channel, Kind::Data, b".")?)?;
                         }
                         if probe.end.swap(false, std::sync::atomic::Ordering::AcqRel) {
                             for channel in channels.keys() {
@@ -205,6 +262,7 @@ impl Host {
                                         Kind::Data,
                                         &frame.payload,
                                     )?)?;
+                                    ticks.typed(frame.channel, &frame.payload);
                                 }
                             }
                             let _ = send.send((frame.channel, frame.payload));
