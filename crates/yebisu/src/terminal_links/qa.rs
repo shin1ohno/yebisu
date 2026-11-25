@@ -216,7 +216,9 @@ pub(crate) fn mock_regions(
     let (Some(col), Some(row)) = (number("col"), number("viewport_row")) else {
         return Vec::new();
     };
-    let Some(link) = super::frame_link(frame, col, row, 0..frame.width, 0..frame.height) else {
+    // The Herdr 1 peer's own frame: Herdr 1 carries no soft-wrap marks.
+    let Some(link) = super::frame_link(frame, col, row, 0..frame.width, 0..frame.height, false)
+    else {
         return Vec::new();
     };
     let super::Target::Web(url) = &link.target else {

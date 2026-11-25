@@ -167,6 +167,8 @@ impl Smoke {
                         json!(match menu.row {
                             crate::shell::sidebar::long_press::PressedRow::Host(_) => "host",
                             crate::shell::sidebar::long_press::PressedRow::Space { .. } => "space",
+                            crate::shell::sidebar::long_press::PressedRow::Forward { .. } =>
+                                "forward",
                         })
                     }),
             ),

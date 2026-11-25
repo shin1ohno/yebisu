@@ -81,6 +81,11 @@ CASES = [
     ("rename-in-pending-request", "shell/rename/send.rs", "        live.rename = Some(RenameTicket {\n",
      "        live.pending_request = Some(request.clone());\n        live.rename = Some(RenameTicket {\n",
      T + "isolation::pending_request_untouched"),
+    # AC12: the host's answer drops what the terminal is composing.
+    ("answer-drops-composition", "shell/rename/send.rs",
+     "            Some(Ok(())) => {\n                let newer",
+     "            Some(Ok(())) => {\n                self.terminal.input.detach();\n                let newer",
+     T + "isolation::terminal_input_untouched"),
     # B-6: the composition is not dropped before the field opens.
     ("no-detach", "shell/rename.rs",
      "        self.terminal.input.detach();\n        let revision_at_open",
@@ -98,6 +103,11 @@ CASES = [
     ("herdr2-as-herdr1", "shell/rename.rs",
      "        if target.kind == HerdrKind::Herdr2 {\n            return Some(HERDR2);",
      "        if false {\n            return Some(HERDR2);", T + "herdr2::no_request"),
+    # AC15: a double tap on a Herdr 2 tab or space row starts a rename (the
+    # double taps have no Herdr 2 check of their own).
+    ("herdr2-double-tap", "shell/rename.rs",
+     "        if target.kind == HerdrKind::Herdr2 {\n            return Some(HERDR2);",
+     "        if false {\n            return Some(HERDR2);", T + "herdr2::double_tap_reason_only"),
     # AC15: the palette row's reason line is gone.
     ("palette-reason-gone", "action_view.rs", "(rename && !enabled && self.terminal.core_mode)",
      "(false && rename && !enabled && self.terminal.core_mode)", T + "herdr2::palette_row_says_why"),

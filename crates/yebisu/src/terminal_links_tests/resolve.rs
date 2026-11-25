@@ -35,8 +35,9 @@ fn an_address_ending_at_the_edge_opens_as_shown(cx: &mut TestAppContext) {
     command_click_opens(cx, "edge", qa::EDGE, "Opening example.com in the browser");
 }
 
-/// Without `pane.link.resolve` (Herdr 2 has none), an address at a row edge
-/// opens nothing and the status line says why.
+/// Without `pane.link.resolve` (a Herdr 1 daemon that lacks it; Herdr 2 is
+/// `core_open.rs`), an address at a row edge opens nothing and the status
+/// line says why.
 #[gpui::test]
 fn an_unproven_address_opens_nothing_where_herdr_cannot_resolve(cx: &mut TestAppContext) {
     let (view, cx, wire) = connected(cx);

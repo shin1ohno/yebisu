@@ -423,3 +423,13 @@ fn run_after_saved_attach_never_reuses_existing_terminal_id() -> crate::Result<(
     );
     Ok(())
 }
+
+#[test]
+fn an_ended_herdr2_link_is_named_by_its_reason() {
+    let lost = crate::Error::Core(sheprd_core_client::Error::Lost);
+    let other = crate::Error::Ssh("refused".into());
+    assert_eq!(ended_code(false, &lost), "herdr2_dial_failed");
+    assert_eq!(ended_code(false, &other), "herdr2_dial_failed");
+    assert_eq!(ended_code(true, &lost), "herdr2_ended_lost");
+    assert_eq!(ended_code(true, &other), "herdr2_ended_error");
+}

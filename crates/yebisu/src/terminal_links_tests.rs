@@ -7,8 +7,12 @@ use sheprd_client::protocol::{
 };
 use unicode_width::UnicodeWidthChar;
 
+#[path = "terminal_links_tests/core_open.rs"]
+mod core_open;
 #[path = "terminal_links_tests/hover.rs"]
 mod hover;
+#[path = "terminal_links_tests/marked.rs"]
+mod marked;
 #[path = "terminal_links_tests/resolve.rs"]
 mod resolve;
 #[path = "terminal_links_tests/tap.rs"]
@@ -112,8 +116,9 @@ fn web(url: &str) -> Target {
     Target::Web(url.into())
 }
 
+/// A press read as on a Herdr 1 surface, which carries no soft-wrap marks.
 fn at(surface: &PaneSurfaceFrame, column: u16, row: u16) -> Option<Link> {
-    pane_link_at(surface, column, row)
+    pane_link_at(surface, column, row, false)
 }
 
 #[test]

@@ -41,7 +41,7 @@ fn menu_items_match_long_press() {
     let state = ChromeState::default();
     assert_eq!(
         labels(host_long_press(&state)),
-        ["Reconnect", "Detach", "Edit"]
+        ["Reconnect", "Detach", "Edit", "Forward port…"]
     );
     assert_eq!(
         labels(space_long_press(&state)),
@@ -88,7 +88,12 @@ fn long_press_carries_the_pressed_row() {
         host_long_press(&state)
     );
     // Another host's row would run them on "alpha": disabled, with why.
+    // Forward port… runs on the row's own host (issue 140, owner decision 7).
     for e in host_long_press_for(&state, "beta", &current) {
+        if e.item == MenuItemId::Host(HostMenuItem::ForwardPort) {
+            assert!(e.enabled, "{e:?}");
+            continue;
+        }
         assert!(
             !e.enabled && e.reason == Some("Select this host first"),
             "{e:?}"

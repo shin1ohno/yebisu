@@ -2,11 +2,12 @@
 use super::session;
 use crate::{
     app::Smoke,
+    core::SessionInfo,
     shell::{
         HerdrKind,
         sidebar::{
             SidebarState,
-            model::{HostEntry, host_link, order_hosts},
+            model::{HostEntry, HostLink, host_link, order_hosts},
         },
     },
     terminal_view::TerminalView,
@@ -14,9 +15,54 @@ use crate::{
 use gpui::Context;
 use std::collections::BTreeMap;
 
+/// The Herdr 2 spaces a view listed while it was connected, and the one it
+/// served. The sidebar draws them, not connected, while the view has no
+/// connected session: a host whose only session ended (a lost link, a
+/// failed dial, Background, Detach) would otherwise lose every space,
+/// `default` included, until a new space made a new session.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Listed {
+    pub(crate) current: String,
+    pub(crate) rows: Vec<SessionInfo>,
+}
+
+impl Listed {
+    /// The space was removed: it is not drawn again.
+    pub(crate) fn forget(&mut self, name: &str) {
+        self.rows.retain(|row| row.name != name);
+    }
+
+    fn holds(&self, name: &str) -> Option<&SessionInfo> {
+        self.rows
+            .iter()
+            .find(|row| row.name == name && row.confirmed)
+    }
+}
+
+impl TerminalView {
+    /// Keeps the list of a connected session for `Listed`; called with each
+    /// update the view takes.
+    pub(crate) fn note_listed(&mut self) {
+        if !self.core_mode || !self.live.connected {
+            return;
+        }
+        let Some(core) = &self.core else {
+            return;
+        };
+        let rows = core.sessions(self.live.input_epoch);
+        if !rows.is_empty() {
+            self.listed = Listed {
+                current: core.name().to_owned(),
+                rows,
+            };
+        }
+    }
+}
+
 /// Herdr 2 host rows: every Herdr 2 terminal view (current and hidden)
-/// whose session has a list. A host with no session or no list yet has no
-/// row; one that is not connected keeps its row without its session.
+/// whose session has a list, or that listed spaces before. A host with
+/// neither has no row; one that is not connected keeps its row with the
+/// spaces it listed last, each not connected.
 pub(crate) fn herdr2_hosts(
     state: &SidebarState,
     current: &TerminalView,
@@ -29,27 +75,31 @@ pub(crate) fn herdr2_hosts(
         .chain(std::iter::once((target, current)))
         .filter(|(host, terminal)| !host.is_empty() && terminal.core_mode)
         .filter_map(|(host, terminal)| {
-            let core = terminal.core.as_ref()?;
-            let statuses = core.statuses();
-            let catalog = core.sessions(terminal.live.input_epoch);
+            let link = host_link(&terminal.live);
+            let core = terminal.core.as_ref();
+            let statuses = core.and_then(crate::core::Session::statuses);
+            let catalog =
+                core.map_or_else(Vec::new, |core| core.sessions(terminal.live.input_epoch));
             #[cfg(test)]
-            let catalog = if catalog.is_empty() && statuses.is_some() {
-                session::bootstrap_catalog(core.name())
-            } else {
-                catalog
+            let catalog = match core {
+                Some(core) if catalog.is_empty() && statuses.is_some() => {
+                    session::bootstrap_catalog(core.name())
+                }
+                _ => catalog,
             };
-            if catalog.is_empty() {
+            let offline = link != HostLink::Connected && !terminal.listed.rows.is_empty();
+            if catalog.is_empty() && !offline {
                 return None;
             }
-            let mut entry = HostEntry::new(host, HerdrKind::Herdr2, host_link(&terminal.live));
+            let mut entry = HostEntry::new(host, HerdrKind::Herdr2, link);
             entry.selected = std::ptr::eq(terminal, current);
             entry.generation = terminal.link.generation;
             entry.boot = crate::board::snapshot(&terminal.live)
                 .map_or_else(String::new, |snapshot| snapshot.boot_id.clone());
             let mut entry = session::host_entry(
                 entry,
-                core.name(),
-                &catalog,
+                core.map_or(terminal.listed.current.as_str(), |core| core.name()),
+                (&catalog, &terminal.listed.rows),
                 statuses.as_deref().unwrap_or_default(),
                 state,
             );
@@ -81,6 +131,14 @@ impl Smoke {
     ) -> crate::Result<()> {
         if self.input_modal() || self.new_space_open() {
             return Err(crate::Error::Ssh("Close the sheet first".into()));
+        }
+        if let CoreRow::Space(identity) = &target
+            && let Some(view) = self.terminal_for(host, HerdrKind::Herdr2)
+            && view.core_mode
+            && !view.live.connected
+            && view.link.generation == generation
+        {
+            return self.open_listed_space(host, identity, cx);
         }
         let view = self
             .terminal_for(host, HerdrKind::Herdr2)
@@ -159,5 +217,28 @@ impl Smoke {
             Some(command) => self.try_core_command(command),
             None => Ok(()),
         }
+    }
+
+    /// A space row drawn while its host had no connected session (`Listed`):
+    /// the tap dials that space, as its row's Reconnect would.
+    fn open_listed_space(
+        &mut self,
+        host: &str,
+        identity: &str,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        let (session, _) = session::split_space_identity(identity);
+        let row = self
+            .terminal_for(host, HerdrKind::Herdr2)
+            .and_then(|view| view.listed.holds(session))
+            .ok_or_else(|| crate::Error::Ssh("Stale Herdr 2 row; tap again".into()))?;
+        let target = crate::core::SessionTarget {
+            host: host.to_owned(),
+            name: session.to_owned(),
+            focus: None,
+            expected_core_id: row.core_id.clone(),
+        };
+        self.shell.sidebar.reveal_host(host);
+        self.connect_core_target(target, cx)
     }
 }

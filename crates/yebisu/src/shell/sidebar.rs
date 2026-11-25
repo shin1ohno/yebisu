@@ -16,6 +16,7 @@ use std::{
 };
 
 pub(crate) mod agent_icon;
+pub(crate) mod forward_row;
 pub(crate) mod icons;
 pub(crate) mod long_press;
 pub(crate) mod model;

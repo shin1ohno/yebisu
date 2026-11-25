@@ -73,16 +73,34 @@ def is_doc(receipt):
     return method.startswith("doc.") or method == "terminal.run"
 
 
-def validate_doc(wire, expected=0):
-    """#144: the doc.set receipts the mock core wrote, each with the version it was sent over.
-    While yebisu only reads the document (D2) there must be none."""
+# testP9HerdrDoc's writes (#144 D4): S5 saves one New tab; S3's New tab is refused once as stale
+# and saved over the newer version; S1 and S4 write nothing.
+DOC_SETS = ("ok", "conflict", "ok")
+LABELS = ("herdr.seen", "herdr.space", "herdr.tab")
+
+
+def validate_doc(wire, expected=DOC_SETS, labelled=2):
+    """#144: the doc.set receipts the mock core wrote, in order, and each terminal.run receipt's
+    labels. A write refused as stale is sent again over a newer version, never the same bytes."""
     sets = [receipt for receipt in wire if receipt.get("method") == "doc.set"]
     for receipt in sets:
         if type(receipt.get("version")) is not int or type(receipt.get("bytes")) is not int:
             raise ValueError("malformed doc.set receipt: %r" % (receipt,))
-    if len(sets) != expected:
-        raise ValueError("expected %d doc.set receipts, found %d: %r" % (expected, len(sets), sets))
-    print("HERDR DOC receiving-system PASS: doc.set receipts", len(sets), flush=True)
+    results = tuple(receipt.get("result") for receipt in sets)
+    if results != tuple(expected):
+        raise ValueError("expected doc.set results %r, found %r" % (tuple(expected), results))
+    for refused, again in zip(sets, sets[1:]):
+        if refused.get("result") == "conflict":
+            if again["version"] <= refused["version"] or again["bytes"] == refused["bytes"]:
+                raise ValueError("a stale write was sent again unchanged: %r %r" % (refused, again))
+    runs = [receipt for receipt in wire if receipt.get("method") == "terminal.run"]
+    for run in runs:
+        labels = run.get("labels")
+        if not isinstance(labels, dict) or tuple(sorted(labels)) != LABELS or labels["herdr.seen"] != "0":
+            raise ValueError("a new terminal without the official labels: %r" % (run,))
+    if len(runs) != labelled:
+        raise ValueError("expected %d labelled terminal.run receipts, found %d" % (labelled, len(runs)))
+    print("HERDR DOC receiving-system PASS: doc.set", list(results), "labelled terminals", len(runs), flush=True)
 
 
 def validate_images(wire):
