@@ -1,12 +1,16 @@
 //! Herdr 2 workspace. Each connection owns an immutable mailbox and bounded FIFO.
 #[cfg(test)]
 mod discovery_tests;
+mod doc_tabs;
+#[cfg(test)]
+mod doc_tabs_tests;
 #[cfg(all(test, unix))]
 mod empty_space_tests;
 mod ended;
-// The document sync thread reads it from #144 D2 on.
+// The document write path (#144 D4) uses `apply`, `check_write` and `new_id`.
 #[cfg_attr(not(test), allow(dead_code))]
 mod herdr_doc;
+pub(crate) mod herdr_doc_sync;
 #[cfg(test)]
 mod herdr_doc_tests;
 #[cfg(test)]
@@ -62,6 +66,9 @@ pub(crate) enum Command {
     SelectTab(String),
     CloseTab(String),
     FocusAddress(String),
+    /// Draws a document space of the `default` session, or the iPad-only
+    /// tabs for `None` (#144 D2, owner answer D2-1).
+    SelectDocSpace(Option<String>),
     Focus(usize),
     Orientation,
     #[cfg(test)]
@@ -91,6 +98,38 @@ pub(crate) struct TabInfo {
     pub(crate) active: bool,
     pub(crate) focused_pane: usize,
     pub(crate) vertical: bool,
+    /// A document tab without a name: `label` is its position (#144).
+    pub(crate) auto_name: bool,
+}
+
+/// What the `herdr-app` document adds to the `default` session's row
+/// (#144 D2). `None` on `SessionInfo` until the first read answered, and
+/// for every other session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DocCatalog {
+    pub(crate) state: DocRows,
+    /// The document space drawn; `None` while the iPad-only tabs are.
+    pub(crate) selected: Option<String>,
+    /// The iPad-only tabs: terminals of this core in no document block.
+    pub(crate) local_tabs: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum DocRows {
+    /// The document's spaces in its order.
+    Readable(Vec<DocSpace>),
+    Unreadable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DocSpace {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    /// No name of its own: `name` is the folder's checkout (decision 9).
+    pub(crate) auto_name: bool,
+    pub(crate) folder: String,
+    /// Every tab of the space; `panes` are all its terminals in order.
+    pub(crate) tabs: Vec<TabInfo>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,6 +140,7 @@ pub(crate) struct SessionInfo {
     pub(crate) core_id: Option<String>,
     pub(crate) statuses: Vec<crate::shell::herdr2_frame::CoreStatus>,
     pub(crate) created: u64,
+    pub(crate) doc: Option<DocCatalog>,
 }
 
 impl SessionInfo {
@@ -144,7 +184,16 @@ impl SessionLists {
         self.published.back().map(|(_, rows)| rows.as_slice())
     }
 
+    /// Rows for a new epoch, or new rows for the epoch already published:
+    /// a document read that changes no drawn pane keeps its epoch (#144), so
+    /// input aimed at that surface is not dropped as stale.
     fn publish(&mut self, epoch: u64, rows: Vec<SessionInfo>) {
+        if let Some((latest, current)) = self.published.back_mut()
+            && *latest == epoch
+        {
+            *current = rows;
+            return;
+        }
         if self.published.len() == PUBLICATION_BOUND {
             self.published.pop_front();
         }
@@ -189,7 +238,8 @@ pub(crate) struct Session {
     sessions: SessionList,
     /// Set once by the worker when it removed its own space.
     removal: Arc<Mutex<Option<vacate::Removal>>>,
-    #[cfg(test)]
+    /// Set by the worker thread when it returns, after any failure reason
+    /// is in `live`.
     pub finished: Arc<AtomicBool>,
 }
 impl Drop for Session {
@@ -241,7 +291,34 @@ impl Session {
             connect,
             root,
             column,
-            poll,
+            (poll, herdr_doc_sync::DocPlan::default()),
+            Discovery::default(),
+        )
+    }
+
+    /// `start` for the `default` session with the document reads `doc`.
+    #[cfg(test)]
+    pub(crate) fn start_doc(
+        host: String,
+        generation: u64,
+        inbox: Arc<Mutex<Live>>,
+        connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
+        root: Option<std::path::PathBuf>,
+        column: crate::shell::single_pane::Mailbox,
+        doc: herdr_doc_sync::DocPlan,
+    ) -> crate::Result<Self> {
+        Self::start_worker(
+            SessionTarget {
+                host,
+                name: "default".into(),
+                focus: None,
+                expected_core_id: None,
+            },
+            (generation, inbox),
+            connect,
+            root,
+            column,
+            (status::PollPlan::default(), doc),
             Discovery::default(),
         )
     }
@@ -261,7 +338,10 @@ impl Session {
             connect,
             root,
             column,
-            status::PollPlan::default(),
+            (
+                status::PollPlan::default(),
+                herdr_doc_sync::DocPlan::default(),
+            ),
             discovery,
         )
     }
@@ -272,7 +352,7 @@ impl Session {
         connect: impl FnOnce() -> crate::Result<sheprd_core_client::CoreBackend> + Send + 'static,
         root: Option<std::path::PathBuf>,
         column: crate::shell::single_pane::Mailbox,
-        poll: status::PollPlan,
+        (poll, doc): (status::PollPlan, herdr_doc_sync::DocPlan),
         discovery: Discovery,
     ) -> crate::Result<Self> {
         let host = target.host.clone();
@@ -322,6 +402,25 @@ impl Session {
                         .inspect_err(|error| tracing::warn!(%error, "Herdr 2 status poll"))
                         .ok()
                     });
+                    // The official app's document is the `default` core's
+                    // (#144 Design A); its reader is dropped with the worker.
+                    let doc_mailbox =
+                        (target.name == "default").then(herdr_doc_sync::DocMailbox::default);
+                    let _doc = match &doc_mailbox {
+                        Some(mailbox) => herdr_doc_sync::DocSync::start(
+                            doc,
+                            (&backend, &target.host),
+                            mailbox.clone(),
+                            shared.clone(),
+                            stopped.clone(),
+                        )
+                        .inspect_err(|error| tracing::warn!(%error, "Herdr 2 document reader"))
+                        .ok()
+                        .flatten(),
+                        None => None,
+                    };
+                    // Without a reader nothing is ever published to wait for.
+                    let doc_mailbox = doc_mailbox.filter(|_| _doc.is_some());
                     #[cfg(all(target_os = "ios", not(test)))]
                     let _discovery = if cfg!(target_abi = "sim")
                         && std::env::var_os("YEBISU_CORE_QA").is_some()
@@ -344,7 +443,7 @@ impl Session {
                         generation,
                         (&shared, &worker_sessions, &worker_removal),
                         (&stopped, &worker_epoch, &column),
-                        receive,
+                        (receive, doc_mailbox),
                         root,
                     )
                 })();
@@ -368,9 +467,12 @@ impl Session {
             name,
             sessions,
             removal,
-            #[cfg(test)]
             finished,
         })
+    }
+    /// The worker has stopped: dial failure, a lost session or a retirement.
+    pub fn finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
     }
     // Cancels queued consumer commands. Already-published SDK transport writes
     // require an SDK writer fence and are not claimed cancelled by this epoch.

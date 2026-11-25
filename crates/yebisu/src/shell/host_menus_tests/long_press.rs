@@ -43,7 +43,10 @@ fn menu_items_match_long_press() {
         labels(host_long_press(&state)),
         ["Reconnect", "Detach", "Edit"]
     );
-    assert_eq!(labels(space_long_press(&state)), ["New tab", "Detach"]);
+    assert_eq!(
+        labels(space_long_press(&state)),
+        ["New tab", "Detach", "Rename Space"]
+    );
     // Every item name round-trips to its item (the menu bar dispatch).
     for (_, entries) in menu_bar(&state, true) {
         for entry in entries {
@@ -99,7 +102,13 @@ fn long_press_carries_the_pressed_row() {
         space_long_press_for(&state, &row("alpha", "w1"), &current),
         space_long_press(&state)
     );
+    // Issue #143 B-3: Rename names any space of the host, so it alone
+    // stays usable on another space's row.
     for e in space_long_press_for(&state, &row("alpha", "w2"), &current) {
+        if e.item == MenuItemId::Space(SpaceMenuItem::Rename) {
+            assert!(e.enabled, "{e:?}");
+            continue;
+        }
         assert!(
             !e.enabled && e.reason == Some("Open this space first"),
             "{e:?}"
