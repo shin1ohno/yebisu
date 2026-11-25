@@ -68,32 +68,66 @@ class ImageEvidenceTests(unittest.TestCase):
 
 
 class DocEvidenceTests(unittest.TestCase):
-    """#144: the mock core's doc.set receipts sit beside the input and put receipts."""
+    """#144: the mock core's doc.set and labelled terminal.run receipts sit beside the input and
+    put receipts."""
 
-    def receipt(self, version=1):
-        return {"method": "doc.set", "name": "herdr-app", "version": version, "bytes": 120, "result": "ok"}
+    def receipt(self, version=1, result="ok", size=120):
+        return {"method": "doc.set", "name": "herdr-app", "version": version, "bytes": size, "result": result}
+
+    def run_receipt(self, terminal="t3"):
+        return {"method": "terminal.run", "terminal": terminal,
+                "labels": {"herdr.space": "spa", "herdr.tab": "tba", "herdr.seen": "0"}}
+
+    def written(self):
+        # S5's save, then S3's stale write and the write again over the newer version.
+        return [self.receipt(1), self.run_receipt("t3"), self.receipt(1, "conflict", 120),
+                self.receipt(2, "ok", 135), self.run_receipt("t3")]
 
     def test_doc_receipts_pass_the_other_observers(self):
         paints, wire = ImageEvidenceTests().fixture()
         wire.insert(1, self.receipt())
-        wire.insert(2, {"method": "terminal.run", "terminal": "t9",
-                        "labels": {"herdr.space": "spa", "herdr.tab": "tba", "herdr.seen": "0"}})
+        wire.insert(2, self.run_receipt("t9"))
         p9.validate(paints, wire)
         p9.validate_images(wire)
 
+    def test_the_herdr_doc_writes_pass(self):
+        _, wire = P9EvidenceTests().fixture()
+        p9.validate_doc(wire + self.written())
+
     def test_a_read_only_run_writes_no_document(self):
         _, wire = P9EvidenceTests().fixture()
-        p9.validate_doc(wire)
-        with self.assertRaisesRegex(ValueError, "expected 0 doc.set receipts, found 1"):
-            p9.validate_doc(wire + [self.receipt()])
+        p9.validate_doc(wire, expected=(), labelled=0)
+        with self.assertRaisesRegex(ValueError, "expected doc.set results"):
+            p9.validate_doc(wire + [self.receipt()], expected=(), labelled=0)
 
-    def test_counts_and_schema(self):
-        p9.validate_doc([self.receipt(1), self.receipt(2)], expected=2)
-        with self.assertRaisesRegex(ValueError, "expected 1"):
-            p9.validate_doc([], expected=1)
-        for broken in ({"method": "doc.set", "bytes": 1}, {"method": "doc.set", "version": "1", "bytes": 1}):
+    def test_missing_extra_or_reordered_writes_fail(self):
+        written = self.written()
+        for broken in (written[:-2], written + [self.receipt(3)], [written[2], written[0]] + written[3:]):
+            with self.subTest(broken=broken), self.assertRaisesRegex(ValueError, "expected doc.set results"):
+                p9.validate_doc(broken)
+
+    def test_a_stale_write_sent_again_unchanged_fails(self):
+        for again in (self.receipt(1, "ok", 135), self.receipt(2, "ok", 120)):
+            written = self.written()
+            written[3] = again
+            with self.subTest(again=again), self.assertRaisesRegex(ValueError, "sent again unchanged"):
+                p9.validate_doc(written)
+
+    def test_terminals_need_the_official_labels(self):
+        for labels in ({"herdr.space": "spa", "herdr.tab": "tba"}, {"herdr.space": "spa", "herdr.tab": "tba",
+                                                                     "herdr.seen": "1"}, None):
+            written = self.written()
+            written[1] = {"method": "terminal.run", "terminal": "t3", "labels": labels}
+            with self.subTest(labels=labels), self.assertRaisesRegex(ValueError, "official labels"):
+                p9.validate_doc(written)
+        with self.assertRaisesRegex(ValueError, "labelled terminal.run"):
+            p9.validate_doc(self.written()[:-1])
+
+    def test_schema(self):
+        for broken in ({"method": "doc.set", "bytes": 1, "result": "ok"},
+                       {"method": "doc.set", "version": "1", "bytes": 1, "result": "ok"}):
             with self.subTest(broken=broken), self.assertRaisesRegex(ValueError, "malformed"):
-                p9.validate_doc([broken], expected=1)
+                p9.validate_doc([broken], expected=("ok",), labelled=0)
 
 
 class FailureEvidenceTests(unittest.TestCase):

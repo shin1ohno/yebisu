@@ -117,6 +117,7 @@ fn pane_borders_draw_the_name_above_a_one_point_border(cx: &mut TestAppContext) 
                         &font("Menlo"),
                         &[],
                         &assets,
+                        None,
                         window,
                         cx,
                     );

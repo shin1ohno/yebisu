@@ -2,7 +2,7 @@
 //! name or a tab's label, the long-press menus (`sidebar/long_press.rs`,
 //! `rail/menu.rs`, `tab_row/menu.rs`), and the palette and the menu bar
 //! (`Rename Tab`, `Rename Space`, `Rename Pane`, run by `actions.rs`).
-use super::{HERDR2, RenameAnchor, RenameObject, RenameTarget};
+use super::{RenameAnchor, RenameObject, RenameTarget};
 use crate::{
     app::Smoke,
     board::snapshot,
@@ -18,7 +18,8 @@ use sheprd_commands::Command;
 impl Smoke {
     /// A space row's name. A double tap renames the space: the first tap
     /// goes on to the row (it moves there), the second stops here, so the
-    /// row moves once. Herdr 2 rows only say why not.
+    /// row moves once. Herdr 2 rows only say why not: `begin_rename`
+    /// refuses them (`rename_unavailable`), its one Herdr 2 check.
     pub(crate) fn space_name(&self, row: &ListSpace, cx: &mut Context<Self>) -> AnyElement {
         let space = &row.entry;
         let object = RenameObject::Space(space.id.clone());
@@ -51,11 +52,6 @@ impl Smoke {
                     return;
                 }
                 cx.stop_propagation();
-                if target.kind == HerdrKind::Herdr2 {
-                    this.terminal.live.status = HERDR2.into();
-                    cx.notify();
-                    return;
-                }
                 this.begin_rename(target.clone(), RenameAnchor::SpaceRow);
                 cx.notify();
             }))

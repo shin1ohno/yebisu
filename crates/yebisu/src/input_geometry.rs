@@ -13,6 +13,9 @@ pub(crate) struct InputGeometry {
     pub grid: Bounds<Pixels>,
     pub cell_width: f32,
     pub cell_height: f32,
+    /// The pane drawn between rows after a wheel scroll and how many rows
+    /// below its grid position (issue #137 PR 4), set where it is painted.
+    pub slide: Option<(SurfaceRect, f32)>,
 }
 
 impl InputGeometry {
@@ -31,6 +34,7 @@ impl InputGeometry {
             ),
             cell_width,
             cell_height,
+            slide: None,
         }
     }
 
@@ -97,7 +101,29 @@ impl InputGeometry {
         terminal::input_area(Some(surface), grid, self.cell_width, self.cell_height)
     }
 
+    /// The cell drawn at `position`. A pane drawn between rows is hit where
+    /// it is drawn, not at its grid position.
     pub fn cell_at(
+        &self,
+        surface: &PaneSurfaceFrame,
+        position: Point<Pixels>,
+        anchor: Option<(u16, u16)>,
+    ) -> Option<(u16, u16)> {
+        let cell = self.cell_at_rest(surface, position, anchor)?;
+        let Some((rect, offset)) = self.slide.filter(|_| surface.popup.is_none()) else {
+            return Some(cell);
+        };
+        if !terminal::in_rect(rect, cell.0, cell.1) {
+            return Some(cell);
+        }
+        // The content is drawn `offset` rows below its grid position.
+        let drawn = point(position.x, position.y - px(offset * self.cell_height));
+        let (column, row) = self.cell_at_rest(surface, drawn, Some(cell))?;
+        let last = rect.y.saturating_add(rect.height.saturating_sub(1));
+        Some((column, row.clamp(rect.y, last)))
+    }
+
+    fn cell_at_rest(
         &self,
         surface: &PaneSurfaceFrame,
         position: Point<Pixels>,

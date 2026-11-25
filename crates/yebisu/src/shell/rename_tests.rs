@@ -9,7 +9,9 @@
 use super::{FieldDismiss, FieldEvent, FieldRestored, Phase, RenameAnchor, RenameObject};
 use crate::app::Smoke;
 pub(crate) use crate::shell::search::tests::{Receipts, sent, terminal, wait};
-use gpui::{Entity, VisualTestContext};
+use gpui::{
+    Entity, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, VisualTestContext, point,
+};
 use std::time::Duration;
 
 #[path = "rename_tests/confirm.rs"]
@@ -172,6 +174,33 @@ pub(crate) fn methods(
         }
     }
     seen
+}
+
+/// Two taps at the middle of `selector`, as GPUI's touch synthesizes them.
+pub(crate) fn double_click(cx: &mut VisualTestContext, selector: &'static str) {
+    let at = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} is not painted"));
+    let position = point(
+        at.origin.x + at.size.width / 2.,
+        at.origin.y + at.size.height / 2.,
+    );
+    for click_count in [1, 2] {
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::none(),
+            click_count,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::none(),
+            click_count,
+        });
+        cx.run_until_parked();
+    }
 }
 
 pub(crate) fn space(id: &str) -> RenameObject {

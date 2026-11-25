@@ -18,3 +18,5 @@ mod scroll;
 mod support;
 #[path = "screen_tests/worker_hidden.rs"]
 mod worker_hidden;
+#[path = "screen_tests/wrap.rs"]
+mod wrap;

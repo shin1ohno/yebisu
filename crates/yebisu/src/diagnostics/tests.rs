@@ -1,4 +1,6 @@
 use super::*;
+
+mod input;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -258,4 +260,28 @@ fn f24_aggregate_actual_process_stderr_and_diagnostic_file() -> TestResult {
         );
     }
     Ok(())
+}
+
+#[test]
+fn herdr2_link_codes_reach_the_log() {
+    let codes = [
+        "herdr2_connecting",
+        "herdr2_connected",
+        "herdr2_dial_failed",
+        "herdr2_ended_lost",
+        "herdr2_ended_error",
+        "herdr2_space_removed",
+        "herdr2_doc_readable",
+        "herdr2_doc_unreadable",
+        "herdr2_doc_unavailable",
+    ];
+    let (sender, receiver) = sync_channel(codes.len());
+    tracing::subscriber::with_default(
+        Capture {
+            codes: sender,
+            receipts: false,
+        },
+        || codes.into_iter().for_each(record),
+    );
+    assert_eq!(receiver.try_iter().collect::<Vec<_>>(), codes);
 }

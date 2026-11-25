@@ -7,9 +7,13 @@ use crate::{
     input_geometry::InputGeometry,
     terminal::{InputTarget, popup_origin},
     terminal_input::Destination,
-    upstream::wheel::{DEFAULT_MOUSE_SCROLL_LINES, WheelTarget, wheel_target},
+    upstream::wheel::{DEFAULT_MOUSE_SCROLL_LINES, WheelTarget, wheel_rows, wheel_target},
 };
 use gpui::{Context, DispatchPhase, HitboxBehavior, ScrollEvent, Window, canvas, prelude::*};
+/// Wheel scrolling draws Herdr 1 scrollback between rows (issue #137 PR 4,
+/// owner decision 5). yebisu has no setting for it yet; the fork's default.
+pub(crate) const DEFAULT_SMOOTH_SCROLL: bool = true;
+
 use sheprd_client::{
     Method,
     protocol::{ClientMouseKind, ClientMousePosition, ClientPaneInputEvent, PaneSurfaceFrame},
@@ -75,17 +79,38 @@ impl Smoke {
             return;
         };
         cx.stop_propagation();
-        let steps = self.terminal.wheel.steps(
+        let mut steps = self.terminal.wheel.steps(
             &target,
             event,
             geometry.cell_width,
             geometry.cell_height,
             DEFAULT_MOUSE_SCROLL_LINES,
         );
+        // Scrollback follows the OS's motion exactly (smooth scroll);
+        // anything else, such as a program reading the wheel, gets whole
+        // steps as they accumulate.
+        let smooth = match &target.target {
+            InputTarget::Pane(id) if self.slides_allowed(&surface) => {
+                self.terminal.presentation.wheel(
+                    id,
+                    wheel_rows(event, geometry.cell_height, DEFAULT_MOUSE_SCROLL_LINES),
+                )
+            }
+            InputTarget::Pane(_) | InputTarget::Popup(_) => None,
+        };
+        if let Some(lines) = smooth {
+            steps.lines = lines;
+            // The motion is spent here; the whole-line path must not count it again.
+            self.terminal.wheel.drop_lines();
+        }
         let events = target
             .wheel_events(steps, event.modifiers)
             .collect::<Vec<_>>();
         if events.is_empty() {
+            if smooth.is_some() {
+                // The drawing moves with every delta, before any surface lands.
+                cx.notify();
+            }
             return;
         }
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
@@ -93,12 +118,26 @@ impl Smoke {
         if let Err(error) = self.send_wheel(&destination, &target.target, events) {
             self.terminal.live.status = error.to_string();
             self.terminal.wheel = Default::default();
+            // The rows asked for never left, so nothing may wait on them.
+            self.terminal.presentation.scroll.clear();
             cx.notify();
             return;
         }
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.observation.record(receipt);
         cx.notify();
+    }
+
+    /// Whether wheel scrolling may draw panes between rows (fork
+    /// `window/input.rs` `slides_allowed`): Herdr 1 only, since a Herdr 2
+    /// pane's position is not known; images paint with the whole grid, which
+    /// never slides; and a popup stays on its rows. A pane reading the
+    /// mouse or on the alternate screen gets whole steps (`SmoothScroll::wheel`).
+    pub(crate) fn slides_allowed(&self, surface: &PaneSurfaceFrame) -> bool {
+        DEFAULT_SMOOTH_SCROLL
+            && self.terminal.core.is_none()
+            && surface.graphics.placements.is_empty()
+            && surface.popup.is_none()
     }
 
     /// Herdr 1 takes the pane's events in one message; the Herdr 2 worker

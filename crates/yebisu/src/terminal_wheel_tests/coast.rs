@@ -34,6 +34,20 @@ impl Render for Spy {
     }
 }
 
+/// GPUI's `VELOCITY_ASSUME_STOPPED_GAP` (`gpui-pre` 0.3.12 `gestures.rs:513`):
+/// a move or a lift this long after the move before means the finger had
+/// stopped, and the lift starts no coast.
+const STOPPED: Duration = Duration::from_millis(40);
+
+/// Waits `time` on the CPU. A sleep on a loaded machine can last far longer
+/// than asked (issue #180).
+fn spin(time: Duration) {
+    let until = Instant::now() + time;
+    while Instant::now() < until {
+        std::hint::spin_loop();
+    }
+}
+
 fn finger(cx: &mut VisualTestContext, id: u64, phase: TouchPhase, position: Point<Pixels>) {
     cx.simulate_event(TouchEvent {
         id: TouchId(id),
@@ -42,6 +56,26 @@ fn finger(cx: &mut VisualTestContext, id: u64, phase: TouchPhase, position: Poin
         predicted_position: None,
         force: None,
     });
+}
+
+/// One swipe's touch events, with the widest gap GPUI can have measured
+/// between two of them: from just before one was sent to just after the
+/// next one was handled.
+#[derive(Default)]
+struct Swipe {
+    widest: Duration,
+    previous: Option<Instant>,
+}
+impl Swipe {
+    fn send(&mut self, cx: &mut VisualTestContext, id: u64, phase: TouchPhase, at: Point<Pixels>) {
+        let before = Instant::now();
+        finger(cx, id, phase, at);
+        let after = Instant::now();
+        if let Some(previous) = self.previous {
+            self.widest = self.widest.max(after - previous);
+        }
+        self.previous = Some(before);
+    }
 }
 
 #[gpui::test]
@@ -58,30 +92,31 @@ fn a_finger_landing_on_a_coast_stops_it_without_a_tap_or_a_wheel(cx: &mut TestAp
     });
     cx.run_until_parked();
     let taps = view.read_with(cx, |this, _| this.taps);
-    // GPUI measures the release speed on the wall clock and starts no coast
-    // when the lift comes more than 40 ms after the last move
-    // (`VELOCITY_ASSUME_STOPPED_GAP`), which a loaded machine can cause, so
-    // the swipe gets a few tries. A try without a coast cancels its landing
-    // finger, which would otherwise be a tap.
+    // GPUI measures the release speed on the wall clock (`Instant::now()` in
+    // its recognizer; a test cannot set that clock) and starts no coast after
+    // a gap of `STOPPED`. The moves are 4 ms apart on the CPU and the lift
+    // follows the last one at once, so a swipe whose widest gap stayed under
+    // `STOPPED` must coast; one that did not is a failure. A loaded machine
+    // can still stall between two events (issue #180): such a swipe gets
+    // another try, up to 20, and its landing finger is cancelled, as it would
+    // otherwise be a tap.
     let mut caught = false;
-    for attempt in 0..5u64 {
-        let swipe = 1370 + 2 * attempt;
-        let landing = swipe + 1;
+    let mut tries = 0;
+    for attempt in 0..20u64 {
+        tries += 1;
+        let id = 1370 + 2 * attempt;
+        let landing = id + 1;
+        let mut swipe = Swipe::default();
         ready(&view, cx);
-        finger(cx, swipe, TouchPhase::Started, start);
+        swipe.send(cx, id, TouchPhase::Started, start);
         for step in 1..=4 {
-            std::thread::sleep(Duration::from_millis(8));
             ready(&view, cx);
+            spin(Duration::from_millis(4));
             let y = step as f32 * 2. * row;
-            finger(cx, swipe, TouchPhase::Moved, start + point(px(0.), px(y)));
+            swipe.send(cx, id, TouchPhase::Moved, start + point(px(0.), px(y)));
         }
-        ready(&view, cx);
-        finger(
-            cx,
-            swipe,
-            TouchPhase::Ended,
-            start + point(px(0.), px(8. * row)),
-        );
+        let lifted = start + point(px(0.), px(8. * row));
+        swipe.send(cx, id, TouchPhase::Ended, lifted);
         cx.run_until_parked();
         assert!(
             !wheels(&view, cx, &wire).is_empty(),
@@ -94,6 +129,11 @@ fn a_finger_landing_on_a_coast_stops_it_without_a_tap_or_a_wheel(cx: &mut TestAp
         let seen = phases.borrow().clone();
         caught = seen == [TouchPhase::Ended, TouchPhase::Started];
         assert!(caught || seen.is_empty(), "attempt {attempt}: {seen:?}");
+        assert!(
+            caught || swipe.widest >= STOPPED,
+            "attempt {attempt}: no coast, though no gap reached {STOPPED:?} ({:?})",
+            swipe.widest
+        );
         let lift = if caught {
             TouchPhase::Ended
         } else {
@@ -111,7 +151,11 @@ fn a_finger_landing_on_a_coast_stops_it_without_a_tap_or_a_wheel(cx: &mut TestAp
             break;
         }
     }
-    assert!(caught, "no swipe coasted in 5 tries");
     assert_eq!(view.read_with(cx, |this, _| this.taps), taps, "a tap");
     view.read_with(cx, |this, _| assert!(this.handoff.selection.is_none()));
+    if caught {
+        eprintln!("coast: a landing caught a live coast on try {tries}");
+    } else {
+        eprintln!("coast: SKIP, all {tries} swipes stalled for {STOPPED:?} or more");
+    }
 }

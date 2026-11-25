@@ -17,7 +17,7 @@ struct Running {
     host: Host,
     mailbox: DocMailbox,
     seen: u64,
-    _reader: DocSync,
+    _reader: (DocSync, DocWriter),
 }
 
 fn start(host: Host, period: Duration) -> Running {
@@ -194,6 +194,7 @@ fn mailbox_hands_each_change_once() {
         read: Read::Unreadable,
         live: Vec::new(),
         names: BTreeMap::new(),
+        stats: WriteStats::default(),
     };
     let mut seen = 0;
     assert!(mailbox.since(&mut seen).is_none());

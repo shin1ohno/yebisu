@@ -162,6 +162,12 @@ fn serve(
     if board {
         server.set_read_timeout(Some(Duration::from_millis(500)))?;
     }
+    // Issue #143 S7 (Simulator QA): wake up to insert an agent while the
+    // rename field is open over an agent row.
+    let insert_agent = !board && agent_insert_enabled();
+    if insert_agent {
+        server.set_read_timeout(Some(Duration::from_millis(250)))?;
+    }
 
     let mut sequence = 0u64;
     loop {
@@ -169,6 +175,31 @@ fn serve(
         let message: ClientMessage = match read_message(&mut server, MAX_CLIPBOARD_IMAGE_FRAME_SIZE)
         {
             Ok(message) => message,
+            Err(e)
+                if insert_agent
+                    && matches!(
+                        e.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+            {
+                if take_agent_insert() {
+                    insert_agent_above(&mut board_snapshot);
+                    write_message(
+                        &mut server,
+                        &ServerMessage::EndpointControl {
+                            kind: ENDPOINT_SNAPSHOT_KIND.into(),
+                            data: serde_json::to_string(&board_snapshot)?,
+                        },
+                        MAX_FRAME_SIZE,
+                    )?;
+                    let time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_secs_f64();
+                    record_peer(serde_json::json!({"kind": "rename-agent-inserted",
+                        "revision": board_snapshot.revision, "time": time}))?;
+                }
+                continue;
+            }
             Err(e)
                 if board
                     && matches!(
@@ -531,6 +562,65 @@ fn next_surface(revision: u64, serial: &mut u64) -> PaneSurfaceFrame {
     let mut frame = surface(revision);
     frame.surface_revision = *serial;
     frame
+}
+
+/// Issue #143 S7 (Simulator QA, `YEBISU_RENAME_QA_INSERT`): 0 until the
+/// rename field is open over an agent row (shell/rename/qa.rs asks), 1 once
+/// asked, 2 once this peer took it and sent a snapshot with an agent above.
+static AGENT_INSERT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Whether this peer inserts an agent for S7 (Simulator QA only).
+fn agent_insert_enabled() -> bool {
+    cfg!(all(
+        target_os = "ios",
+        target_abi = "sim",
+        feature = "test-support"
+    )) && std::env::var_os("YEBISU_RENAME_QA_INSERT").is_some()
+}
+
+/// The rename QA's side: the field is open over an agent row.
+#[cfg_attr(
+    not(all(target_os = "ios", target_abi = "sim", feature = "test-support")),
+    allow(
+        dead_code,
+        reason = "only the Simulator QA build publishes the rename state"
+    )
+)]
+pub(crate) fn request_agent_insert() {
+    if agent_insert_enabled() {
+        let _ = AGENT_INSERT.compare_exchange(
+            0,
+            1,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        );
+    }
+}
+
+/// True once, after the field opened over an agent row.
+fn take_agent_insert() -> bool {
+    AGENT_INSERT
+        .compare_exchange(
+            1,
+            2,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .is_ok()
+}
+
+/// S7: a new agent on the snapshot's third pane (`w1:p3`), received last, so
+/// the sidebar lists it above the focused pane's agent.
+fn insert_agent_above(snapshot: &mut ClientShellSnapshot) {
+    let Some(mut agent) = snapshot.agents.first().cloned() else {
+        return;
+    };
+    agent.pane_id = "w1:p3".into();
+    agent.name = Some("inserted".into());
+    agent.state_change_seq += 100;
+    agent.focused = false;
+    snapshot.agents.insert(0, agent);
+    snapshot.revision += 1;
 }
 
 fn initial_snapshot() -> Result<String, serde_json::Error> {
