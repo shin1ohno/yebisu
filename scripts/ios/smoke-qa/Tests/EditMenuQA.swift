@@ -8,9 +8,34 @@ import XCTest
 // condition is not reached is logged, not failed, where it was before (the oracle decides); a press
 // that never reaches its control, or that something else takes, fails by name (QAAx.press).
 final class EditMenuQA: XCTestCase {
+    /// The issues XCTest records while one app.launch() runs (class L, issue #142 stage 4): a launch
+    /// failure is a recorded issue ("Failed to launch ...", "... does not have a process ID"), and
+    /// taking it here lets `start` launch once more when the app provably never started.
+    /// pr4 probe: the test goes on after launch() returns when the issue is not passed on.
+    private var launchIssues: [XCTIssue]?
+
+    override func record(_ issue: XCTIssue) {
+        if launchIssues != nil {
+            launchIssues?.append(issue)
+            print("SH1-152 LAUNCH ISSUE \(issue.compactDescription)")
+            return
+        }
+        super.record(issue)
+    }
+
+    /// app.launch() with its recorded issues taken (`launchIssues`); returns them.
+    private func launchTakingIssues(_ app: XCUIApplication) -> [XCTIssue] {
+        launchIssues = []
+        app.launch()
+        let issues = launchIssues ?? []
+        launchIssues = nil
+        return issues
+    }
+
     private enum SetupError: Error {
         case portraitScreenUnavailable
         case fullScreenWindowUnavailable
+        case launchFailed
     }
 
     // The case the app was launched with; markers and clipboard texts carry it.
@@ -167,11 +192,55 @@ final class EditMenuQA: XCTestCase {
         if useWindowFrames { app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1" }
         if automaticMarkers { app.launchEnvironment["YEBISU_SH1_152_AUTO_MARKERS"] = "1" }
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
+        var ax = try start(app, name, useWindowFrames: useWindowFrames, automaticMarkers: automaticMarkers)
+        // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
+        // on the strip's empty space, so the case's first real press is not lost (QAAx.touchReady).
+        // Issue #142 stage 4 (class T): when no press reached GPUI the app is launched once more,
+        // with the same environment (Owner decision 5), and a second miss fails with the receipts.
+        var relaunched = false
+        while true {
+            do {
+                let presses = try ax.touchReady(QAIds.sh152Empty, what: "launch \(name)")
+                print("SH1-152 TOUCH-READY \(name) \(presses)")
+                return (app, ax)
+            } catch {
+                save("touch-not-ready-\(name)")
+                if relaunched {
+                    XCTFail("SH1-152 no touch reached GPUI after launch \(name), also after one relaunch: \(error)")
+                    throw error
+                }
+                relaunched = true
+                QAAx.resend(kind: "relaunch-retry", id: name, reason: "no touch reached GPUI after launch: \(error)")
+                print("SH1-152 RELAUNCH \(name): no touch reached GPUI; launching once more")
+                app.terminate()
+                ax = try start(app, name, useWindowFrames: useWindowFrames, automaticMarkers: automaticMarkers)
+            }
+        }
+    }
+
+    /// Launches `app` (its environment already set) and waits until it is up: qa.state, a portrait
+    /// screen, the terminal's input destination, the window frame, and the automatic Begin marker.
+    private func start(_ app: XCUIApplication, _ name: String, useWindowFrames: Bool,
+                       automaticMarkers: Bool) throws -> QAAx {
         // Keep the E-launch measurement scoped to app.launch() (docs/ci-simulator.md).
         let launchStarted = Date()
-        app.launch()
+        var issues = launchTakingIssues(app)
         print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(launchStarted)))")
         let ax = QAAx(app, useWindowFrames: useWindowFrames)
+        if !issues.isEmpty && app.state == .notRunning && ax.read() == nil {
+            // Class L: the launch failed and the app never started (not running, no qa.state), so it is
+            // launched once more (Owner decision 5); sh1-152-check.py checks app-stderr.log's launch lines.
+            let reason = "the launch failed and the app is not running, without qa.state: "
+                + issues.map(\.compactDescription).joined(separator: "; ")
+            QAAx.resend(kind: "launch-retry", id: name, reason: reason)
+            app.terminate()
+            let again = Date()
+            issues = launchTakingIssues(app)
+            print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(again)))")
+        }
+        // Any issue left is reported exactly as XCTest recorded it.
+        for issue in issues { record(issue) }
+        if !issues.isEmpty { throw SetupError.launchFailed }
         // A Begin marker needs an input destination, which the app has once the terminal names its
         // pane. qa.state that never appears is a broken QA layer: fail by name.
         do {
@@ -194,17 +263,7 @@ final class EditMenuQA: XCTestCase {
             }
             try ax.settledKeyboard("\(name) after launch Begin")
         }
-        // Every relaunch (each case launches its own app) first waits until a touch reaches GPUI,
-        // on the strip's empty space, so the case's first real press is not lost (QAAx.touchReady).
-        do {
-            let presses = try ax.touchReady(QAIds.sh152Empty, what: "launch \(name)")
-            print("SH1-152 TOUCH-READY \(name) \(presses)")
-        } catch {
-            save("touch-not-ready-\(name)")
-            XCTFail("SH1-152 no touch reached GPUI after launch \(name): \(error)")
-            throw error
-        }
-        return (app, ax)
+        return ax
     }
 
     private func requirePortraitScreen(_ name: String) throws {
@@ -486,9 +545,12 @@ final class EditMenuQA: XCTestCase {
     // destination (it reconnected and drew the terminal).
     private func leaveAndReturn(_ app: XCUIApplication, _ ax: QAAx, _ step: String) {
         let before = ax.read()
-        XCUIDevice.shared.press(.home)
+        // A Home that never reached SpringBoard is pressed once more (QAAx.pressHome, class K).
+        let left = ax.pressHome("\(step) Home") {
+            app.wait(for: .runningBackground, timeout: 10) || app.state == .runningBackgroundSuspended
+        }
         ax.keyboardMayMove("\(step) Home and back")
-        if app.wait(for: .runningBackground, timeout: 10) || app.state == .runningBackgroundSuspended {
+        if left {
             print("SH1-152 WAIT \(step) Background: reached (\(app.state.rawValue))")
         } else {
             print("SH1-152 WAIT \(step) Background: not reached in 10s (\(app.state.rawValue))")
