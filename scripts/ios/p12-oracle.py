@@ -141,7 +141,43 @@ def validate(records, messages, ui, screenshots):
     require("p12-finished" in screenshots, "final screenshot missing")
     return {"installed_os_menu": "pass", "consumer_peer": "pass", "command_hold": "unverified",
             "physical_keyboard_ime": "unverified", "p11_p13_modal_integration": "unverified", "negative_routes": negative_routes,
-            "retries": retries, "hold_queries": hold_queries(ui)}
+            "retries": retries, "hold_queries": hold_queries(ui), "input_receipts": input_receipts(records)}
+
+
+def input_receipts(records):
+    """How many herdr-uikit input receipts of each kind the app recorded (issue #142 stage 2).
+    Reported, not judged: it shows the receipts reached the app's file."""
+    counts = {}
+    for record in records:
+        if record.get("kind") == "input-receipt":
+            counts[record.get("receipt")] = counts.get(record.get("receipt"), 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: str(item[0])))
+
+
+def menu_stage(records, pick):
+    """Where a pick with no p12-menu-entry stopped, by the app's input receipts inside the pick window.
+
+    The names, in the order they are decided: `menu-global` (the command reached GPUI, but no window
+    handler on the dispatch path took it), `menu-deliver <outcome>` for the first deliver that did not
+    deliver, `menu-perform <outcome>` for a perform without a tag or sender, `no menu-perform` (the
+    command never reached the app: SpringBoard did not perform it, or the touch never reached the menu),
+    `menu-perform without menu-deliver` (performed, never handed to GPUI), else `menu-deliver delivered`."""
+    receipts = [r for r in records if r.get("kind") == "input-receipt" and inside(r, pick)]
+    performs = [r for r in receipts if r.get("receipt") == "menu-perform"]
+    delivers = [r for r in receipts if r.get("receipt") == "menu-deliver"]
+    if any(r.get("receipt") == "menu-global" for r in receipts):
+        return "menu-global"
+    failed = [r for r in delivers if r.get("outcome") != "delivered"]
+    if failed:
+        return f"menu-deliver {failed[0].get('outcome')}"
+    refused = [r for r in performs if r.get("outcome") != "performed"]
+    if refused:
+        return f"menu-perform {refused[0].get('outcome')}"
+    if not performs:
+        return "no menu-perform"
+    if not delivers:
+        return "menu-perform without menu-deliver"
+    return "menu-deliver delivered"
 
 
 # A hold window longer than this leaves under 20 s of the 60 s COMMAND_TIMEOUT: the S5 follow-up
@@ -284,10 +320,11 @@ def validate_gui_preconditions(records, ui, picks, prepares):
     entries = [r for r in records if r.get("kind") == "p12-menu-entry"]
     for pick in picks:
         require(pick.get("menuClosed") is True, f"OS menu not closed after the pick in case {pick.get('case')}: tap lost (class A)")
-        if pick.get("tapped"):
-            require(any(entry.get("case") == pick.get("case") for entry in entries),
-                    f"tap lost (class A) in case {pick.get('case')}: the pick reached no native menu callback; "
-                    f"{builds_near(records, pick['started'])}")
+        if pick.get("tapped") and not any(entry.get("case") == pick.get("case") for entry in entries):
+            stage = menu_stage(records, pick)
+            if stage == "menu-deliver delivered":
+                stage += ": the command reached GPUI; it stopped in GPUI or yebisu"
+            raise ValueError(f"tap lost (class A2) in case {pick.get('case')}: {stage}; {builds_near(records, pick['started'])}")
 
 
 def inside(record, window):
@@ -382,7 +419,8 @@ def validate_observation(records, messages, ui, picks, prepares, receivers):
         require(inside(gate, release), "gate release not correlated")
     inputs = [m for m in ingress if "input" in m["message"]]
     require([m["message"]["input"] for m in inputs] == [["fifo_fence"]], "extra terminal input or missing FIFO fence")
-    require(not any(m["message"].get("other_message") for m in ingress), "unexpected peer message")
+    others = sorted({str(m["message"].get("message_kind", "?")) for m in ingress if m["message"].get("other_message")})
+    require(not others, f"unexpected peer message: {others}")
     fence = inputs[0]
     require(inside(fence, controls[-1]) and fence["time"] > picks[-1]["ended"] and fence["sequence"] > requests[-1]["sequence"], "final receiving FIFO fence ordering")
     require(not any(m["sequence"] > fence["sequence"] and ("request_method" in m["message"] or "input" in m["message"]) for m in ingress), "wire after final FIFO fence")
