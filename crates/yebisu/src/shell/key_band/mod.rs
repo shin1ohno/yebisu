@@ -511,7 +511,7 @@ impl Smoke {
     fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         // A tap that began on the band before the search panel took the
         // keyboard: Hide must not become a keyboard dismissal, nor any key input.
-        if self.search_open() {
+        if self.native_field_open() {
             return;
         }
         // Any band key ends an earlier key binding's failure reason (L57).

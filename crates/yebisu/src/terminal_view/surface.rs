@@ -172,6 +172,7 @@ impl TerminalView {
         panes: &[PanePlacement<'_>],
         highlights: &[Highlight],
         font: &Font,
+        chip: &crate::shell::rename::labels::ChipRename,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -206,13 +207,37 @@ impl TerminalView {
                     window,
                     cx,
                 );
+                // Issue #143: the single pane has no chip; a rename of it
+                // draws one for the field to cover.
+                if let Some(id) = snapshot.focused_pane_id.as_deref()
+                    && chip.editing(id)
+                {
+                    let name = pane_names::name(snapshot, id, 0);
+                    let at = painter.paint_single_chip(
+                        &name,
+                        Bounds::new(grid.origin, grid.size),
+                        window,
+                        cx,
+                    );
+                    chip.report(id, at, window.content_mask().bounds);
+                }
             } else {
                 for (index, placement) in panes.iter().copied().enumerate() {
-                    let name = pane_names::name(snapshot, &placement.pane.pane_id, index);
-                    painter.paint_framed_pane(
+                    let id = &placement.pane.pane_id;
+                    let pending = chip.pending_for(id);
+                    let look = crate::shell::rename::labels::ChipLook {
+                        ink: pending.as_ref().map(|(_, ink)| *ink),
+                        hidden: chip.editing(id),
+                    };
+                    let name = match pending {
+                        Some((text, _)) => std::borrow::Cow::Owned(text),
+                        None => pane_names::name(snapshot, id, index),
+                    };
+                    let at = painter.paint_framed_pane(
                         surface,
                         placement,
                         &name,
+                        look,
                         geometry.cell_width,
                         font,
                         main_highlights,
@@ -220,6 +245,9 @@ impl TerminalView {
                         window,
                         cx,
                     );
+                    if look.hidden {
+                        chip.report(id, at, window.content_mask().bounds);
+                    }
                 }
             }
             let area = geometry.area(Some(surface));

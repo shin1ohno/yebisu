@@ -17,6 +17,7 @@ use crate::{
         HerdrKind, filter,
         herdr2_frame::sidebar::{CoreRow, herdr2_hosts},
         sidebar_list::{ListHost, ListRow, ListSpace, merge, sources},
+        rename::{RenameAnchor, RenameObject},
         style::{color, metric, radius, text, tint, weight},
     },
     terminal_view::TerminalView,
@@ -555,14 +556,7 @@ impl Smoke {
                     .gap(px(metric::INLINE_GAP))
                     .min_w_0()
                     .child(Dot::filled(space.dot.dot_color()).draw())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(text::NAME))
-                            .when(space.current, |name| name.font_weight(weight::BOLD))
-                            .child(space.name.clone()),
-                    )
+                    .child(self.space_name(row, cx))
                     .child(
                         div()
                             .flex_none()
@@ -592,6 +586,12 @@ impl Smoke {
             )
             .when(kind == HerdrKind::Herdr1, |row| {
                 row.child(long_press_layer(press, cx))
+            })
+            .when(kind == HerdrKind::Herdr1 && space.current, |row| {
+                row.children(crate::qa_ax::mark(
+                    crate::qa_ax::ids::SIDEBAR_CURRENT_SPACE,
+                    "Current space",
+                ))
             })
             .on_click(cx.listener(move |this, _, window, cx| match kind {
                 HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
@@ -681,14 +681,17 @@ impl Smoke {
                                     .items_center()
                                     .gap(px(agent_icon::AGENTS.gap))
                                     .child(line.row.icon.draw(&icon_row, agent_icon::AGENTS))
-                                    .child(
+                                    .child(self.renamable(
                                         div()
                                             .debug_selector(move || name_id)
                                             .flex_1()
                                             .min_w_0()
-                                            .truncate()
-                                            .child(line.shown.clone()),
-                                    ),
+                                            .truncate(),
+                                        &host.boot,
+                                        RenameAnchor::AgentRow,
+                                        RenameObject::Pane(id.pane.clone()),
+                                        line.shown.clone(),
+                                    )),
                             )
                             .child(
                                 div()

@@ -34,6 +34,9 @@ pub(crate) struct Live {
     pub boot: Option<String>,
     pub clipboard: VecDeque<String>,
     pub pending_request: Option<String>,
+    /// The one rename in flight and Herdr's answer, apart from navigation's
+    /// `pending_request` so navigation goes on while it waits (issue #143).
+    pub rename: Option<crate::shell::rename::RenameTicket>,
     pub failed_request: Option<String>,
     /// One correlated receipt survives later focus snapshots until the next move.
     pub completed_request: Option<String>,
@@ -94,7 +97,15 @@ impl Live {
             } => {
                 crate::find::adapter::receive(self, &request_id, &response);
                 crate::terminal_links::resolve::receive(self, &request_id, &response);
-                if self.pending_request.as_ref() == Some(&request_id) {
+                if crate::shell::rename::RenameTicket::answer(
+                    &mut self.rename,
+                    &request_id,
+                    &response,
+                ) {
+                    if response.get("error").is_some() {
+                        crate::diagnostics::record("command_rejected");
+                    }
+                } else if self.pending_request.as_ref() == Some(&request_id) {
                     self.pending_request = None;
                     if let Some(error) = response.get("error") {
                         crate::diagnostics::record("command_rejected");
@@ -106,21 +117,17 @@ impl Live {
                 }
             }
             ClientEvent::CommandRejected { request_id, reason } => {
-                crate::terminal_links::resolve::reject(self, request_id.as_deref());
-                if self
-                    .search
-                    .ticket
-                    .as_ref()
-                    .is_some_and(|(_, id)| Some(id) == request_id.as_ref())
-                {
-                    self.search.answer = Some(Err(crate::find::State::SendFailed));
+                // A rename's rejection is its own: the status bar's text and
+                // navigation's slot stay as they are.
+                if crate::shell::rename::RenameTicket::reject(
+                    &mut self.rename,
+                    request_id.as_deref(),
+                    &reason.to_string(),
+                ) {
+                    crate::diagnostics::record("command_rejected");
+                } else {
+                    self.reject_command(request_id, reason.to_string());
                 }
-                crate::diagnostics::record("command_rejected");
-                if request_id == self.pending_request {
-                    self.failed_request = request_id;
-                    self.pending_request = None;
-                }
-                self.status = reason.to_string();
             }
             ClientEvent::VersionMismatch(mismatch) => {
                 crate::diagnostics::record("version_mismatch");
@@ -133,6 +140,7 @@ impl Live {
                 crate::diagnostics::record("disconnected");
                 self.connected = false;
                 self.search.clear();
+                self.rename = None;
                 if self.version_mismatch.get().is_none() {
                     self.status = format!("Disconnected: {reason}");
                 }
@@ -189,6 +197,26 @@ impl Live {
             self.published_epoch
                 .store(self.input_epoch, std::sync::atomic::Ordering::Release);
         }
+    }
+
+    /// A rejected command other than a rename: the link resolve, Find and
+    /// navigation slots, and the status text.
+    fn reject_command(&mut self, request_id: Option<String>, reason: String) {
+                crate::terminal_links::resolve::reject(self, request_id.as_deref());
+        if self
+            .search
+            .ticket
+            .as_ref()
+            .is_some_and(|(_, id)| Some(id) == request_id.as_ref())
+        {
+            self.search.answer = Some(Err(crate::find::State::SendFailed));
+        }
+        crate::diagnostics::record("command_rejected");
+        if request_id == self.pending_request {
+            self.failed_request = request_id;
+            self.pending_request = None;
+        }
+        self.status = reason;
     }
 
     fn receive_snapshot(&mut self, snapshot: Arc<ClientShellSnapshot>) {
