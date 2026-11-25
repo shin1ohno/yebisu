@@ -28,6 +28,7 @@ pub(crate) mod qa_strip;
 pub(crate) mod rail;
 pub(crate) mod rail_badges;
 pub(crate) mod rename;
+pub(crate) mod scroll_indicator;
 pub(crate) mod search;
 #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
 pub(crate) mod search_qa;
@@ -153,4 +154,6 @@ pub(crate) struct ShellState {
     pub(crate) search: search::SearchState,
     pub(crate) rename: rename::RenameState,
     pub(crate) forward_sheet: forward_sheet::ForwardSheetState,
+    /// Issue #137 PR 5: the scroll thumb of each list.
+    pub(crate) indicators: scroll_indicator::Indicators,
 }

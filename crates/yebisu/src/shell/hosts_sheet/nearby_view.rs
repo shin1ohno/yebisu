@@ -238,6 +238,7 @@ impl Smoke {
             .flex_shrink_0()
             .max_h(px(ROW_HEIGHT * 4.5))
             .overflow_y_scroll()
+            .track_scroll(self.shell.indicators.nearby.handle())
             .children(rows.into_iter().enumerate().map(|(index, device)| {
                 let selected = nearby.chosen.as_ref().is_some_and(|chosen| {
                     chosen.address == device.address
@@ -287,7 +288,8 @@ impl Smoke {
                         )
                     })
                     .on_click(cx.listener(move |this, _, _, cx| this.choose_nearby(&address, cx)))
-            }));
+            }))
+            .child(self.shell.indicators.nearby.thumb());
         Some(
             div()
                 .flex()

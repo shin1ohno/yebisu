@@ -590,6 +590,7 @@ impl Smoke {
                     )
                     .child(self.edit_menu_canvas(cx))
                     .child(self.terminal_wheel_canvas(cx))
+                    .children(self.jump_to_bottom_buttons(cx))
                     // Last, so no other child's hitbox lies over it.
                     .children(crate::qa_ax::mark(
                         crate::qa_ax::ids::TERMINAL_INPUT,

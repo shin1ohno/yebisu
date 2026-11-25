@@ -350,6 +350,12 @@ impl Smoke {
                     .into_any_element()
             });
         }
+        // One handle for the list: a rename scrolls its row into view through
+        // it (issue #143 B-5) and the thumb reads its offset (issue #137).
+        self.shell
+            .indicators
+            .sidebar
+            .share(&self.shell.rename.sidebar_scroll);
         let list = self.render_sidebar_list(cx);
         Some(
             div()
@@ -367,10 +373,11 @@ impl Smoke {
                         .debug_selector(|| "shell-sidebar-list".into())
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scroll()
                         // A rename's row scrolls into view (issue #143 B-5).
+                        .overflow_y_scroll()
                         .track_scroll(&self.shell.rename.sidebar_scroll)
-                        .child(list),
+                        .child(list)
+                        .child(self.shell.indicators.sidebar.thumb()),
                 )
                 .children(self.render_sidebar_footer(cx))
                 .into_any_element(),

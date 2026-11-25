@@ -20,6 +20,8 @@ use std::{
 mod coast;
 #[path = "terminal_wheel_tests/herdr2.rs"]
 mod herdr2;
+#[path = "terminal_wheel_tests/jump.rs"]
+mod jump;
 #[path = "terminal_wheel_tests/sheets.rs"]
 mod sheets;
 #[path = "terminal_wheel_tests/smooth.rs"]

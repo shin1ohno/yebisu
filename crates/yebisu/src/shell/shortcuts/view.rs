@@ -129,12 +129,14 @@ impl Smoke {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(self.shell.indicators.shortcuts.handle())
             .px(px(metric::INSET))
             .pb(px(metric::SMALL_INSET))
             .flex()
             .when(columns == 1, |view| view.flex_col())
             .gap_x(px(metric::SIDE))
-            .children(columns_of);
+            .children(columns_of)
+            .child(self.shell.indicators.shortcuts.thumb());
         let popover = div()
             .id("shell-shortcuts-popover")
             .absolute()
