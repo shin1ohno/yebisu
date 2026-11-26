@@ -14,6 +14,7 @@ use crate::{
         },
         sidebar_list::ListRow,
         single_pane::Mailbox,
+        style::color,
     },
 };
 use gpui::TestAppContext;
@@ -161,6 +162,10 @@ fn space_tab_rename_enabled_when_readable(cx: &mut TestAppContext) {
 
 /// A committed name is one `doc.set` over the version read, with that
 /// space's name only; it shows muted until a later read has it.
+///
+/// The mock holds the `doc.set` while the optimistic name is checked: the
+/// document thread writes and reads back on its own, so without the hold a
+/// UI thread that a loaded host delays sees the read first (#210).
 #[gpui::test]
 fn rename_space_writes_the_document(cx: &mut TestAppContext) {
     let (view, host, cx, root) = documented(cx);
@@ -173,14 +178,21 @@ fn rename_space_writes_the_document(cx: &mut TestAppContext) {
         "the field starts with the name"
     );
     assert!(fake.request().allow_empty, "\"\" is the automatic name");
+    host.doc().hold_sets();
     commit(&fake, cx, "ship");
+    wait_until(&view, cx, "the write reaches herdr-core", |_| {
+        host.doc().waiting_sets() == 1
+    });
+    // Frames drawn while herdr-core takes the write keep the sent name.
+    draw(&view, cx);
     view.update(cx, |this, _| {
-        assert!(
-            this.rename_label(&build_boot(this), &build_row())
-                .is_some_and(|(text, _)| text == "ship"),
-            "the sent name shows until a read has it"
+        assert_eq!(
+            this.rename_label(&build_boot(this), &build_row()),
+            Some(("ship".to_owned(), color::MUTED)),
+            "the sent name shows, muted, until a read has it"
         );
     });
+    host.doc().release_sets();
     wait_until(&view, cx, "the new name is read back", |this| {
         this.doc_names()
             .is_some_and(|doc| doc.name(&build_row()) == "ship")
