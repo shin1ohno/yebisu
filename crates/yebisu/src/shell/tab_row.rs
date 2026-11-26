@@ -42,6 +42,42 @@ const TAB_PADDING: f32 = metric::INSET;
 // Rail.dc.html:64 and :66.
 const SPACE_SWITCHER_WIDTH: f32 = 180.0;
 const SPACE_PICKER_MAX_HEIGHT: f32 = 288.0;
+/// Width of the switcher's ▾, measured in the host tests' font.
+const SWITCHER_CHEVRON_WIDTH: f32 = 8.0;
+/// The space switcher with its name cut to nothing: padding, status dot, ▾,
+/// the two gaps around the empty name and the right rule.
+const SPACE_SWITCHER_MIN_WIDTH: f32 = TAB_PADDING * 2.
+    + metric::SMALL_DOT
+    + metric::INLINE_GAP * 2.
+    + SWITCHER_CHEVRON_WIDTH
+    + crate::layout::RULE;
+/// The room the tab strip keeps when the row is short (issue #209): one
+/// tab's leading padding and its × button, so a tab stays on screen to tap
+/// and scroll.
+const MIN_TAB_STRIP_WIDTH: f32 = TAB_PADDING + CLOSE_WIDTH;
+
+/// The narrowest content (the row less its leading and trailing room) that
+/// holds the tab row's items without cutting the space switcher's name:
+/// the switcher at its full width while it shows (`switcher`), a tab and the
+/// pinned actions (+, split, ...; `pinned_width`). The frame keeps the row out of a top band whose status
+/// icons would leave it less (issue #209).
+pub(crate) fn tab_row_min_content(switcher: bool) -> f32 {
+    let switcher = if switcher { SPACE_SWITCHER_WIDTH } else { 0.0 };
+    switcher + MIN_TAB_STRIP_WIDTH + pinned_width()
+}
+
+/// The widest the space switcher may draw in a row whose content (the row
+/// less its leading and trailing room) is `content` wide: what is left after
+/// the pinned actions (+, split, ...) and a tab's minimum, between the switcher's minimum
+/// and its 180 pt. Its name is cut to fit; +, split and ... keep their width
+/// and stay inside the content (issue #209).
+pub(crate) fn space_switcher_max_width(content: f32) -> f32 {
+    let room = content - pinned_width() - MIN_TAB_STRIP_WIDTH;
+    if room.is_nan() {
+        return SPACE_SWITCHER_MIN_WIDTH;
+    }
+    room.clamp(SPACE_SWITCHER_MIN_WIDTH, SPACE_SWITCHER_WIDTH)
+}
 
 /// Tab row metrics (plan v2 7.5 `tab_row_metrics`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -239,17 +275,21 @@ impl Smoke {
     /// `controls_trailing` is L0's `ControlsClearance::tab_row_trailing`: room
     /// after the pinned buttons for window controls on the right edge. The
     /// row's background runs under both; `tab_hit`'s `x` starts after the
-    /// leading room.
+    /// leading room. `row_width` is the row's whole width: the space
+    /// switcher's name is cut so that the switcher, a tab, + and the pinned
+    /// buttons fit between the two rooms (issue #209).
     pub(crate) fn render_tab_row(
         &mut self,
         controls_leading: f32,
         controls_trailing: f32,
+        row_width: f32,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let tabs = self.row_tabs();
         let herdr1 = !self.terminal.core_mode;
         let switcher = if herdr1 && self.chrome_state().sidebar_hidden {
-            self.space_switcher(cx)
+            let content = row_width - controls_leading.max(0.0) - controls_trailing.max(0.0);
+            self.space_switcher(space_switcher_max_width(content), cx)
         } else {
             self.shell.shortcuts.space_picker_open = false;
             None
@@ -264,6 +304,7 @@ impl Smoke {
         };
         let strip = div()
             .id("shell-tab-strip")
+            .debug_selector(|| "shell-tab-strip".into())
             .flex()
             .flex_shrink(1.)
             .min_w_0()
@@ -515,7 +556,8 @@ impl Smoke {
             .into_any_element()
     }
 
-    fn space_switcher(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The space switcher, at most `max_width` wide (`space_switcher_max_width`).
+    fn space_switcher(&self, max_width: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
         let shown = snapshot(&self.terminal.live)?;
         let id = shown.focused_workspace_id.as_deref()?;
         let workspace = shown.workspaces.iter().find(|w| w.workspace_id == id)?;
@@ -535,7 +577,7 @@ impl Smoke {
                 .items_center()
                 .gap(px(metric::INLINE_GAP))
                 .h_full()
-                .max_w(px(SPACE_SWITCHER_WIDTH))
+                .max_w(px(max_width))
                 .px(px(TAB_PADDING))
                 .border_r_1()
                 .border_color(rgb(color::RAISED))
