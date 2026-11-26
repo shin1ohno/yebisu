@@ -31,7 +31,7 @@ class LintTests(unittest.TestCase):
                     self.assertTrue(Path(__file__).with_name("lint.sh").is_file())
         '''))
         (scripts / "lib.sh").write_text(
-            "ios_export_deployment_target() { export IPHONEOS_DEPLOYMENT_TARGET=17.0; }\n"
+            "ios_export_deployment_target() { export IPHONEOS_DEPLOYMENT_TARGET=26.0; }\n"
         )
         tools = self.root / "tools"
         tools.mkdir()

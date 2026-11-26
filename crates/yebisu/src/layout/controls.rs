@@ -13,10 +13,10 @@
 //! narrow to hold anything beside the controls, leaves the whole header band
 //! empty instead; the tab row pads its trailing end.
 //!
-//! All zero means no window controls (owner decision 2026-11-20): iPadOS 17
-//! to 25, a full-screen window whose corners report nothing, and a window
-//! herdr-uikit has not sampled yet all read zero, and the SDK has no flag to
-//! tell them apart. The known cost: an iPadOS 26 window that launches
+//! All zero means no window controls (owner decision 2026-11-20): a
+//! full-screen window whose corners report nothing and a window herdr-uikit
+//! has not sampled yet both read zero, and the SDK has no flag to tell them
+//! apart. The known cost: an iPadOS 26 window that launches
 //! windowed can draw its first frames without clearance. The controls may
 //! overlap the sidebar header or the tab row's pinned buttons for ~130 ms,
 //! until the SDK reports their reach. The sample arrives as a GPUI insets

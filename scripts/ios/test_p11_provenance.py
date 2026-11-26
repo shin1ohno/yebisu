@@ -31,7 +31,7 @@ class ProvenanceTests(unittest.TestCase):
     def test_cargo_ancestor_configuration_is_not_silently_inherited(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'checkout';(root/'.cargo').mkdir(parents=True)
-            config=root/'.cargo/config.toml';config.write_text('[net]\ngit-fetch-with-cli=true\n[env]\nIPHONEOS_DEPLOYMENT_TARGET="17.0"\n')
+            config=root/'.cargo/config.toml';config.write_text('[net]\ngit-fetch-with-cli=true\n[env]\nIPHONEOS_DEPLOYMENT_TARGET="26.0"\n')
             self.assertEqual(p.cargo_configuration(root),p.digest(config.read_bytes()))
             ancestor=Path(d)/'.cargo';ancestor.mkdir();(ancestor/'config.toml').write_text('[build]\nrustc-wrapper="external"\n')
             with self.assertRaisesRegex(ValueError,'ancestor Cargo config'):p.cargo_configuration(root)

@@ -2,4 +2,4 @@
 git-fetch-with-cli = true
 
 [env]
-IPHONEOS_DEPLOYMENT_TARGET = "17.0"
+IPHONEOS_DEPLOYMENT_TARGET = "26.0"

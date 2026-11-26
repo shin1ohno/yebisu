@@ -68,7 +68,7 @@ def cargo_configuration(root):
         for name in ['config','config.toml']:
             path=directory/'.cargo'/name
             if path.exists() and path!=allowed:raise ValueError('ancestor Cargo config requires separate review: '+str(path))
-    if tomllib.loads(allowed.read_text())!={'net':{'git-fetch-with-cli':True},'env':{'IPHONEOS_DEPLOYMENT_TARGET':'17.0'}}:
+    if tomllib.loads(allowed.read_text())!={'net':{'git-fetch-with-cli':True},'env':{'IPHONEOS_DEPLOYMENT_TARGET':'26.0'}}:
         raise ValueError('checkout Cargo config changed; review effective build settings')
     # User Cargo configuration is excluded by the fresh checkout-owned CARGO_HOME.
     return digest(allowed.read_bytes())

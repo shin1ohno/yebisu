@@ -1,7 +1,7 @@
 name: SmokeOracle
 options:
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
 targets:
   SmokeOracle:
     type: bundle.ui-testing
