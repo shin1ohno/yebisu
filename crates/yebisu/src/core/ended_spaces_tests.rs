@@ -1,0 +1,244 @@
+//! Which `herdr-app` spaces count as ended, and when one is removed: each
+//! way a terminal ends (exit, kill, gone after a restart or a relaunch),
+//! each thing that keeps a space (a live terminal, a kept terminal, another
+//! machine's terminal, a mod), and each guard (the first read, the grace,
+//! another boot, a failed read, a changed space).
+use super::ended_spaces::{Listing, Tracker, ended};
+use super::herdr_doc::{Intent, parse_view};
+use serde_json::{Value, json};
+use sheprd_core_client::wire::Terminal;
+use std::time::{Duration, Instant};
+
+const GRACE: Duration = Duration::from_secs(5);
+
+fn block(terminal: &str) -> Value {
+    json!({"type": "block", "id": format!("p-{terminal}"), "content": {"terminal": terminal}})
+}
+
+fn tab(id: &str, root: Value) -> Value {
+    json!({"id": id, "name": "", "root": root})
+}
+
+fn space(id: &str, tabs: Vec<Value>) -> Value {
+    json!({"id": id, "name": "", "folder": "/w", "tabs": tabs})
+}
+
+fn doc(spaces: Vec<Value>) -> Value {
+    json!({"spaces": spaces, "future": {"kept": true}})
+}
+
+fn listing(terminals: &[(&str, &str, Option<&str>)]) -> Listing {
+    let terminals = terminals
+        .iter()
+        .map(|(address, state, reason)| {
+            serde_json::from_value::<Terminal>(
+                json!({"address": address, "state": state, "reason": reason}),
+            )
+            .unwrap_or_else(|e| panic!("terminal: {e}"))
+        })
+        .collect::<Vec<_>>();
+    Listing::new(&terminals)
+}
+
+fn ended_ids(value: &Value, listing: &Listing) -> Vec<String> {
+    let view = parse_view(value).unwrap_or_else(|e| panic!("view: {e}"));
+    ended(value, &view, listing)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
+}
+
+fn one(terminal: &str) -> Value {
+    doc(vec![space("sp1", vec![tab("tb1", block(terminal))])])
+}
+
+#[test]
+fn exited_terminal_ends_its_space() {
+    let found = ended_ids(&one("t1"), &listing(&[("t1", "finished", Some("exited"))]));
+    assert_eq!(found, ["sp1"]);
+}
+
+#[test]
+fn killed_terminal_ends_its_space() {
+    let found = ended_ids(&one("t1"), &listing(&[("t1", "finished", Some("killed"))]));
+    assert_eq!(found, ["sp1"]);
+}
+
+#[test]
+fn terminal_core_no_longer_knows_ends_its_space() {
+    // After a restart that dropped it, or one removed while the app was
+    // closed: the official app's `not_found`.
+    let found = ended_ids(&one("t1"), &listing(&[("t9", "live", None)]));
+    assert_eq!(found, ["sp1"]);
+}
+
+#[test]
+fn live_terminal_keeps_its_space() {
+    // The negative control of the three above.
+    let found = ended_ids(&one("t1"), &listing(&[("t1", "live", None)]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn one_live_terminal_keeps_every_tab_of_its_space() {
+    let value = doc(vec![space(
+        "sp1",
+        vec![
+            tab("tb1", block("t1")),
+            tab(
+                "tb2",
+                json!({"type": "row", "children": [block("t2"), block("t3")]}),
+            ),
+        ],
+    )]);
+    let ended_tabs = listing(&[
+        ("t1", "finished", Some("killed")),
+        ("t2", "finished", Some("exited")),
+        ("t3", "live", None),
+    ]);
+    assert!(ended_ids(&value, &ended_tabs).is_empty());
+    let all = listing(&[
+        ("t1", "finished", Some("killed")),
+        ("t2", "finished", Some("exited")),
+        ("t3", "finished", Some("exited")),
+    ]);
+    assert_eq!(ended_ids(&value, &all), ["sp1"]);
+}
+
+#[test]
+fn kept_terminal_stopped_with_its_server_keeps_its_space() {
+    // herdr-core gives a kept terminal a shell at its next start.
+    for reason in ["server_stop", "holder_lost"] {
+        let found = ended_ids(&one("t1"), &listing(&[("t1", "finished", Some(reason))]));
+        assert!(found.is_empty(), "{reason}: {found:?}");
+    }
+}
+
+#[test]
+fn other_machines_terminal_is_never_judged_absent() {
+    assert!(ended_ids(&one("box/t1"), &listing(&[])).is_empty());
+    let found = ended_ids(
+        &one("box/t1"),
+        &listing(&[("box/t1", "finished", Some("exited"))]),
+    );
+    assert_eq!(found, ["sp1"], "a listed end counts on any machine");
+}
+
+#[test]
+fn tab_holding_a_mod_keeps_its_space() {
+    let value = doc(vec![space(
+        "sp1",
+        vec![tab(
+            "tb1",
+            json!({"type": "row", "children": [block("t1"),
+                {"type": "block", "id": "pm", "content": {"mod": "notes", "props": {}}}]}),
+        )],
+    )]);
+    let found = ended_ids(&value, &listing(&[("t1", "finished", Some("exited"))]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn space_without_tabs_or_terminals_is_ended() {
+    let value = doc(vec![
+        space("sp1", vec![]),
+        space("sp2", vec![json!({"id": "tb2", "name": ""})]),
+    ]);
+    assert_eq!(ended_ids(&value, &listing(&[])), ["sp1", "sp2"]);
+}
+
+#[test]
+fn space_without_id_is_left_alone() {
+    let value = doc(vec![json!({"name": "", "tabs": [tab("tb1", block("t1"))]})]);
+    assert!(ended_ids(&value, &listing(&[])).is_empty());
+}
+
+#[test]
+fn found_space_is_its_value_as_read() {
+    let mut value = one("t1");
+    value["spaces"][0]["newer"] = json!([1, 2]);
+    let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
+    let found = ended(&value, &view, &listing(&[]));
+    assert_eq!(found, [("sp1".to_owned(), value["spaces"][0].clone())]);
+}
+
+fn candidate() -> Vec<(String, Value)> {
+    vec![("sp1".to_owned(), one("t1")["spaces"][0].clone())]
+}
+
+fn removed(intents: &[Intent]) -> Vec<&str> {
+    intents
+        .iter()
+        .filter_map(|intent| match intent {
+            Intent::RemoveSpace { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn first_read_of_a_boot_never_removes() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    assert!(tracker.observe("c#1", now, candidate()).is_empty());
+}
+
+#[test]
+fn second_read_after_the_grace_removes() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    tracker.observe("c#1", now, candidate());
+    let early = tracker.observe("c#1", now + GRACE - Duration::from_millis(1), candidate());
+    assert!(early.is_empty(), "within the grace: {early:?}");
+    let due = tracker.observe("c#1", now + GRACE, candidate());
+    assert_eq!(removed(&due), ["sp1"]);
+    let Some(Intent::RemoveSpace { space, .. }) = due.first() else {
+        panic!("no removal");
+    };
+    assert_eq!(*space, candidate()[0].1, "the space as read");
+}
+
+#[test]
+fn another_boot_starts_over() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    tracker.observe("c#1", now, candidate());
+    // Same core id, a new connection: a restarted core, or a relaunch.
+    let after = tracker.observe("c#2", now + GRACE * 3, candidate());
+    assert!(after.is_empty(), "{after:?}");
+    let due = tracker.observe("c#2", now + GRACE * 4, candidate());
+    assert_eq!(removed(&due), ["sp1"]);
+}
+
+#[test]
+fn failed_read_forgets_every_candidate() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    tracker.observe("c#1", now, candidate());
+    tracker.forget();
+    let after = tracker.observe("c#1", now + GRACE * 2, candidate());
+    assert!(after.is_empty(), "{after:?}");
+}
+
+#[test]
+fn space_seen_alive_in_between_starts_over() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    tracker.observe("c#1", now, candidate());
+    tracker.observe("c#1", now + GRACE, Vec::new());
+    let after = tracker.observe("c#1", now + GRACE * 2, candidate());
+    assert!(after.is_empty(), "{after:?}");
+}
+
+#[test]
+fn space_changed_in_between_starts_over() {
+    let mut tracker = Tracker::new(GRACE);
+    let now = Instant::now();
+    tracker.observe("c#1", now, candidate());
+    let mut renamed = candidate();
+    renamed[0].1["name"] = json!("Build");
+    let after = tracker.observe("c#1", now + GRACE, renamed.clone());
+    assert!(after.is_empty(), "{after:?}");
+    let due = tracker.observe("c#1", now + GRACE * 2, renamed);
+    assert_eq!(removed(&due), ["sp1"]);
+}

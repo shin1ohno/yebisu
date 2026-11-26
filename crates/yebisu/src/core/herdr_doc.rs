@@ -74,6 +74,9 @@ pub(crate) struct TabView {
     /// `floating`.
     pub(crate) terminals: Vec<String>,
     pub(crate) drawable: Drawable,
+    /// The tree holds something other than terminal blocks and their
+    /// rows and columns: a mod, an agent, a stack, a floating block.
+    pub(crate) other: bool,
 }
 
 /// Whether yebisu's at most two panes in one direction can show the tree.
@@ -135,6 +138,13 @@ pub(crate) enum Intent {
         new_pane: String,
         new_container: String,
         new_terminal: String,
+    },
+    /// A space whose every terminal ended, removed as the official app
+    /// removes it (`herdr-app/src/model.rs` `remove_space`). `space` is the
+    /// space as it was read: a space changed since then stays.
+    RemoveSpace {
+        id: String,
+        space: Value,
     },
     /// The iPad's saved `default` tabs, moved once into one new space
     /// named "iPad" (Design G, owner decision 4).
@@ -210,6 +220,7 @@ pub(crate) fn parse_view(value: &Value) -> Result<View, DocError> {
                 name: text(tab, "name", &at)?,
                 terminals: walk.terminals,
                 drawable,
+                other: walk.other,
             });
         }
         spaces.push(SpaceView {
@@ -409,6 +420,19 @@ pub(crate) fn apply(value: &Value, intent: &Intent) -> Result<Applied, DocError>
                 next = json!({});
             }
             push(&mut next, "spaces", space)?;
+            Ok(Applied::Changed(next))
+        }
+        Intent::RemoveSpace { id, space } => {
+            let Some(i) = view.spaces.iter().position(|known| known.id == *id) else {
+                return Ok(Applied::Unchanged);
+            };
+            let Some(Value::Array(spaces)) = next.get_mut("spaces") else {
+                return Err(DocError::Missing("space"));
+            };
+            if spaces.get(i) != Some(space) {
+                return Ok(Applied::Unchanged);
+            }
+            spaces.remove(i);
             Ok(Applied::Changed(next))
         }
         Intent::Migrate { space_id, tabs } => {
@@ -658,6 +682,11 @@ fn only_intended(original: &Value, candidate: &Value, intent: &Intent) -> bool {
             .iter()
             .position(|known| known.id == *space)
             .is_some_and(|i| unpush(original, &mut undone, &["spaces".into(), i.into()], "tabs")),
+        Intent::RemoveSpace { id, .. } => view
+            .spaces
+            .iter()
+            .position(|space| space.id == *id)
+            .is_some_and(|i| reinsert(original, &mut undone, i)),
         Intent::NewSpace { .. } | Intent::Migrate { .. } => {
             let undone_top = unpush(original, &mut undone, &[], "spaces");
             if original.is_null() && undone.as_object().is_some_and(Map::is_empty) {
@@ -714,6 +743,20 @@ fn restore(original: &Value, undone: &mut Value, at: &[Step]) -> bool {
         }
     }
     true
+}
+
+/// Puts the original's space `i` back where a removal took it from.
+fn reinsert(original: &Value, undone: &mut Value, i: usize) -> bool {
+    let Some(space) = locate(original, &["spaces".into(), i.into()]).cloned() else {
+        return false;
+    };
+    match undone.get_mut("spaces") {
+        Some(Value::Array(spaces)) if i <= spaces.len() => {
+            spaces.insert(i, space);
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Removes the one item appended to the array `key` under `at`.
