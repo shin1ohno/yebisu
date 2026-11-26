@@ -40,9 +40,9 @@ def good_peer():
 
 
 def good_records():
-    # R4's field holds the long press Paste's word (S6, #213).
+    # R4's field holds the edit menu Paste's word (S6, #213).
     return [field(t + 1, language="ja-JP" if name == "R5" else "en-US",
-                  text="qrenamepastewordrenamelongpress" if name == "R4" else "") for name, t in TIMES[:-1]]
+                  text="qrenamepastewordrenamemenupaste" if name == "R4" else "") for name, t in TIMES[:-1]]
 
 
 class Verdicts(unittest.TestCase):
@@ -68,18 +68,18 @@ class Verdicts(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("'q'", reason)
 
-    def test_r4_needs_the_long_press_paste_in_the_field_and_not_at_the_terminal(self):
+    def test_r4_needs_the_menu_paste_in_the_field_and_not_at_the_terminal(self):
         records = good_records()
         records[TIMES.index(("R4", 40.0))]["sdk"]["text"] = "qrenamepasteword"
         ok, reason = self.verdicts(good_peer(), records)["R4"]
         self.assertFalse(ok)
-        self.assertIn("long_press_paste_in_field=False", reason)
+        self.assertIn("menu_paste_in_field=False", reason)
         peer = good_peer()
         peer.insert(peer.index(text("w")), {"ClientShellPaneInput": {"pane_id": "w1:p1",
-                                                                     "events": [{"Paste": "renamelongpress"}]}})
+                                                                     "events": [{"Paste": "renamemenupaste"}]}})
         ok, reason = self.verdicts(peer, good_records())["R4"]
         self.assertFalse(ok)
-        self.assertIn("leaked=[('paste', 'renamelongpress')]", reason)
+        self.assertIn("leaked=[('paste', 'renamemenupaste')]", reason)
 
     def test_a_cancelled_field_that_sent_fails_r3(self):
         peer = good_peer()

@@ -30,8 +30,8 @@ BUNDLE = 'com.shin1ohno.yebisu'
 STEPS = ('R1', 'R2', 'R2b', 'R3', 'R4', 'R5')
 MARKERS = {'R1': 'z', 'R2': 'y', 'R2b': 'u', 'R3': 'x', 'R4': 'w', 'R5': 'v'}
 PASTED = 'renamepasteword'
-# R4's long press Paste in the field (S6, #213): a word of its own, seen in the field's text.
-LONG_PASTED = 'renamelongpress'
+# R4's Paste from the field's edit menu (S6, #213): a word of its own, seen in the field's text.
+MENU_PASTED = 'renamemenupaste'
 HERDR2 = 'Not available on Herdr 2 yet'
 # #144 D3: Herdr 2 renames the spaces and tabs of the `default` session's herdr-app document; the
 # mock serves none, so Rename Space and the tab's Rename... say why (Rename Pane keeps HERDR2).
@@ -184,10 +184,10 @@ def verdicts(windows, steps, cancelled=None):
     check('R3', opened('R3') and not renames(r3) and not inputs(r3),
           f'opened={opened("R3")} renames={renames(r3)} inputs={inputs(r3)}')
     r4 = steps.get('R4', [])
-    leaked = [e for e in inputs(r4) if PASTED in str(e[1]) or LONG_PASTED in str(e[1]) or e[1] in ('q', 'b')]
-    long_pasted = any(LONG_PASTED in str((r.get('sdk') or {}).get('text') or '') for r in windows.get('R4', []))
-    check('R4', opened('R4') and long_pasted and not renames(r4) and not inputs(r4),
-          f'opened={opened("R4")} long_press_paste_in_field={long_pasted} renames={renames(r4)} '
+    leaked = [e for e in inputs(r4) if PASTED in str(e[1]) or MENU_PASTED in str(e[1]) or e[1] in ('q', 'b')]
+    menu_pasted = any(MENU_PASTED in str((r.get('sdk') or {}).get('text') or '') for r in windows.get('R4', []))
+    check('R4', opened('R4') and menu_pasted and not renames(r4) and not inputs(r4),
+          f'opened={opened("R4")} menu_paste_in_field={menu_pasted} renames={renames(r4)} '
           f'inputs={inputs(r4)} leaked={leaked}')
     r5 = steps.get('R5', [])
     languages = sorted({(r.get('sdk') or {}).get('primary_language') for r in windows.get('R5', [])} - {None})
