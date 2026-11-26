@@ -428,3 +428,7 @@ mod top_band_tests;
 #[cfg(test)]
 #[path = "frame_bottom_band_tests.rs"]
 mod bottom_band_tests;
+
+#[cfg(test)]
+#[path = "frame_hidden_sidebar_tests.rs"]
+mod hidden_sidebar_tests;
