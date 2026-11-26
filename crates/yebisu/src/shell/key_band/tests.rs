@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    layout::{Rect, Size},
+    layout::Size,
     mock_peer,
     shell::{add_host::SheetMode, fit},
     terminal::InputTarget,
@@ -144,31 +144,128 @@ fn insets(keyboard: f32, left: f32) -> WindowInsets {
 }
 
 #[test]
-fn band_is_reserved_only_for_a_docked_software_keyboard() {
-    let window = Size::new(1376., 1032.);
-    for (height, left, attached, expected) in [
-        (498., 0., false, 76.),
-        (498., 0., true, 0.),
-        (498., 420., false, 0.),
-        (71., 0., false, 0.),
-        (25., 0., false, 0.),
-        (0., 0., false, 0.),
+fn keys_show_on_the_bar_or_the_band_by_keyboard_state() {
+    use bar::{Placement as P, Surface as S, surface};
+    // (placement, docked inset, hardware, native field) -> surface
+    for (placement, docked, hardware, native, expected) in [
+        (P::Docked, true, false, false, S::Bar),
+        (P::Undocked, false, false, false, S::Bar),
+        (P::Floating, false, false, false, S::Band),
+        // The inset can be up before the first frame notification is read.
+        (P::Hidden, true, false, false, S::Bar),
+        (P::Hidden, false, false, false, S::None),
+        // A hardware keyboard alone shows nothing in any state.
+        (P::Docked, true, true, false, S::None),
+        (P::Floating, false, true, false, S::None),
+        (P::Hidden, false, true, false, S::None),
+        // A native field owns the keyboard (and has its own bar).
+        (P::Docked, true, false, true, S::None),
+        (P::Floating, false, false, true, S::None),
     ] {
         assert_eq!(
-            fit::key_band_height(window, &insets(height, left).ime, attached),
-            expected
+            surface(placement, docked, hardware, native),
+            expected,
+            "{placement:?} docked={docked} hardware={hardware} native={native}"
         );
     }
 }
 
-fn install(app: &mut Smoke, client: sheprd_client::Client) {
+#[test]
+fn only_a_full_width_docked_software_keyboard_counts_as_docked() {
+    let window = Size::new(1376., 1032.);
+    for (height, left, expected) in [
+        (498., 0., true),
+        (498., 420., false),
+        (71., 0., false),
+        (25., 0., false),
+        (0., 0., false),
+    ] {
+        assert_eq!(
+            fit::software_keyboard_docked(window, &insets(height, left).ime),
+            expected,
+            "{height} {left}"
+        );
+    }
+}
+
+#[test]
+fn the_bar_is_blink_with_alt_and_a_menu() {
+    let names = |groups: &[Vec<bar::Button>]| -> Vec<Vec<&str>> {
+        groups
+            .iter()
+            .map(|group| group.iter().map(|button| button.key.name).collect())
+            .collect()
+    };
+    let model = bar::model(true, Modifiers::default());
+    assert_eq!(
+        names(&model.leading),
+        [
+            vec!["ctrl", "alt"],
+            vec![
+                "esc",
+                "tab",
+                "backtick",
+                "caret",
+                "backslash",
+                "bracket-left",
+                "bracket-right",
+                "less",
+                "greater"
+            ],
+        ]
+    );
+    assert_eq!(
+        names(&model.trailing),
+        [vec!["left", "up", "down", "right"], vec!["cmd"]]
+    );
+    let menu: Vec<_> = model.menu.iter().map(|button| button.key.name).collect();
+    assert_eq!(
+        menu,
+        ["paste", "prefix", "pipe", "tilde", "slash", "minus", "hide"]
+    );
+    // Every key once, and each id finds its key again.
+    let all: Vec<_> = model
+        .leading
+        .iter()
+        .chain(&model.trailing)
+        .flatten()
+        .chain(&model.menu)
+        .collect();
+    assert_eq!(all.len(), keys::ALL.len());
+    for button in all {
+        assert_eq!(keys::by_id(button.id), Some(button.key));
+        assert!(!button.selected);
+    }
+}
+
+#[test]
+fn the_bar_draws_the_latch_and_is_empty_for_a_hardware_keyboard() {
+    let latch = Modifiers {
+        control: true,
+        platform: true,
+        ..Modifiers::default()
+    };
+    let model = bar::model(true, latch);
+    let selected: Vec<_> = model
+        .leading
+        .iter()
+        .chain(&model.trailing)
+        .flatten()
+        .filter(|button| button.selected)
+        .map(|button| button.key.name)
+        .collect();
+    assert_eq!(selected, ["ctrl", "cmd"]);
+    assert_eq!(bar::model(false, latch), bar::Model::default());
+}
+
+pub(super) fn install(app: &mut Smoke, client: sheprd_client::Client) {
     app.select_host("key-band-peer");
     let generation = app.terminal.link.reset();
     app.terminal.link.install(generation, Ok(client));
     app.terminal.open = true;
 }
 
-fn wait_for_terminal(view: &gpui::Entity<Smoke>, cx: &mut VisualTestContext) {
+pub(super) fn wait_for_terminal(view: &gpui::Entity<Smoke>, cx: &mut VisualTestContext) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !view.update(cx, |app, cx| {
         app.poll_terminal(cx);
@@ -184,17 +281,40 @@ fn wait_for_terminal(view: &gpui::Entity<Smoke>, cx: &mut VisualTestContext) {
     cx.run_until_parked();
 }
 
-fn set_insets(view: &gpui::Entity<Smoke>, cx: &mut VisualTestContext, height: f32, attached: bool) {
+/// A software keyboard docked `height` points tall (none at 0), or a
+/// hardware keyboard's bar when `attached`.
+pub(super) fn set_insets(
+    view: &gpui::Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    height: f32,
+    attached: bool,
+) {
     view.update(cx, |app, cx| {
         app.shell.fit.insets = Some(insets(height, 0.));
         app.shell.fit.hardware_keyboard_attached = attached;
+        app.shell.fit.keyboard_placement = if height > 0. {
+            bar::Placement::Docked
+        } else {
+            bar::Placement::Hidden
+        };
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+/// A floating software keyboard: no bottom inset, and the in-app band.
+pub(crate) fn float_keyboard(view: &gpui::Entity<Smoke>, cx: &mut VisualTestContext) {
+    view.update(cx, |app, cx| {
+        app.shell.fit.insets = Some(insets(0., 0.));
+        app.shell.fit.hardware_keyboard_attached = false;
+        app.shell.fit.keyboard_placement = bar::Placement::Floating;
         cx.notify();
     });
     cx.run_until_parked();
 }
 
 #[gpui::test]
-fn rendered_band_and_terminal_fit_share_the_guide(cx: &mut TestAppContext) {
+fn a_docked_keyboard_gets_the_pager_band_and_a_floating_one_the_keys(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     let (client, _) = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
     view.update(cx, |app, _| install(app, client));
@@ -212,30 +332,30 @@ fn rendered_band_and_terminal_fit_share_the_guide(cx: &mut TestAppContext) {
             .unwrap_or_else(|| panic!("terminal"));
         assert!(cx.debug_bounds("shell-key-band").is_none());
         assert!(cx.debug_bounds("shell-status-shortcuts").is_some());
+
+        // Docked: the keys are on the keyboard's own bar; above the
+        // keyboard only the thin pager band, and one pane shows at a time.
         set_insets(&view, cx, keyboard, false);
+        wait_for_terminal(&view, cx);
+        assert!(
+            cx.debug_bounds("shell-key-band").is_none(),
+            "docked key band"
+        );
+        let pager = cx
+            .debug_bounds("shell-pager-band")
+            .unwrap_or_else(|| panic!("missing pager band"));
+        assert_eq!(pager.size, size(px(width), px(PAGER_HEIGHT)));
+        assert_eq!(pager.bottom(), px(height - keyboard));
         assert!(cx.debug_bounds("shell-status-software-keyboard").is_some());
         assert!(cx.debug_bounds("shell-status-shortcuts").is_none());
-        wait_for_terminal(&view, cx);
-        let band = cx
-            .debug_bounds("shell-key-band")
-            .unwrap_or_else(|| panic!("missing band"));
         let terminal = cx
             .debug_bounds("shell-terminal")
             .unwrap_or_else(|| panic!("terminal"));
-        assert_eq!(band.left(), px(0.));
-        assert_eq!(band.size, size(px(width), px(76.)));
-        assert_eq!(band.bottom(), px(height - keyboard));
-        assert_eq!(terminal.size.width, starting.size.width);
-        let with_band = view
-            .update(cx, |app, _| app.terminal.size)
-            .unwrap_or_else(|| panic!("size with keyboard"))
-            .surface_size;
-        assert_eq!(with_band.cols, bare_size.cols);
-        assert!(with_band.rows < bare_size.rows);
         assert_eq!(
             starting.size.height - terminal.size.height,
-            px(keyboard + 76.)
+            px(keyboard + PAGER_HEIGHT)
         );
+        assert!(view.update_in(cx, |app, window, _| app.pager_available_at(window)));
         view.update(cx, |app, _| {
             let layout = app.layout_for(
                 Size::new(width, height),
@@ -245,18 +365,50 @@ fn rendered_band_and_terminal_fit_share_the_guide(cx: &mut TestAppContext) {
             );
             assert_eq!(
                 layout.key_band,
-                Some(Rect::new(0., height - keyboard - 76., width, 76.))
+                Some(crate::layout::Rect::new(
+                    0.,
+                    height - keyboard - PAGER_HEIGHT,
+                    width,
+                    PAGER_HEIGHT
+                ))
             );
-            assert_eq!(layout.status_bar.bottom(), height - keyboard - 76.);
-            assert!(
-                layout
-                    .terminal
-                    .rect()
-                    .is_some_and(|rect| rect.bottom() <= layout.status_bar.y)
-            );
+            assert_eq!(layout.status_bar.bottom(), height - keyboard - PAGER_HEIGHT);
         });
+
+        // Floating: the keyboard has no bar, so the band sits on the
+        // window's bottom edge and the terminal keeps its width.
+        float_keyboard(&view, cx);
+        wait_for_terminal(&view, cx);
+        assert!(cx.debug_bounds("shell-pager-band").is_none());
+        // A floating keyboard limits no space: every pane shows, as before.
+        assert!(!view.update_in(cx, |app, window, _| app.pager_available_at(window)));
+        let band = cx
+            .debug_bounds("shell-key-band")
+            .unwrap_or_else(|| panic!("missing band"));
+        let terminal = cx
+            .debug_bounds("shell-terminal")
+            .unwrap_or_else(|| panic!("terminal"));
+        assert_eq!(band.left(), px(0.));
+        assert_eq!(band.size, size(px(width), px(76.)));
+        assert_eq!(band.bottom(), px(height));
+        assert_eq!(terminal.size.width, starting.size.width);
+        assert_eq!(starting.size.height - terminal.size.height, px(76.));
+        let with_band = view
+            .update(cx, |app, _| app.terminal.size)
+            .unwrap_or_else(|| panic!("size with band"))
+            .surface_size;
+        assert_eq!(with_band.cols, bare_size.cols);
+        assert!(with_band.rows < bare_size.rows);
+        assert!(cx.debug_bounds("shell-status-software-keyboard").is_some());
+
+        // A hardware keyboard alone: no band, no bar keys.
         set_insets(&view, cx, keyboard, true);
         assert!(cx.debug_bounds("shell-key-band").is_none());
+        assert!(cx.debug_bounds("shell-pager-band").is_none());
+        assert_eq!(
+            view.read_with(cx, |app, _| app.keyboard_bar_model().cloned()),
+            Some(bar::Model::default())
+        );
         set_insets(&view, cx, 71., false);
         assert!(cx.debug_bounds("shell-key-band").is_none());
     }
@@ -269,7 +421,7 @@ fn tap(cx: &mut VisualTestContext, id: &'static str) {
     cx.simulate_click(bounds.center(), Modifiers::default());
 }
 
-fn received(replies: &std::sync::mpsc::Receiver<ClientMessage>) -> ClientPaneInputEvent {
+pub(super) fn received(replies: &std::sync::mpsc::Receiver<ClientMessage>) -> ClientPaneInputEvent {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         let incoming = replies.recv_timeout(deadline.saturating_duration_since(Instant::now()));
@@ -295,7 +447,7 @@ fn taps_use_semantic_input_on_the_current_peer(cx: &mut TestAppContext) {
         mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
     view.update(cx, |app, _| install(app, client));
     wait_for_terminal(&view, cx);
-    set_insets(&view, cx, 498., false);
+    float_keyboard(&view, cx);
     wait_for_terminal(&view, cx);
     cx.update(|window, app| {
         view.update(app, |view, cx| view.terminal_focus.focus(window, cx));
@@ -388,7 +540,7 @@ fn hide_over_sheet(
     wait_for_terminal(&view, cx);
     let window = record_dismissals(cx);
     cx.update(|window, app| view.update(app, |app, cx| open(app, window, cx)));
-    set_insets(&view, cx, 498., false);
+    float_keyboard(&view, cx);
     let scrim = cx
         .debug_bounds(overlay)
         .unwrap_or_else(|| panic!("{overlay} is absent"));
@@ -439,7 +591,7 @@ fn the_key_band_ignores_vertical_swipes(cx: &mut TestAppContext) {
     let (client, _) = mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
     view.update(cx, |app, _| install(app, client));
     wait_for_terminal(&view, cx);
-    set_insets(&view, cx, 320., false);
+    float_keyboard(&view, cx);
     wait_for_terminal(&view, cx);
     let esc = |cx: &mut VisualTestContext| {
         cx.debug_bounds("key-band-esc")
@@ -468,7 +620,7 @@ fn band_presses_while_search_is_open_change_nothing(cx: &mut TestAppContext) {
         mock_peer::connect_recorded(1).unwrap_or_else(|error| panic!("{error}"));
     view.update(cx, |app, _| install(app, client));
     wait_for_terminal(&view, cx);
-    set_insets(&view, cx, 498., false);
+    float_keyboard(&view, cx);
     cx.update(|window, app| {
         view.update(app, |view, cx| view.terminal_focus.focus(window, cx));
     });

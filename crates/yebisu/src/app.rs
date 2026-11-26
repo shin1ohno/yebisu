@@ -181,6 +181,8 @@ impl Render for Smoke {
         self.install_settings_shortcut(window, cx);
         #[cfg(target_os = "ios")]
         self.bind_text_retirement(window, cx);
+        // #229: where the keyboard is, and the terminal keys on its bar.
+        self.sync_keyboard_keys(window, cx);
         // A draw has begun: a retired search field is no longer GPUI's input
         // handler, so it stops forwarding (find/field.rs).
         self.find_handoff.frames = self.find_handoff.frames.wrapping_add(1);

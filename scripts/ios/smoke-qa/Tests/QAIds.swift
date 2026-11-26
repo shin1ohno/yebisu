@@ -24,6 +24,8 @@ enum QAIds {
     static let menuPane2 = "qa.menu.pane-2"
     static let menuDetach = "qa.menu.detach"
     static let menuNewTab = "qa.menu.new-tab"
+    // #229: the in-app key band's ctrl (a floating keyboard's keys; SmokeQA+KeyboardBar.swift).
+    static let keyBandCtrl = "qa.keyband.ctrl"
     static let bandMark = "qa.band.mark"
     static let bandDelete = "qa.band.delete"
     static let bandCommit = "qa.band.commit"

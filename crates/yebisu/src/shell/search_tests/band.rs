@@ -5,6 +5,7 @@
 use super::*;
 use crate::shell::search::{DismissReason, Restored};
 
+/// A docked software keyboard: the pager-only band above it (#229).
 fn software_keyboard(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
     view.update(cx, |this, cx| {
         this.shell.fit.insets = Some(gpui::WindowInsets {
@@ -15,6 +16,7 @@ fn software_keyboard(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
             ..gpui::WindowInsets::default()
         });
         this.shell.fit.hardware_keyboard_attached = false;
+        this.shell.fit.keyboard_placement = crate::shell::key_band::bar::Placement::Docked;
         cx.notify();
     });
     cx.run_until_parked();
@@ -37,12 +39,12 @@ fn band_zero_while_open(cx: &mut TestAppContext) {
     software_keyboard(&view, cx);
     assert!(
         band(&view, cx),
-        "fixture: a docked software keyboard has the band"
+        "fixture: a docked software keyboard has the pager band"
     );
-    assert!(cx.debug_bounds("shell-key-band").is_some());
+    assert!(cx.debug_bounds("shell-pager-band").is_some());
     opened(&view, &fake, cx);
     assert!(!band(&view, cx), "the band was kept while the panel is up");
-    assert!(cx.debug_bounds("shell-key-band").is_none());
+    assert!(cx.debug_bounds("shell-pager-band").is_none());
     push(&fake, cx, SearchEvent::Dismissed(DismissReason::Return));
     assert!(!band(&view, cx), "the band came back before the restore");
     push(&fake, cx, SearchEvent::InputRestored(Restored::Text));

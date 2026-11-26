@@ -78,6 +78,7 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
             "pasting",
             "second",
             "peer",
+            "key_bar",
             "p0_input",
             "font_size",
             "theme",
@@ -140,7 +141,7 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
     assert_eq!(field("second"), Some(serde_json::json!(false)));
     assert_eq!(
         field("peer"),
-        Some(serde_json::json!({"inputs": 0, "pastes": []}))
+        Some(serde_json::json!({"inputs": 0, "pastes": [], "keys": []}))
     );
     let selecting = view.update_in(cx, |this, window, _| {
         this.handoff.select_mode = true;
@@ -192,7 +193,7 @@ fn counters_and_frame_requests_are_off_in_a_host_build() {
     );
     assert_eq!(
         peer::field(),
-        serde_json::json!({"inputs": 0, "pastes": []}),
+        serde_json::json!({"inputs": 0, "pastes": [], "keys": []}),
         "the peer slot stays empty outside a QA build"
     );
 }
