@@ -214,4 +214,3 @@ fn a_compact_ipad_window_starts_its_top_bar_past_the_controls(cx: &mut TestAppCo
         }
     }
 }
-
