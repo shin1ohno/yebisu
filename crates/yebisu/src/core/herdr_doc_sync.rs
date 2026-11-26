@@ -401,9 +401,11 @@ impl Reader {
                 .collect();
             listing
         });
-        self.due = match (&self.doc, &read, &listing) {
-            (Some((value, _)), Read::Readable(view), Some(listing)) => {
-                let found = ended_spaces::ended(value, view, listing);
+        self.due = match (&self.doc, &read, listing) {
+            (Some((value, _)), Read::Readable(view), Some(mut listing)) => {
+                let unlisted = ended_spaces::unlisted(value, view, &listing);
+                confirm_unlisted(core, &mut listing, unlisted, stopped);
+                let found = ended_spaces::ended(value, view, &listing);
                 self.tracker.observe(&self.boot, Instant::now(), found)
             }
             _ => {
@@ -558,6 +560,34 @@ impl Reader {
             }
         }
         Outcome::Lost
+    }
+}
+
+/// Asks herdr-core, on the connection the list came from, about each
+/// terminal the full list left out, as the official app does before it
+/// removes a pane (`check_closed`): only a `not_found` refusal ends one.
+/// Any other answer keeps it; an error or a timeout keeps it and every
+/// terminal not asked about yet, until a later read (issue 222).
+fn confirm_unlisted(
+    core: &sheprd_core_client::Core,
+    listing: &mut Listing,
+    unlisted: Vec<String>,
+    stopped: &impl Fn() -> bool,
+) {
+    for address in unlisted {
+        if stopped() {
+            return;
+        }
+        match core.get(&address) {
+            Err(CoreError::Refused {
+                kind: Some(kind), ..
+            }) if kind == "not_found" => listing.not_found(&address),
+            Ok(_) => {}
+            Err(error) => {
+                tracing::info!(%error, "Herdr 2 terminal check; panes kept");
+                return;
+            }
+        }
     }
 }
 

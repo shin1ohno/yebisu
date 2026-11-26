@@ -305,3 +305,25 @@ class S6Identifiers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StalledReadAtTheBound(unittest.TestCase):
+    """Issue #198: QAAx.waitState reads once more before it fails when its last read began before
+    the bound and returned after it (QAAx.readAgain, covered by QAAxLogicTests on the Simulator)."""
+
+    def test_wait_state_asks_read_again_before_it_throws(self):
+        helpers = (TESTS / "QAAx.swift").read_text()
+        wait = "\n".join(statements(body(helpers, "func waitState(")))
+        self.assertIn("let began = QAAx.since(start)", wait)
+        ask = wait.index("QAAx.readAgain(began: began, returned: returned, timeout: timeout, readAgainBefore: readAgainBefore)")
+        self.assertLess(wait.index("let began = QAAx.since(start)"), wait.index("read()"), "the time is taken before the read")
+        self.assertLess(ask, wait.index("throw QAAxError.timeout"))
+        self.assertIn("readAgainBefore = true", wait[ask:wait.index("throw QAAxError.timeout")])
+
+    def test_the_rule_reads_again_once_and_only_across_the_bound(self):
+        helpers = (TESTS / "QAAx.swift").read_text()
+        rule = "\n".join(statements(body(helpers, "static func readAgain(")))
+        self.assertIn("!readAgainBefore && began < timeout && returned >= timeout", rule)
+        logic = (TESTS / "QAAxLogicTests.swift").read_text()
+        self.assertIn("func testWaitReadsOnceMoreOnlyAfterAReadThatStraddledTheBound()", logic)
+

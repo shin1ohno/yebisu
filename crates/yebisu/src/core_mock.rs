@@ -314,7 +314,22 @@ impl Host {
                         continue;
                     }
                     let method = request["method"].as_str().unwrap_or_default();
-                    if let Some(answer) = doc.call(method, &request["params"]) {
+                    let answer = if method == "terminal.get" {
+                        let id = request["params"]["terminal"].as_str().unwrap_or_default();
+                        let live = namespace
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .iter()
+                            .any(|known| known == id);
+                        match doc.get(id, live.then(|| terminal(id))) {
+                            Some(answer) => Some(answer),
+                            // A get the test leaves unanswered (`Get::Silent`).
+                            None => continue,
+                        }
+                    } else {
+                        doc.call(method, &request["params"])
+                    };
+                    if let Some(answer) = answer {
                         let reply = match answer {
                             Ok(result) => {
                                 json!({"jsonrpc":"2.0","id":request["id"],"result":result})

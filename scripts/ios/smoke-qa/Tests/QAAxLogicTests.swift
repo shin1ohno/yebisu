@@ -280,4 +280,16 @@ final class QAAxLogicTests: XCTestCase {
         XCTAssertFalse(none.keyboardUp)
         XCTAssertNil(none.corePanes)
     }
+
+    /// Issue #198: a wait reads once more only when its last read began before the bound and
+    /// returned after it (run 45734485407: began at 4.6 s of a 7 s wait, returned at 17.57 s),
+    /// and only once.
+    func testWaitReadsOnceMoreOnlyAfterAReadThatStraddledTheBound() {
+        XCTAssertTrue(QAAx.readAgain(began: 4.6, returned: 17.57, timeout: 7, readAgainBefore: false))
+        XCTAssertFalse(QAAx.readAgain(began: 4.6, returned: 17.57, timeout: 7, readAgainBefore: true), "only once")
+        XCTAssertFalse(QAAx.readAgain(began: 7.0, returned: 7.04, timeout: 7, readAgainBefore: false),
+                       "a read that began at the bound is past it")
+        XCTAssertFalse(QAAx.readAgain(began: 3.0, returned: 3.04, timeout: 7, readAgainBefore: false),
+                       "before the bound the wait goes on anyway")
+    }
 }
