@@ -149,18 +149,23 @@ impl Smoke {
             self.shell.single_pane.compact.panel = None;
             self.shell.frame.overflow_open = false;
         }
-        let layout = self.frame_layout(window);
-        self.record_window_controls(self.platform_window_controls(window), layout.controls);
+        // The top bar starts below the top safe area (`compact_geometry`),
+        // clear of the status bar, so it keeps only the window controls'
+        // clearance; the frame's layout adds the status icons' for a tab row
+        // moved up into that band (`layout::top_band`, issue #208).
+        let reach = self.platform_window_controls(window);
+        let controls = reach.clearance();
+        self.record_window_controls(reach, controls);
         self.set_edit_bar_width(Some(geometry.width));
 
         let pager = self.shell.single_pane.compact.pager.take();
         let bar = self.render_compact_header(
-            if layout.controls.rail_top > 0.0 {
-                layout.controls.header_leading
+            if controls.rail_top > 0.0 {
+                controls.header_leading
             } else {
                 HEADER_SPACING
             },
-            layout.controls.tab_row_trailing.max(HEADER_SPACING),
+            controls.tab_row_trailing.max(HEADER_SPACING),
             cx,
         );
         let status = self.render_compact_status(cx);
