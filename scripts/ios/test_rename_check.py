@@ -19,10 +19,11 @@ def text(value, pane="w1:p1"):
     return {"ClientShellPaneInput": {"pane_id": pane, "events": [{"TextCommit": value}]}}
 
 
-def field(time, open_=True, first=True, language="en-US", marked=False):
+def field(time, open_=True, first=True, language="en-US", marked=False, text=""):
     return {"kind": "rename-state", "time": time, "open": open_,
             "sdk": {"field_first_responder": first, "gpui_text_first_responder": False,
-                    "gpui_drawing_first_responder": False, "primary_language": language, "marked": marked}}
+                    "gpui_drawing_first_responder": False, "primary_language": language, "marked": marked,
+                    "text": text}}
 
 
 TIMES = [("R1", 10.0), ("R2", 20.0), ("R2b", 25.0), ("R3", 30.0), ("R4", 40.0), ("R5", 50.0), ("end", 60.0)]
@@ -39,7 +40,9 @@ def good_peer():
 
 
 def good_records():
-    return [field(t + 1, language="ja-JP" if name == "R5" else "en-US") for name, t in TIMES[:-1]]
+    # R4's field holds the long press Paste's word (S6, #213).
+    return [field(t + 1, language="ja-JP" if name == "R5" else "en-US",
+                  text="qrenamepastewordrenamelongpress" if name == "R4" else "") for name, t in TIMES[:-1]]
 
 
 class Verdicts(unittest.TestCase):
@@ -64,6 +67,19 @@ class Verdicts(unittest.TestCase):
         ok, reason = self.verdicts(peer, good_records())["R4"]
         self.assertFalse(ok)
         self.assertIn("'q'", reason)
+
+    def test_r4_needs_the_long_press_paste_in_the_field_and_not_at_the_terminal(self):
+        records = good_records()
+        records[TIMES.index(("R4", 40.0))]["sdk"]["text"] = "qrenamepasteword"
+        ok, reason = self.verdicts(good_peer(), records)["R4"]
+        self.assertFalse(ok)
+        self.assertIn("long_press_paste_in_field=False", reason)
+        peer = good_peer()
+        peer.insert(peer.index(text("w")), {"ClientShellPaneInput": {"pane_id": "w1:p1",
+                                                                     "events": [{"Paste": "renamelongpress"}]}})
+        ok, reason = self.verdicts(peer, good_records())["R4"]
+        self.assertFalse(ok)
+        self.assertIn("leaked=[('paste', 'renamelongpress')]", reason)
 
     def test_a_cancelled_field_that_sent_fails_r3(self):
         peer = good_peer()

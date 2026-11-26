@@ -81,8 +81,9 @@ just guarded python3 scripts/ios/rename-check.py --out /abs/dir4 --label menus -
 
 `rename-check.py` runs `SmokeQA/testRenameInPlace`: R1 a space's long press,
 a new name and Return (one `workspace.rename`); R2 a tab's double tap (one
-`tab.rename`); R3 an outside tap (nothing sent); R4 keys, Command-V and
-Command-B while the field is up (nothing reaches the terminal); R5 Japanese
+`tab.rename`); R3 an outside tap (nothing sent); R4 keys, Command-V,
+Command-B and the field's long press Paste while the field is up (the pasted
+word is in the field's text; nothing reaches the terminal); R5 Japanese
 romaji after Control-Space (the input source and any composition are
 recorded, not required).
 
@@ -111,6 +112,8 @@ revealed by P12's swipe, which can flake (issue #142).
 | Return and Escape while composing keep the field | herdr-uikit probe (marked text set directly); device D2, D3 |
 | Japanese IME conversion | device D1-D3 (the Simulator's XCUITest typing did not compose) |
 | Escape from a hardware keyboard | device D3 (XCUITest's Escape never reaches a presented field) |
+| Return held while the field closes, released 1 s later | device D12 (XCUITest's `typeKey` presses and releases at once; it cannot hold a key) |
+| The field's long press Paste | R4 (the word in the field, none at the peer) |
 | Outside tap with a finger, Pencil or trackpad | R3 (finger); device D5 |
 | Software keyboard covering a row | device D11 |
 | Stage Manager resize, app switch | device D13 |

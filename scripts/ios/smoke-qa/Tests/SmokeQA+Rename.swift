@@ -108,9 +108,12 @@ extension SmokeQA {
         renameMarker(app, "x")
 
         // R4 (S6): nothing reaches the terminal while the field is up: keys, Command-V of a
-        // marker word, Command-B; then an outside tap closes it.
+        // marker word, Command-B, and the field's own long press Paste of another (#213); then
+        // an outside tap closes it. The field lies over the row, so the long press is at the
+        // row's centre, read before the field opened.
         renameStep("R4")
         UIPasteboard.general.string = "renamepasteword"
+        let field = try qa.find(QAIds.sidebarCurrentSpace).frame
         try renameSpace(qa)
         app.typeText("q")
         sleep(1)
@@ -119,6 +122,17 @@ extension SmokeQA {
         app.typeKey("b", modifierFlags: .command)
         sleep(2)
         save("rename-r4-typed")
+        UIPasteboard.general.string = "renamelongpress"
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: field.midX, dy: field.midY)).press(forDuration: 1.0)
+        if app.menuItems["Paste"].waitForExistence(timeout: 4) {
+            app.menuItems["Paste"].tap()
+            print("RENAME R4 long press Paste chosen")
+        } else {
+            print("RENAME R4 long press showed no Paste")
+        }
+        sleep(2)
+        save("rename-r4-long-paste")
         outside(app)
         renameMarker(app, "w")
 
