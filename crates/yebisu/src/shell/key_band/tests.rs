@@ -241,6 +241,7 @@ fn rendered_band_and_terminal_fit_share_the_guide(cx: &mut TestAppContext) {
                 Size::new(width, height),
                 &insets(keyboard, 0.),
                 Default::default(),
+                false,
             );
             assert_eq!(
                 layout.key_band,

@@ -67,12 +67,12 @@ Later moves, oldest first:
   bdbe037687034bd0d222bb37533c24ebfb46eeff (only the scene's own NSWindow
   extends under the hidden title bar), a descendant of 9b3538a. It also
   brings PR 33 (a script-only restore fix in `check-native-search.py`).
-- Issue #161 moved it to the PR 37 merge commit
-  2bb3a681863130258fd6ea1f97f42ba19bd8ca6b, a descendant of bdbe037 through
-  PR 35 (121a55f) and PR 36 (decd8f8). PR 35 patches the shin1ohno/gpui-pre
-  fork into its own builds; PR 36 makes `build.rs` read the gpui-pre sources
-  being compiled (`DEP_GPUI_SRC`) before the Cargo registry; PR 37 hides the
-  status bar while a window fills its screen (`src/window/screen_fill.rs`).
+- The full-screen status bar fix moved it to the PR 37 merge commit
+  2bb3a681863130258fd6ea1f97f42ba19bd8ca6b (a window that fills its screen
+  hides the status bar, and `window_fills_screen` reports it), a descendant
+  of bdbe037. It also brings PR 35 (herdr-uikit's own build against the
+  gpui-pre fork, a `[patch.crates-io]` table consumers ignore) and PR 36
+  (`build.rs` reads the gpui-pre sources Cargo compiles).
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
 identical from 99d7928 to 2bb3a68. A later bump appends its move to this list.
