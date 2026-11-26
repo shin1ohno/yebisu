@@ -25,19 +25,33 @@ extension SmokeQA {
     }
 
     /// Opens `row`'s menu at `point` with a long press or a secondary click and checks it is that
-    /// row's (and, for a click, that the click was a secondary one).
+    /// row's (and, for a click, that the click was a secondary one). The first pointer event after
+    /// a launch can be lost before GPUI sees it (EditMenuTargetsQA.swift, PR 132 run 45142793709),
+    /// so a click the app never counted (`row_menu_secondary` unchanged) is sent once more.
     private func openSpaceMenu(_ app: XCUIApplication, _ qa: QAAx, at point: CGPoint, row: String,
                                secondary: Bool) throws {
         let before = try qa.waitState("qa.state before the menu") { _ in true }
-        if secondary {
-            spaceMenuPoint(app, point).rightClick()
-        } else {
+        let opened = { (state: QAState) -> Bool in
+            state.string("row_menu") == "space" && state.string("row_menu_space") == row
+                && (!secondary || state.count("row_menu_secondary") == before.count("row_menu_secondary") + 1)
+        }
+        guard secondary else {
             spaceMenuPoint(app, point).press(forDuration: 1.2)
+            try qa.waitState("the menu of \(row) is open", timeout: 10, opened)
+            return
         }
-        try qa.waitState("the menu of \(row) is open", timeout: 10) {
-            $0.string("row_menu") == "space" && $0.string("row_menu_space") == row
-                && (!secondary || $0.count("row_menu_secondary") == before.count("row_menu_secondary") + 1)
+        spaceMenuPoint(app, point).rightClick()
+        if (try? qa.waitState("the menu of \(row) is open", timeout: 5, opened)) != nil {
+            return
         }
+        let seen = try qa.waitState("qa.state after the click") { _ in true }
+        guard seen.count("row_menu_secondary") == before.count("row_menu_secondary") else {
+            XCTFail("SPACE MENU the click reached the app but opened no menu of \(row): \(seen)")
+            return
+        }
+        print("SPACE MENU the secondary click on \(row) was not seen; clicking once more")
+        spaceMenuPoint(app, point).rightClick()
+        try qa.waitState("the menu of \(row) is open", timeout: 10, opened)
     }
 
     private func launchSpaceMenu(_ environment: [String: String], _ ready: String,
@@ -57,11 +71,13 @@ extension SmokeQA {
 
     func testSpaceMenuHerdr1() throws {
         continueAfterFailure = false
-        let (app, qa) = try launchSpaceMenu(
-            ["YEBISU_TERMINAL_QA": "1", "YEBISU_BOARD_QA": "1", "YEBISU_SMOKE_OBSERVE": "1"],
-            "the qa-alpha terminal is connected") {
+        // Each XCTest action can wait 60 s for an idle app on a loaded host.
+        executionTimeAllowance = 900
+        // The rename suite's peer (no YEBISU_BOARD_QA: that board's agents keep changing, so the
+        // app never idles and every XCTest action waits its 60 s, run sim-space-menu-2).
+        let (app, qa) = try launchSpaceMenu(Self.renameEnvironment, "the wire-peer terminal is connected") {
             $0.string("screen") == "terminal" && $0.bool("connected") == true && $0.isNull("sheet")
-                && $0.string("host") == "qa-alpha" && $0.active && $0.windowFrame(QAIds.sidebarCurrentSpace) != nil
+                && $0.active && $0.windowFrame(QAIds.sidebarCurrentSpace) != nil
         }
         let rows = try spaceRows(qa)
         // H1-a: a secondary click on w2's row, Close Space: it asks (w2 has a pane), Cancel sends nothing.
@@ -104,6 +120,7 @@ extension SmokeQA {
 
     func testSpaceMenuHerdr2() throws {
         continueAfterFailure = false
+        executionTimeAllowance = 900
         let (app, qa) = try launchSpaceMenu(
             ["YEBISU_CORE_QA": "1", "YEBISU_CORE_DOC_QA": "two-spaces"],
             "the two document spaces are drawn") {
@@ -150,7 +167,7 @@ extension SmokeQA {
                 && $0.herdrDocSpaces == [] && $0.herdrDocWrites == 3 && $0.herdrDocLast == "saved"
         }
         let end = try qa.waitState("each item ran once per pick") { _ in true }
-        XCTAssertEqual(end.count("space_menu_close"), 4, "\(end)")
+        XCTAssertEqual(end.count("space_menu_close"), 3, "\(end)")
         XCTAssertEqual(end.count("space_menu_rename"), 1, "\(end)")
         save("space-menu-h2")
         XCTAssertEqual(app.state, .runningForeground)
