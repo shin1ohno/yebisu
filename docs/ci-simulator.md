@@ -662,6 +662,14 @@ line per T-IM-S1..S8, with `summary.json` and the screenshots in
 prints `INPUT_MODE_OBS` with `qa.state.input_mode`; the script judges
 (`scripts/ios/test_input_mode_check.py` covers the judging).
 
+The test runs under an overall limit, `--timeout` (1800 s by default): an app
+that never reports idle to XCUITest makes each action wait minutes (#212; the
+G14 mutation once ran 5.5 h). Past the limit, or once the test printed the step
+`--stop-after` names (`--stop-after s2-h2-after` for a leg judged by T-IM-S2
+alone), `xcodebuild` gets SIGTERM, then SIGKILL 60 s later; the cases are
+judged from what it printed, `summary.json` records `stopped`, and the run
+exits 1 (`scripts/ios/test_input_mode_runner.py`).
+
 `qa.state.input_mode` holds herdr-uikit's selection display state
 (`herdr_uikit::input_mode_indicator_state`: `text_first_responder`,
 `activated`, `interactions`, `text_input_is_current`, `cursor_class`,
