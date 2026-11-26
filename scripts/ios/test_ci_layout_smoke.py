@@ -35,7 +35,7 @@ class JobTests(unittest.TestCase):
 
     def test_one_job_runs_the_driver_within_sixty_minutes(self):
         job = self.job()
-        self.assertIn("runs-on: macos-26\n", job)
+        self.assertIn("runs-on: xcode-27\n", job)
         self.assertIn("timeout-minutes: 60\n", job)
         self.assertIn(
             "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"

@@ -67,7 +67,8 @@ def problems(workflow, testflight):
     cache_steps = {}
     for name in RUST_JOBS:
         job = every.get(name, '')
-        if 'runs-on: macos-' not in job:
+        # macOS images: the macos-* labels and xcode-27 (macOS 27 with Xcode 27).
+        if not re.search(r'^    runs-on: (macos-\S+|xcode-27)$', job, re.M):
             found.append(f'{name}: not a macOS job')
             continue
         listed = steps(job)

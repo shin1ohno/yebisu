@@ -1,8 +1,24 @@
 # Simulator CI
 
-The `simulator-smoke` job uses GitHub-hosted `macos-26`, read-only contents
+The `simulator-smoke` job uses GitHub-hosted `xcode-27`, read-only contents
 permission and a 40-minute timeout. It installs XcodeGen and just, then uses
 the pinned Rust toolchain and the continuously monitored 6 GiB disk guard.
+
+## Xcode and iOS SDK
+
+Every macOS job in `ci.yml` (`edit-menu`, `simulator-smoke`, `check`,
+`layout-smoke`) and the `testflight` job run on the `xcode-27` label, an arm64
+macOS 27 image (public preview) with Xcode 27.0, 27.1 and 27.2 (owner decision
+2026-11-26: CI and TestFlight build with the latest iOS SDK, 27.2). The image's
+default is Xcode 27.1, so each job sets
+`DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer`, and its first
+step, `Require Xcode 27.2 and iOS SDK 27.2`, fails the job unless
+`xcrun --sdk iphoneos --show-sdk-version` prints 27.2. The Simulator scripts
+pick the newest runtime that has an iPad Pro 13-inch device; with Xcode 27.2
+that is iOS 27.2 with iPad Pro 13-inch (M5)
+(`actions/runner-images` `images/macos/xcode-27-arm64-Readme.md`). The cargo
+cache keys already hash `xcodebuild -version`, so the change of Xcode starts
+new entries.
 
 ## When CI runs
 
@@ -97,7 +113,7 @@ rendering and lifecycle behavior, not physical IME or hardware keyboard behavior
 
 | Job | Runs | Limit | Selected by |
 |---|---|---|---|
-| `layout-smoke` (`macos-26`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | main pushes, nightly runs and manual dispatches on main; never a pull request |
+| `layout-smoke` (`xcode-27`) | `scripts/ios/ci-layout-smoke.py`: one disposable Simulator, then `p2-check.py` (P2 keys and restart), `p3-check.py` (P3 terminal, density, colours) and `p10-check.py` (P10 settings lifecycle) in that order | 60 minutes | main pushes, nightly runs and manual dispatches on main; never a pull request |
 | `check`, step `QA identifiers` | `scripts/ios/qa-ax-ids-check.py`: every QA identifier a Swift UI test presses is a constant of `crates/yebisu/src/qa_ax_ids.rs` that the app marks (UI test redesign S6 replaced the SmokeQA label check, which tied every text SmokeQA tapped or OCR-matched to the app source that painted it) | within the 60-minute `check` job | every `check` run |
 
 These checks were Mac-mini-only. Plan section 8.1 counted twelve; after SH1-303 (PR 52) removed
