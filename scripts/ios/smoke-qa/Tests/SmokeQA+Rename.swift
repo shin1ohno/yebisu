@@ -123,13 +123,26 @@ extension SmokeQA {
         sleep(2)
         save("rename-r4-typed")
         UIPasteboard.general.string = "renamelongpress"
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: field.midX, dy: field.midY)).press(forDuration: 1.0)
+        let inField = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: field.midX, dy: field.midY))
+        inField.press(forDuration: 1.0)
+        save("rename-r4-long-press")
+        // A long press over text can only move the caret (iPadOS 27 Simulator, #213 run s6-1);
+        // a tap on the caret then brings the edit menu. Which one showed it is printed.
         if app.menuItems["Paste"].waitForExistence(timeout: 4) {
-            app.menuItems["Paste"].tap()
-            print("RENAME R4 long press Paste chosen")
+            print("RENAME R4 edit menu after the long press")
         } else {
-            print("RENAME R4 long press showed no Paste")
+            print("RENAME R4 no edit menu after the long press; tapping the caret")
+            inField.tap()
+            if app.menuItems["Paste"].waitForExistence(timeout: 4) {
+                print("RENAME R4 edit menu after the caret tap")
+            }
+        }
+        if app.menuItems["Paste"].exists {
+            app.menuItems["Paste"].tap()
+            print("RENAME R4 Paste chosen")
+        } else {
+            print("RENAME R4 no Paste in the edit menu")
         }
         sleep(2)
         save("rename-r4-long-paste")
