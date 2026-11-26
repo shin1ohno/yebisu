@@ -73,8 +73,10 @@ pub(crate) fn tab_row_min_content(switcher: bool) -> f32 {
 /// and stay inside the content (issue #209).
 pub(crate) fn space_switcher_max_width(content: f32) -> f32 {
     let room = content - pinned_width() - MIN_TAB_STRIP_WIDTH;
-    // `max` first: a NaN room reads as the minimum.
-    room.max(SPACE_SWITCHER_MIN_WIDTH).min(SPACE_SWITCHER_WIDTH)
+    if room.is_nan() {
+        return SPACE_SWITCHER_MIN_WIDTH;
+    }
+    room.clamp(SPACE_SWITCHER_MIN_WIDTH, SPACE_SWITCHER_WIDTH)
 }
 
 /// Tab row metrics (plan v2 7.5 `tab_row_metrics`).
