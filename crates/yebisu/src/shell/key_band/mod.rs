@@ -1,4 +1,6 @@
-//! The docked software keyboard's terminal controls (canvas v20, R33).
+//! The terminal keys over the software keyboard (#229). The keyboard's own
+//! shortcuts bar shows them (`bar`); a keyboard without one (a floating
+//! keyboard) gets the in-app band drawn here instead (canvas v20, R33).
 
 use crate::{
     app::Smoke,
@@ -11,13 +13,21 @@ use gpui::{
     PathBuilder, Role, Stateful, Window, canvas, div, point, prelude::*, px, rgb,
 };
 
+pub(crate) mod bar;
 #[cfg(not(test))]
 mod hardware;
+pub(crate) mod keys;
+pub(crate) mod sync;
 #[cfg(not(test))]
 pub(super) use hardware::hardware_keyboard_attached;
+pub(crate) use keys::Action;
+use keys::Key;
 
 // KeyBand.dc.html:188–206. Compact.dc.html's key row uses the same controls.
 pub(super) const HEIGHT: f32 = 76.0;
+/// The pager-only band above a docked keyboard: the pager's 44 pt touch
+/// row and 4 pt above and below.
+pub(super) const PAGER_HEIGHT: f32 = 52.0;
 pub(crate) const ROW_HEIGHT: f32 = 56.0;
 const KEY_HEIGHT: f32 = 44.0;
 const WIDE_KEY: f32 = 52.0;
@@ -28,116 +38,6 @@ const KEY_TEXT: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
 const PAGER_MIN_WIDTH: f32 = 160.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    Key(&'static str),
-    Text(&'static str),
-    Control,
-    Alt,
-    Paste,
-    Hide,
-}
-
-struct Key {
-    id: &'static str,
-    label: &'static str,
-    accessibility_label: &'static str,
-    width: f32,
-    action: Action,
-}
-
-impl Key {
-    const fn new(
-        id: &'static str,
-        label: &'static str,
-        accessibility_label: &'static str,
-        width: f32,
-        action: Action,
-    ) -> Self {
-        Self {
-            id,
-            label,
-            accessibility_label,
-            width,
-            action,
-        }
-    }
-}
-
-const LEFT: [Key; 8] = [
-    Key::new(
-        "key-band-esc",
-        "esc",
-        "Escape",
-        WIDE_KEY,
-        Action::Key("escape"),
-    ),
-    Key::new("key-band-tab", "tab", "Tab", WIDE_KEY, Action::Key("tab")),
-    Key::new(
-        "key-band-ctrl",
-        "ctrl",
-        "Control",
-        WIDE_KEY,
-        Action::Control,
-    ),
-    Key::new("key-band-alt", "alt", "Alt", WIDE_KEY, Action::Alt),
-    Key::new(
-        "key-band-left",
-        "←",
-        "Left arrow",
-        ARROW_KEY,
-        Action::Key("left"),
-    ),
-    Key::new("key-band-up", "↑", "Up arrow", ARROW_KEY, Action::Key("up")),
-    Key::new(
-        "key-band-down",
-        "↓",
-        "Down arrow",
-        ARROW_KEY,
-        Action::Key("down"),
-    ),
-    Key::new(
-        "key-band-right",
-        "→",
-        "Right arrow",
-        ARROW_KEY,
-        Action::Key("right"),
-    ),
-];
-
-const RIGHT: [Key; 6] = [
-    Key::new(
-        "key-band-pipe",
-        "|",
-        "Vertical bar",
-        KEY_HEIGHT,
-        Action::Text("|"),
-    ),
-    Key::new(
-        "key-band-tilde",
-        "~",
-        "Tilde",
-        KEY_HEIGHT,
-        Action::Text("~"),
-    ),
-    Key::new(
-        "key-band-slash",
-        "/",
-        "Slash",
-        KEY_HEIGHT,
-        Action::Text("/"),
-    ),
-    Key::new(
-        "key-band-minus",
-        "-",
-        "Hyphen",
-        KEY_HEIGHT,
-        Action::Text("-"),
-    ),
-    Key::new("key-band-paste", "Paste", "Paste", WIDE_KEY, Action::Paste),
-    Key::new("key-band-hide", "", "Hide keyboard", WIDE_KEY, Action::Hide),
-];
-
 #[derive(Debug, Default)]
 pub(crate) struct State {
     destination: Option<Destination>,
@@ -147,7 +47,7 @@ pub(crate) struct State {
 impl State {
     #[cfg(any(target_os = "ios", test))]
     pub(super) fn is_armed(&self) -> bool {
-        self.modifiers.control || self.modifiers.alt
+        self.modifiers.control || self.modifiers.alt || self.modifiers.platform
     }
 
     pub(super) fn clear(&mut self) {
@@ -162,6 +62,7 @@ impl State {
         match action {
             Action::Control => self.modifiers.control = !self.modifiers.control,
             Action::Alt => self.modifiers.alt = !self.modifiers.alt,
+            Action::Command => self.modifiers.platform = !self.modifiers.platform,
             _ => {}
         }
     }
@@ -171,6 +72,7 @@ impl State {
             && match action {
                 Action::Control => self.modifiers.control,
                 Action::Alt => self.modifiers.alt,
+                Action::Command => self.modifiers.platform,
                 _ => false,
             }
     }
@@ -213,21 +115,34 @@ pub(crate) fn render_key_row(
         .overflow_x_scroll()
         // A vertical swipe does not move the band sideways.
         .restrict_scroll_to_axis()
-        .child(group(app, &LEFT, cx))
+        .child(group(app, keys::band_order().take(BAR_KEYS), cx))
         .child(middle.unwrap_or_else(|| div().flex_1().min_w_0()))
-        .child(group(app, &RIGHT, cx))
+        .child(group(app, keys::band_order().skip(BAR_KEYS), cx))
         .into_any_element()
 }
 
-pub(super) fn render_band(
-    app: &Smoke,
-    height: f32,
-    pager: Option<AnyElement>,
-    cx: &mut Context<Smoke>,
-) -> AnyElement {
+/// The key band, for a keyboard without a shortcuts bar (floating). No
+/// pager: one pane at a time is only for a docked keyboard.
+pub(super) fn render_band(app: &Smoke, height: f32, cx: &mut Context<Smoke>) -> AnyElement {
+    band_frame("shell-key-band", height)
+        .child(render_key_row(app, Some(div().into_any_element()), cx))
+        .into_any_element()
+}
+
+/// The thin band above a docked keyboard: the pane pager only, as the
+/// keyboard's own bar has the keys (#229, owner 2026-11-26).
+pub(super) fn render_pager_band(height: f32, pager: Option<AnyElement>) -> AnyElement {
+    band_frame("shell-pager-band", height)
+        .justify_center()
+        .px(px(ROW_GAP))
+        .children(pager.map(|pager| div().flex_1().min_w(px(PAGER_MIN_WIDTH)).child(pager)))
+        .into_any_element()
+}
+
+fn band_frame(id: &'static str, height: f32) -> Stateful<Div> {
     div()
-        .id("shell-key-band")
-        .debug_selector(|| "shell-key-band".into())
+        .id(id)
+        .debug_selector(move || id.into())
         .h(px(height))
         .flex_none()
         .w_full()
@@ -237,15 +152,12 @@ pub(super) fn render_band(
         .border_t_1()
         .border_color(rgb(color::RAISED))
         .bg(rgb(color::SURFACE))
-        .child(render_key_row(
-            app,
-            Some(pager.unwrap_or_else(|| div().into_any_element())),
-            cx,
-        ))
-        .into_any_element()
 }
 
-fn group(app: &Smoke, keys: &'static [Key], cx: &mut Context<Smoke>) -> Div {
+/// The band's first group holds the bar's keys; the second, the … menu's.
+const BAR_KEYS: usize = keys::ALL.len() - keys::MENU.len();
+
+fn group(app: &Smoke, keys: impl Iterator<Item = &'static Key>, cx: &mut Context<Smoke>) -> Div {
     div()
         .flex()
         .flex_none()
@@ -254,7 +166,7 @@ fn group(app: &Smoke, keys: &'static [Key], cx: &mut Context<Smoke>) -> Div {
         .p(px(4.0))
         .rounded(px(GROUP_RADIUS))
         .bg(rgb(color::RAISED))
-        .children(keys.iter().map(|key| button(app, key, cx)))
+        .children(keys.map(|key| button(app, key, cx)))
 }
 
 fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> AnyElement {
@@ -267,7 +179,7 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> AnyElement
     let face = div()
         .flex()
         .flex_none()
-        .w(px(key.width))
+        .w(px(width(key)))
         .h(px(KEY_HEIGHT))
         .rounded(px(KEY_RADIUS))
         .items_center()
@@ -285,6 +197,12 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> AnyElement
             |button| button.child(hide_icon()),
             |button| button.child(key.label),
         );
+    let face = if action == Action::Control {
+        face.relative()
+            .children(crate::qa_ax::mark(crate::qa_ax::ids::KEY_BAND_CTRL, "ctrl"))
+    } else {
+        face
+    };
     if action == Action::Hide && app.input_modal() {
         let target = bind_button(div().occlude(), key, cx);
         face.relative()
@@ -295,11 +213,27 @@ fn button(app: &Smoke, key: &'static Key, cx: &mut Context<Smoke>) -> AnyElement
     }
 }
 
+/// A word gets a wide key, an arrow a slightly narrower one, a symbol a
+/// square one.
+fn width(key: &Key) -> f32 {
+    match key.action {
+        Action::Key("left" | "up" | "down" | "right") => ARROW_KEY,
+        _ if key.label.chars().count() == 1 => KEY_HEIGHT,
+        _ => WIDE_KEY,
+    }
+}
+
+/// The band key's element and QA identifier.
+pub(crate) fn band_id(key: &Key) -> String {
+    format!("key-band-{}", key.name)
+}
+
 fn bind_button(button: Div, key: &'static Key, cx: &mut Context<Smoke>) -> Stateful<Div> {
     let action = key.action;
+    let id = band_id(key);
     button
-        .id(key.id)
-        .debug_selector(move || key.id.into())
+        .id(gpui::SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
         .role(Role::Button)
         .aria_label(key.accessibility_label)
         .cursor_pointer()
@@ -492,6 +426,15 @@ impl Smoke {
         } else {
             Modifiers::default()
         };
+        if latch.platform {
+            // ⌘ and the letter act as a hardware ⌘ chord would. A commit no
+            // single key types spends the latch and types nothing.
+            self.shell.frame.key_band.clear();
+            if let Some(keystroke) = typed_keystroke(text, latch) {
+                self.dispatch_chord(keystroke, window, cx);
+            }
+            return true;
+        }
         let armed = self.actions.host_keys.armed();
         if !(armed || latch.control || latch.alt || text.chars().all(control_letter)) {
             return false;
@@ -508,7 +451,27 @@ impl Smoke {
         true
     }
 
-    fn press_key_band(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+    /// Replays `keystroke` through GPUI's key dispatch, as the hardware
+    /// keyboard's press of it: key bindings, Shortcut priority and the
+    /// terminal decide as they do for that press. Deferred, as this runs
+    /// inside an input callback or a band tap.
+    fn dispatch_chord(
+        &mut self,
+        keystroke: Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.defer(cx, move |window, cx| {
+            window.dispatch_keystroke(keystroke, cx);
+        });
+    }
+
+    pub(crate) fn press_key_band(
+        &mut self,
+        action: Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // A tap that began on the band before the search panel took the
         // keyboard: Hide must not become a keyboard dismissal, nor any key input.
         if self.native_field_open() {
@@ -543,8 +506,14 @@ impl Smoke {
                 return;
             };
             match action {
-                Action::Control | Action::Alt => {
+                Action::Control | Action::Alt | Action::Command => {
                     app.shell.frame.key_band.toggle(action, destination)
+                }
+                Action::Prefix => {
+                    app.shell.frame.key_band.clear();
+                    if let Some(prefix) = app.actions.host_keys.prefix_keystroke(&app.terminal) {
+                        app.dispatch_chord(prefix, window, cx);
+                    }
                 }
                 Action::Paste => {
                     app.shell.frame.key_band.clear();
@@ -574,6 +543,12 @@ impl Smoke {
                         modifiers,
                         key_char: None,
                     };
+                    if modifiers.platform {
+                        app.dispatch_chord(keystroke, window, cx);
+                        window.notify_text_input_changed(&app.terminal_focus);
+                        cx.notify();
+                        return;
+                    }
                     let routed =
                         (modifiers.control || modifiers.alt || app.actions.host_keys.armed())
                             && app.route_generated_key(keystroke, window, cx);
@@ -599,5 +574,7 @@ impl Smoke {
     }
 }
 
+#[cfg(test)]
+mod bar_tests;
 #[cfg(test)]
 mod tests;

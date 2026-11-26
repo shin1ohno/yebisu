@@ -182,6 +182,36 @@ def xcodebuild_test_command(spec, device, derived_data, result):
                 "TEST_RUNNER_P2_PASTEBOARD_SHA256": sha256, "TEST_RUNNER_P2_PASTEBOARD_BYTES": str(length)}
 
 
+def attachments_named(manifest, name):
+    """The attachments XCTest saved under exactly `name` (an export names each `<name>_0_<uuid>`)."""
+    return [a for test in manifest for a in test["attachments"]
+            if a["suggestedHumanReadableName"].split("_", 1)[0] == name]
+
+
+def restart_frames(records):
+    """Issue #197: the lifecycle phases and herdr-uikit `frame` receipts after the last launch."""
+    launches = [index for index, record in enumerate(records) if record.get("kind") == "launch"]
+    after = records[launches[-1]:] if launches else []
+    return [{key: record[key] for key in ("kind", "phase", "outcome", "previous", "previous_count") if key in record}
+            for record in after
+            if record.get("kind") == "lifecycle" or (record.get("kind") == "input-receipt" and record.get("receipt") == "frame")]
+
+
+def explain_black_restart(records, destination):
+    """Prints what the app saw after the restart and how the picture 2 s later looks. Evidence only:
+    the verdict stays the first screenshot's."""
+    for record in restart_frames(records):
+        print("P2 RESTART " + json.dumps(record, sort_keys=True), flush=True)
+    later = destination / "screenshot-later.png"
+    if not later.is_file():
+        print("P2 LATER SCREENSHOT missing", flush=True)
+        return
+    result = subprocess.run(["python3", "scripts/ios/screenshot-color.py", str(later), "101419", "--min", "0.4"],
+                            text=True, capture_output=True)
+    print("P2 LATER SCREENSHOT " + ("drawn" if result.returncode == 0 else "still not drawn"), flush=True)
+    print(result.stdout + result.stderr, flush=True)
+
+
 def main():
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
@@ -213,13 +243,21 @@ def main():
         json.dumps([r for r in records if r.get("kind") == "key-provider-preflight"], indent=2))
     attachments = destination / "attachments"
     run("xcrun", "xcresulttool", "export", "attachments", "--path", str(destination / "result.xcresult"), "--output-path", str(attachments))
-    screenshots = [a for test in json.loads((attachments / "manifest.json").read_text()) for a in test["attachments"]
-                   if a["suggestedHumanReadableName"].startswith("p2-restarted")]
+    manifest = json.loads((attachments / "manifest.json").read_text())
+    screenshots = attachments_named(manifest, "p2-restarted")
     if len(screenshots) != 1:
         raise RuntimeError("missing P2 foreground screenshot before XCTest teardown")
     shutil.copyfile(attachments / screenshots[0]["exportedFileName"], destination / "screenshot.png")
+    later = attachments_named(manifest, "p2-restarted-later")
+    if len(later) == 1:
+        shutil.copyfile(attachments / later[0]["exportedFileName"], destination / "screenshot-later.png")
     # The first-run frame and sheet (SH1-157 L7) are #101419 and #1c1c22, not the old setup page color.
-    run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
+    try:
+        run("python3", "scripts/ios/screenshot-color.py", str(destination / "screenshot.png"), "101419", "--min", "0.4")
+    except subprocess.CalledProcessError:
+        # Issue #197: evidence for a black restarted window, then the same failure.
+        explain_black_restart(records, destination)
+        raise
     expected_line = validate_records(records)
     validate_pasteboard(records, expected_line)
     pasteboard_aid(device, expected_line, os.environ.get("GITHUB_ACTIONS") == "true")

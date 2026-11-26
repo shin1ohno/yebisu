@@ -5,7 +5,9 @@
 //! `herdr_uikit::qa_input` when a touch reaches the drawing view
 //! (`receipt = "touch"`), when UIKit performs a menu command
 //! (`"menu-perform"`) and when that command is handed to GPUI, or not
-//! (`"menu-deliver"`); see herdr-uikit `docs/qa-input-receipts.md`. With
+//! (`"menu-deliver"`), when a window's draws change outcome (`"frame"`,
+//! issue #197), and where a native edit menu stopped (`"edit-menu-present"`,
+//! `"edit-menu-menu"`, issue #163); see herdr-uikit `docs/qa-input-receipts.md`. With
 //! `YEBISU_QA_AX` or `YEBISU_P12_QA` set, the diagnostics subscriber passes
 //! those events to `capture`, which keeps only values from the closed lists
 //! below (no string the SDK sends is copied) and queues them without ever
@@ -57,7 +59,14 @@ const DRAIN: usize = 256;
 /// writes at most 90; a gap of more than 2.5 intervals (5 s) is reported.
 pub(crate) const HEARTBEAT_TICKS: u64 = 2;
 
-const RECEIPTS: [&str; 3] = ["touch", "menu-perform", "menu-deliver"];
+const RECEIPTS: [&str; 6] = [
+    "touch",
+    "menu-perform",
+    "menu-deliver",
+    "frame",
+    "edit-menu-present",
+    "edit-menu-menu",
+];
 const STAGES: [&str; 3] = ["began", "ended", "cancelled"];
 const KINDS: [&str; 2] = ["direct", "pointer"];
 const PERFORM: [&str; 3] = ["no_sender", "no_tag", "performed"];
@@ -66,6 +75,41 @@ const DELIVER: [&str; 4] = [
     "no_callback",
     "callback_running",
     "delivered",
+];
+/// A window draw's outcome (herdr-uikit `Renderer::draw`, issue #197).
+const FRAME: [&str; 5] = [
+    "presented",
+    "zero_size",
+    "paths_not_ready",
+    "no_drawable",
+    "render_failed",
+];
+/// What a deferred edit menu present came to (herdr-uikit, issue #163).
+const PRESENT: [&str; 2] = ["presented", "skipped"];
+/// The first responder kind when an edit menu present called UIKit.
+const RESPONDERS: [&str; 3] = ["drawing", "text", "none"];
+/// Why a deferred edit menu present was skipped.
+const REASONS: [&str; 8] = [
+    "replaced",
+    "dismissed",
+    "unavailable",
+    "closed",
+    "inactive",
+    "resigned_outside",
+    "switch_left_no_responder",
+    "unknown",
+];
+/// The edit menu delegate's decision.
+const DECISIONS: [&str; 3] = ["items", "empty", "passthrough"];
+/// The outcome of the run a `frame` receipt ends: a draw's outcome, or none
+/// before a window's first draw.
+const PREVIOUS: [&str; 6] = [
+    "none",
+    "presented",
+    "zero_size",
+    "paths_not_ready",
+    "no_drawable",
+    "render_failed",
 ];
 
 /// The rule: a Simulator build launched with `YEBISU_QA_AX` or
@@ -103,6 +147,29 @@ pub(crate) enum Receipt {
         current: i64,
     },
     MenuGlobal,
+    /// A window's draws came to a different outcome than the draw before.
+    Frame {
+        outcome: &'static str,
+        previous: &'static str,
+        previous_count: u64,
+    },
+    /// The deferred present of an edit menu called UIKit, with the scene's
+    /// activity and the first responder kind.
+    EditMenuPresented {
+        token: u64,
+        active: bool,
+        responder: &'static str,
+    },
+    /// The deferred present of an edit menu found its token revoked.
+    EditMenuSkipped {
+        token: u64,
+        reason: &'static str,
+    },
+    /// UIKit asked the edit menu delegate for a menu.
+    EditMenuMenu {
+        decision: &'static str,
+        owned: bool,
+    },
 }
 
 /// The fields of one event. A string outside its list sets `rejected`.
@@ -119,6 +186,14 @@ pub(crate) struct Fields {
     index: Option<u64>,
     current: Option<i64>,
     keyed: Option<bool>,
+    previous: Option<&'static str>,
+    previous_count: Option<u64>,
+    token: Option<u64>,
+    active: Option<bool>,
+    owned: Option<bool>,
+    responder: Option<&'static str>,
+    reason: Option<&'static str>,
+    decision: Option<&'static str>,
     rejected: bool,
 }
 
@@ -137,6 +212,8 @@ impl Fields {
             "generation" => self.generation = Some(value),
             "index" => self.index = Some(value),
             "current" => self.current = i64::try_from(value).ok(),
+            "previous_count" => self.previous_count = Some(value),
+            "token" => self.token = Some(value),
             _ => {}
         }
     }
@@ -149,9 +226,16 @@ impl Visit for Fields {
             "stage" => self.stage = self.text(known(&STAGES, value)),
             "kind" => self.kind = self.text(known(&KINDS, value)),
             "outcome" => {
-                let found = known(&PERFORM, value).or_else(|| known(&DELIVER, value));
+                let found = known(&PERFORM, value)
+                    .or_else(|| known(&DELIVER, value))
+                    .or_else(|| known(&FRAME, value))
+                    .or_else(|| known(&PRESENT, value));
                 self.outcome = self.text(found);
             }
+            "previous" => self.previous = self.text(known(&PREVIOUS, value)),
+            "responder" => self.responder = self.text(known(&RESPONDERS, value)),
+            "reason" => self.reason = self.text(known(&REASONS, value)),
+            "decision" => self.decision = self.text(known(&DECISIONS, value)),
             _ => {}
         }
     }
@@ -173,8 +257,11 @@ impl Visit for Fields {
         }
     }
     fn record_bool(&mut self, field: &Field, value: bool) {
-        if field.name() == "keyed" {
-            self.keyed = Some(value);
+        match field.name() {
+            "keyed" => self.keyed = Some(value),
+            "active" => self.active = Some(value),
+            "owned" => self.owned = Some(value),
+            _ => {}
         }
     }
     fn record_debug(&mut self, _: &Field, _: &dyn std::fmt::Debug) {}
@@ -206,6 +293,27 @@ pub(crate) fn parse(fields: &Fields) -> Option<Receipt> {
             generation: fields.generation?,
             index: fields.index?,
             current: fields.current?,
+        }),
+        "frame" => Some(Receipt::Frame {
+            outcome: fields.outcome.filter(|outcome| FRAME.contains(outcome))?,
+            previous: fields.previous?,
+            previous_count: fields.previous_count?,
+        }),
+        "edit-menu-present" => match fields.outcome? {
+            "presented" => Some(Receipt::EditMenuPresented {
+                token: fields.token?,
+                active: fields.active?,
+                responder: fields.responder?,
+            }),
+            "skipped" => Some(Receipt::EditMenuSkipped {
+                token: fields.token?,
+                reason: fields.reason?,
+            }),
+            _ => None,
+        },
+        "edit-menu-menu" => Some(Receipt::EditMenuMenu {
+            decision: fields.decision?,
+            owned: fields.owned?,
         }),
         _ => None,
     }
@@ -301,6 +409,8 @@ pub(crate) struct Counters {
     pub(crate) unknown: u64,
     /// The last touch: stage, kind, x and y.
     pub(crate) last_touch: Option<(&'static str, &'static str, f64, f64)>,
+    /// The outcome the last `frame` receipt named (issue #197).
+    pub(crate) last_frame: Option<&'static str>,
 }
 
 impl Counters {
@@ -332,6 +442,11 @@ impl Counters {
                 }
             }
             Receipt::MenuGlobal => self.menu_global += 1,
+            Receipt::Frame { outcome, .. } => self.last_frame = Some(outcome),
+            // Recorded for the edit menu trace (issue #163); nothing to count.
+            Receipt::EditMenuPresented { .. }
+            | Receipt::EditMenuSkipped { .. }
+            | Receipt::EditMenuMenu { .. } => {}
         }
     }
 }
@@ -376,6 +491,24 @@ pub(crate) fn record_json(receipt: &Receipt) -> Value {
         } => json!({"kind": "input-receipt", "receipt": "menu-deliver", "outcome": outcome,
             "generation": generation, "index": index, "current": current}),
         Receipt::MenuGlobal => json!({"kind": "input-receipt", "receipt": "menu-global"}),
+        Receipt::Frame {
+            outcome,
+            previous,
+            previous_count,
+        } => json!({"kind": "input-receipt", "receipt": "frame", "outcome": outcome,
+            "previous": previous, "previous_count": previous_count}),
+        Receipt::EditMenuPresented {
+            token,
+            active,
+            responder,
+        } => {
+            json!({"kind": "input-receipt", "receipt": "edit-menu-present", "outcome": "presented",
+            "token": token, "active": active, "responder": responder})
+        }
+        Receipt::EditMenuSkipped { token, reason } => json!({"kind": "input-receipt",
+            "receipt": "edit-menu-present", "outcome": "skipped", "token": token, "reason": reason}),
+        Receipt::EditMenuMenu { decision, owned } => json!({"kind": "input-receipt",
+            "receipt": "edit-menu-menu", "decision": decision, "owned": owned}),
     }
 }
 
@@ -397,6 +530,7 @@ pub(crate) fn state_json(counters: &Counters) -> Value {
         "dropped": counters.dropped,
         "unknown": counters.unknown,
         "last_touch": last_touch,
+        "frame_last": counters.last_frame,
     })
 }
 

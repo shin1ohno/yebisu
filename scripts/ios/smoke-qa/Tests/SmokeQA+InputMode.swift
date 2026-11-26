@@ -6,10 +6,9 @@ import XCTest
 // object per step with qa.state.input_mode); this test records, it does not judge. Controls are
 // pressed by QA identifier and confirmed through qa.state. Keys are XCUITest hardware keys: Shift
 // alone puts the Simulator in the hardware keyboard state, Control-Space switches the input
-// source. The key band has no accessibility element, so its ctrl and Hide keys are pressed at
-// their layout positions (shell/key_band/mod.rs: the 76 pt band on the keyboard, 8 pt row
-// padding, 4 pt group padding, Hide the last 52 pt key). Simulator results do not prove real
-// IME or hardware keyboard behaviour (AGENTS.md).
+// source. The ctrl latch and Hide are the software keyboard's own bar items (#229): `key-bar-ctrl`,
+// and Hide keyboard in the bar's … menu (`key-bar-more`, then `key-bar-hide`). Simulator results
+// do not prove real IME or hardware keyboard behaviour (AGENTS.md).
 extension SmokeQA {
     private static let inputModeEnvironment = [
         "YEBISU_TERMINAL_QA": "1",
@@ -94,11 +93,15 @@ extension SmokeQA {
         inputMode(state) != nil && !flag(state, "activated")
     }
 
-    private func bandKey(_ app: XCUIApplication, x: Double, keyboard: Double, _ name: String) {
-        let y = app.frame.height - keyboard - 38
-        print(String(format: "INPUT_MODE band %@ at (%.0f, %.0f), keyboard inset %.0f", name, x, y, keyboard))
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: x, dy: y)).tap()
-        usleep(800_000)
+    /// Taps the keyboard bar's items `ids` in turn (a menu's button, then its entry).
+    private func barKey(_ app: XCUIApplication, _ ids: [String], keyboard: Double) {
+        for id in ids {
+            let item = app.descendants(matching: .any).matching(identifier: id).firstMatch
+            let found = item.waitForExistence(timeout: 5)
+            print(String(format: "INPUT_MODE bar %@ exists=%@, keyboard inset %.0f", id, found ? "true" : "false", keyboard))
+            item.tap()
+            usleep(800_000)
+        }
     }
 
     /// Runs one case; an error ends that case only (its missing steps fail in the judge).
@@ -205,12 +208,12 @@ extension SmokeQA {
             try qa.press(QAIds.terminalInput, effect: 10, what: "the software keyboard is up") { $0.keyboardUp }
             let keyboard = try qa.settledKeyboard("s6 keyboard up").keyboard
             observe(app, "s6-keyboard", qa.read())
-            bandKey(app, x: 146, keyboard: keyboard, "ctrl")
+            barKey(app, ["key-bar-ctrl"], keyboard: keyboard)
             observe(app, "s6-latched", qa.read())
             app.keyboards.keys["b"].tap()
             usleep(800_000)
             observe(app, "s6-after-letter", qa.read())
-            bandKey(app, x: app.frame.width - 38, keyboard: keyboard, "hide")
+            barKey(app, ["key-bar-more", "key-bar-hide"], keyboard: keyboard)
             observeUntil(app, qa, "s6-hidden", timeout: 5) { self.inactive($0) }
         }
 

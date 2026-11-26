@@ -57,6 +57,12 @@ extension SmokeQA {
         let restarted = try p2Launch(qa, "P2 restart")
         XCTAssertNotEqual(restarted.launch, first.launch, "a restart is a new process")
         save("p2-restarted")
+        // Issue #197: once in 60 runs the restarted window was black although the app kept
+        // rendering. A second picture once the app has drawn what it had pending (qa.state's seq
+        // held still) tells a window that stays black from a late first frame; p2-check.py judges
+        // the first one only.
+        _ = try? qa.settled("P2 restart, before the second picture")
+        save("p2-restarted-later")
         XCTAssertEqual(app.state, .runningForeground)
     }
 

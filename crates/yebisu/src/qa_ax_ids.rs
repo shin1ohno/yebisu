@@ -46,6 +46,9 @@ pub(crate) const MENU_SPLIT: &str = "qa.menu.split";
 pub(crate) const MENU_PANE_1: &str = "qa.menu.pane-1";
 pub(crate) const MENU_PANE_2: &str = "qa.menu.pane-2";
 pub(crate) const MENU_SPLIT_DIRECTION: &str = "qa.menu.split-direction";
+/// The in-app key band's ctrl key (shell/key_band, #229): the band has no
+/// accessibility elements of its own.
+pub(crate) const KEY_BAND_CTRL: &str = "qa.keyband.ctrl";
 /// The QA band's input controls (terminal_controls.rs, `YEBISU_INPUT_QA`).
 #[cfg_attr(
     not(all(target_os = "ios", target_abi = "sim")),
