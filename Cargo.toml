@@ -11,7 +11,7 @@ version = "0.1.1"
 [workspace.dependencies]
 base64 = "0.23.1"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
-herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "2bb3a681863130258fd6ea1f97f42ba19bd8ca6b" }
+herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "92e918d427b6e86113c544f16111fb194024266e" }
 "herdr-ssh" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
 "sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
 "sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
