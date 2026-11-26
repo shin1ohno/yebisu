@@ -52,6 +52,7 @@ impl Smoke {
     /// Opens the long-press menu of `row`.
     pub(crate) fn sidebar_long_press(&mut self, row: PressedRow, at: Point<Pixels>) {
         self.shell.sidebar.agent_menu = None;
+        self.shell.sidebar.close_confirm = None;
         let state = self.menu_chrome_state();
         let current = self.current_menu_scope();
         let (shown, entries) = match &row {
@@ -67,7 +68,15 @@ impl Smoke {
                     host: host.clone(),
                     space: Some(id.clone()),
                 };
-                let entries = host_menus::space_long_press_for(&state, &shown, &current);
+                let mut entries = host_menus::space_long_press_for(&state, &shown, &current);
+                // A Herdr 2 row that is no document space (another
+                // session's) can be neither renamed nor closed.
+                if self.terminal.core_mode
+                    && shown.host == current.host
+                    && !self.shown_space_exists(&shown)
+                {
+                    host_menus::refuse_document_items(&mut entries);
+                }
                 (shown, entries)
             }
             PressedRow::Forward { host, .. } => (
@@ -102,6 +111,24 @@ impl Smoke {
             .ok_or(crate::Error::NativeMenu("no long-press menu"))?;
         if !menu.entries.iter().any(|e| e.item == item && e.enabled) {
             return Err(crate::Error::NativeMenu("menu item unavailable"));
+        }
+        if item == MenuItemId::Space(SpaceMenuItem::Close) {
+            // Close Space (#231) closes the pressed row's space, which may
+            // be any space of the selected host, as Rename does.
+            let current = self.current_menu_scope();
+            if !host_menus::rename_scope_valid(
+                &menu.shown,
+                &current,
+                self.shown_space_exists(&menu.shown),
+            ) {
+                return Err(crate::Error::NativeMenu("menu target changed"));
+            }
+            crate::qa_ax::count("space_menu_close");
+            let name = match &menu.row {
+                PressedRow::Space { name, .. } => name.clone(),
+                _ => String::new(),
+            };
+            return self.begin_space_close(&menu.shown, &name, menu.at);
         }
         self.run_menu_item(item, &menu.shown, window, cx)
     }
@@ -142,16 +169,17 @@ impl Smoke {
                     .justify_center()
                     .text_color(rgb(if entry.enabled { color::TEXT } else { 0x6b7080 }))
                     .child(host_menus::long_press_label(item, &target))
-                    .children(
-                        (item == MenuItemId::Space(SpaceMenuItem::Rename))
-                            .then(|| {
-                                crate::qa_ax::mark(
-                                    crate::qa_ax::ids::SIDEBAR_SPACE_RENAME,
-                                    "Rename space",
-                                )
-                            })
-                            .flatten(),
-                    )
+                    .children(match item {
+                        MenuItemId::Space(SpaceMenuItem::Rename) => crate::qa_ax::mark(
+                            crate::qa_ax::ids::SIDEBAR_SPACE_RENAME,
+                            "Rename space",
+                        ),
+                        MenuItemId::Space(SpaceMenuItem::Close) => crate::qa_ax::mark(
+                            crate::qa_ax::ids::SIDEBAR_SPACE_CLOSE,
+                            "Close space",
+                        ),
+                        _ => None,
+                    })
                     .children(entry.reason.map(|why| {
                         div()
                             .text_size(px(text::SECONDARY))
@@ -302,6 +330,18 @@ impl Smoke {
 
 pub(super) fn long_press_layer(row: PressedRow, cx: &mut Context<Smoke>) -> impl IntoElement {
     row_press_layer(cx, move |app, at| app.sidebar_long_press(row.clone(), at))
+}
+
+impl Smoke {
+    /// A secondary click (the pointer's second button, or a Control-click)
+    /// on a space row opens the row's long-press menu at the pointer (#231).
+    /// GPUI gets UIKit's secondary button as `MouseButton::Right`
+    /// (herdr-uikit `window/convert.rs` `mouse_button`); herdr-uikit has no
+    /// native context menu for GPUI elements, so this is the same GPUI menu.
+    pub(super) fn secondary_row_press(&mut self, row: PressedRow, at: Point<Pixels>) {
+        crate::qa_ax::count("row_menu_secondary");
+        self.sidebar_long_press(row, at);
+    }
 }
 
 pub(super) fn agent_press_layer(menu: AgentMenu, cx: &mut Context<Smoke>) -> impl IntoElement {

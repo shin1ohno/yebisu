@@ -2,6 +2,15 @@
 use super::super::*;
 use super::support::states;
 
+/// A space row's own item, which the menu bar does not list: Close Space
+/// closes the pressed row's space (#231).
+const ROW_ONLY: MenuItemId = MenuItemId::Space(SpaceMenuItem::Close);
+
+/// A space row's items without its row-only Close Space.
+fn bar_items(entries: Vec<MenuEntry>) -> Vec<MenuEntry> {
+    entries.into_iter().filter(|e| e.item != ROW_ONLY).collect()
+}
+
 fn menu(state: &ChromeState, title: &str) -> Vec<MenuEntry> {
     menu_bar(state, true)
         .into_iter()
@@ -16,9 +25,10 @@ fn long_press_items_also_in_menu_bar() {
         for entry in host_long_press(&state) {
             assert!(menu(&state, HOST_MENU).contains(&entry));
         }
-        for entry in space_long_press(&state) {
+        for entry in bar_items(space_long_press(&state)) {
             assert!(menu(&state, SPACE_MENU).contains(&entry));
         }
+        assert!(!menu(&state, SPACE_MENU).iter().any(|e| e.item == ROW_ONLY));
     }
     // The menu bar has exactly the Host and Space menus, in that order.
     let titles: Vec<_> = menu_bar(&ChromeState::default(), true)
@@ -32,7 +42,10 @@ fn long_press_items_also_in_menu_bar() {
 fn menu_items_match_long_press() {
     for state in states() {
         assert_eq!(menu(&state, HOST_MENU), host_long_press(&state));
-        assert_eq!(menu(&state, SPACE_MENU), space_long_press(&state));
+        assert_eq!(
+            menu(&state, SPACE_MENU),
+            bar_items(space_long_press(&state))
+        );
     }
     // Q8's items, by label.
     let labels = |entries: Vec<MenuEntry>| -> Vec<&str> {
@@ -45,7 +58,7 @@ fn menu_items_match_long_press() {
     );
     assert_eq!(
         labels(space_long_press(&state)),
-        ["New tab", "Detach", "Rename Space"]
+        ["New tab", "Detach", "Rename Space", "Close Space"]
     );
     // Every item name round-trips to its item (the menu bar dispatch).
     for (_, entries) in menu_bar(&state, true) {
@@ -107,10 +120,13 @@ fn long_press_carries_the_pressed_row() {
         space_long_press_for(&state, &row("alpha", "w1"), &current),
         space_long_press(&state)
     );
-    // Issue #143 B-3: Rename names any space of the host, so it alone
-    // stays usable on another space's row.
+    // Issue #143 B-3: Rename names any space of the host, and so does Close
+    // (#231), so they alone stay usable on another space's row.
     for e in space_long_press_for(&state, &row("alpha", "w2"), &current) {
-        if e.item == MenuItemId::Space(SpaceMenuItem::Rename) {
+        if matches!(
+            e.item,
+            MenuItemId::Space(SpaceMenuItem::Rename | SpaceMenuItem::Close)
+        ) {
             assert!(e.enabled, "{e:?}");
             continue;
         }

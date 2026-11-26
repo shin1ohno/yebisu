@@ -58,10 +58,16 @@ fn rename_enabled_on_another_space_row() {
         rename.is_some_and(|e| e.enabled),
         "Rename on another space's row: {entries:?}"
     );
+    // Close Space (#231) also names the row's own space, so it stays usable.
+    let close = MenuItemId::Space(SpaceMenuItem::Close);
+    assert!(
+        entries.iter().any(|e| e.item == close && e.enabled),
+        "Close on another space's row: {entries:?}"
+    );
     assert!(
         entries
             .iter()
-            .filter(|e| e.item != RENAME)
+            .filter(|e| e.item != RENAME && e.item != close)
             .all(|e| !e.enabled && e.reason == Some("Open this space first")),
         "the other items still need their space open"
     );
