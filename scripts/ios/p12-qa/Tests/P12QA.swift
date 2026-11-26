@@ -46,6 +46,20 @@ final class P12QA: XCTestCase {
         version.majorVersion >= 27 ? .appNameTap : .topEdgeSwipe
     }
     private let revealGesture = P12QA.revealGesture(for: ProcessInfo.processInfo.operatingSystemVersion)
+    /// Whether P12 must first take the app's window out of full screen (yebisu#242). The app-name tap
+    /// needs the status bar, and a window that fills its screen hides it (herdr-uikit #37, yebisu
+    /// #225). Probed on fresh iOS 27.2 iPad Simulators on 2026-11-27 (task dea0934977ec4631): in full
+    /// screen no top-edge swipe, tap or hover showed the status bar or the menu bar; dragging the
+    /// window down from the top edge left full screen, the status bar came back with the app's name,
+    /// and a tap on it revealed the menu bar. A user does the same, so P12 does too.
+    static func needsWindow(gesture: RevealGesture, fillsScreen: Bool, nameShown: Bool) -> Bool {
+        gesture == .appNameTap && fillsScreen && !nameShown
+    }
+    /// The app window against the screen, as herdr-uikit's screen_fill compares them (0.5 pt).
+    static func fillsScreen(_ window: CGRect, _ screen: CGRect) -> Bool {
+        !window.isEmpty && !screen.isEmpty
+            && abs(window.width - screen.width) <= 0.5 && abs(window.height - screen.height) <= 0.5
+    }
     /// How long the status bar gets to show the app's name before the tap that reveals the menu bar.
     private static let appNameTimeout: TimeInterval = 3
     /// What the reveal of the case in progress needed, quoted by its failure.
@@ -114,6 +128,7 @@ final class P12QA: XCTestCase {
         // (limits.rs COMMAND_TIMEOUT). One native menu session took up to 44 s on
         // hosted runners, so each hold covers exactly one local case, and every
         // control is found before the first hold.
+        try windowForTheMenuBar()
         try locateFixtures()
         try touchReady()
         for (remote, local, name) in [("remote", "sidebar", "Toggle Sidebar"), ("rearm", "palette", "Command Palette")] {
@@ -171,6 +186,7 @@ final class P12QA: XCTestCase {
         try qa.waitState("the P12 fixture is up: the terminal is connected and the panel idle", timeout: 60) {
             $0.string("screen") == "terminal" && $0.bool("connected") == true && self.pending($0) == false
         }
+        try windowForTheMenuBar()
         try locateFixtures()
         try touchReady()
         let rename = { (state: QAState) in state.raw["rename"] as? [String: Any] ?? [:] }
@@ -471,6 +487,46 @@ final class P12QA: XCTestCase {
             name.tap()
             return ""
         }
+    }
+
+    /// yebisu#242: on iPadOS 27 the menu bar opens from the app's name in the status bar, which a
+    /// window that fills its screen hides (`needsWindow`). Before the fixture controls are located
+    /// (their frames are kept for the held presses), the window is dragged down from the screen's top
+    /// edge as a user would, which leaves full screen and brings the status bar back. Logged as
+    /// `window-mode`; a status bar that still shows no app name fails by name (class W).
+    private func windowForTheMenuBar() throws {
+        guard revealGesture == .appNameTap else { return }
+        let name = springboard.statusBars.staticTexts.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
+        let screen = springboard.frame
+        let before = app.windows.firstMatch.frame
+        let fills = Self.fillsScreen(before, screen)
+        let shown = name.waitForExistence(timeout: Self.appNameTimeout)
+        var record: [String: Any] = ["kind": "window-mode", "fillsScreen": fills, "nameShown": shown,
+                                     "window": [before.minX, before.minY, before.width, before.height],
+                                     "screen": [screen.width, screen.height], "dragged": false]
+        guard Self.needsWindow(gesture: revealGesture, fillsScreen: fills, nameShown: shown) else {
+            record["time"] = Date().timeIntervalSince1970
+            events.append(record)
+            return
+        }
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            .press(forDuration: 0.2, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)),
+                   withVelocity: .slow, thenHoldForDuration: 0.5)
+        let named = name.waitForExistence(timeout: Self.revealTimeout)
+        let after = app.windows.firstMatch.frame
+        record["dragged"] = true
+        record["nameShownAfter"] = named
+        record["windowAfter"] = [after.minX, after.minY, after.width, after.height]
+        record["time"] = Date().timeIntervalSince1970
+        events.append(record)
+        guard named else {
+            springboardHierarchy("p12-window-mode")
+            screenshot("p12-window-mode")
+            XCTFail("Status bar shows no app name after the window was dragged out of full screen (class W): "
+                    + "window \(before) -> \(after), screen \(screen), still fills it=\(Self.fillsScreen(after, screen))")
+            throw NSError(domain: "P12.WindowMode", code: 1)
+        }
+        try qa.waitState("the P12 fixture is idle in its window", timeout: 20) { self.pending($0) == false }
     }
 
     /// Records what Springboard and the app window looked like just before a

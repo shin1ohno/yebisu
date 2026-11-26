@@ -349,6 +349,36 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("override func tearDown()", SWIFT)
         self.assertNotIn("defer {", SWIFT)
 
+    def test_a_full_screen_window_is_dragged_out_of_full_screen_before_the_fixtures(self):
+        """yebisu#242: a window that fills its screen hides the status bar, whose app name the iPadOS 27
+        reveal taps; P12 drags the window down by touch, as a user would, before any frame is kept."""
+        swift = code(SWIFT)
+        for test in ("func testInstalledTerminalMenu(", "func testRenameMenus("):
+            with self.subTest(test=test):
+                method = body(swift, test)
+                self.assertLess(method.index("try windowForTheMenuBar()"), method.index("try locateFixtures()"))
+        window = body(swift, "private func windowForTheMenuBar(")
+        self.assertIn("guard revealGesture == .appNameTap else { return }", window)
+        self.assertIn("guard Self.needsWindow(gesture: revealGesture, fillsScreen: fills, nameShown: shown) else {", window)
+        self.assertLess(window.index("Self.needsWindow("), window.index(".press(forDuration: 0.2, thenDragTo:"))
+        self.assertIn("withVelocity: .slow, thenHoldForDuration: 0.5)", window)
+        self.assertEqual(window.count('"kind": "window-mode"'), 1)
+        self.assertIn("(class W)", window)
+        self.assertIn("throw NSError(", window)
+        self.assertNotIn("hover", window)
+        needs = body(swift, "static func needsWindow(")
+        self.assertIn("gesture == .appNameTap && fillsScreen && !nameShown", needs)
+
+    def test_the_p12_fixture_sends_no_zoom_of_its_own(self):
+        """yebisu#242: in the dragged window the column is narrower than a split needs, and L2c would
+        send pane.zoom; P12's peer holds the first requests for its cases and the oracle allows only
+        the two pane.split requests, so the fixture skips the automatic zoom (Simulator only)."""
+        rust = code((HERE.parents[1] / "crates/yebisu/src/shell/single_pane.rs").read_text())
+        guard = rust.index('std::env::var_os("YEBISU_P12_QA").is_some()')
+        self.assertLess(rust.index("if self.auto_zoom_would_discard_input() {"), guard)
+        self.assertLess(guard, rust.index("let Some(request) = herdr1_zoom_request("))
+        self.assertIn('if cfg!(all(target_os = "ios", target_abi = "sim"))', rust[guard - 120:guard])
+
 
 if __name__ == "__main__":
     unittest.main()

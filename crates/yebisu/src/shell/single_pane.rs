@@ -417,6 +417,15 @@ impl Smoke {
         if self.auto_zoom_would_discard_input() {
             return;
         }
+        // yebisu#242: on iPadOS 27 the P12 Simulator fixture drags its window
+        // out of full screen to reach the menu bar, and the narrower column
+        // would send a zoom here. Its peer holds the first requests for P12's
+        // own cases (`mock_peer`, P12 gate), so the fixture sends no zoom.
+        if cfg!(all(target_os = "ios", target_abi = "sim"))
+            && std::env::var_os("YEBISU_P12_QA").is_some()
+        {
+            return;
+        }
         let Some(request) = herdr1_zoom_request(
             &self.shell.single_pane,
             &host,
