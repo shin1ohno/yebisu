@@ -42,6 +42,15 @@ impl FindBar {
         self.focus.is_focused(window)
     }
 }
+/// Where a refused Find request was aimed. The retry runs only while the
+/// host, its link generation and the board selection are unchanged, so a
+/// request never opens search on a destination the owner did not ask for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpenRetry {
+    host: String,
+    generation: u64,
+    selection: u64,
+}
 pub(crate) fn available(terminal: &crate::terminal_view::TerminalView) -> bool {
     terminal.open
         && !terminal.core_mode
@@ -82,6 +91,8 @@ impl Smoke {
             }
             return;
         }
+        // Every attempt consumes a pending retry; only a busy mailbox re-arms it.
+        self.find_open_retry = None;
         if !available(&self.terminal) {
             self.terminal.live.status = State::Unsupported.label().into();
             cx.notify();
@@ -89,6 +100,12 @@ impl Smoke {
         }
         let inbox = self.terminal.link.inbox.clone();
         let Ok(live) = inbox.try_lock() else {
+            // The reader thread holds the mailbox while it applies a
+            // publication (link.rs). The UI thread never waits on it: keep
+            // the request and submit it again from the next draw, so a busy
+            // reader cannot drop the owner's Find (#160).
+            self.find_open_retry = Some(self.find_open_target());
+            cx.notify();
             return;
         };
         if !adapter::capable(&live) {
@@ -178,7 +195,32 @@ impl Smoke {
         self.fence_find_handoff();
         true
     }
+    fn find_open_target(&self) -> OpenRetry {
+        OpenRetry {
+            host: self.terminal.reconnect.target.clone(),
+            generation: self.terminal.link.generation,
+            selection: self.board.selection,
+        }
+    }
+    /// Called from every draw: submits a Find the busy mailbox refused once
+    /// the current effects settle (outside `render`), for the same target.
+    pub(crate) fn schedule_find_open_retry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(request) = self.find_open_retry.take() else {
+            return;
+        };
+        if self.find.is_some() || request != self.find_open_target() {
+            return;
+        }
+        self.find_open_retry = Some(request.clone());
+        cx.defer_in(window, move |this, window, cx| {
+            if this.find_open_retry.as_ref() == Some(&request) {
+                this.open_find(window, cx);
+            }
+        });
+    }
     pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Closing also withdraws a Find still waiting for the mailbox.
+        self.find_open_retry = None;
         if !self.retire_find(cx) {
             return;
         }
@@ -495,3 +537,7 @@ mod settle_tests;
 #[cfg(test)]
 #[path = "find/closing_press_tests.rs"]
 mod closing_press_tests;
+
+#[cfg(test)]
+#[path = "find/busy_open_tests.rs"]
+mod busy_open_tests;
