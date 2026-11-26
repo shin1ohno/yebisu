@@ -369,6 +369,19 @@ class P12QASourceTests(unittest.TestCase):
         needs = body(swift, "static func needsWindow(")
         self.assertIn("gesture == .appNameTap && fillsScreen && !nameShown", needs)
 
+    def test_the_rename_cancel_tap_lands_left_of_the_p12_panel(self):
+        """yebisu#242: in the dragged 899 pt window the fixed (0.7, 0.15) point of the app element (whose
+        frame stays the screen's) fell above the window, so S9-tab's field never closed. The point is
+        found before any field opens, from the window's frame and the P12 panel's empty strip."""
+        method = body(code(SWIFT), "func testRenameMenus(")
+        found = method.index("let strip = try qa.find(Self.emptySpace, timeout: 10).frame")
+        self.assertLess(method.index("try touchReady()"), found)
+        self.assertLess(found, method.index("for (step, menu, title) in"))
+        self.assertIn("let window = app.windows.firstMatch.frame", method)
+        self.assertIn("CGVector(dx: strip.minX - 80 - origin.x, dy: window.minY + window.height * 0.15 - origin.y)", method)
+        self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset(cancel).tap()", method)
+        self.assertNotIn("CGVector(dx: 0.7, dy: 0.15)", method)
+
     def test_the_p12_fixture_sends_no_zoom_of_its_own(self):
         """yebisu#242: in the dragged window the column is narrower than a split needs, and L2c would
         send pane.zoom; P12's peer holds the first requests for its cases and the oracle allows only

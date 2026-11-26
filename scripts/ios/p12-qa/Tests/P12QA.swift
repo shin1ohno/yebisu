@@ -190,6 +190,15 @@ final class P12QA: XCTestCase {
         try locateFixtures()
         try touchReady()
         let rename = { (state: QAState) in state.raw["rename"] as? [String: Any] ?? [:] }
+        // The cancel tap's point, found before any field opens: on the terminal, 80 pt left of the
+        // P12 panel (its empty strip spans the panel's width) and 15 % down the app's window, as an
+        // offset from the app element's origin (which stays the screen's when the window is smaller,
+        // as `heldPress` measures). The fixed point (0.7, 0.15) of the app element fell above the
+        // window once #242's drag left it 899 pt wide, so S9-tab's field never closed.
+        let strip = try qa.find(Self.emptySpace, timeout: 10).frame
+        let window = app.windows.firstMatch.frame
+        let origin = app.frame.origin
+        let cancel = CGVector(dx: strip.minX - 80 - origin.x, dy: window.minY + window.height * 0.15 - origin.y)
         for (step, menu, title) in [("S9-tab", "yebisu", "Rename Tab"),
                                     ("S9-space", "Space", "Rename Space — Space 1 · repo")] {
             print(String(format: "RENAME_STEP %@ %.3f", step, Date().timeIntervalSince1970))
@@ -197,7 +206,7 @@ final class P12QA: XCTestCase {
             sleep(4)
             screenshot("rename-" + step)
             // A tap outside the field, on the terminal above the software keyboard, cancels it.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.15)).tap()
+            app.coordinate(withNormalizedOffset: .zero).withOffset(cancel).tap()
             sleep(3)
             try qa.waitState("the rename field closed after \(step)", timeout: 20) { rename($0)["open"] as? Bool == false }
         }
