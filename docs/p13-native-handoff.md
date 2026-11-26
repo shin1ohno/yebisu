@@ -63,11 +63,15 @@ Later moves, oldest first:
   9b3538a93f05eba007a25d9ca8e077d8592bbc33 (a window or root view that a
   scene geometry change left at its old frame is fitted to the scene), a
   descendant of 0e92db6.
+- The Mac multi-window title bar fix moved it to the PR 34 merge commit
+  bdbe037687034bd0d222bb37533c24ebfb46eeff (only the scene's own NSWindow
+  extends under the hidden title bar), a descendant of 9b3538a. It also
+  brings PR 33 (a script-only restore fix in `check-native-search.py`).
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 9b3538a. A later bump appends its move to this list.
+identical from 99d7928 to bdbe037. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 9b3538a93f05eba007a25d9ca8e077d8592bbc33.
+The current pin is herdr-uikit bdbe037687034bd0d222bb37533c24ebfb46eeff.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
