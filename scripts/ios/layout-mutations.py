@@ -161,11 +161,13 @@ CASES = [
     ("l6-catalog-filter", "shell/shortcuts.rs", "    catalog\n        .into_iter()\n",
      "    catalog\n        .into_iter()\n        .skip(1)\n",
      "shell::shortcuts::tests::rows::shortcuts_rows_come_from_catalog"),
-    # L6: long press of a space row lists the Space menu's items (Q8).
+    # L6: long press of a space row lists the Space menu's items (Q8), plus the
+    # row-only Close Space (#231); dropping Rename leaves the menus unequal.
     ("l6-long-press-match", "shell/host_menus.rs",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 4] = [\n    SpaceMenuItem::NewTab,\n"
+     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Rename,\n    SpaceMenuItem::Close,\n];",
      "const SPACE_LONG_PRESS: [SpaceMenuItem; 3] = [\n    SpaceMenuItem::NewTab,\n"
-     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Rename,\n];",
-     "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
+     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Close,\n];",
      "shell::host_menus::tests::long_press::menu_items_match_long_press"),
     # L8 (plan v2 7.14): a status-less Herdr 2 terminal listed in AGENTS (Q4).
     ("l8-status-less", "shell/herdr2_frame/session.rs", ".filter(|(_, status)| status.is_agent())",
@@ -192,15 +194,24 @@ def run(name, test):
     return result.returncode, output, seconds
 
 
+def stale_anchors():
+    """Cases whose anchor does not occur exactly once in today's source. Checked
+    before any build, so a feature PR that rewrote a mutated line fails in
+    seconds instead of after the cases before it (#244: 31 cases, 43 min)."""
+    return [f"{name}: source anchor must occur exactly once in {filename}"
+            for name, filename, old, _, _ in CASES if (SRC / filename).read_text().count(old) != 1]
+
+
 def main():
+    stale = stale_anchors()
+    if stale:
+        raise SystemExit("\n".join(stale))
     OUT.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     results = []
     for name, filename, old, new, test in CASES:
         path = SRC / filename
         original = path.read_text()
-        if original.count(old) != 1:
-            raise SystemExit(f"{name}: source anchor must occur exactly once in {filename}")
         code, output, baseline = run(name + "-baseline", test)
         if code or "1 passed; 0 failed" not in output:
             raise SystemExit(f"{name}: baseline did not run and pass the named regression")
