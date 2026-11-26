@@ -158,6 +158,8 @@ mod edit_menu;
 mod edit_menu_gestures;
 #[cfg(test)]
 mod edit_menu_tests;
+#[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
+mod edit_menu_trace;
 #[cfg(any(target_os = "ios", test))]
 mod front_layer;
 #[cfg(any(target_os = "ios", test))]
