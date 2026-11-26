@@ -47,8 +47,12 @@ def validate_positive(records, messages):
     spec=importlib.util.spec_from_file_location("p8_native", Path(__file__).with_name("p8-native-check.py"))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     module.validate(records, messages)
+    # The terminal publishes select_all=false (SH1-153, terminal_controls.rs), so
+    # the SDK refuses the scheduled selectAll: before any KeyDown and the consumer
+    # never sees it (docs/p11-sdk11-adoption.md). A SelectAll receipt here would
+    # mean the SDK dispatched a refused action. Physical C/V carry no native action.
     receipts=[r for r in records if r.get("kind")=="native-consumer"]
-    if [r.get("action") for r in receipts] != ["Paste", "Copy", "Cut", "SelectAll"]*4 or any(r.get("modal") is not False for r in receipts):
+    if [r.get("action") for r in receipts] != ["Paste", "Copy", "Cut"]*4 or any(r.get("modal") is not False for r in receipts):
         raise ValueError("outside-modal real-selector consumer receipts missing or duplicated")
     if any(m["ClientShellPaneInput"].get("pane_id") != "w1:p1" for m in messages if "ClientShellPaneInput" in m):
         raise ValueError("outside-modal wrong receiving pane")
