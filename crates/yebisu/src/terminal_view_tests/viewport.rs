@@ -61,10 +61,13 @@ fn resize_fits_the_painted_terminal_across_chrome_states(cx: &mut TestAppContext
         let slot = painted(cx, "shell-terminal");
         let tabs = painted(cx, "shell-tab-row");
         let status_height = layout::STATUS_BAR_HEIGHT;
+        // A window with controls gives its bottom safe area to the status bar
+        // (`layout::bottom_band`); full screen keeps the 16 pt.
+        let bottom = if windowed { 0. } else { 16. };
         assert!(slot.top() >= tabs.bottom());
         assert_eq!(
             slot.bottom(),
-            px(height - 16. - status_height - layout::RULE)
+            px(height - bottom - status_height - layout::RULE)
         );
         assert_eq!(cx.debug_bounds("edit-bar").is_some(), edit_bar);
         assert_eq!(view.read_with(cx, |this, _| this.find.is_some()), find_open);

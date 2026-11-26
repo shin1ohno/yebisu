@@ -9,7 +9,7 @@
 use super::{ChromeState, HerdrKind, fit, key_band, rail::SidebarMode, style::color};
 use crate::{
     app::Smoke,
-    layout::{self, ControlsReach, Insets, Layout, RULE, Rect, Size},
+    layout::{self, ControlsClearance, ControlsReach, Insets, Layout, RULE, Rect, Size},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 
@@ -175,11 +175,15 @@ impl Smoke {
         controls: ControlsReach,
     ) -> Layout {
         let safe = platform.safe_area;
+        // An iPad window showing its window controls; never full screen
+        // (no controls) or a Mac (traffic lights, whose own rules apply).
+        let windowed = !self.platform_traffic_lights_over_content()
+            && controls.clearance() != ControlsClearance::default();
         let insets = Insets {
             safe_top: f32::from(safe.top),
             safe_left: f32::from(safe.left),
             safe_right: f32::from(safe.right),
-            safe_bottom: f32::from(safe.bottom),
+            safe_bottom: layout::bottom_band(f32::from(safe.bottom), windowed),
             // L9: only a keyboard docked along the bottom edge is an inset; a
             // floating one (or a smaller visual viewport) never resizes the
             // terminal.
@@ -414,3 +418,7 @@ mod controls_tests;
 #[cfg(test)]
 #[path = "frame_traffic_lights_tests.rs"]
 mod traffic_lights_tests;
+
+#[cfg(test)]
+#[path = "frame_bottom_band_tests.rs"]
+mod bottom_band_tests;

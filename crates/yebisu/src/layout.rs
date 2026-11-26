@@ -365,6 +365,16 @@ pub(crate) fn usable_width(width: f32, safe_left: f32, safe_right: f32) -> f32 {
     (width - safe_left.max(0.0) - safe_right.max(0.0)).max(0.0)
 }
 
+/// The bottom safe area the layout keeps for a window with `reported` as
+/// UIKit's value. In an iPad window with window controls (`windowed`), the
+/// status bar moves down into that band, to the window's bottom edge (owner
+/// report 2026-11-26, Q2 B: 25 pt below it on an external display); a
+/// docked keyboard still lifts it (`Insets::bottom`). Everywhere else,
+/// including full screen and a Mac, it stays as reported.
+pub fn bottom_band(reported: f32, windowed: bool) -> f32 {
+    if windowed { 0.0 } else { reported.max(0.0) }
+}
+
 pub(crate) fn compute_with_key_band(input: &Input, band_height: f32) -> Layout {
     let left = input.insets.safe_left.max(0.0);
     let top = input.insets.safe_top.max(0.0);
