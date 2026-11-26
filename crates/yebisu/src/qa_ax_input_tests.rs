@@ -325,7 +325,14 @@ fn every_frame_outcome_is_recorded_and_kept_as_the_last_one() {
         assert_eq!(counters.last_frame, Some(outcome));
         assert_eq!(state_json(&counters)["frame_last"], json!(outcome));
         // A frame receipt is not a touch or a menu command.
-        assert_eq!((counters.touch_began, counters.menu_perform, counters.menu_dropped), (0, 0, 0));
+        assert_eq!(
+            (
+                counters.touch_began,
+                counters.menu_perform,
+                counters.menu_dropped
+            ),
+            (0, 0, 0)
+        );
     }
     assert_eq!(state_json(&Counters::default())["frame_last"], Value::Null);
 }
