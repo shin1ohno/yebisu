@@ -106,6 +106,11 @@ def main():
     print(log, flush=True)
     (directory / "xctest.log").write_text(log)
     subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], check=False)
+    # DIAGNOSTIC (yebisu#163): keep the app's own records of the L61 launch.
+    container = subprocess.run(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"],
+                               text=True, capture_output=True).stdout.strip()
+    for record in (Path(container).rglob("*.jsonl") if container else []):
+        (directory / record.name).write_bytes(record.read_bytes())
     if result_bundle.exists():
         subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_bundle),
                         "--output-path", str(directory / "attachments")], check=False)

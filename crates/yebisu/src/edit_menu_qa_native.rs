@@ -162,3 +162,30 @@ pub(crate) fn external_round_trip(capture: &Capture) -> serde_json::Value {
         serde_json::json!({"before":before,"during":during,"acquired":acquired,"released":released})
     }
 }
+
+/// DIAGNOSTIC (yebisu#163): every app window (class, key, hidden) and the class names of
+/// views whose class contains "Menu" or "Callout", plus the first responder of each window.
+pub(crate) fn diag_menu_views() -> serde_json::Value {
+    let mut out = Vec::new();
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+        let windows: Retained<NSArray<AnyObject>> = msg_send![app, windows];
+        for window in windows {
+            let mut views = Vec::new();
+            descendants(&window, &mut views);
+            let menus: Vec<String> = views
+                .iter()
+                .map(|v| v.class().name().to_string_lossy().into_owned())
+                .filter(|n| n.contains("Menu") || n.contains("Callout"))
+                .collect();
+            let key: bool = msg_send![&*window, isKeyWindow];
+            let hidden: bool = msg_send![&*window, isHidden];
+            out.push(serde_json::json!({
+                "window": window.class().name().to_string_lossy(),
+                "key": key, "hidden": hidden, "menus": menus,
+                "responder": responder(&window),
+            }));
+        }
+    }
+    serde_json::Value::Array(out)
+}

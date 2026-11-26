@@ -205,6 +205,32 @@ impl Smoke {
         });
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.sh1_152_capture(token, window.window_handle(), cx);
+        #[cfg(all(target_os = "ios", target_abi = "sim", not(test)))]
+        {
+            // LOCAL DIAGNOSTIC (yebisu#163), not for commit.
+            let MenuToken::Native(native) = token;
+            let handle = window.window_handle();
+            self.observation.record(serde_json::json!({"kind":"diag-menu-present","token":native.value(),
+                "active":window.is_window_active(),"focused":self.terminal_focus.is_focused(window)}));
+            for delay in [30u64, 300, 1000, 3000] {
+                cx.spawn(async move |weak, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(delay))
+                        .await;
+                    let status =
+                        format!("{:?}", herdr_uikit::native_edit_menu_status(handle, native));
+                    // Runs on the main thread outside a GPUI update, as sh1_152_capture does.
+                    let views = crate::edit_menu_qa_native::diag_menu_views();
+                    let _ = weak.update(cx, |this, _| {
+                        this.observation.record(
+                            serde_json::json!({"kind":"diag-menu-status","token":native.value(),
+                            "after_ms":delay,"status":status,"windows":views}),
+                        );
+                    });
+                })
+                .detach();
+            }
+        }
         Some(token)
     }
 
