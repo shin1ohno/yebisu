@@ -73,14 +73,16 @@ Later moves, oldest first:
   of bdbe037. It also brings PR 35 (herdr-uikit's own build against the
   gpui-pre fork, a `[patch.crates-io]` table consumers ignore) and PR 36
   (`build.rs` reads the gpui-pre sources Cargo compiles).
-- The Simulator frame receipts moved it to the PR 38 merge commit
-  e8a4051f16759748c35f28333b510f9c458063c6 (a Simulator-only `frame` receipt
-  when a window's draws change outcome), a descendant of 2bb3a68.
+- The Simulator QA receipts moved it to the PR 40 merge commit
+  75234cd3029120b29afcfb067da3fb822be6d011, a descendant of 2bb3a68: PR 38's
+  `frame` receipt (how a window's draws end) and PR 40's `edit-menu-present`
+  and `edit-menu-menu` receipts (where a native edit menu stops), all
+  Simulator-only.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to e8a4051. A later bump appends its move to this list.
+identical from 99d7928 to 75234cd. A later bump appends its move to this list.
 
-The current pin is herdr-uikit e8a4051f16759748c35f28333b510f9c458063c6.
+The current pin is herdr-uikit 75234cd3029120b29afcfb067da3fb822be6d011.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
