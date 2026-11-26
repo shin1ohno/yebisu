@@ -119,7 +119,8 @@ fn host_with(live: &[&str]) -> Host {
     host
 }
 
-/// `sp1` leaves the document, and everything else stays byte for byte.
+/// `sp1` leaves the document, and everything else stays byte for byte,
+/// also after many more reads: a live terminal's tab is never removed.
 fn removes_sp1(host: &Host) {
     let mut running = start(host, PERIOD);
     let removed = running
@@ -134,6 +135,14 @@ fn removes_sp1(host: &Host) {
         spaces.remove(0);
     }
     assert_eq!(host.doc().doc().0, expected, "sp2 keeps both its tabs");
+    // A second removal right after the first is applied within this wait
+    // (issue 218): the document is judged again only after it.
+    std::thread::sleep(SETTLE);
+    assert_eq!(
+        host.doc().doc().0,
+        expected,
+        "sp2 still keeps both its tabs"
+    );
     assert_eq!(host.doc().sets().len(), 1, "one write");
     assert_eq!(removed.stats.notice, None, "no user change was refused");
 }
@@ -168,7 +177,9 @@ fn terminal_stopped_with_its_server_removes_its_space() {
 
 #[test]
 fn relaunch_removes_a_space_that_ended_while_closed() {
-    let host = host_with(&["t1", "t2"]);
+    // t3 is live too: a terminal the full list leaves out is ended
+    // (`not_found`), so its tab would go with sp1 (issue 218).
+    let host = host_with(&["t1", "t2", "t3"]);
     {
         let mut first = start(&host, PERIOD);
         first
