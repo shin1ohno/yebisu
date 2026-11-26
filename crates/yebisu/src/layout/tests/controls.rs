@@ -135,7 +135,7 @@ fn corner_allowance_alone_moves_nothing() {
 }
 
 /// All zero is a window without controls (owner decision 2026-11-20):
-/// iPadOS 17 to 25, no live scene, or not sampled yet. It keeps the design
+/// no live scene, or not sampled yet. It keeps the design
 /// sizes, like `Insets::default()`.
 #[test]
 fn all_zero_is_no_window_controls() {

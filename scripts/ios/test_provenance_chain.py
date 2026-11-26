@@ -55,7 +55,7 @@ def log(action):
 log('enter')
 if tool=='rustup': print('aarch64-apple-ios-sim')
 elif tool=='plutil':
- if a[0]=='-extract': print('17.0')
+ if a[0]=='-extract': print('26.0')
  elif a[0]=='-replace':
   path=P(a[-1]); data=plistlib.loads(path.read_bytes()); data[a[1]]=json.loads(a[3]) if a[2]=='-json' else a[3]; path.write_bytes(plistlib.dumps(data))
  elif a[0]!='-lint': raise RuntimeError(a)

@@ -66,7 +66,7 @@ final class P13QA: XCTestCase {
 PROJECT = '''name: P13Oracle
 options:
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
 targets:
   P13Oracle:
     type: bundle.ui-testing

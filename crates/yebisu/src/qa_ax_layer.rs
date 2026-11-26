@@ -111,6 +111,20 @@ pub(crate) fn collapse(painted: Vec<Control>) -> (Vec<Control>, Vec<&'static str
     )
 }
 
+/// For each control to publish, the index of the element published for the
+/// same identifier, which `native::apply` keeps (with its frame and label
+/// updated), or `None` for a new element. UIKit keeps an element's
+/// accessibility identity only while its object lives: rebuilt on every
+/// move, the board's agent rows, which the QA peer reorders a few times a
+/// second, left XCTest resolving a control and then synthesizing its tap on
+/// an element already gone ("Activation point invalid", P15's INFINITY tap).
+pub(crate) fn reuse(published: &[&'static str], controls: &[Control]) -> Vec<Option<usize>> {
+    controls
+        .iter()
+        .map(|control| published.iter().position(|id| *id == control.id))
+        .collect()
+}
+
 /// Which window owns the layer (UI test redesign S4, the two E5 scenes).
 /// There is one layer and one `qa.state`, so XCTest never sees two elements
 /// with one identifier; it lives in the owner's UIWindow, and only the owner's

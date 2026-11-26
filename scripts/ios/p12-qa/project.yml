@@ -1,7 +1,7 @@
 name: P12Oracle
 options:
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
 targets:
   P12Oracle:
     type: bundle.ui-testing

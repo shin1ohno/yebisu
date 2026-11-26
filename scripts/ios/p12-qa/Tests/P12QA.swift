@@ -34,6 +34,20 @@ final class P12QA: XCTestCase {
     private static let menuItemTimeout: TimeInterval = 3
     private static let menuPollInterval: useconds_t = 50_000
     private typealias MenuBarPressPosition = (point: CGPoint, reported: CGRect, useButton: Bool)
+    /// How the OS menu bar is revealed over the app. Probed on iPad Pro 13-inch (M5) Simulators on
+    /// 2026-11-26 (task 2c286ea33240487a): on iOS 26.5 a swipe down from the top edge reveals it
+    /// and the status bar does not name the app; on iOS 27.2 no top-edge swipe does (P12 class B
+    /// on every run), the status bar names the foreground app, and a tap on that name reveals it.
+    enum RevealGesture: String {
+        case topEdgeSwipe = "top-edge-swipe"
+        case appNameTap = "app-name-tap"
+    }
+    static func revealGesture(for version: OperatingSystemVersion) -> RevealGesture {
+        version.majorVersion >= 27 ? .appNameTap : .topEdgeSwipe
+    }
+    private let revealGesture = P12QA.revealGesture(for: ProcessInfo.processInfo.operatingSystemVersion)
+    /// How long the status bar gets to show the app's name before the tap that reveals the menu bar.
+    private static let appNameTimeout: TimeInterval = 3
     /// What the reveal of the case in progress needed, quoted by its failure.
     private var revealNote = ""
     /// qa.state read just before the reveal swipe of the case in progress (nil when unreadable): the
@@ -387,8 +401,9 @@ final class P12QA: XCTestCase {
         } while true
     }
 
-    /// Swipes down from the top edge and waits for a valid OS menu-bar button frame. A swipe
-    /// that reveals nothing is repeated once, and the repeat is logged with its
+    /// Sends the reveal gesture (a swipe down from the top edge, or on iPadOS 27 a tap on the app's
+    /// name in the status bar; `RevealGesture`) and waits for a valid OS menu-bar button frame. A
+    /// gesture that reveals nothing is repeated once, and the repeat is logged with its
     /// reason (`reveal-retry`); the second miss fails as class B. In the failed runs
     /// of 2026-11-17 the swipe call itself took 5.6 s and 5.7 s against 0.6-1.1 s
     /// for 14 of the 15 reveals that worked (the 15th took 4.2 s), so the gesture was
@@ -405,10 +420,7 @@ final class P12QA: XCTestCase {
         while true {
             let swipeStart = Date()
             let injected = attempt == 1 && faults.remove("skip-swipe:" + caseName) != nil
-            if !injected {
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
-                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
-            }
+            let gestureNote = injected ? "" : reveal()
             let swipeSeconds = Date().timeIntervalSince(swipeStart)
             let revealStart = Date()
             let position = waitForMenuBarPressPosition(applicationMenu, in: bar, on: screen)
@@ -428,17 +440,36 @@ final class P12QA: XCTestCase {
                                } ?? [],
                                "pressAnchor": position.map { $0.useButton ? "button" : "window" } ?? "",
                                "waited": waited, "attempts": attempt, "swipeSeconds": swipeSeconds,
-                               "time": Date().timeIntervalSince1970])
+                               "gesture": revealGesture.rawValue, "time": Date().timeIntervalSince1970])
                 return position
             }
-            var reason = injected ? "injected fault: the first swipe was skipped; " : ""
-            reason += "OS menu bar not revealed \(Int(waited)) s after the first swipe"
-            reason += " (the swipe call took \(String(format: "%.1f", swipeSeconds)) s); swiping once more"
+            var reason = injected ? "injected fault: the first swipe was skipped; " : gestureNote
+            reason += "OS menu bar not revealed \(Int(waited)) s after the first \(revealGesture.rawValue)"
+            reason += " (the gesture call took \(String(format: "%.1f", swipeSeconds)) s); revealing once more"
             revealNote = "after one retry (" + reason + "); "
             QAAx.resend(kind: "reveal-retry", id: caseName, reason: reason)
             events.append(["kind": "reveal-retry", "case": caseName, "reason": reason, "injected": injected,
-                           "swipeSeconds": swipeSeconds, "waited": waited, "time": Date().timeIntervalSince1970])
+                           "swipeSeconds": swipeSeconds, "waited": waited, "gesture": revealGesture.rawValue,
+                           "time": Date().timeIntervalSince1970])
             attempt += 1
+        }
+    }
+
+    /// Sends this system's reveal gesture (`revealGesture`); returns a note for the retry reason
+    /// when the gesture could not be sent, or "" when it was.
+    private func reveal() -> String {
+        switch revealGesture {
+        case .topEdgeSwipe:
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.001))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)))
+            return ""
+        case .appNameTap:
+            let name = springboard.statusBars.staticTexts.matching(NSPredicate(format: "label == %@", "yebisu")).firstMatch
+            guard name.waitForExistence(timeout: Self.appNameTimeout) else {
+                return "the status bar showed no 'yebisu' name to tap within \(Int(Self.appNameTimeout)) s; "
+            }
+            name.tap()
+            return ""
         }
     }
 
