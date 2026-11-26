@@ -57,6 +57,9 @@ pub(crate) struct FitState {
     /// The window controls' reach and L0's clearance last offered to the
     /// observation log; a record is offered only on change.
     pub(crate) recorded_controls: Option<(ControlsReach, ControlsClearance)>,
+    /// Whether the window filled its screen and the top safe area, last
+    /// offered to the observation log; a record is offered only on change.
+    pub(crate) recorded_fill: Option<(bool, f32)>,
     #[cfg(test)]
     pub(crate) hardware_keyboard_attached: bool,
     /// Tests move the fit clock ahead without waiting.
@@ -74,6 +77,10 @@ pub(crate) struct FitState {
     /// content (herdr-uikit `traffic_lights_over_content`).
     #[cfg(test)]
     pub(crate) traffic_lights_over_content: bool,
+    /// Tests make the window fill its screen (herdr-uikit
+    /// `window_fills_screen`).
+    #[cfg(test)]
+    pub(crate) fills_screen: bool,
 }
 
 /// Status bar items in the order they move to the details popover.
@@ -334,6 +341,43 @@ impl Smoke {
         {
             false
         }
+    }
+
+    /// Whether the window fills its screen: full screen, or an iPadOS 26
+    /// window the user maximized (herdr-uikit `window_fills_screen`), which
+    /// hides the OS status bar there (#221). Read on every frame, like the
+    /// controls' reach; false off iOS.
+    pub(crate) fn platform_window_fills_screen(&self, window: &Window) -> bool {
+        #[cfg(test)]
+        if self.shell.fit.fills_screen {
+            return true;
+        }
+        #[cfg(target_os = "ios")]
+        {
+            herdr_uikit::window_fills_screen(window.window_handle())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = window;
+            false
+        }
+    }
+
+    /// Offers `{"kind":"window_fill"}` to the observation log when whether
+    /// the window fills its screen or its top safe area changes: QA evidence
+    /// that a window filling the screen lost the status bar's band (#221).
+    /// Called while drawing, like `record_window_controls`.
+    pub(crate) fn record_window_fill(&mut self, fills_screen: bool, safe_top: f32) {
+        let now = (fills_screen, safe_top);
+        if self.shell.fit.recorded_fill == Some(now) {
+            return;
+        }
+        self.shell.fit.recorded_fill = Some(now);
+        self.observation.record_without_waiting(serde_json::json!({
+            "kind": "window_fill",
+            "fills_screen": fills_screen,
+            "safe_top": safe_top,
+        }));
     }
 
     fn sampled_window_controls(&self, window: &Window) -> Edges<Pixels> {
