@@ -1,9 +1,9 @@
 //! Issue #221: a window that fills its screen (full screen, or an iPadOS 26
 //! window the user maximized) is not an iPad window for the top and bottom
-//! bands, even while UIKit reports its window controls. herdr-uikit hides the
-//! OS status bar there (`window_fills_screen`), and the frame keeps to the
-//! safe area UIKit reports: below the status bar if it still shows, at the
-//! top edge once it is gone. On the owner's TestFlight build 256 the tab row
+//! bands, even while UIKit reports its window controls (`window_fills_screen`),
+//! and the frame keeps to the safe area UIKit reports: below the status bar,
+//! which herdr-uikit keeps there since #242, and at the top edge if the
+//! status bar is ever gone. On the owner's TestFlight build 256 the tab row
 //! sat in the band under the status bar instead, its time and date over the
 //! first tabs. Smaller windows (#202, #209) and a Mac keep their look.
 use super::overlay_tests::terminal;
@@ -126,8 +126,8 @@ fn a_window_filling_the_screen_keeps_its_row_below_the_status_bar(cx: &mut TestA
     }
 }
 
-/// Once herdr-uikit has hidden the status bar, UIKit reports a top safe area
-/// without it, and the row starts there.
+/// Were the status bar hidden (herdr-uikit 2bb3a68 to 8339e13 did), UIKit
+/// would report a top safe area without it, and the row would start there.
 #[gpui::test]
 fn a_hidden_status_bar_lets_the_row_reach_the_top(cx: &mut TestAppContext) {
     let (view, cx) = sized(cx);

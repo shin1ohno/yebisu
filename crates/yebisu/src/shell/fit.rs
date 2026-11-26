@@ -343,9 +343,10 @@ impl Smoke {
     }
 
     /// Whether the window fills its screen: full screen, or an iPadOS 26
-    /// window the user maximized (herdr-uikit `window_fills_screen`), which
-    /// hides the OS status bar there (#221). Read on every frame, like the
-    /// controls' reach; false off iOS.
+    /// window the user maximized (herdr-uikit `window_fills_screen`). The
+    /// OS status bar stays over it (#242), and the frame keeps to the top
+    /// safe area below it (#221). Read on every frame, like the controls'
+    /// reach; false off iOS.
     pub(crate) fn platform_window_fills_screen(&self, window: &Window) -> bool {
         #[cfg(test)]
         if self.shell.fit.fills_screen {

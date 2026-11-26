@@ -84,11 +84,16 @@ Later moves, oldest first:
   drawing view's keyboard guide now follows undocked keyboards; the bottom
   inset policy is unchanged) and the Simulator-only
   `keyboard_placement_sample`.
+- Option B of #242 (owner choice pending) moved it to
+  3740ab4d7c449026cc04ca322de3a11b074272aa, the head of herdr-uikit PR 41
+  and a child of 8339e13: a window that fills its screen keeps the status
+  bar (`screen_fill::hides_status_bar`), and `window_fills_screen` still
+  reports the fill. Once PR 41 merges, the pin moves to its merge commit.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 8339e13. A later bump appends its move to this list.
+identical from 99d7928 to 3740ab4. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 8339e132e004a05119e4fddf4fb637b997e4cdcb.
+The current pin is herdr-uikit 3740ab4d7c449026cc04ca322de3a11b074272aa.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
