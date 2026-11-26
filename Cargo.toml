@@ -11,7 +11,7 @@ version = "0.1.1"
 [workspace.dependencies]
 base64 = "0.23.1"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
-herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "121a55ffc5e0aaa383d55bf9816094e78b0376dc" }
+herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "decd8f88dfd7f4aba79dde7033447ca3f5b55546" }
 "herdr-ssh" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "bf716d8a16ebc88690370726c78430d930f48930" }
 "sheprd-core-client" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "bf716d8a16ebc88690370726c78430d930f48930" }
 "sheprd-backend" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "bf716d8a16ebc88690370726c78430d930f48930" }
@@ -44,4 +44,4 @@ incremental = false
 # listed in the fork's README: issue #161, touch momentum that ends at the
 # edge of its content so the next tap presses.
 [patch.crates-io]
-gpui-pre = { git = "https://github.com/shin1ohno/gpui-pre", rev = "ab418c0c1422bc36c05adffaa1c20b8895089a7e" }
+gpui-pre = { git = "https://github.com/shin1ohno/gpui-pre", rev = "60bd9f537760dda05c31861ad6bac03c4d3c81e4" }

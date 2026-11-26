@@ -67,15 +67,17 @@ Later moves, oldest first:
   bdbe037687034bd0d222bb37533c24ebfb46eeff (only the scene's own NSWindow
   extends under the hidden title bar), a descendant of 9b3538a. It also
   brings PR 33 (a script-only restore fix in `check-native-search.py`).
-- Issue #161 moved it to the PR 35 merge commit
-  121a55ffc5e0aaa383d55bf9816094e78b0376dc (its own builds patch in the
-  shin1ohno/gpui-pre fork; only `Cargo.toml` and `Cargo.lock` change), a
-  descendant of bdbe037.
+- Issue #161 moved it to the PR 36 merge commit
+  decd8f88dfd7f4aba79dde7033447ca3f5b55546, a descendant of bdbe037 through
+  PR 35 (121a55f). PR 35 patches the shin1ohno/gpui-pre fork into its own
+  builds; PR 36 makes `build.rs` read the gpui-pre sources being compiled
+  (`DEP_GPUI_SRC`) before the Cargo registry. Only `Cargo.toml`,
+  `Cargo.lock` and `build.rs` change.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 121a55f. A later bump appends its move to this list.
+identical from 99d7928 to decd8f8. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 121a55ffc5e0aaa383d55bf9816094e78b0376dc.
+The current pin is herdr-uikit decd8f88dfd7f4aba79dde7033447ca3f5b55546.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
