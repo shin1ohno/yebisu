@@ -277,6 +277,9 @@ fn tab_labels(this: &Smoke) -> Vec<String> {
 fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!("yebisu-doc-rows-{}", std::process::id()));
     let host = Host::default();
+    // Every terminal the document names is live: a space whose terminals
+    // ended would be taken out of it (`core/ended_spaces.rs`).
+    host.set_live(&["t1", "t2", "t30"]);
     host.doc().set_silent(
         serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
             .unwrap_or_else(|e| panic!("fixture: {e}")),
@@ -328,13 +331,13 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
         )
         .unwrap_or_else(|e| panic!("open: {e}"));
     });
-    // The second space's only terminal (`t30`) is not live: no tab draws,
-    // and its row is the current one.
+    // The second space's only tab (`t30`) draws, and its row is the
+    // current one.
     wait_for(&view, cx, "the second document space", |this| {
         let current = herdr2_hosts(&this.shell.sidebar, &this.terminal, &this.board.hidden)
             .first()
             .and_then(|row| row.spaces.get(1).map(|space| space.current));
-        tab_labels(this).is_empty() && current == Some(true) && this.terminal.live.connected
+        tab_labels(this) == ["1"] && current == Some(true) && this.terminal.live.connected
     });
     // #144 D4: New tab in a document space writes the document, and the
     // new tab is drawn (and chosen) once the read after the write has it.
@@ -342,10 +345,9 @@ fn document_space_rows_open_their_space(cx: &mut TestAppContext) {
         this.try_core_command(crate::core::Command::NewTab)
             .unwrap_or_else(|e| panic!("send: {e}"));
     });
-    // The space's first tab (`t30`) is not live, so the new one, second in
-    // the document, is the only tab drawn.
+    // The new one is second in the document, and chosen.
     wait_for(&view, cx, "the new tab", |this| {
-        tab_labels(this) == ["2"] && this.core_tabs().first().is_some_and(|tab| tab.active)
+        tab_labels(this) == ["1", "2"] && this.core_tabs().get(1).is_some_and(|tab| tab.active)
     });
     assert_eq!(host.doc().sets().len(), 1, "one doc.set");
     view.update(cx, |this, _| {

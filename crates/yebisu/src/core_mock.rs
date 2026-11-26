@@ -26,9 +26,19 @@ pub(crate) struct Host {
 }
 impl Default for Host {
     fn default() -> Self {
+        let doc = doc::Store::qa();
+        let mut terminals: Vec<String> = vec!["t1".into(), "t2".into()];
+        // A Simulator QA document names live terminals, as the official
+        // app's does: one naming ended ones would be taken apart
+        // (`core/ended_spaces.rs`) before the checks read it.
+        for address in doc.named_terminals() {
+            if !terminals.contains(&address) {
+                terminals.push(address);
+            }
+        }
         Self {
-            terminals: Arc::new(Mutex::new(vec!["t1".into(), "t2".into()])),
-            doc: doc::Store::qa(),
+            terminals: Arc::new(Mutex::new(terminals)),
+            doc,
         }
     }
 }

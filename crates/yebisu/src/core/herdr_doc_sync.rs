@@ -18,9 +18,9 @@
 //! times (owner decision 5); the previous value is never sent again under a
 //! newer version. Every write is read back and checked (R1).
 //!
-//! The same thread removes a space whose every terminal ended
-//! (`ended_spaces`), from its own complete reads only, through the same
-//! intent path and checks.
+//! The same thread takes ended terminals' panes out, with the tabs and
+//! spaces that leaves empty (`ended_spaces`), from its own complete reads
+//! only, through the same intent path and checks.
 use super::{
     ended_spaces::{self, Listing, Tracker},
     herdr_doc::{self, Applied, Intent, View, WriteCheck},
@@ -95,7 +95,8 @@ pub(crate) struct WriteStats {
     pub(crate) notice: Option<String>,
     /// Intents finished, so a notice shows again for the next one.
     pub(crate) finished: u64,
-    /// Spaces whose every terminal ended, removed from the document.
+    /// Spaces whose ended panes (and tabs, or the whole space) were taken
+    /// out of the document.
     pub(crate) ended: u64,
 }
 
@@ -463,20 +464,20 @@ impl Reader {
 }
 
 impl Reader {
-    /// Removes the spaces the last read made due, one at a time, each to
-    /// the latest document; a space changed since it was judged stays. The
-    /// user is told nothing: no change of theirs was refused.
+    /// Takes out what the last read made due (`ended_spaces`), one space
+    /// at a time, each applied to the latest document and read back before
+    /// the next; a space changed since it was judged stays. The user is
+    /// told nothing: no change of theirs was refused.
     fn remove_ended(&mut self, stopped: &impl Fn() -> bool) {
-        let mut sent = false;
         for intent in std::mem::take(&mut self.due) {
             if stopped() {
-                return;
+                break;
             }
             let outcome = match self.send(&intent, stopped) {
                 Outcome::Saved => {
                     self.stats.ended += 1;
                     crate::diagnostics::record("herdr2_doc_space_ended");
-                    sent = true;
+                    self.read(stopped);
                     "saved".to_owned()
                 }
                 Outcome::Unchanged => "unchanged".to_owned(),
@@ -485,12 +486,11 @@ impl Reader {
                 Outcome::NotReadable => "not-readable".to_owned(),
                 Outcome::Unknown => "unknown".to_owned(),
             };
-            tracing::info!(%outcome, "Herdr 2 ended space removal");
+            tracing::info!(%outcome, "Herdr 2 ended panes removal");
         }
-        if sent {
-            self.read(stopped);
-            self.due.clear();
-        }
+        // Reads in between judged again; what is still due comes back at
+        // the next read.
+        self.due.clear();
     }
 
     /// One intent, start to end; nothing else is sent meanwhile (D-6).
@@ -570,6 +570,9 @@ fn wait(period: Duration, stopped: &impl Fn() -> bool) {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "herdr_doc_ended_live_tests.rs"]
+mod ended_live_tests;
 #[cfg(test)]
 #[path = "herdr_doc_ended_tests.rs"]
 mod ended_tests;

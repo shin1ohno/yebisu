@@ -13,6 +13,9 @@ mod ended_spaces_tests;
 // The document write path (#144 D4) uses `apply`, `check_write` and `new_id`.
 #[cfg_attr(not(test), allow(dead_code))]
 mod herdr_doc;
+mod herdr_doc_prune;
+#[cfg(test)]
+mod herdr_doc_prune_tests;
 #[cfg(test)]
 mod herdr_doc_remove_tests;
 pub(crate) mod herdr_doc_sync;

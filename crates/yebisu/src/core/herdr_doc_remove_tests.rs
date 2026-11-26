@@ -1,7 +1,8 @@
-//! `Intent::RemoveSpace`: it takes exactly one space out of the latest
-//! document, keeps every other byte (unknown fields too), leaves a space
-//! changed since it was read, and the pre-write gate refuses a candidate
-//! that changed anything else.
+//! `Intent::PruneSpace`: it takes ended panes, the tabs that leaves empty
+//! and the space when no tab is left out of the latest document, keeps
+//! every other byte (unknown fields too), leaves a space changed since it
+//! was read, and the pre-write gate refuses a candidate that changed
+//! anything else, inside the space or outside it.
 use super::herdr_doc::*;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -29,15 +30,31 @@ fn readable() -> Result<Vec<(String, Value)>, Box<dyn std::error::Error>> {
     Ok(found)
 }
 
-fn remove(value: &Value, i: usize) -> Option<Intent> {
+/// Space `i` with `ended` terminals, or every terminal it names.
+fn prune(value: &Value, i: usize, ended: Option<&[&str]>) -> Option<Intent> {
     let space = value.get("spaces")?.get(i)?.clone();
     let id = space.get("id")?.as_str()?.to_owned();
-    Some(Intent::RemoveSpace { id, space })
+    let ended = match ended {
+        Some(ended) => ended.iter().map(|t| (*t).to_owned()).collect(),
+        None => parse_view(value)
+            .ok()?
+            .spaces
+            .get(i)?
+            .tabs
+            .iter()
+            .flat_map(|tab| tab.terminals.clone())
+            .collect(),
+    };
+    Some(Intent::PruneSpace { id, space, ended })
+}
+
+fn remove(value: &Value, i: usize) -> Option<Intent> {
+    prune(value, i, None)
 }
 
 #[test]
-fn removal_takes_out_only_that_space_on_every_fixture() -> Outcome {
-    let mut removed = 0;
+fn prune_changes_only_that_space_on_every_fixture() -> Outcome {
+    let (mut removed, mut pruned) = (0, 0);
     for (name, original) in readable()? {
         let count = original
             .get("spaces")
@@ -47,25 +64,68 @@ fn removal_takes_out_only_that_space_on_every_fixture() -> Outcome {
             let Some(intent) = remove(&original, i) else {
                 continue;
             };
-            let Applied::Changed(next) = apply(&original, &intent)? else {
-                return Err(format!("{name}: space {i} not removed").into());
+            let next = match apply(&original, &intent)? {
+                Applied::Changed(next) => next,
+                // Only tabs that are not plain: nothing to take out.
+                Applied::Unchanged => continue,
             };
-            let mut expected = original.clone();
-            if let Some(Value::Array(spaces)) = expected.get_mut("spaces") {
-                spaces.remove(i);
-            }
-            // Byte for byte: key order and unknown fields as read.
-            assert_eq!(
-                serde_json::to_string(&next)?,
-                serde_json::to_string(&expected)?,
-                "{name}"
-            );
             check_write(&original, &next, &intent).map_err(|e| format!("{name}: {e}"))?;
             parse_view(&next)?;
-            removed += 1;
+            let before = original["spaces"].as_array().ok_or("spaces")?;
+            let after = next["spaces"].as_array().ok_or("spaces")?;
+            let mut others = before.clone();
+            others.remove(i);
+            if after.len() == before.len() {
+                pruned += 1;
+                let mut kept = after.clone();
+                kept.remove(i);
+                assert_eq!(kept, others, "{name}: another space changed");
+            } else {
+                removed += 1;
+                assert_eq!(*after, others, "{name}");
+            }
+            // Byte for byte outside `spaces`: key order and unknown fields.
+            let mut outside = next.clone();
+            outside["spaces"] = original["spaces"].clone();
+            assert_eq!(
+                serde_json::to_string(&outside)?,
+                serde_json::to_string(&original)?,
+                "{name}"
+            );
         }
     }
-    assert!(removed >= 5, "only {removed} removals were tried");
+    assert!(removed >= 3, "only {removed} removals were tried");
+    assert!(pruned + removed >= 5, "only {pruned} prunes were tried");
+    Ok(())
+}
+
+#[test]
+fn space_with_a_live_terminal_loses_only_its_ended_panes() -> Outcome {
+    let original = json!({"spaces": [{"id": "sp1", "name": "env", "tabs": [
+        {"id": "tb1", "name": "", "root": {"type": "row", "id": "tb1", "children": [
+            {"type": "block", "id": "p1", "content": {"terminal": "t1"}},
+            {"type": "block", "id": "p2", "content": {"terminal": "t2"}}]}},
+        {"id": "tb2", "name": "", "root": {"type": "row", "id": "tb2", "children": [
+            {"type": "block", "id": "p3", "content": {"terminal": "t3"}}]}}]}]});
+    let intent = prune(&original, 0, Some(&["t1", "t3"])).ok_or("no space")?;
+    let Applied::Changed(next) = apply(&original, &intent)? else {
+        return Err("nothing pruned".into());
+    };
+    check_write(&original, &next, &intent)?;
+    assert_eq!(
+        next["spaces"][0]["tabs"],
+        json!([{"id": "tb1", "name": "", "root": {"type": "row", "id": "tb1", "children": [
+            {"type": "block", "id": "p2", "content": {"terminal": "t2"},
+                "size": {"weight": 2.0}}]}}])
+    );
+    // The gate holds the space to exactly that prune: one pane more out
+    // (the live t2's) is refused.
+    let mut more = next.clone();
+    more["spaces"][0]["tabs"][0]["root"]["children"] = json!([]);
+    assert_eq!(
+        check_write(&original, &more, &intent),
+        Err(WriteCheck::OutsidePath)
+    );
     Ok(())
 }
 
@@ -151,9 +211,10 @@ fn gate_refuses_a_removal_that_changes_anything_else() -> Outcome {
 
 #[test]
 fn unknown_space_or_document_is_unchanged() -> Outcome {
-    let intent = Intent::RemoveSpace {
+    let intent = Intent::PruneSpace {
         id: "spX".into(),
         space: json!({"id": "spX"}),
+        ended: vec!["t1".into()],
     };
     assert_eq!(apply(&three(), &intent)?, Applied::Unchanged);
     assert_eq!(apply(&Value::Null, &intent)?, Applied::Unchanged);

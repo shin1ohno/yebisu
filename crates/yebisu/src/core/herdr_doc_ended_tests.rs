@@ -1,7 +1,9 @@
-//! The reader removes a `herdr-app` space whose every terminal ended, over
-//! the mock core: after an exit, a kill, a terminal gone with a restart and
-//! a relaunch's first connection; never on the first read, after a failed
-//! list, from an unreadable document, or from a space with a live terminal.
+//! The reader takes ended terminals out of `herdr-app` over the mock core:
+//! the space whose every terminal ended, after an exit, a kill, a server
+//! stop, a terminal gone with a restart and a relaunch's first connection;
+//! the ended panes and tabs of a space with a live terminal, which keeps
+//! its live panes; never on the first read, after a failed list, or from an
+//! unreadable document.
 use super::*;
 use crate::{
     core::{DocRows, doc_tabs::DocTabs, store::Workspace},
@@ -13,6 +15,9 @@ use serde_json::{Value, json};
 const BOUND: Duration = Duration::from_secs(10);
 /// The poll period, and so the grace, of these readers.
 const PERIOD: Duration = Duration::from_millis(100);
+/// How long a negative control waits: many reads, each at most
+/// `EVENT_WAIT` after the last, so a wrong removal would have happened.
+const SETTLE: Duration = Duration::from_secs(2);
 
 fn block(terminal: &str) -> Value {
     json!({"type": "block", "id": format!("p{terminal}"), "content": {"terminal": terminal}})
@@ -135,15 +140,14 @@ fn removes_sp1(host: &Host) {
 
 #[test]
 fn exited_terminal_removes_its_space() {
-    let host = host_with(&["t2"]);
+    let host = host_with(&["t2", "t3"]);
     host.end("t1", "exited");
-    host.end("t3", "exited");
     removes_sp1(&host);
 }
 
 #[test]
 fn killed_terminal_removes_its_space() {
-    let host = host_with(&["t2"]);
+    let host = host_with(&["t2", "t3"]);
     host.end("t1", "killed");
     removes_sp1(&host);
 }
@@ -151,7 +155,15 @@ fn killed_terminal_removes_its_space() {
 #[test]
 fn terminal_gone_after_a_restart_removes_its_space() {
     // The core no longer lists t1 at all (the official app's `not_found`).
-    removes_sp1(&host_with(&["t2"]));
+    removes_sp1(&host_with(&["t2", "t3"]));
+}
+
+#[test]
+fn terminal_stopped_with_its_server_removes_its_space() {
+    // `hc server stop` and start: a terminal not kept is finished for good.
+    let host = host_with(&["t2", "t3"]);
+    host.end("t1", "server_stop");
+    removes_sp1(&host);
 }
 
 #[test]
@@ -173,7 +185,7 @@ fn live_terminal_keeps_its_space() {
     // The negative control: every terminal is live.
     let host = host_with(&["t1", "t2", "t3"]);
     let mut running = start(&host, PERIOD);
-    std::thread::sleep(PERIOD * 6);
+    std::thread::sleep(SETTLE);
     let last = running.next(BOUND, |_| true);
     assert!(
         host.doc().sets().is_empty(),
@@ -185,7 +197,7 @@ fn live_terminal_keeps_its_space() {
 
 #[test]
 fn first_read_never_removes() {
-    let host = host_with(&["t2"]);
+    let host = host_with(&["t2", "t3"]);
     // A period far longer than the wait: only the first read happens.
     let mut running = start(&host, Duration::from_secs(60));
     running
@@ -197,10 +209,10 @@ fn first_read_never_removes() {
 
 #[test]
 fn failed_list_removes_nothing_until_lists_answer_again() {
-    let host = host_with(&["t2"]);
+    let host = host_with(&["t2", "t3"]);
     host.doc().fail_lists(usize::MAX);
     let mut running = start(&host, PERIOD);
-    std::thread::sleep(PERIOD * 6);
+    std::thread::sleep(SETTLE);
     assert!(host.doc().sets().is_empty(), "removed after failed lists");
     assert_eq!(running.ids(), ["sp1", "sp2"]);
     // The control: the same layout goes once the list answers.
@@ -221,13 +233,13 @@ fn unreadable_document_is_never_written() {
         .unwrap_or_else(|e| panic!("fixture: {e}")),
     );
     let _running = start(&host, PERIOD);
-    std::thread::sleep(PERIOD * 6);
+    std::thread::sleep(SETTLE);
     assert!(host.doc().sets().is_empty());
 }
 
 #[test]
 fn removed_space_leaves_the_sidebar() {
-    let host = host_with(&["t2"]);
+    let host = host_with(&["t2", "t3"]);
     let mut running = start(&host, PERIOD);
     let first = running
         .next(BOUND, |snapshot| snapshot.version == 1)
@@ -250,4 +262,41 @@ fn removed_space_leaves_the_sidebar() {
         .next(BOUND, |snapshot| spaces(snapshot) == ["sp2"])
         .unwrap_or_else(|| panic!("sp1 stayed"));
     assert_eq!(rows(after), [("sp2".to_owned(), 2)]);
+}
+
+/// The owner's `env` case: a space with live terminals loses its ended
+/// panes and the tab that leaves empty, and keeps its live panes; a space
+/// with none left goes.
+#[test]
+fn ended_panes_tabs_and_spaces_go_and_live_panes_stay() {
+    let host = Host::default();
+    host.set_live(&["t2", "t5"]);
+    host.end("t1", "exited");
+    host.end("t3", "killed");
+    host.end("t4", "exited");
+    let split = json!({"type": "row", "children": [block("t4"), block("t2")]});
+    host.doc().set_silent(json!({"spaces": [
+        space("sp1", &[("tb1", block("t1"))]),
+        space("sp2", &[("tb2", split), ("tb3", block("t3")), ("tb5", block("t5"))]),
+    ], "future": {"kept": true}}));
+    let mut running = start(&host, PERIOD);
+    let done = running
+        .next(BOUND, |snapshot| snapshot.stats.ended == 2)
+        .unwrap_or_else(|| panic!("not pruned: {:?}", host.doc().doc()));
+    let mut t2 = block("t2");
+    t2["size"] = json!({"weight": 2.0});
+    let expected = json!({"spaces": [space("sp2", &[
+        ("tb2", json!({"type": "row", "children": [t2]})),
+        ("tb5", block("t5")),
+    ])], "future": {"kept": true}});
+    assert_eq!(host.doc().doc().0, expected);
+    let Read::Readable(view) = &done.read else {
+        panic!("not readable");
+    };
+    let tabs = view.spaces.iter().map(|s| s.tabs.len()).collect::<Vec<_>>();
+    assert_eq!(tabs, [2], "the sidebar counts 2 tabs");
+    // Nothing more: the live panes stay.
+    std::thread::sleep(SETTLE);
+    assert_eq!(host.doc().doc().0, expected);
+    assert_eq!(host.doc().sets().len(), 2, "one write per space");
 }

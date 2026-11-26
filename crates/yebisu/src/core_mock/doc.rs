@@ -106,6 +106,27 @@ impl Store {
         }
     }
 
+    /// The terminals `herdr-app` names, in the document's order.
+    pub(crate) fn named_terminals(&self) -> Vec<String> {
+        fn walk(value: &Value, out: &mut Vec<String>) {
+            match value {
+                Value::Object(map) => {
+                    if let Some(Value::String(address)) = map.get("terminal") {
+                        out.push(address.clone());
+                    }
+                    map.values().for_each(|child| walk(child, out));
+                }
+                Value::Array(items) => items.iter().for_each(|child| walk(child, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        if let Some((value, _)) = self.lock().docs.get(APP) {
+            walk(value, &mut found);
+        }
+        found
+    }
+
     /// The finished terminals `terminal.list {all: true}` adds.
     pub(crate) fn finished(&self) -> Vec<Value> {
         let state = self.lock();
