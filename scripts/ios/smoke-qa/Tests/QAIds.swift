@@ -6,6 +6,9 @@ enum QAIds {
     // Issue #143 rename in place (SmokeQA+Rename.swift).
     static let sidebarCurrentSpace = "qa.sidebar.current-space"
     static let sidebarSpaceRename = "qa.sidebar.space-rename"
+    static let sidebarSpaceClose = "qa.sidebar.space-close"
+    static let sidebarSpaceCloseConfirm = "qa.sidebar.space-close-confirm"
+    static let sidebarSpaceCloseCancel = "qa.sidebar.space-close-cancel"
     static let sidebarCurrentAgent = "qa.sidebar.current-agent"
     static let sidebarAgentRename = "qa.sidebar.agent-rename"
     static let railCurrentSpace = "qa.rail.current-space"

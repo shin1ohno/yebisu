@@ -193,6 +193,7 @@ fn mailbox_hands_each_change_once() {
         version: 1,
         read: Read::Unreadable,
         live: Vec::new(),
+        busy: Vec::new(),
         names: BTreeMap::new(),
         stats: WriteStats::default(),
     };

@@ -48,6 +48,8 @@ pub(crate) struct SidebarState {
     pub(crate) host_order: Vec<String>,
     /// The open long-press menu of a host or space row (L6, Q8).
     pub(crate) long_press: Option<long_press::LongPressMenu>,
+    /// The open Close Space confirmation (#231).
+    pub(crate) close_confirm: Option<super::space_close::CloseConfirm>,
     order: RefCell<ReceiveOrder>,
     collapsed_hosts: BTreeSet<String>,
     selected_host: String,
