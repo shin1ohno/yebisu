@@ -67,11 +67,17 @@ Later moves, oldest first:
   bdbe037687034bd0d222bb37533c24ebfb46eeff (only the scene's own NSWindow
   extends under the hidden title bar), a descendant of 9b3538a. It also
   brings PR 33 (a script-only restore fix in `check-native-search.py`).
+- The full-screen status bar fix moved it to the PR 37 merge commit
+  2bb3a681863130258fd6ea1f97f42ba19bd8ca6b (a window that fills its screen
+  hides the status bar, and `window_fills_screen` reports it), a descendant
+  of bdbe037. It also brings PR 35 (herdr-uikit's own build against the
+  gpui-pre fork, a `[patch.crates-io]` table consumers ignore) and PR 36
+  (`build.rs` reads the gpui-pre sources Cargo compiles).
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to bdbe037. A later bump appends its move to this list.
+identical from 99d7928 to 2bb3a68. A later bump appends its move to this list.
 
-The current pin is herdr-uikit bdbe037687034bd0d222bb37533c24ebfb46eeff.
+The current pin is herdr-uikit 2bb3a681863130258fd6ea1f97f42ba19bd8ca6b.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.

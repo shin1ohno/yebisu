@@ -142,6 +142,7 @@ impl Smoke {
             size,
             &self.platform_insets(window),
             self.platform_window_controls(window),
+            self.platform_window_fills_screen(window),
         )
     }
 
@@ -166,19 +167,26 @@ impl Smoke {
     }
 
     /// `frame_layout` for a window `size` with the platform's `platform`
-    /// insets (safe area and keyboard) and the reach of its window
-    /// `controls` past the safe area (all zero without controls).
+    /// insets (safe area and keyboard), the reach of its window `controls`
+    /// past the safe area (all zero without controls), and whether it
+    /// `fills_screen` (herdr-uikit `window_fills_screen`).
     pub(crate) fn layout_for(
         &self,
         size: Size,
         platform: &gpui::WindowInsets,
         controls: ControlsReach,
+        fills_screen: bool,
     ) -> Layout {
         let safe = platform.safe_area;
         // An iPad window showing its window controls; never full screen
         // (no controls) or a Mac (traffic lights, whose own rules apply).
-        let windowed =
-            !self.platform_traffic_lights_over_content() && controls.clearance().shows_controls();
+        // A window filling its screen is not one either, even with its
+        // controls (#221, owner decision 2026-11-26): herdr-uikit hides the
+        // status bar there, and the top row keeps to the safe area UIKit
+        // reports, below the status bar if UIKit still shows it.
+        let windowed = !fills_screen
+            && !self.platform_traffic_lights_over_content()
+            && controls.clearance().shows_controls();
         let reported_top = f32::from(safe.top);
         let top = layout::top_band(reported_top, windowed);
         let in_band = self.layout_in_band(size, platform, controls, windowed, top);
@@ -265,6 +273,10 @@ impl Smoke {
         let layout = self.frame_layout(window);
         self.shell.frame.withdrawn = layout.withdrawn.len();
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
+        self.record_window_fill(
+            self.platform_window_fills_screen(window),
+            f32::from(self.platform_insets(window).safe_area.top),
+        );
         self.observe_frame_bounds(window, cx);
         if self.shell.frame.sidebar_collapsed != layout.sidebar_collapsed {
             self.shell.frame.sidebar_collapsed = layout.sidebar_collapsed;
@@ -477,3 +489,7 @@ mod hidden_sidebar_tests;
 #[cfg(test)]
 #[path = "frame_trailing_clearance_tests.rs"]
 mod trailing_clearance_tests;
+
+#[cfg(test)]
+#[path = "frame_fill_screen_tests.rs"]
+mod fill_screen_tests;

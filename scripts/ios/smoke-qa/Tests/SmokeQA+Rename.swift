@@ -108,9 +108,12 @@ extension SmokeQA {
         renameMarker(app, "x")
 
         // R4 (S6): nothing reaches the terminal while the field is up: keys, Command-V of a
-        // marker word, Command-B; then an outside tap closes it.
+        // marker word, Command-B, and Paste of another word from the field's own edit menu
+        // (#213); then an outside tap closes it. The field lies over the row, so the touches are
+        // at the row's centre, read before the field opened.
         renameStep("R4")
         UIPasteboard.general.string = "renamepasteword"
+        let field = try qa.find(QAIds.sidebarCurrentSpace).frame
         try renameSpace(qa)
         app.typeText("q")
         sleep(1)
@@ -119,6 +122,34 @@ extension SmokeQA {
         app.typeKey("b", modifierFlags: .command)
         sleep(2)
         save("rename-r4-typed")
+        UIPasteboard.general.string = "renamemenupaste"
+        let inField = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: field.midX, dy: field.midY))
+        // On the iPadOS 27 Simulator the long press and a tap on the caret only moved the caret;
+        // a double tap on the word brought the menu (#213 runs s6-1 to s6-3). Each is tried in
+        // turn, and the one that brought the menu is printed.
+        var gesture = "none"
+        let touches: [(String, () -> Void)] = [("long press", { inField.press(forDuration: 1.0) }),
+                                               ("caret tap", { inField.tap() }),
+                                               ("double tap", { inField.doubleTap() })]
+        for (name, touch) in touches {
+            touch()
+            if app.menuItems["Paste"].waitForExistence(timeout: 4) {
+                gesture = name
+                break
+            }
+        }
+        print("RENAME R4 edit menu after: \(gesture)")
+        save("rename-r4-menu")
+        print("RENAME R4 menu items: \(app.menuItems.allElementsBoundByIndex.map { $0.label })")
+        if app.menuItems["Paste"].exists {
+            app.menuItems["Paste"].tap()
+            print("RENAME R4 Paste chosen")
+        } else {
+            print("RENAME R4 no Paste in the edit menu")
+        }
+        sleep(2)
+        save("rename-r4-menu-paste")
         outside(app)
         renameMarker(app, "w")
 

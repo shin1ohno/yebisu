@@ -3,13 +3,19 @@
 //! stop, a terminal gone with a restart and a relaunch's first connection;
 //! the ended panes and tabs of a space with a live terminal, which keeps
 //! its live panes; never on the first read, after a failed list, or from an
-//! unreadable document.
+//! unreadable document; and a terminal the list leaves out only when
+//! `terminal.get` answers `not_found`, never when it finds the terminal,
+//! fails or times out.
 use super::*;
 use crate::{
     core::{DocRows, doc_tabs::DocTabs, store::Workspace},
-    core_mock::Host,
+    core_mock::{Host, doc::Get},
 };
 use serde_json::{Value, json};
+
+/// sheprd-core-client's `CALL_TIMEOUT`: how long a call waits for its
+/// answer.
+const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Generous for a loaded shared host; the waits below are far shorter.
 const BOUND: Duration = Duration::from_secs(10);
@@ -163,8 +169,61 @@ fn killed_terminal_removes_its_space() {
 
 #[test]
 fn terminal_gone_after_a_restart_removes_its_space() {
-    // The core no longer lists t1 at all (the official app's `not_found`).
-    removes_sp1(&host_with(&["t2", "t3"]));
+    // The core no longer lists t1 at all, and `terminal.get` answers
+    // `not_found` (the official app's check).
+    let host = host_with(&["t2", "t3"]);
+    removes_sp1(&host);
+    asked_about_t1(&host);
+}
+
+/// `terminal.get` was asked about `t1`, which the list left out (issue 222).
+fn asked_about_t1(host: &Host) {
+    let gets = host.doc().gets();
+    assert!(gets.iter().any(|address| address == "t1"), "gets: {gets:?}");
+}
+
+/// `t1`, left out of the list, keeps sp1 for `wait`; once `terminal.get`
+/// answers `not_found` again, sp1 goes within `then` (the control that
+/// this layout is removed for a terminal really gone).
+fn unlisted_t1_stays(host: &Host, wait: Duration, then: Duration) {
+    let mut running = start(host, PERIOD);
+    std::thread::sleep(wait);
+    assert!(
+        host.doc().sets().is_empty(),
+        "removed: {:?}",
+        host.doc().doc()
+    );
+    assert_eq!(running.ids(), ["sp1", "sp2"]);
+    asked_about_t1(host);
+    host.doc().answer_get("t1", None);
+    running
+        .next(then, |snapshot| spaces(snapshot) == ["sp2"])
+        .unwrap_or_else(|| panic!("sp1 stayed after not_found: {:?}", running.ids()));
+}
+
+#[test]
+fn unlisted_terminal_that_get_finds_is_kept() {
+    // herdr-core leaves a live t1 out of the full list; `terminal.get`
+    // finds it.
+    let host = host_with(&["t2", "t3"]);
+    host.doc().answer_get("t1", Some(Get::Live));
+    unlisted_t1_stays(&host, SETTLE, BOUND);
+}
+
+#[test]
+fn unlisted_terminal_whose_get_fails_is_kept() {
+    let host = host_with(&["t2", "t3"]);
+    host.doc().answer_get("t1", Some(Get::Fail("unavailable")));
+    unlisted_t1_stays(&host, SETTLE, BOUND);
+}
+
+#[test]
+fn unlisted_terminal_whose_get_times_out_is_kept() {
+    let host = host_with(&["t2", "t3"]);
+    host.doc().answer_get("t1", Some(Get::Silent));
+    // Past one whole call timeout and the reads after it; the control may
+    // first wait out a get still in flight.
+    unlisted_t1_stays(&host, CALL_TIMEOUT + SETTLE, CALL_TIMEOUT + BOUND);
 }
 
 #[test]

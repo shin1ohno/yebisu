@@ -4,7 +4,7 @@
 //! (a live terminal, a kept terminal, another machine's terminal, a mod),
 //! and each guard (the first read, the grace, another boot, a failed read,
 //! a changed space).
-use super::ended_spaces::{Candidate, Listing, Tracker, ended};
+use super::ended_spaces::{Candidate, Listing, Tracker, ended, unlisted};
 use super::herdr_doc::{Intent, parse_view};
 use serde_json::{Value, json};
 use sheprd_core_client::wire::Terminal;
@@ -69,8 +69,50 @@ fn killed_terminal_ends_its_space() {
 fn terminal_core_no_longer_knows_ends_its_space() {
     // After a restart that dropped it, or one removed while the app was
     // closed: the official app's `not_found`.
-    let found = ended_ids(&one("t1"), &listing(&[("t9", "live", None)]));
-    assert_eq!(found, ["sp1"]);
+    let value = one("t1");
+    let mut listed = listing(&[("t9", "live", None)]);
+    // Left out of the list alone ends nothing (issue 222): it is asked
+    // about...
+    assert!(ended_ids(&value, &listed).is_empty());
+    let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
+    assert_eq!(unlisted(&value, &view, &listed), ["t1"]);
+    // ...and `terminal.get` answering `not_found` ends it.
+    listed.not_found("t1");
+    assert_eq!(ended_ids(&value, &listed), ["sp1"]);
+}
+
+#[test]
+fn not_found_ends_only_a_terminal_the_list_left_out() {
+    // A listed terminal, live, is never ended by a `not_found` for it.
+    let mut listed = listing(&[("t1", "live", None)]);
+    listed.not_found("t1");
+    assert!(ended_ids(&one("t1"), &listed).is_empty());
+    // Another machine's terminal is never asked about nor ended.
+    let mut listed = listing(&[]);
+    let value = one("box/t1");
+    let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
+    assert!(unlisted(&value, &view, &listed).is_empty());
+    listed.not_found("box/t1");
+    assert!(ended_ids(&value, &listed).is_empty());
+}
+
+#[test]
+fn unlisted_names_each_terminal_of_plain_tabs_once() {
+    let with_mod = json!({"type": "row", "children": [block("t3"),
+        {"type": "block", "id": "pm", "content": {"mod": "notes", "props": {}}}]});
+    let value = doc(vec![
+        space(
+            "sp1",
+            vec![tab("tb1", block("t1")), tab("tb2", block("t2"))],
+        ),
+        space("sp2", vec![tab("tb3", block("t1")), tab("tb4", with_mod)]),
+    ]);
+    let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
+    let listed = listing(&[("t2", "live", None)]);
+    // t1 once, t2 listed, t3 in a tab that is not plain.
+    assert_eq!(unlisted(&value, &view, &listed), ["t1"]);
+    // The control: t3 is a terminal of the view, left out of the list.
+    assert!(view.spaces[1].tabs[1].terminals.contains(&"t3".to_owned()));
 }
 
 #[test]
@@ -211,7 +253,9 @@ fn found_space_is_its_value_as_read() {
     let mut value = one("t1");
     value["spaces"][0]["newer"] = json!([1, 2]);
     let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
-    let found = ended(&value, &view, &listing(&[]));
+    let mut listed = listing(&[]);
+    listed.not_found("t1");
+    let found = ended(&value, &view, &listed);
     assert_eq!(
         found,
         [Candidate {

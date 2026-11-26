@@ -346,15 +346,27 @@ struct QAAx {
         return QAState(value)
     }
 
-    /// Reads `qa.state` until `predicate` holds, at most `timeout` seconds. Throws `.timeout` naming
-    /// `what` with the last state read.
+    /// Whether a wait whose bound passed reads `qa.state` once more before it fails (issue #198):
+    /// only when the last read began before the bound and returned after it, and only once per
+    /// wait. A read that stalls says nothing about the state at the bound: in run 45734485407 one
+    /// read began 14 ms before the app recorded the change it waited for and returned 13 s later
+    /// without it, while the app kept its 2 s heartbeat. Times are seconds since the wait began.
+    static func readAgain(began: TimeInterval, returned: TimeInterval, timeout: TimeInterval, readAgainBefore: Bool) -> Bool {
+        !readAgainBefore && began < timeout && returned >= timeout
+    }
+
+    /// Reads `qa.state` until `predicate` holds, at most `timeout` seconds, plus one more read when
+    /// the last one straddled the bound (`readAgain`). Throws `.timeout` naming `what` with the
+    /// last state read.
     @discardableResult
     func waitState(_ what: String, timeout: TimeInterval = 10, _ predicate: (QAState) -> Bool) throws -> QAState {
         let start = Date()
         var reads = 0
         var last: QAState?
+        var readAgainBefore = false
         while true {
             reads += 1
+            let began = QAAx.since(start)
             if let state = read() {
                 last = state
                 if predicate(state) {
@@ -362,8 +374,15 @@ struct QAAx {
                     return state
                 }
             }
-            if QAAx.since(start) >= timeout {
-                throw QAAxError.timeout(what: what, seconds: QAAx.since(start), reads: reads, last: last?.text ?? "nil")
+            let returned = QAAx.since(start)
+            if returned >= timeout {
+                if QAAx.readAgain(began: began, returned: returned, timeout: timeout, readAgainBefore: readAgainBefore) {
+                    readAgainBefore = true
+                    print(String(format: "QAAX wait '%@': read %ld began at %.3f s and returned at %.3f s, past the %.1f s bound; reading once more",
+                                 what, reads, began, returned, timeout))
+                    continue
+                }
+                throw QAAxError.timeout(what: what, seconds: returned, reads: reads, last: last?.text ?? "nil")
             }
             usleep(QAAx.readInterval)
         }

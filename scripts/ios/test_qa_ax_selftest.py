@@ -32,12 +32,12 @@ class SelfTest(unittest.TestCase):
             self.assertIn("final class %s: XCTestCase" % parts[1], SELFTEST)
             self.assertIn("func %s() throws" % parts[2], SELFTEST)
             methods.append(parts[2])
-        self.assertEqual(methods, ["testQAAxSelfTest", "testQAAxOverlappedPress"])
+        self.assertEqual(methods, ["testQAAxSelfTest", "testQAAxOverlappedPress", "testQAStateHoldsWhileMarksMove"])
         self.assertEqual(driver.PASSED, ["%s]' passed" % method for method in methods])
 
     def test_it_skips_unless_the_driver_asks(self):
         # xcodebuild passes TEST_RUNNER_<NAME> to the runner as <NAME>.
-        for method in ("testQAAxSelfTest", "testQAAxOverlappedPress"):
+        for method in ("testQAAxSelfTest", "testQAAxOverlappedPress", "testQAStateHoldsWhileMarksMove"):
             body = SELFTEST[SELFTEST.index("func %s" % method):]
             first = next(line.strip() for line in body.splitlines()[1:] if line.strip())
             self.assertEqual(first, 'try XCTSkipUnless(ProcessInfo.processInfo.environment["QA_AX_SELFTEST"] != nil, '
@@ -59,6 +59,15 @@ class SelfTest(unittest.TestCase):
         self.assertIn("catch let QAAxError.pressTakenElsewhere", body)
         self.assertIn('XCTAssertEqual(moved, ["menu"]', body)
         self.assertIn("QAIds.tabsMore", body)
+
+    def test_marks_move_check_cannot_pass_vacuously(self):
+        # Issue #198: qa.state must stay readable while another marked control moves, and the
+        # check must fail when nothing moved (the board QA peer drives the movement).
+        body = code(SELFTEST[SELFTEST.index("func testQAStateHoldsWhileMarksMove"):])
+        self.assertIn('"YEBISU_BOARD_QA": "1"', body)
+        self.assertIn("QAIds.sidebarCurrentAgent", body)
+        self.assertIn("XCTAssertGreaterThanOrEqual(moves, 20", body)
+        self.assertIn("XCTAssertEqual(empty, 0", body)
 
     def test_waits_read_the_state_directly(self):
         # S0: XCTNSPredicateExpectation took 1.4-1.5 s per wait; a direct read about 25 ms.
