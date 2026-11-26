@@ -136,8 +136,16 @@ extension SmokeQA {
             inField.tap()
             if app.menuItems["Paste"].waitForExistence(timeout: 4) {
                 print("RENAME R4 edit menu after the caret tap")
+            } else {
+                print("RENAME R4 no edit menu after the caret tap; double tapping the word")
+                inField.doubleTap()
+                save("rename-r4-double-tap")
+                if app.menuItems["Paste"].waitForExistence(timeout: 4) {
+                    print("RENAME R4 edit menu after the double tap")
+                }
             }
         }
+        print("RENAME R4 menu items: \(app.menuItems.allElementsBoundByIndex.map { $0.label })")
         if app.menuItems["Paste"].exists {
             app.menuItems["Paste"].tap()
             print("RENAME R4 Paste chosen")
