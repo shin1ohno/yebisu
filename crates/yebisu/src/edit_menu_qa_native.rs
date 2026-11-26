@@ -162,3 +162,34 @@ pub(crate) fn external_round_trip(capture: &Capture) -> serde_json::Value {
         serde_json::json!({"before":before,"during":during,"acquired":acquired,"released":released})
     }
 }
+
+/// Issue #163 (`edit_menu_trace`): each app window's kind, key state, edit menu
+/// view count and first responder kind, from class names only.
+pub(crate) fn edit_menu_windows() -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+        let windows: Retained<NSArray<AnyObject>> = msg_send![app, windows];
+        for window in windows {
+            let mut views = Vec::new();
+            descendants(&window, &mut views);
+            let menu_views = views
+                .iter()
+                .filter(|view| {
+                    crate::edit_menu_trace::is_edit_menu_view(
+                        &view.class().name().to_string_lossy(),
+                    )
+                })
+                .count();
+            let key: bool = msg_send![&*window, isKeyWindow];
+            let class = window.class().name().to_string_lossy().into_owned();
+            out.push(crate::edit_menu_trace::window_record(
+                &class,
+                key,
+                menu_views,
+                responder(&window).as_deref(),
+            ));
+        }
+    }
+    out
+}

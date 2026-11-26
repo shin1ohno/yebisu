@@ -17,6 +17,9 @@ import importlib.util
 _ready_spec = importlib.util.spec_from_file_location("sim_ready", Path(__file__).with_name("sim_ready.py"))
 sim_ready = importlib.util.module_from_spec(_ready_spec)
 _ready_spec.loader.exec_module(sim_ready)
+_live_spec = importlib.util.spec_from_file_location("live_jsonl", Path(__file__).with_name("live_jsonl.py"))
+live_jsonl = importlib.util.module_from_spec(_live_spec)
+_live_spec.loader.exec_module(live_jsonl)
 _budget_spec = importlib.util.spec_from_file_location("resend_budget", Path(__file__).with_name("resend_budget.py"))
 resend_budget = importlib.util.module_from_spec(_budget_spec)
 _budget_spec.loader.exec_module(resend_budget)
@@ -40,6 +43,36 @@ def targets(log):
             raise ValueError(f"target {record['name']} reported twice")
         found[record["name"]] = record
     return found
+
+
+def traces(data):
+    """Issue #163: the app's `edit-menu-trace` records (crates/yebisu/src/edit_menu_trace.rs), one
+    per presented menu and delay, from the bytes of its record file. A file the app cut short
+    (`observation-limit`) still yields the traces it holds."""
+    return [record for record in map(json.loads, live_jsonl.complete_lines(data))
+            if record.get("kind") == "edit-menu-trace"]
+
+
+def keep_app_records(device, directory):
+    """Copies the L61 launch's record file (p0-smoke.jsonl, YEBISU_SMOKE_OBSERVE) out of the app's
+    container and prints each edit menu trace as one `L61 TRACE {json}` line, so a failing job's log
+    says whether herdr-uikit kept the menu's token and whether UIKit showed the menu."""
+    container = subprocess.run(["xcrun", "simctl", "get_app_container", device, "com.shin1ohno.yebisu", "data"],
+                               text=True, capture_output=True).stdout.strip()
+    found = sorted(Path(container).rglob("p0-smoke.jsonl")) if container else []
+    if not found:
+        print("L61 TRACE none: no p0-smoke.jsonl in the app container", flush=True)
+        return
+    # Evidence only: a file that cannot be read or parsed never changes the verdict.
+    try:
+        data = found[0].read_bytes()
+        (directory / "l61-app.jsonl").write_bytes(data)
+        records = traces(data)
+    except (OSError, ValueError) as error:
+        print(f"L61 TRACE unreadable: {type(error).__name__}", flush=True)
+        return
+    for record in records:
+        print("L61 TRACE " + json.dumps(record, sort_keys=True), flush=True)
 
 
 def validate(log):
@@ -106,6 +139,7 @@ def main():
     print(log, flush=True)
     (directory / "xctest.log").write_text(log)
     subprocess.run(["xcrun", "simctl", "terminate", device, "com.shin1ohno.yebisu"], check=False)
+    keep_app_records(device, directory)
     if result_bundle.exists():
         subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_bundle),
                         "--output-path", str(directory / "attachments")], check=False)
