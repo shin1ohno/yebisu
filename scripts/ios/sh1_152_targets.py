@@ -45,12 +45,17 @@ def targets(log):
     return found
 
 
+# herdr-uikit's receipts of where an edit menu stopped (docs/qa-input-receipts.md), issue #163.
+EDIT_MENU_RECEIPTS = ("edit-menu-present", "edit-menu-menu")
+
+
 def traces(data):
     """Issue #163: the app's `edit-menu-trace` records (crates/yebisu/src/edit_menu_trace.rs), one
-    per presented menu and delay, from the bytes of its record file. A file the app cut short
-    (`observation-limit`) still yields the traces it holds."""
+    per presented menu and delay, and herdr-uikit's edit menu receipts, from the bytes of its record
+    file. A file the app cut short (`observation-limit`) still yields the traces it holds."""
     return [record for record in map(json.loads, live_jsonl.complete_lines(data))
-            if record.get("kind") == "edit-menu-trace"]
+            if record.get("kind") == "edit-menu-trace"
+            or (record.get("kind") == "input-receipt" and record.get("receipt") in EDIT_MENU_RECEIPTS)]
 
 
 def keep_app_records(device, directory):
