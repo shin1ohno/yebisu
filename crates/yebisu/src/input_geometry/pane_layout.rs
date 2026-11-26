@@ -26,6 +26,8 @@ pub(crate) struct PanePlacement<'a> {
     /// The origin in paint space of global cell (0, 0) when painting this pane.
     pub frame_origin: Point<Pixels>,
     slot: Bounds<Pixels>,
+    /// The daemon frame's columns and rows.
+    frame: (u16, u16),
 }
 
 impl InputGeometry {
@@ -93,6 +95,7 @@ impl InputGeometry {
                     room,
                     frame_origin,
                     slot,
+                    frame: (frame.width, frame.height),
                 })
             })
             .collect::<Option<Vec<_>>>()
@@ -182,9 +185,51 @@ impl InputGeometry {
                 .min(area.height * (height / pane.slot.size.height));
         }
         let reserve = |split: bool, cell: f32| px(if split { cell } else { 0. });
-        size(
+        let budget = size(
             (available.width - reserve(split_x, self.cell_width)).max(px(0.)),
             (available.height - reserve(split_y, self.cell_height)).max(px(0.)),
+        );
+        self.keep_fitting_frame(panes, budget)
+    }
+
+    /// The budget scales each pane's chrome by the pane's share of the
+    /// frame, and that share is the daemon's rounding of the split at the
+    /// current size: an even split of an odd frame leaves the narrow pane
+    /// under half. At 1220 pt the budget for 142 columns offers 143 and the
+    /// budget for 143 offers 142, so the size never settles (#199). The
+    /// rounding cell held back is for a size the daemon has not laid out yet;
+    /// a frame whose cells already fit their bodies needs none. In each axis
+    /// where they all fit, never offer less than the frame.
+    fn keep_fitting_frame(
+        &self,
+        panes: &[PanePlacement<'_>],
+        budget: Size<Pixels>,
+    ) -> Size<Pixels> {
+        const TOLERANCE: f32 = 0.01;
+        let Some(first) = panes.first() else {
+            return budget;
+        };
+        let (columns, rows) = first.frame;
+        let fits_x = panes.iter().all(|pane| {
+            f32::from(painted_columns(pane.pane)) * self.cell_width
+                <= f32::from(pane.room.size.width) + TOLERANCE
+        });
+        let fits_y = panes.iter().all(|pane| {
+            f32::from(pane.pane.inner_rect.height) * self.cell_height
+                <= f32::from(pane.room.size.height) + TOLERANCE
+        });
+        // Half a cell past the frame's last column or row, so the floor in
+        // `terminal::viewport` lands on the frame and not one short of it.
+        let keep = |fits: bool, budget: Pixels, count: u16, cell: f32| {
+            if fits {
+                budget.max(px((f32::from(count) + 0.5) * cell))
+            } else {
+                budget
+            }
+        };
+        size(
+            keep(fits_x, budget.width, columns, self.cell_width),
+            keep(fits_y, budget.height, rows, self.cell_height),
         )
     }
 }
