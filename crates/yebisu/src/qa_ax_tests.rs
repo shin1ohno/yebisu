@@ -83,6 +83,8 @@ fn qa_ax_root_fields_name_the_screen(cx: &mut TestAppContext) {
             "theme",
             "host",
             "row_menu",
+            "row_menu_space",
+            "space_close",
         ]
     );
     assert_eq!(fields[0].1, "p0");

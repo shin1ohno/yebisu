@@ -62,3 +62,32 @@ class TargetsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TraceTests(unittest.TestCase):
+    """Issue #163: the app's edit menu traces are read from its record file, an unfinished last line
+    is dropped, and other records are left out."""
+
+    def test_only_edit_menu_traces_are_read(self):
+        trace = {"kind": "edit-menu-trace", "token": 2, "after_ms": 300, "status": "Current",
+                 "windows": [{"window": "app", "key": True, "menu_views": 5, "responder": "text_input"}]}
+        data = (json.dumps({"kind": "heartbeat", "tick": 2}) + "\n" + json.dumps(trace) + "\n"
+                + '{"kind": "edit-menu-trace", "tok').encode()
+        self.assertEqual(targets.traces(data), [trace])
+
+    def test_a_file_the_app_cut_short_still_yields_its_traces(self):
+        trace = {"kind": "edit-menu-trace", "token": 1, "after_ms": 30, "status": "Current", "windows": []}
+        data = (json.dumps(trace) + "\n" + json.dumps({"kind": "observation-limit", "written": 8192}) + "\n").encode()
+        self.assertEqual(targets.traces(data), [trace])
+
+    def test_an_unreadable_record_file_never_raises(self):
+        source = Path(targets.__file__).read_text()
+        keep = source[source.index("def keep_app_records("):source.index("def validate(")]
+        self.assertIn("except (OSError, ValueError)", keep)
+
+    def test_the_driver_keeps_the_records_after_the_test(self):
+        source = Path(targets.__file__).read_text()
+        main = source[source.index("def main():"):]
+        self.assertLess(main.index('"terminate", device, "com.shin1ohno.yebisu"'), main.index("keep_app_records(device, directory)"))
+        self.assertLess(main.index("keep_app_records(device, directory)"), main.index("verdict = validate(log)"))
+

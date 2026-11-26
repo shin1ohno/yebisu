@@ -205,6 +205,8 @@ impl Smoke {
         });
         #[cfg(all(target_os = "ios", target_abi = "sim"))]
         self.sh1_152_capture(token, window.window_handle(), cx);
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        self.trace_edit_menu(token, window.window_handle(), cx);
         Some(token)
     }
 

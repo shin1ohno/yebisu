@@ -35,6 +35,7 @@ fn snapshot(value: &Value, live: &[&str]) -> DocSnapshot {
         version: 3,
         read: Read::Readable(parse_view(value).unwrap_or_else(|e| panic!("view: {e}"))),
         live: live.iter().map(|t| (*t).to_owned()).collect(),
+        busy: Vec::new(),
         names: BTreeMap::new(),
         stats: Default::default(),
     }
@@ -350,4 +351,23 @@ fn a_file_without_or_with_a_broken_doc_view_still_loads() {
         assert_eq!(loaded.tabs.len(), 1);
     }
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// #231: the terminals a read found running a program or an agent reach the
+/// catalog on their own space, so Close Space asks there and nowhere else.
+#[test]
+fn busy_terminals_mark_their_space() {
+    let mut workspace = Workspace::default();
+    let mut doc = DocTabs::default();
+    let read = DocSnapshot {
+        busy: vec!["t2".into(), "t99".into()],
+        ..snapshot(&fixture!("two-spaces"), &["t1", "t2", "t30"])
+    };
+    doc.take(read, &mut workspace);
+    let catalog = doc.catalog(&workspace).unwrap_or_else(|| panic!("catalog"));
+    let DocRows::Readable(spaces) = catalog.state else {
+        panic!("unreadable");
+    };
+    let busy: Vec<_> = spaces.iter().map(|s| s.busy.clone()).collect();
+    assert_eq!(busy, [vec!["t2".to_owned()], Vec::new()]);
 }

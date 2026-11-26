@@ -452,6 +452,11 @@ pub(crate) const RENAME_HINT: &str = "qa.rename.hint";
 /// (shell/rail/menu.rs) and a tab's (shell/tab_row/menu.rs), with the
 /// tab menu's Close Tab.
 pub(crate) const SIDEBAR_SPACE_RENAME: &str = "qa.sidebar.space-rename";
+/// A space row's menu's Close Space and its confirmation's two buttons
+/// (#231, shell/space_close.rs).
+pub(crate) const SIDEBAR_SPACE_CLOSE: &str = "qa.sidebar.space-close";
+pub(crate) const SIDEBAR_SPACE_CLOSE_CONFIRM: &str = "qa.sidebar.space-close-confirm";
+pub(crate) const SIDEBAR_SPACE_CLOSE_CANCEL: &str = "qa.sidebar.space-close-cancel";
 pub(crate) const SIDEBAR_AGENT_RENAME: &str = "qa.sidebar.agent-rename";
 pub(crate) const RAIL_MENU_RENAME: &str = "qa.rail.menu-rename";
 pub(crate) const TAB_MENU_RENAME: &str = "qa.tab.menu-rename";

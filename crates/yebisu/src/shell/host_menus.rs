@@ -25,6 +25,8 @@ pub(crate) const NO_HOST: &str = "Select a host first";
 const OTHER_SPACE: &str = "Open this space first";
 /// Herdr 2 renames the spaces of a readable `herdr-app` document only (#144 D3).
 const HERDR2_NO_RENAME: &str = super::rename::herdr2::NO_DOCUMENT;
+/// Herdr 2 closes the spaces of a readable `herdr-app` document only (#231).
+const HERDR2_NO_CLOSE: &str = crate::core::NO_CLOSE_DOCUMENT;
 
 /// Whether the Hosts sheet fences terminal input while it is open (A6 of
 /// the 2026-11-18 contract amendments, L2b patch 02). Integration 2 landed
@@ -49,6 +51,9 @@ pub(crate) enum SpaceMenuItem {
     NewTab,
     Detach,
     Rename,
+    /// Closes the row's space (#231): its tabs and what runs in them. Only
+    /// on a space row's menu, which knows the row (`space_close.rs`).
+    Close,
 }
 
 /// Menu bar order of the Host menu.
@@ -71,11 +76,12 @@ const SPACE_MENU_ITEMS: [SpaceMenuItem; 3] = [
     SpaceMenuItem::Detach,
     SpaceMenuItem::Rename,
 ];
-/// Long press of a space row (Q8).
-const SPACE_LONG_PRESS: [SpaceMenuItem; 3] = [
+/// Long press (or a secondary click, #231) of a space row (Q8).
+const SPACE_LONG_PRESS: [SpaceMenuItem; 4] = [
     SpaceMenuItem::NewTab,
     SpaceMenuItem::Detach,
     SpaceMenuItem::Rename,
+    SpaceMenuItem::Close,
 ];
 
 impl HostMenuItem {
@@ -104,6 +110,7 @@ impl SpaceMenuItem {
             Self::NewTab => "New tab",
             Self::Detach => "Detach",
             Self::Rename => "Rename Space",
+            Self::Close => "Close Space",
         }
     }
     pub(crate) const fn name(self) -> &'static str {
@@ -111,6 +118,7 @@ impl SpaceMenuItem {
             Self::NewTab => "space.new_tab",
             Self::Detach => "space.detach",
             Self::Rename => "space.rename",
+            Self::Close => "space.close",
         }
     }
 }
@@ -196,6 +204,11 @@ fn space_entry(item: SpaceMenuItem, state: &ChromeState, has_space: bool) -> Men
             entry(id, state.connected, NOT_CONNECTED)
         }
         (SpaceMenuItem::Rename, HerdrKind::Herdr2) => entry(id, false, HERDR2_NO_RENAME),
+        (SpaceMenuItem::Close, HerdrKind::Herdr1) => entry(id, state.connected, NOT_CONNECTED),
+        (SpaceMenuItem::Close, HerdrKind::Herdr2) if state.herdr2_document => {
+            entry(id, state.connected, NOT_CONNECTED)
+        }
+        (SpaceMenuItem::Close, HerdrKind::Herdr2) => entry(id, false, HERDR2_NO_CLOSE),
     }
 }
 
@@ -286,17 +299,33 @@ pub(crate) fn space_long_press_for(
         return elsewhere(entries, OTHER_HOST);
     }
     if row.space.is_none() || row.space != current.space {
-        // Rename needs no open space (`workspace.rename` names any space of
-        // the host), so it stays usable on another space's row.
-        let (rename, others): (Vec<_>, Vec<_>) = entries
-            .into_iter()
-            .partition(|e| e.item == MenuItemId::Space(SpaceMenuItem::Rename));
+        // Rename and Close need no open space (`workspace.rename` and
+        // `workspace.close` name any space of the host), so they stay
+        // usable on another space's row.
+        let (rename, others): (Vec<_>, Vec<_>) = entries.into_iter().partition(|e| {
+            matches!(
+                e.item,
+                MenuItemId::Space(SpaceMenuItem::Rename | SpaceMenuItem::Close)
+            )
+        });
         return elsewhere(others, OTHER_SPACE)
             .into_iter()
             .chain(rename)
             .collect();
     }
     entries
+}
+
+/// Rename and Close disabled for a Herdr 2 row the document does not hold.
+pub(crate) fn refuse_document_items(entries: &mut [MenuEntry]) {
+    for e in entries.iter_mut() {
+        if matches!(
+            e.item,
+            MenuItemId::Space(SpaceMenuItem::Rename | SpaceMenuItem::Close)
+        ) {
+            *e = entry(e.item, false, super::rename::herdr2::NOT_IN_DOCUMENT);
+        }
+    }
 }
 
 /// Whether a Rename shown for `shown` may still run: the same host, and its
@@ -410,6 +439,24 @@ impl Smoke {
         }
     }
 
+    /// Whether the space a Rename or Close was shown for is still there:
+    /// on Herdr 2 a space of the document (#144 D3), on Herdr 1 any space
+    /// of the selected host's snapshot.
+    pub(crate) fn shown_space_exists(&self, shown: &MenuScope) -> bool {
+        if self.terminal.core_mode {
+            shown.space.clone().is_some_and(|space| {
+                let object = self.herdr2_object(super::rename::RenameObject::Space(space));
+                self.doc_names().is_some_and(|doc| doc.holds(&object))
+            })
+        } else {
+            snapshot(&self.terminal.live).is_some_and(|s| {
+                s.workspaces
+                    .iter()
+                    .any(|w| Some(&w.workspace_id) == shown.space.as_ref())
+            })
+        }
+    }
+
     /// Run a Host or Space item shown for `shown`. Refuses a changed target
     /// (S-10) and a disabled item; the caller reports the error.
     pub(crate) fn run_menu_item(
@@ -434,20 +481,7 @@ impl Smoke {
             return Err(crate::Error::NativeMenu("no space was shown"));
         }
         if item == MenuItemId::Space(SpaceMenuItem::Rename) {
-            let exists = if self.terminal.core_mode {
-                // Herdr 2: a space of the document (#144 D3).
-                shown.space.clone().is_some_and(|space| {
-                    let object = self.herdr2_object(super::rename::RenameObject::Space(space));
-                    self.doc_names().is_some_and(|doc| doc.holds(&object))
-                })
-            } else {
-                snapshot(&self.terminal.live).is_some_and(|s| {
-                    s.workspaces
-                        .iter()
-                        .any(|w| Some(&w.workspace_id) == shown.space.as_ref())
-                })
-            };
-            if !rename_scope_valid(shown, &current, exists) {
+            if !rename_scope_valid(shown, &current, self.shown_space_exists(shown)) {
                 return Err(crate::Error::NativeMenu("menu target changed"));
             }
         } else if !scope_still_valid(&target, &current) {
@@ -487,7 +521,12 @@ impl Smoke {
             MenuItemId::Space(SpaceMenuItem::NewTab) => {
                 self.run_action(sheprd_commands::Command::Tab)?;
             }
+            // The row's menu runs it (`pick_long_press`), with the row.
+            MenuItemId::Space(SpaceMenuItem::Close) => {
+                return Err(crate::Error::NativeMenu("Close Space needs a space row"));
+            }
             MenuItemId::Space(SpaceMenuItem::Rename) => {
+                crate::qa_ax::count("space_menu_rename");
                 let space = shown
                     .space
                     .clone()
