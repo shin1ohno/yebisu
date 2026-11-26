@@ -42,7 +42,9 @@ const CODES: &[&str] = &[
     "keep_awake_refused",
     // Herdr 2 (herdr-core) links: a dial, its outcome, how a link ended, a
     // space removed with its last tab, and each change of what the
-    // `herdr-app` document read found. Codes only: no space or host name.
+    // `herdr-app` document read found, and ended terminals' panes (with the
+    // tabs and space that left empty) taken out of the document. Codes
+    // only: no space or host name.
     "herdr2_connecting",
     "herdr2_connected",
     "herdr2_dial_failed",
@@ -52,6 +54,7 @@ const CODES: &[&str] = &[
     "herdr2_doc_readable",
     "herdr2_doc_unreadable",
     "herdr2_doc_unavailable",
+    "herdr2_doc_space_ended",
     // A launch with no record (`launch_restore/no_record.rs`), per saved
     // host: `default` dialed, no Herdr 2 space listed, the listing failed;
     // and once per launch, Return is Tap reconnect so nothing is dialed.

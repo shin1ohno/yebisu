@@ -17,7 +17,14 @@
 //! again and the intent applied to the newer document, at most `MAX_SENDS`
 //! times (owner decision 5); the previous value is never sent again under a
 //! newer version. Every write is read back and checked (R1).
-use super::herdr_doc::{self, Applied, Intent, View, WriteCheck};
+//!
+//! The same thread takes ended terminals' panes out, with the tabs and
+//! spaces that leaves empty (`ended_spaces`), from its own complete reads
+//! only, through the same intent path and checks.
+use super::{
+    ended_spaces::{self, Listing, Tracker},
+    herdr_doc::{self, Applied, Intent, View, WriteCheck},
+};
 use crate::live::Live;
 use serde_json::Value;
 use sheprd_core_client::{CoreBackend, Error as CoreError, event::Notice, wire::TerminalState};
@@ -25,7 +32,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -49,6 +56,9 @@ pub(crate) const MAX_SENDS: usize = 3;
 pub(crate) const CHANGED_ELSEWHERE: &str = "Changed elsewhere; the iPad change was not saved";
 const REFUSED: &str = "The herdr-app layout change failed a check and was not sent";
 const NOT_READABLE: &str = "Can't read the herdr-app layout; the iPad change was not sent";
+
+/// Every reader so far: one per connection, so one per herdr-core boot.
+static READERS: AtomicU64 = AtomicU64::new(0);
 
 /// What the last read found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +95,9 @@ pub(crate) struct WriteStats {
     pub(crate) notice: Option<String>,
     /// Intents finished, so a notice shows again for the next one.
     pub(crate) finished: u64,
+    /// Spaces whose ended panes (and tabs, or the whole space) were taken
+    /// out of the document.
+    pub(crate) ended: u64,
 }
 
 /// The worker's end of the write queue.
@@ -213,6 +226,11 @@ impl DocSync {
             DocSource::Off => return Ok(None),
         }
         let (writer, writes) = mpsc::sync_channel(WRITE_QUEUE);
+        let boot = format!(
+            "{}#{}",
+            backend.core().hello().core.id,
+            READERS.fetch_add(1, Ordering::Relaxed)
+        );
         let mut reader = Reader {
             backend: backend.clone(),
             host: host.to_owned(),
@@ -226,6 +244,9 @@ impl DocSync {
             period: plan.period,
             stats: WriteStats::default(),
             reported: None,
+            boot,
+            tracker: Tracker::new(plan.period),
+            due: Vec::new(),
         };
         let mut unsent = unsent().remove(host);
         let stop = Arc::new(AtomicBool::new(false));
@@ -255,6 +276,7 @@ impl DocSync {
                     if due && !stopped() {
                         reader.read(&stopped);
                         last_read = Some(Instant::now());
+                        reader.remove_ended(&stopped);
                     }
                     // One intent at a time, each applied to the latest read.
                     if last_read.is_some() && !stopped() {
@@ -315,6 +337,12 @@ struct Reader {
     stats: WriteStats,
     /// The diagnostics code of the last read's result, recorded on change.
     reported: Option<&'static str>,
+    /// This connection's herdr-core boot: the core id and the reader.
+    boot: String,
+    /// Spaces seen with every terminal ended (`ended_spaces`).
+    tracker: Tracker,
+    /// The removals the last read made due.
+    due: Vec<Intent>,
 }
 
 impl Reader {
@@ -360,15 +388,29 @@ impl Reader {
             crate::diagnostics::record(code);
             self.reported = Some(code);
         }
-        // A failed list keeps the last one: a pane is not dropped for it.
-        if let Ok(list) = core.list(false) {
+        // The full list, after the document: every terminal it names was
+        // made before it was read. A failed list keeps the last one: a pane
+        // is not dropped for it, and no space is removed.
+        let listing = core.list(true).ok().map(|list| {
+            let listing = Listing::new(&list.terminals);
             self.live = list
                 .terminals
                 .into_iter()
                 .filter(|terminal| terminal.state == TerminalState::Live)
                 .map(|terminal| terminal.address)
                 .collect();
-        }
+            listing
+        });
+        self.due = match (&self.doc, &read, &listing) {
+            (Some((value, _)), Read::Readable(view), Some(listing)) => {
+                let found = ended_spaces::ended(value, view, listing);
+                self.tracker.observe(&self.boot, Instant::now(), found)
+            }
+            _ => {
+                self.tracker.forget();
+                Vec::new()
+            }
+        };
         if let Read::Readable(view) = &read {
             self.name_spaces(view, stopped);
         }
@@ -422,6 +464,35 @@ impl Reader {
 }
 
 impl Reader {
+    /// Takes out what the last read made due (`ended_spaces`), one space
+    /// at a time, each applied to the latest document and read back before
+    /// the next; a space changed since it was judged stays. The user is
+    /// told nothing: no change of theirs was refused.
+    fn remove_ended(&mut self, stopped: &impl Fn() -> bool) {
+        for intent in std::mem::take(&mut self.due) {
+            if stopped() {
+                break;
+            }
+            let outcome = match self.send(&intent, stopped) {
+                Outcome::Saved => {
+                    self.stats.ended += 1;
+                    crate::diagnostics::record("herdr2_doc_space_ended");
+                    self.read(stopped);
+                    "saved".to_owned()
+                }
+                Outcome::Unchanged => "unchanged".to_owned(),
+                Outcome::Lost => "conflict-lost".to_owned(),
+                Outcome::Refused(gate) => format!("check-failed:{gate}"),
+                Outcome::NotReadable => "not-readable".to_owned(),
+                Outcome::Unknown => "unknown".to_owned(),
+            };
+            tracing::info!(%outcome, "Herdr 2 ended panes removal");
+        }
+        // Reads in between judged again; what is still due comes back at
+        // the next read.
+        self.due.clear();
+    }
+
     /// One intent, start to end; nothing else is sent meanwhile (D-6).
     fn write(&mut self, intent: Intent, stopped: &impl Fn() -> bool) {
         let outcome = self.send(&intent, stopped);
@@ -499,6 +570,12 @@ fn wait(period: Duration, stopped: &impl Fn() -> bool) {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "herdr_doc_ended_live_tests.rs"]
+mod ended_live_tests;
+#[cfg(test)]
+#[path = "herdr_doc_ended_tests.rs"]
+mod ended_tests;
 #[cfg(all(test, unix))]
 #[path = "herdr_doc_live_tests.rs"]
 mod live_tests;

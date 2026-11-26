@@ -38,6 +38,10 @@ struct State {
     external: u64,
     events: Vec<Event>,
     labels: BTreeMap<String, Value>,
+    /// Finished terminals and why, listed with `terminal.list {all: true}`.
+    finished: BTreeMap<String, String>,
+    /// `terminal.list`s still to fail.
+    list_failures: usize,
 }
 
 /// One host's documents, shared by every connection to it.
@@ -91,8 +95,48 @@ impl Store {
                 );
                 Some(answer)
             }
+            "terminal.list" => {
+                let mut state = self.lock();
+                (state.list_failures > 0).then(|| {
+                    state.list_failures -= 1;
+                    Err(refusal("unavailable", "the list failed"))
+                })
+            }
             _ => None,
         }
+    }
+
+    /// The terminals `herdr-app` names, in the document's order.
+    pub(crate) fn named_terminals(&self) -> Vec<String> {
+        fn walk(value: &Value, out: &mut Vec<String>) {
+            match value {
+                Value::Object(map) => {
+                    if let Some(Value::String(address)) = map.get("terminal") {
+                        out.push(address.clone());
+                    }
+                    map.values().for_each(|child| walk(child, out));
+                }
+                Value::Array(items) => items.iter().for_each(|child| walk(child, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        if let Some((value, _)) = self.lock().docs.get(APP) {
+            walk(value, &mut found);
+        }
+        found
+    }
+
+    /// The finished terminals `terminal.list {all: true}` adds.
+    pub(crate) fn finished(&self) -> Vec<Value> {
+        let state = self.lock();
+        state
+            .finished
+            .iter()
+            .map(|(address, reason)| {
+                json!({"address": address, "state": "finished", "reason": reason})
+            })
+            .collect()
     }
 
     fn set(&self, name: &str, value: Value, version: u64, bytes: usize) -> Result<Value, Value> {
@@ -228,6 +272,18 @@ impl Store {
     /// Every `doc.set` received, in order.
     pub(crate) fn sets(&self) -> Vec<(Value, u64)> {
         self.lock().sets.clone()
+    }
+
+    /// `address` is listed as finished for `reason` from now on.
+    pub(crate) fn finish(&self, address: &str, reason: &str) {
+        self.lock()
+            .finished
+            .insert(address.to_owned(), reason.to_owned());
+    }
+
+    /// The next `count` `terminal.list`s fail.
+    pub(crate) fn fail_lists(&self, count: usize) {
+        self.lock().list_failures = count;
     }
 }
 
