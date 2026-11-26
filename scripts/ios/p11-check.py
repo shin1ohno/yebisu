@@ -99,8 +99,8 @@ def positive_control(spec,device,out,container):
 def main():
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
-    # The plain Simulator build fails the legacy positive control's receiving gate
-    # (validate_positive) before testP11Settings runs; this flag runs only testP11Settings.
+    # Runs only testP11Settings and its gates, skipping the positive control's
+    # separate launch (validate_positive passes on the plain Simulator build, #233).
     parser.add_argument("--skip-positive",action="store_true",help="run only testP11Settings and its receiving gates")
     args=parser.parse_args()
     started=time.time()
