@@ -1,9 +1,10 @@
-"""Issue #235: simulator-smoke boots one Simulator before the build and P12 reuses it.
+"""Issue #235: simulator-smoke boots one Simulator and P12 reuses it.
 
 On the xcode-27 image a freshly booted Simulator blocks its first install for
-minutes, so the job must not pay that twice: ci-smoke.py boots before the build
-and, in GitHub Actions with --p9, hands a passing run's Simulator to p12-ci.py,
-which uninstalls the app, runs P12 on it and deletes it.
+minutes, so the job must not pay that twice: in GitHub Actions with --p9,
+ci-smoke.py hands a passing run's Simulator to p12-ci.py, which uninstalls the
+app, runs P12 on it and deletes it. smoke-check.py still does the boot itself
+(booting before the build did not pay off in run 45856917743).
 """
 import contextlib
 import importlib.util
@@ -80,14 +81,10 @@ class SmokeStepTests(unittest.TestCase):
                 ci_smoke.main(p9=p9)
         return calls, log.getvalue()
 
-    def test_the_simulator_boots_before_smoke_check_builds(self):
+    def test_smoke_check_runs_first_and_boots_the_simulator_itself(self):
         calls, _ = self.smoke(p9=True, actions=True)
-        boot, smoke = calls[0], calls[1]
-        self.assertEqual(boot[0][:2], ['bash', '-c'])
-        self.assertIn('ios_sim_boot "$HERDR_IOS_SIMULATOR"', boot[0][2])
-        self.assertEqual(boot[1]['env']['HERDR_IOS_SIMULATOR'], 'smoke-udid')
-        self.assertTrue(boot[1]['check'])
-        self.assertEqual(Path(smoke[0][1]).name, 'smoke-check.py')
+        self.assertEqual([Path(command[1]).name for command, _ in calls], ['smoke-check.py', 'p9-check.py'])
+        self.assertEqual(calls[0][1]['env']['HERDR_IOS_SIMULATOR'], 'smoke-udid')
 
     def test_a_passing_p9_run_in_actions_hands_its_simulator_to_p12(self):
         calls, log = self.smoke(p9=True, actions=True)
@@ -102,8 +99,8 @@ class SmokeStepTests(unittest.TestCase):
         self.assertTrue(is_delete(calls[-1][0]))
         self.assertIn('cleanup simulator=smoke-udid', log)
 
-    def test_a_failed_boot_deletes_the_simulator(self):
-        calls, _ = self.smoke(p9=True, actions=True, failing='-c')
+    def test_a_failed_smoke_check_deletes_the_simulator(self):
+        calls, _ = self.smoke(p9=True, actions=True, failing='smoke-check.py')
         self.assertFalse(self.handover.exists())
         self.assertEqual(len(calls), 3)
         self.assertTrue(is_delete(calls[-1][0]))

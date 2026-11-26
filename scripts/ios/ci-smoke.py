@@ -4,10 +4,11 @@
 On the xcode-27 image a freshly booted Simulator blocks its first install for
 several minutes after `simctl bootstatus` returns (issue #235: 3.5-8.9 min,
 against 1.0-2.3 min on macos-26), and later installs on the same device take
-seconds. So this boots the Simulator before the build, as ci-layout-smoke.py
-does, and the build runs while the device settles. In GitHub Actions with
---p9, a passing run hands the warm Simulator to the next step, p12-ci.py,
-which deletes it; any failure deletes it here.
+seconds. So in GitHub Actions with --p9, a passing run hands the warm
+Simulator to the next step, p12-ci.py, instead of letting P12 boot a second
+one; p12-ci.py deletes it, and any failure deletes it here. Booting before the
+build was tried and dropped: in run 45856917743 the build and the readiness
+wait grew by about the time the install saved.
 """
 import json
 import os
@@ -39,12 +40,6 @@ def select_template(devices):
     return device_type, runtime
 
 
-def boot(device):
-    """Boots the Simulator and waits for bootstatus, so the device settles while smoke-check builds."""
-    subprocess.run(['bash', '-c', 'source scripts/ios/lib.sh; ios_sim_boot "$HERDR_IOS_SIMULATOR" >/dev/null'],
-                   cwd=ROOT, env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True)
-
-
 def hands_over(p9):
     """Only the hosted job's P0+P9 step has a P12 step after it to take the Simulator."""
     return p9 and os.environ.get('GITHUB_ACTIONS') == 'true'
@@ -59,9 +54,7 @@ def main(p9=False):
     print(f'CI SMOKE simulator={device} type={device_type} runtime={runtime}', flush=True)
     passed = False
     try:
-        boot(device)
-        # smoke-check.py builds, installs, launches and calls smoke_oracle; the
-        # device is already booted, so its boot step only confirms it.
+        # smoke-check.py builds, boots, installs, launches and calls smoke_oracle.
         # It uses ad-hoc simulator signing and the local P0 screen, with no peer.
         subprocess.run(
             [sys.executable, str(Path(__file__).with_name('smoke-check.py'))],
