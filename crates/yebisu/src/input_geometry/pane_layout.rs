@@ -1,10 +1,14 @@
 use super::*;
 
-// Main.dc.html:161-162,173 and Herdr2.dc.html:95-96,104.
+// Main.dc.html:161-162,173 and Herdr2.dc.html:95-96,104 for the outer
+// insets. The inner ones follow the owner's choice of 2026-11-26 (task
+// 87ef7835b9ab449a, Q3 B): 8 pt, the gap between two panes, so the border
+// sits evenly between the text and the next pane; 10 pt at the top, below
+// the name on the border. The design had 12 and 14.
 const OUTER_SIDE: f32 = 8.;
 const OUTER_TOP: f32 = 10.;
-const INNER_SIDE: f32 = 12.;
-const INNER_TOP: f32 = 14.;
+const INNER_SIDE: f32 = metric::INLINE_GAP;
+const INNER_TOP: f32 = 10.;
 const HALF_GAP: f32 = metric::INLINE_GAP / 2.;
 /// A slot this close to the pane area's extent spans the whole axis.
 const SPAN_TOLERANCE: f32 = 0.5;
@@ -13,7 +17,12 @@ const SPAN_TOLERANCE: f32 = 0.5;
 pub(crate) struct PanePlacement<'a> {
     pub pane: &'a PaneSurfacePane,
     pub outline: Bounds<Pixels>,
+    /// Where the pane's cells are drawn and hit: `room` less what whole
+    /// cells cannot fill, split evenly between both sides (`centred`).
     pub body: Bounds<Pixels>,
+    /// The outline less its border and inner padding: the space the resize
+    /// budget offers the daemon (`viewport_size`).
+    room: Bounds<Pixels>,
     /// The origin in paint space of global cell (0, 0) when painting this pane.
     pub frame_origin: Point<Pixels>,
     slot: Bounds<Pixels>,
@@ -66,11 +75,12 @@ impl InputGeometry {
                     gap(y.1, f32::from(frame.height)),
                 );
                 let side = INNER_SIDE + metric::LINE;
-                let body = inset(outline, side, INNER_TOP + metric::LINE, side, side);
-                if body.size.width <= px(0.) || body.size.height <= px(0.) {
+                let room = inset(outline, side, INNER_TOP + metric::LINE, side, side);
+                if room.size.width <= px(0.) || room.size.height <= px(0.) {
                     return None;
                 }
                 let source = pane.inner_rect;
+                let body = self.centred(room, painted_columns(pane), source.height);
                 let frame_origin = body.origin
                     - point(
                         px(f32::from(source.x) * self.cell_width),
@@ -80,12 +90,29 @@ impl InputGeometry {
                     pane,
                     outline,
                     body,
+                    room,
                     frame_origin,
                     slot,
                 })
             })
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default()
+    }
+
+    /// The part of `room` that `columns` by `rows` cells take, centred: what
+    /// whole cells cannot fill is split between both sides instead of all
+    /// left after the last column and row. Cells that do not fit (before
+    /// the daemon answers a resize) take all of `room`, as before.
+    fn centred(&self, room: Bounds<Pixels>, columns: u16, rows: u16) -> Bounds<Pixels> {
+        let free = |extent: Pixels, count: u16, cell: f32| {
+            (extent - px(f32::from(count) * cell)).max(px(0.)) / 2.
+        };
+        let x = free(room.size.width, columns, self.cell_width);
+        let y = free(room.size.height, rows, self.cell_height);
+        Bounds::new(
+            room.origin + point(x, y),
+            size(room.size.width - x * 2., room.size.height - y * 2.),
+        )
     }
 
     /// Column width required by the tightest pane, based on the split shares
@@ -95,7 +122,7 @@ impl InputGeometry {
         self.framed_panes(surface)
             .iter()
             .map(|pane| {
-                let chrome = f32::from(pane.slot.size.width - pane.body.size.width);
+                let chrome = f32::from(pane.slot.size.width - pane.room.size.width);
                 let share = f32::from(pane.slot.size.width) / span;
                 (text_width + chrome) / share + 2. * OUTER_SIDE
             })
@@ -145,8 +172,8 @@ impl InputGeometry {
             split_x |= pane.slot.size.width < area.width - px(SPAN_TOLERANCE);
             split_y |= pane.slot.size.height < area.height - px(SPAN_TOLERANCE);
             let (columns, rows) = border_cells(pane.pane);
-            let width = pane.body.size.width + px(columns * self.cell_width);
-            let height = pane.body.size.height + px(rows * self.cell_height);
+            let width = pane.room.size.width + px(columns * self.cell_width);
+            let height = pane.room.size.height + px(rows * self.cell_height);
             available.width = available
                 .width
                 .min(area.width * (width / pane.slot.size.width));
@@ -184,6 +211,17 @@ fn border_cells(pane: &PaneSurfacePane) -> (f32, f32) {
         f32::from(left.saturating_add(right)),
         f32::from(top.saturating_add(bottom)),
     )
+}
+
+/// The columns drawn in a pane's body: its terminal, and on Herdr 1's
+/// primary screen the scrollbar column after it, inside the daemon's border
+/// (`border_cells`).
+fn painted_columns(pane: &PaneSurfacePane) -> u16 {
+    let (rect, inner) = (pane.rect, pane.inner_rect);
+    let end = |start: u16, extent: u16| u32::from(start) + u32::from(extent);
+    let scrollbar =
+        !pane.alternate_screen_active && end(rect.x, rect.width) > end(inner.x, inner.width);
+    inner.width.saturating_add(u16::from(scrollbar))
 }
 
 fn inside(inner: SurfaceRect, outer: SurfaceRect) -> bool {

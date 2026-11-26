@@ -9,7 +9,7 @@
 use super::{ChromeState, HerdrKind, fit, key_band, rail::SidebarMode, style::color};
 use crate::{
     app::Smoke,
-    layout::{self, ControlsClearance, ControlsReach, Insets, Layout, RULE, Rect, Size},
+    layout::{self, ControlsReach, Insets, Layout, RULE, Rect, Size},
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px, rgb};
 
@@ -177,10 +177,11 @@ impl Smoke {
         let safe = platform.safe_area;
         // An iPad window showing its window controls; never full screen
         // (no controls) or a Mac (traffic lights, whose own rules apply).
-        let windowed = !self.platform_traffic_lights_over_content()
-            && controls.clearance() != ControlsClearance::default();
+        let windowed =
+            !self.platform_traffic_lights_over_content() && controls.clearance().shows_controls();
+        let top = layout::top_band(f32::from(safe.top), windowed);
         let insets = Insets {
-            safe_top: f32::from(safe.top),
+            safe_top: top.safe_top,
             safe_left: f32::from(safe.left),
             safe_right: f32::from(safe.right),
             safe_bottom: layout::bottom_band(f32::from(safe.bottom), windowed),
@@ -189,6 +190,7 @@ impl Smoke {
             // terminal.
             keyboard: fit::docked_keyboard_height(size, fit::ime_keyboard(size, &platform.ime)),
             window_controls: controls,
+            status_icons: top.status_icons,
         };
         let input = layout::Input {
             // Command-B and the rail's button collapse to 72 at any width (L4).
@@ -418,6 +420,10 @@ mod controls_tests;
 #[cfg(test)]
 #[path = "frame_traffic_lights_tests.rs"]
 mod traffic_lights_tests;
+
+#[cfg(test)]
+#[path = "frame_top_band_tests.rs"]
+mod top_band_tests;
 
 #[cfg(test)]
 #[path = "frame_bottom_band_tests.rs"]

@@ -231,3 +231,76 @@ fn traffic_lights_on_the_right_leave_the_tab_row_start_alone() {
     };
     assert_eq!(right.clearance().tab_row_leading(true, 0.0, 0.0), 0.0);
 }
+
+/// The owner's iPad window on an external display (2026-11-26): a 32 pt top
+/// band holding the status bar.
+const WINDOW_TOP: f32 = 32.0;
+
+#[test]
+fn a_window_with_controls_moves_its_top_row_into_the_band() {
+    let band = super::super::top_band(WINDOW_TOP, true);
+    assert_eq!(band.safe_top, 0.0);
+    assert_eq!(band.status_icons, super::super::STATUS_ICONS_REACH);
+    // Clear of the screen's top edge (10 pt on the iPadOS 26.5 Simulator)
+    // there is no status bar to keep clear of.
+    let clear = super::super::top_band(10.0, true);
+    assert_eq!((clear.safe_top, clear.status_icons), (0.0, 0.0));
+}
+
+#[test]
+fn full_screen_and_a_mac_keep_the_reported_top() {
+    for top in [0.0, 24.0, WINDOW_TOP] {
+        let band = super::super::top_band(top, false);
+        assert_eq!((band.safe_top, band.status_icons), (top, 0.0));
+    }
+    let nan = super::super::top_band(f32::NAN, false);
+    assert_eq!((nan.safe_top, nan.status_icons), (0.0, 0.0));
+}
+
+#[test]
+fn status_icons_sit_opposite_the_controls() {
+    let icons = super::super::STATUS_ICONS_REACH;
+    let left = layout(Input {
+        insets: Insets {
+            window_controls: CONTROLS,
+            status_icons: icons,
+            ..Insets::default()
+        },
+        ..at(1467.0, CONTROLS)
+    });
+    assert_eq!(
+        left.controls,
+        ControlsClearance {
+            header_leading: CONTROLS.left,
+            rail_top: SIDEBAR_HEADER_HEIGHT,
+            tab_row_trailing: icons,
+        }
+    );
+    let right = layout(Input {
+        insets: Insets {
+            window_controls: CONTROLS_RIGHT,
+            status_icons: icons,
+            ..Insets::default()
+        },
+        ..at(1467.0, CONTROLS_RIGHT)
+    });
+    assert_eq!(
+        right.controls,
+        ControlsClearance {
+            header_leading: icons,
+            rail_top: SIDEBAR_HEADER_HEIGHT,
+            tab_row_trailing: CONTROLS_RIGHT.right,
+        }
+    );
+    // Without controls the icons never reach the layout (`top_band`), and
+    // the controls alone keep today's clearance.
+    assert_eq!(
+        CONTROLS_RIGHT.clearance().header_leading,
+        SIDEBAR_HEADER_PADDING
+    );
+    assert_eq!(CONTROLS.clearance().tab_row_trailing, 0.0);
+    assert!(!FULL_SCREEN.clearance().shows_controls());
+    assert!(!NONE.clearance().shows_controls());
+    assert!(CONTROLS.clearance().shows_controls());
+    assert!(CONTROLS_RIGHT.clearance().shows_controls());
+}

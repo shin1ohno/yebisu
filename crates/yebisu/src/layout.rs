@@ -18,7 +18,9 @@ mod controls;
 mod height;
 mod width;
 
-pub use controls::{ControlsClearance, ControlsReach};
+#[cfg(test)]
+pub use controls::STATUS_ICONS_REACH;
+pub use controls::{ControlsClearance, ControlsReach, top_band};
 
 /// Expanded sidebar width.
 pub const SIDEBAR_WIDTH: f32 = 300.0;
@@ -139,6 +141,11 @@ pub struct Insets {
     /// clear the window controls (herdr-uikit `window_control_insets`). All
     /// zero means no window controls; see `controls.rs`.
     pub window_controls: ControlsReach,
+    /// How far top-row content must stay from the side opposite the window
+    /// controls to clear the system status bar's icons, in an iPad window
+    /// whose top row has moved up into the status bar's band (`top_band`); 0
+    /// everywhere else.
+    pub status_icons: f32,
 }
 
 impl Insets {
