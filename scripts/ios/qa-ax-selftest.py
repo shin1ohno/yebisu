@@ -2,7 +2,8 @@
 """S1 self-test of the QA accessibility layer on fresh disposable iPad Simulators.
 
 Builds the Simulator bundle once, then for each run creates a new iPad Simulator, installs
-the app, runs QAAxSelfTest (testQAAxSelfTest and testQAAxOverlappedPress, S3) and QAAxLogicTests
+the app, runs QAAxSelfTest (testQAAxSelfTest, testQAAxOverlappedPress (S3) and
+testQAStateHoldsWhileMarksMove (issue #198)) and QAAxLogicTests
 (it runs only when asked: TEST_RUNNER_QA_AX_SELFTEST),
 keeps the test log and the xcresult, and deletes the Simulator. No existing job runs it.
 
@@ -21,9 +22,9 @@ ci_smoke = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ci_smoke)
 
 TESTS = ["SmokeOracle/QAAxSelfTest/testQAAxSelfTest", "SmokeOracle/QAAxSelfTest/testQAAxOverlappedPress",
-         "SmokeOracle/QAAxLogicTests"]
+         "SmokeOracle/QAAxSelfTest/testQAStateHoldsWhileMarksMove", "SmokeOracle/QAAxLogicTests"]
 # A skipped test also passes: each self-test method must report its own passed line.
-PASSED = ["testQAAxSelfTest]' passed", "testQAAxOverlappedPress]' passed"]
+PASSED = ["testQAAxSelfTest]' passed", "testQAAxOverlappedPress]' passed", "testQAStateHoldsWhileMarksMove]' passed"]
 
 
 def one_run(root, project, app_path, out, index, device_type, runtime):
