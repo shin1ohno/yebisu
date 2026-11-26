@@ -107,23 +107,83 @@ impl ControlsReach {
 }
 
 /// The clearance for the controls' reach in `insets`: nothing for all zero
-/// (no controls), nor for a corner allowance alone.
+/// (no controls), nor for a corner allowance alone. The status bar's icons
+/// (`Insets::status_icons`) sit on the other side: past the tab row's pinned
+/// buttons with the controls on the left, before the sidebar header's
+/// content with them on the right.
 pub(super) fn clearance(insets: &Insets) -> ControlsClearance {
     // `max` also maps a NaN reach to 0.
     let left = insets.window_controls.left.max(0.0);
     let right = insets.window_controls.right.max(0.0);
+    let icons = insets.status_icons.max(0.0);
     if left - right > CONTROLS_MIN_EXCESS {
         ControlsClearance {
             header_leading: left,
             rail_top: SIDEBAR_HEADER_HEIGHT,
-            ..ControlsClearance::default()
+            tab_row_trailing: icons,
         }
     } else if right - left > CONTROLS_MIN_EXCESS {
         ControlsClearance {
+            header_leading: SIDEBAR_HEADER_PADDING.max(icons),
+            rail_top: if icons > 0.0 {
+                SIDEBAR_HEADER_HEIGHT
+            } else {
+                0.0
+            },
             tab_row_trailing: right,
-            ..ControlsClearance::default()
         }
     } else {
         ControlsClearance::default()
+    }
+}
+
+/// The width the status bar's icons take at the top-right of a window that
+/// reaches the screen's top edge, in points, with a gap before the tab row's
+/// last button: 113 pt measured in the owner's external-display screenshot
+/// (2026-11-26, location, VPN, Wi-Fi and battery at 1.44 px per point) plus
+/// the 8 pt inline gap. UIKit reports no layout region for them: the
+/// corner-adapted safe area gives only the window's 9-9.5 pt corner allowance
+/// on that side. [Unverified] Other icon sets are wider or narrower.
+pub const STATUS_ICONS_REACH: f32 = 113.0 + crate::shell::style::metric::INLINE_GAP;
+
+/// The smallest top safe area that holds the status bar: 24 pt in full
+/// screen and 32 pt in the owner's external-display window, against 10 pt
+/// for a window clear of the screen's top edge (iPadOS 26.5 Simulator).
+pub const STATUS_BAR_MIN_TOP: f32 = 20.0;
+
+/// Where the top row goes in a window with `reported_top` as its top safe
+/// area. In an iPad window with window controls (`windowed`), the row moves
+/// up into that band, beside the controls, as on a Mac. If the band holds
+/// the status bar, the row keeps clear of its icons. Everywhere else,
+/// including full screen and a Mac, the safe area stays as UIKit reports it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TopBand {
+    pub safe_top: f32,
+    pub status_icons: f32,
+}
+
+pub fn top_band(reported_top: f32, windowed: bool) -> TopBand {
+    let reported_top = reported_top.max(0.0);
+    if !windowed {
+        return TopBand {
+            safe_top: reported_top,
+            status_icons: 0.0,
+        };
+    }
+    TopBand {
+        safe_top: 0.0,
+        status_icons: if reported_top >= STATUS_BAR_MIN_TOP {
+            STATUS_ICONS_REACH
+        } else {
+            0.0
+        },
+    }
+}
+
+impl ControlsClearance {
+    /// Whether this clears window controls at all: anything but the default
+    /// a window without controls (or with a corner allowance alone) gets.
+    pub fn shows_controls(self) -> bool {
+        self != Self::default()
     }
 }
