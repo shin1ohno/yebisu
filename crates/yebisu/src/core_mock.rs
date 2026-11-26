@@ -26,9 +26,19 @@ pub(crate) struct Host {
 }
 impl Default for Host {
     fn default() -> Self {
+        let doc = doc::Store::qa();
+        let mut terminals: Vec<String> = vec!["t1".into(), "t2".into()];
+        // A Simulator QA document names live terminals, as the official
+        // app's does: one naming ended ones would be taken apart
+        // (`core/ended_spaces.rs`) before the checks read it.
+        for address in doc.named_terminals() {
+            if !terminals.contains(&address) {
+                terminals.push(address);
+            }
+        }
         Self {
-            terminals: Arc::new(Mutex::new(vec!["t1".into(), "t2".into()])),
-            doc: doc::Store::qa(),
+            terminals: Arc::new(Mutex::new(terminals)),
+            doc,
         }
     }
 }
@@ -319,7 +329,11 @@ impl Host {
                             let ids = namespace
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            json!({"terminals":ids.iter().map(|id|terminal(id)).collect::<Vec<_>>()})
+                            let mut listed = ids.iter().map(|id| terminal(id)).collect::<Vec<_>>();
+                            if request["params"]["all"] == json!(true) {
+                                listed.extend(doc.finished());
+                            }
+                            json!({"terminals": listed})
                         }
                         Some("terminal.run") => {
                             let mut ids = namespace
@@ -487,5 +501,25 @@ impl Host {
     /// The host's documents, for tests to change and read.
     pub(crate) fn doc(&self) -> &doc::Store {
         &self.doc
+    }
+
+    /// The live terminals are `addresses` from now on.
+    pub(crate) fn set_live(&self, addresses: &[&str]) {
+        *self
+            .terminals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = addresses
+            .iter()
+            .map(|address| (*address).to_owned())
+            .collect();
+    }
+
+    /// `address` ends for `reason`: no longer live, listed as finished.
+    pub(crate) fn end(&self, address: &str, reason: &str) {
+        self.terminals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|known| known != address);
+        self.doc.finish(address, reason);
     }
 }

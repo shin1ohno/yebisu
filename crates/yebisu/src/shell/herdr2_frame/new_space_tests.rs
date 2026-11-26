@@ -275,6 +275,9 @@ fn new_space_create_uses_the_default_session_and_remembers_only_ready_session(
 fn herdr2_new_space_writes_document_space(cx: &mut gpui::TestAppContext) {
     use crate::core::herdr_doc_sync::{DocPlan, DocSource};
     let host = crate::core_mock::Host::default();
+    // Every terminal the document names is live: a space whose terminals
+    // ended would be taken out of it (`core/ended_spaces.rs`).
+    host.set_live(&["t1", "t2", "t30"]);
     host.doc().set_silent(
         serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
             .unwrap_or_else(|error| panic!("fixture: {error}")),

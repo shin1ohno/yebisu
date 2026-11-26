@@ -36,6 +36,9 @@ fn documented(cx: &mut TestAppContext) -> (Entity<Smoke>, Host, &mut VisualTestC
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!("yebisu-rename-doc-{}-{n}", std::process::id()));
     let host = Host::default();
+    // Every terminal the document names is live: a space whose terminals
+    // ended would be taken out of it (`core/ended_spaces.rs`).
+    host.set_live(&["t1", "t2", "t30"]);
     host.doc().set_silent(
         serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
             .unwrap_or_else(|e| panic!("fixture: {e}")),
