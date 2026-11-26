@@ -184,7 +184,7 @@ impl Smoke {
             safe_top: top.safe_top,
             safe_left: f32::from(safe.left),
             safe_right: f32::from(safe.right),
-            safe_bottom: f32::from(safe.bottom),
+            safe_bottom: layout::bottom_band(f32::from(safe.bottom), windowed),
             // L9: only a keyboard docked along the bottom edge is an inset; a
             // floating one (or a smaller visual viewport) never resizes the
             // terminal.
@@ -424,3 +424,7 @@ mod traffic_lights_tests;
 #[cfg(test)]
 #[path = "frame_top_band_tests.rs"]
 mod top_band_tests;
+
+#[cfg(test)]
+#[path = "frame_bottom_band_tests.rs"]
+mod bottom_band_tests;

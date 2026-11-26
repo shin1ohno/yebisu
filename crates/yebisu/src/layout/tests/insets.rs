@@ -38,3 +38,21 @@ fn keyboard_and_safe_area_take_larger_only() {
         terminal_size(&at(Insets::default())).width - 16.0
     );
 }
+
+#[test]
+fn a_window_with_controls_gives_up_the_bottom_band_but_not_the_keyboard() {
+    use super::super::bottom_band;
+    // The owner's external-display window: 25 pt below the status bar.
+    assert_eq!(bottom_band(25.0, true), 0.0);
+    // Full screen and a Mac keep UIKit's value; a NaN or negative one is 0.
+    assert_eq!(bottom_band(20.0, false), 20.0);
+    assert_eq!(bottom_band(f32::NAN, false), 0.0);
+    assert_eq!(bottom_band(-4.0, false), 0.0);
+    // A docked keyboard still lifts the status bar in the window.
+    let docked = Insets {
+        safe_bottom: bottom_band(25.0, true),
+        keyboard: 320.0,
+        ..Insets::default()
+    };
+    assert_eq!(docked.bottom(), 320.0);
+}
