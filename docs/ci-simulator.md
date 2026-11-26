@@ -84,6 +84,20 @@ must succeed. It attempts shutdown and deletes its own Simulator on success or
 failure. A cleanup line records the shutdown exit code and successful deletion;
 a failed shutdown does not prevent deletion.
 
+One exception keeps the job inside its 40 minutes (issue #235). On the
+`xcode-27` image a freshly booted Simulator blocks its first install for
+3.5-8.9 minutes after `simctl bootstatus` returns, against 1.0-2.3 minutes on
+`macos-26`; later installs on the same device take seconds. The job paid that
+twice, once for P0 and once for P12's own Simulator. So `ci-smoke.py` boots the
+Simulator before the build (as `ci-layout-smoke.py` does), and in GitHub
+Actions with `--p9` a passing run writes the UDID to
+`target/ci-smoke-simulator.txt` and prints `CI SMOKE handover` instead of the
+cleanup line. `p12-ci.py` takes that Simulator, uninstalls the app (P12 reads
+the app's Documents, so P0 and P9 leave nothing there), runs `p12-check.py` on
+it and deletes it. It prints `P12 CI reusing simulator=...`; without a usable
+handover it says why and creates its own Simulator as before. A failed P0 or P9
+check still deletes the Simulator in `ci-smoke.py`.
+
 Unlike the local default, CI supplies a fresh Simulator UDID rather than relying
 on a pre-existing M5 Simulator name or saved app data. The simulator bundle uses
 ad-hoc signing; the XCTest bundle disables signing. No developer identity,
