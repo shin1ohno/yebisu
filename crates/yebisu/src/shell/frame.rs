@@ -187,7 +187,47 @@ impl Smoke {
         let windowed = !fills_screen
             && !self.platform_traffic_lights_over_content()
             && controls.clearance().shows_controls();
-        let top = layout::top_band(f32::from(safe.top), windowed);
+        let reported_top = f32::from(safe.top);
+        let top = layout::top_band(reported_top, windowed);
+        let in_band = self.layout_in_band(size, platform, controls, windowed, top);
+        if top.status_icons <= 0.0 {
+            return in_band;
+        }
+        // Issue #209 (owner decision A, 2026-11-26): a row too short beside
+        // the status icons for the switcher's full width, a tab, + and the
+        // pinned buttons stays below the band, as the compact bar does
+        // (#208), when that gives it more room.
+        let switcher =
+            !self.terminal.core_mode && (self.actions.board_hidden || in_band.sidebar_collapsed);
+        let content = |layout: &Layout| layout.tab_row.width - layout.controls.tab_row_trailing;
+        if content(&in_band) >= super::tab_row::tab_row_min_content(switcher) {
+            return in_band;
+        }
+        let below = self.layout_in_band(
+            size,
+            platform,
+            controls,
+            windowed,
+            layout::top_band(reported_top, false),
+        );
+        if content(&below) > content(&in_band) {
+            below
+        } else {
+            in_band
+        }
+    }
+
+    /// `layout_for` with the top row at `top`: in the band (`top_band`) or
+    /// below it.
+    fn layout_in_band(
+        &self,
+        size: Size,
+        platform: &gpui::WindowInsets,
+        controls: ControlsReach,
+        windowed: bool,
+        top: layout::TopBand,
+    ) -> Layout {
+        let safe = platform.safe_area;
         let insets = Insets {
             safe_top: top.safe_top,
             safe_left: f32::from(safe.left),
@@ -268,6 +308,7 @@ impl Smoke {
                     .children(self.render_tab_row(
                         tab_row_leading,
                         layout.controls.tab_row_trailing,
+                        geometry.tab_row.width,
                         cx,
                     ))
                     .child(rule()),
@@ -444,6 +485,10 @@ mod bottom_band_tests;
 #[cfg(test)]
 #[path = "frame_hidden_sidebar_tests.rs"]
 mod hidden_sidebar_tests;
+
+#[cfg(test)]
+#[path = "frame_trailing_clearance_tests.rs"]
+mod trailing_clearance_tests;
 
 #[cfg(test)]
 #[path = "frame_fill_screen_tests.rs"]
