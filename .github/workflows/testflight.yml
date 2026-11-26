@@ -15,11 +15,23 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main'
     environment: testflight
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
+      # The xcode-27 image defaults to Xcode 27.1; DEVELOPER_DIR above selects
+      # 27.2, and this step fails before any other work unless the iphoneos SDK
+      # the build and its DT* Info.plist keys use is 27.2.
+      - name: Require Xcode 27.2 and iOS SDK 27.2
+        run: |
+          xcodebuild -version
+          sdk=$(xcrun --sdk iphoneos --show-sdk-version)
+          if [ "$sdk" != "27.2" ]; then
+            echo "::error::iphoneos SDK is $sdk, not 27.2; check DEVELOPER_DIR and the xcode-27 image"
+            exit 1
+          fi
       - name: Set job-private build paths
         run: |
           echo "CARGO_TARGET_DIR=$RUNNER_TEMP/yebisu-target" >> "$GITHUB_ENV"

@@ -50,7 +50,7 @@ package と upload は、外部ツール（`security`、`codesign`、`ditto`、`
 
 本 PR の検証では、署名・アップロード・environment と secrets の作成・workflow の実行を行いません。
 
-macos-26 上で Xcode/SDK を記録し、repository の Rust pin と `aarch64-apple-ios` を使います。ビルドは既存の 6 GiB ディスク guard を通し、Cargo jobs は1です。専用 target を使い、署名情報や IPA を cache/artifact に保存しません。署名 helper は一時専用 Keychain を削除し、検索リストを復元してから IPA を確定します。ホスト停止時の cleanup は保証できないため、使い捨て GitHub hosted runner のみを対象とします。ビルドの段が起動したまま残るプロセスは、同じ job の後の段で秘密ファイルを読めます。この危険は、使い捨て runner と、ビルド対象が `main` の先端だけであることで抑えています。
+`xcode-27` runner 上で `DEVELOPER_DIR` により Xcode 27.2 を選び、最初の段で iphoneos SDK が 27.2 でなければ失敗します（2026-11-26 の owner 決定。image の既定は Xcode 27.1 です）。続いて Xcode/SDK を記録し、repository の Rust pin と `aarch64-apple-ios` を使います。ビルドは既存の 6 GiB ディスク guard を通し、Cargo jobs は1です。専用 target を使い、署名情報や IPA を cache/artifact に保存しません。署名 helper は一時専用 Keychain を削除し、検索リストを復元してから IPA を確定します。ホスト停止時の cleanup は保証できないため、使い捨て GitHub hosted runner のみを対象とします。ビルドの段が起動したまま残るプロセスは、同じ job の後の段で秘密ファイルを読めます。この危険は、使い捨て runner と、ビルド対象が `main` の先端だけであることで抑えています。
 
 marketing version は Cargo version、`CFBundleVersion` は workflow run number です。1..9999 を許容し、10000 到達前には採番方式の変更が必要です。再実行は同じ build number なので、既に ASC が受理した run の再送は重複になります。新しい手動 run を開始してください。手動配布後も marketing version は同じまま新しい build number を付けられます。
 
@@ -84,7 +84,7 @@ probe が失敗するか、出力の形が想定と違うと、build はどの p
 参照 revision は [shin1ohno/herdr-gpui@398c132a06723a0cc1494842a34666d173ec0200](https://github.com/shin1ohno/herdr-gpui/tree/398c132a06723a0cc1494842a34666d173ec0200) です。コピーした helper/tests は `PROVENANCE.tsv` に記録しています。
 
 - `examples/ios-distribution/testflight.sh.example` の build → package → upload の段階分離と `distribution.py` の package/upload を採用しました。bundle ID と Cargo package/bin を yebisu に変更し、既定 features を使います。App Store profile 検査、一時 Keychain、秘密値を出力しない subprocess エラー処理を継承します。
-- `examples/ios-distribution/github.yml.example` の macos-26、専用 target、同時実行1本、checkout の `persist-credentials: false` を採用しました。この署名 job の checkout は `actions/checkout` の v4.3.1 commit `34e114876b0b11c390a56381ad16ebd13914f8d5` に固定しています。
+- `examples/ios-distribution/github.yml.example` の macos-26（2026-11-26 に `xcode-27` と Xcode 27.2 へ変更）、専用 target、同時実行1本、checkout の `persist-credentials: false` を採用しました。この署名 job の checkout は `actions/checkout` の v4.3.1 commit `34e114876b0b11c390a56381ad16ebd13914f8d5` に固定しています。
 - `docs/ios-app-plan.md` の「TestFlight from CI」から environment 名、API キー secret 名、一時ファイル除去、run number 採番を採用しました。Swift Xcode project 用の archive/export と自動 provisioning は採用していません。Rust bundle の署名は `.p12` と App Store profile を使います。
 - `examples/ios-distribution/self-hosted.md` と `PREPARE.md` の既存 Mac/OTA 案は比較資料です。self-hosted runner の設定、Ad Hoc 配信、Mac mini 操作は追加していません。
 
