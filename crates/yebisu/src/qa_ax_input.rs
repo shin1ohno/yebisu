@@ -5,7 +5,8 @@
 //! `herdr_uikit::qa_input` when a touch reaches the drawing view
 //! (`receipt = "touch"`), when UIKit performs a menu command
 //! (`"menu-perform"`) and when that command is handed to GPUI, or not
-//! (`"menu-deliver"`); see herdr-uikit `docs/qa-input-receipts.md`. With
+//! (`"menu-deliver"`), and when a window's draws change outcome (`"frame"`,
+//! issue #197); see herdr-uikit `docs/qa-input-receipts.md`. With
 //! `YEBISU_QA_AX` or `YEBISU_P12_QA` set, the diagnostics subscriber passes
 //! those events to `capture`, which keeps only values from the closed lists
 //! below (no string the SDK sends is copied) and queues them without ever
@@ -57,7 +58,7 @@ const DRAIN: usize = 256;
 /// writes at most 90; a gap of more than 2.5 intervals (5 s) is reported.
 pub(crate) const HEARTBEAT_TICKS: u64 = 2;
 
-const RECEIPTS: [&str; 3] = ["touch", "menu-perform", "menu-deliver"];
+const RECEIPTS: [&str; 4] = ["touch", "menu-perform", "menu-deliver", "frame"];
 const STAGES: [&str; 3] = ["began", "ended", "cancelled"];
 const KINDS: [&str; 2] = ["direct", "pointer"];
 const PERFORM: [&str; 3] = ["no_sender", "no_tag", "performed"];
@@ -66,6 +67,24 @@ const DELIVER: [&str; 4] = [
     "no_callback",
     "callback_running",
     "delivered",
+];
+/// A window draw's outcome (herdr-uikit `Renderer::draw`, issue #197).
+const FRAME: [&str; 5] = [
+    "presented",
+    "zero_size",
+    "paths_not_ready",
+    "no_drawable",
+    "render_failed",
+];
+/// The outcome of the run a `frame` receipt ends: a draw's outcome, or none
+/// before a window's first draw.
+const PREVIOUS: [&str; 6] = [
+    "none",
+    "presented",
+    "zero_size",
+    "paths_not_ready",
+    "no_drawable",
+    "render_failed",
 ];
 
 /// The rule: a Simulator build launched with `YEBISU_QA_AX` or
@@ -103,6 +122,12 @@ pub(crate) enum Receipt {
         current: i64,
     },
     MenuGlobal,
+    /// A window's draws came to a different outcome than the draw before.
+    Frame {
+        outcome: &'static str,
+        previous: &'static str,
+        previous_count: u64,
+    },
 }
 
 /// The fields of one event. A string outside its list sets `rejected`.
@@ -119,6 +144,8 @@ pub(crate) struct Fields {
     index: Option<u64>,
     current: Option<i64>,
     keyed: Option<bool>,
+    previous: Option<&'static str>,
+    previous_count: Option<u64>,
     rejected: bool,
 }
 
@@ -137,6 +164,7 @@ impl Fields {
             "generation" => self.generation = Some(value),
             "index" => self.index = Some(value),
             "current" => self.current = i64::try_from(value).ok(),
+            "previous_count" => self.previous_count = Some(value),
             _ => {}
         }
     }
@@ -149,9 +177,12 @@ impl Visit for Fields {
             "stage" => self.stage = self.text(known(&STAGES, value)),
             "kind" => self.kind = self.text(known(&KINDS, value)),
             "outcome" => {
-                let found = known(&PERFORM, value).or_else(|| known(&DELIVER, value));
+                let found = known(&PERFORM, value)
+                    .or_else(|| known(&DELIVER, value))
+                    .or_else(|| known(&FRAME, value));
                 self.outcome = self.text(found);
             }
+            "previous" => self.previous = self.text(known(&PREVIOUS, value)),
             _ => {}
         }
     }
@@ -206,6 +237,11 @@ pub(crate) fn parse(fields: &Fields) -> Option<Receipt> {
             generation: fields.generation?,
             index: fields.index?,
             current: fields.current?,
+        }),
+        "frame" => Some(Receipt::Frame {
+            outcome: fields.outcome.filter(|outcome| FRAME.contains(outcome))?,
+            previous: fields.previous?,
+            previous_count: fields.previous_count?,
         }),
         _ => None,
     }
@@ -301,6 +337,8 @@ pub(crate) struct Counters {
     pub(crate) unknown: u64,
     /// The last touch: stage, kind, x and y.
     pub(crate) last_touch: Option<(&'static str, &'static str, f64, f64)>,
+    /// The outcome the last `frame` receipt named (issue #197).
+    pub(crate) last_frame: Option<&'static str>,
 }
 
 impl Counters {
@@ -332,6 +370,7 @@ impl Counters {
                 }
             }
             Receipt::MenuGlobal => self.menu_global += 1,
+            Receipt::Frame { outcome, .. } => self.last_frame = Some(outcome),
         }
     }
 }
@@ -376,6 +415,12 @@ pub(crate) fn record_json(receipt: &Receipt) -> Value {
         } => json!({"kind": "input-receipt", "receipt": "menu-deliver", "outcome": outcome,
             "generation": generation, "index": index, "current": current}),
         Receipt::MenuGlobal => json!({"kind": "input-receipt", "receipt": "menu-global"}),
+        Receipt::Frame {
+            outcome,
+            previous,
+            previous_count,
+        } => json!({"kind": "input-receipt", "receipt": "frame", "outcome": outcome,
+            "previous": previous, "previous_count": previous_count}),
     }
 }
 
@@ -397,6 +442,7 @@ pub(crate) fn state_json(counters: &Counters) -> Value {
         "dropped": counters.dropped,
         "unknown": counters.unknown,
         "last_touch": last_touch,
+        "frame_last": counters.last_frame,
     })
 }
 
