@@ -169,6 +169,29 @@ fn tab_holding_a_mod_keeps_its_space() {
 }
 
 #[test]
+fn ended_terminals_of_a_tab_that_is_not_plain_are_not_named() {
+    let value = doc(vec![space(
+        "sp1",
+        vec![
+            tab(
+                "tb1",
+                json!({"type": "row", "children": [block("t1"),
+                    {"type": "block", "id": "pm", "content": {"mod": "notes", "props": {}}}]}),
+            ),
+            tab("tb2", block("t2")),
+        ],
+    )]);
+    let listed = listing(&[
+        ("t1", "finished", Some("exited")),
+        ("t2", "finished", Some("exited")),
+    ]);
+    let view = parse_view(&value).unwrap_or_else(|e| panic!("view: {e}"));
+    let found = ended(&value, &view, &listed);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].ended, ["t2"], "the mod tab's terminal stays");
+}
+
+#[test]
 fn space_without_tabs_or_terminals_is_ended() {
     let value = doc(vec![
         space("sp1", vec![]),

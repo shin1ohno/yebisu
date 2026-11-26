@@ -112,6 +112,63 @@ tests it runs one at a time:
 
     YEBISU_HERDR_CORE_TEST_BINARY=/path/to/herdr-core cargo test -p yebisu herdr_doc_live -- --ignored --test-threads=1
 
+## Ended terminals leave the document
+
+The official app keeps its model true to herdr-core on every listing
+(herdr-app 0.1.18 `src/window.rs` `reconcile`, `check_closed`,
+`checked_closed`): a pane whose terminal finished as `exited` or `killed`,
+or that herdr-core no longer knows, is removed, then a tab left without
+panes, then a space left without tabs (`src/model.rs` `remove_pane`,
+`remove_tab`, `remove_space`), and the document is written again. Before
+2026-11-26 yebisu drew only the tabs with a live terminal but never wrote
+such a removal, so a space whose terminals had all ended was listed with its
+tab count and drew no tab, and a space with a live terminal still counted
+its ended tabs.
+
+The document reader now does the same (`core/ended_spaces.rs`,
+`core/herdr_doc_prune.rs`), through `Intent::PruneSpace` and `check_write`
+like every other write:
+
+| What happens | What the document loses |
+|---|---|
+| A program exits (`exited`) or is killed (`killed`) | Its pane |
+| `hc server stop` or a restart, terminal not kept (`finished`/`server_stop`, `keep: false`) | Its pane |
+| herdr-core no longer lists the terminal (a restart that dropped it, `hc rm`, the iPad migration's old terminals), and its address is this machine's | Its pane |
+| A tab is left without panes | The tab |
+| A space is left without tabs (or had none) | The space |
+
+A pane leaves as in the official app's `Node::remove`: its share (`weight`,
+1 when it has no size) goes to the neighbour before it, else the next,
+unless either is sized in `px`; a row or column left empty vanishes, and one
+left with one child gives way to it, which takes its size. The tab's root
+keeps the tab's id.
+
+What is never removed:
+
+- the pane of a live terminal, or of a kept terminal stopped with its server
+  (herdr-core 0.1.13 gives it a shell at the next start: it reads `live`,
+  `stopped_by_restart`); a terminal `holder_lost` or with any other reason;
+- a terminal of another machine (`box/t7`) that this core does not list;
+- anything in a tab that holds a stack, a floating block, a mod or an agent;
+- anything, on the first read of a connection, after a failed terminal list,
+  or while the document is unreadable.
+
+A change is written only when two complete reads of one connection (one
+herdr-core boot: a restart ends the connection), at least one poll period
+(5 s) apart, find the same space byte for byte with the same ended
+terminals. The document is read before the list, so every terminal it names
+existed when the list was taken. The write is applied to the latest
+document, and a space changed since it was judged stays as it is.
+
+The rule differs from the official app's in one case: the official app
+keeps the pane of a terminal stopped with its server even when it is not
+kept, while yebisu removes it (its program never comes back).
+
+The opt-in real-core test checks the end reasons and the removals:
+
+    YEBISU_HERDR_CORE_TEST_BINARY=/path/to/herdr-core TMPDIR=<short dir> \
+      cargo test -p yebisu herdr_doc_live_ended -- --ignored --test-threads=1
+
 ## Still to check against a real document
 
 - The split rule: halving a `weight`, a block without `size`, and wrapping a

@@ -26,7 +26,11 @@ terminals goes with the server.
 | A successful poll lists no server for a space that has only a saved layout (`Session unconfirmed`) | Removes the row and deletes the layout file. A space the poll lists (its state directory remains after a stop) but whose socket is absent or refuses must be so in two successful polls in a row. A socket that connects but does not answer in 0.6 s (`["name", "unknown"]`: a busy server, a machine that does not reply) is not absent: its row and file stay |
 | A poll fails (transport error, timeout) | Nothing is deleted. After two failures in a row every row is `Session unconfirmed`, as before, with its file |
 
-`default` is never stopped, and its layout is kept. A space with a live
+`default` is never stopped, and its layout is kept. The spaces of the official
+app's `herdr-app` document, which all live in the `default` core, are a
+different thing: their ended panes, tabs and spaces leave the document as in
+the official app (`docs/herdr-app-document.md`, "Ended terminals leave the
+document"). A space with a live
 terminal that is in no tab (another client's `hc run`) is never stopped.
 
 ## How a server is stopped
