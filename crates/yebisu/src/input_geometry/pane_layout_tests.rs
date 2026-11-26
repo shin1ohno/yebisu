@@ -54,7 +54,18 @@ fn try_settle(
     alternate: [bool; 2],
     stacked: bool,
 ) -> Result<PaneSurfaceFrame, (u16, u16)> {
-    let mut size = (100, 40);
+    settle_from(geometry, (100, 40), alternate, stacked)
+}
+
+/// `try_settle` from the frame `start`: a window that shrinks starts above
+/// the size it settles at.
+fn settle_from(
+    geometry: &InputGeometry,
+    start: (u16, u16),
+    alternate: [bool; 2],
+    stacked: bool,
+) -> Result<PaneSurfaceFrame, (u16, u16)> {
+    let mut size = start;
     for _ in 0..20 {
         let surface = herdr1_split(size.0, size.1, alternate, stacked);
         let next = next_size(geometry, &surface);
@@ -65,14 +76,6 @@ fn try_settle(
     }
     Err(size)
 }
-
-/// Widths of this sweep where side-by-side Herdr 1 panes alternate between
-/// two sizes (142 and 143 columns at 1220 pt) instead of settling. The
-/// budget has done so since before the 8 pt padding: with the design's
-/// 12 pt, 64 of every width from 700 to 1600 pt and every alternate-screen
-/// mix did not settle, against 44 now; the 13 pt steps here missed them
-/// until 1220 came up. Issue #199 tracks the fix.
-const KNOWN_CYCLES: [u16; 1] = [1220];
 
 /// Room the painted columns (the scrollbar column included) and rows leave
 /// free inside the padding.
@@ -106,10 +109,13 @@ fn assert_filled(geometry: &InputGeometry, surface: &PaneSurfaceFrame, stacked: 
     for placement in &panes {
         let (x, y) = slack(placement);
         let at = (surface.frame.width, surface.frame.height);
-        assert_eq!(
-            placement.room.origin - placement.outline.origin,
-            point(px(INNER_SIDE + metric::LINE), px(INNER_TOP + metric::LINE)),
-            "the padding inside the border"
+        // Within float error: at some widths the outline starts at 9.00006.
+        let padding = placement.room.origin - placement.outline.origin;
+        assert!(
+            (f32::from(padding.x) - (INNER_SIDE + metric::LINE)).abs() < 0.01
+                && (f32::from(padding.y) - (INNER_TOP + metric::LINE)).abs() < 0.01,
+            "{at:?} {}: {padding:?} of padding inside the border",
+            placement.pane.pane_id
         );
         let before = placement.body.origin - placement.room.origin;
         let after = placement.room.bottom_right() - placement.body.bottom_right();
@@ -154,21 +160,59 @@ fn herdr1_stacked_split_rows_reach_the_bottom_of_each_body() {
     assert_filled(&geometry, &surface, true);
 }
 
+/// Every width in 1 pt steps settles, from below and from above, and fills
+/// its bodies. Before #199 side-by-side panes alternated between two sizes at
+/// 44 of these widths and alternate-screen mixes (142 and 143 columns at
+/// 1220 pt).
 #[test]
 fn herdr1_split_fills_its_bodies_across_widths() {
-    for width in (700_u16..=1600).step_by(13) {
+    for width in 700_u16..=1600 {
         let geometry = ipad(f32::from(width));
         for alternate in [[false, false], [true, true], [false, true], [true, false]] {
             for stacked in [false, true] {
-                match try_settle(&geometry, alternate, stacked) {
-                    Ok(surface) => assert_filled(&geometry, &surface, stacked),
-                    Err(size) => assert!(
-                        !stacked && KNOWN_CYCLES.contains(&width),
-                        "{width} pt {alternate:?} stacked {stacked}: did not settle, last {size:?}"
-                    ),
+                for start in [(100, 40), (300, 80)] {
+                    match settle_from(&geometry, start, alternate, stacked) {
+                        Ok(surface) => assert_filled(&geometry, &surface, stacked),
+                        Err(size) => panic!(
+                            "{width} pt {alternate:?} stacked {stacked} from {start:?}: \
+                             did not settle, last {size:?}"
+                        ),
+                    }
                 }
             }
         }
+    }
+}
+
+/// #199 at 1220 pt: 143 columns split 72 / 71, and the narrow pane's share
+/// under half made the budget offer 142, whose even split offered 143 again.
+/// The 143-column frame fits, so it holds.
+#[test]
+fn herdr1_split_holds_an_odd_frame_that_fits() {
+    let geometry = ipad(1220.);
+    let odd = herdr1_split(143, 52, [false, false], false);
+    assert_filled(&geometry, &odd, false);
+    assert_eq!(next_size(&geometry, &odd), (143, 52));
+    let even = herdr1_split(142, 52, [false, false], false);
+    assert_eq!(next_size(&geometry, &even), (143, 52));
+}
+
+/// A frame whose cells do not fit their bodies is not held: the budget
+/// shrinks it to one that fits.
+#[test]
+fn herdr1_split_shrinks_a_frame_that_does_not_fit() {
+    let geometry = ipad(1220.);
+    for (cols, rows) in [(145, 52), (160, 52), (143, 60)] {
+        let surface = herdr1_split(cols, rows, [false, true], false);
+        let next = next_size(&geometry, &surface);
+        assert!(
+            next.0 <= cols && next.1 <= rows,
+            "{cols} x {rows}: {next:?}"
+        );
+        assert_ne!(next, (cols, rows), "{cols} x {rows} does not fit but held");
+        let shrunk = settle_from(&geometry, next, [false, true], false)
+            .unwrap_or_else(|size| panic!("did not settle, last {size:?}"));
+        assert_filled(&geometry, &shrunk, false);
     }
 }
 
