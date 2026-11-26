@@ -105,4 +105,47 @@ final class QAAxSelfTest: XCTestCase {
         XCTAssertEqual(reopened.presses(QAIds.tabsMore), 2, "\(reopened)")
         print("QAAX F5 done")
     }
+
+    /// Issue #198: `qa.state` stays readable while other marked controls move. Before #191 the
+    /// layer made every element anew, `qa.state` included, whenever a control moved, so a read in
+    /// flight lost its element (P12's focus wait read nothing for 13 s after the focus case moved
+    /// qa.sidebar.current-agent). The board QA peer reorders the AGENTS rows, which moves
+    /// qa.sidebar.current-agent about 2.7 times a second. On fe83f21 (before #191) 65 to 82 of
+    /// about 1,700 reads in 60 s came back empty, 3 of 3 runs; on 55fde2b, 0 in 3 of 3.
+    func testQAStateHoldsWhileMarksMove() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["QA_AX_SELFTEST"] != nil, "S1 self-test only")
+        let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
+        let qa = QAAx(app, useWindowFrames: true)
+        app.terminate()
+        XCUIDevice.shared.orientation = .portrait
+        app.launchEnvironment = ["YEBISU_QA_AX": "1", "YEBISU_QA_AX_FRAMES": "1", "YEBISU_SMOKE_OBSERVE": "1",
+                                 "YEBISU_TERMINAL_QA": "1", "YEBISU_BOARD_QA": "1"]
+        app.launch()
+        try qa.waitState("the board terminal is connected", timeout: 60) {
+            $0.string("screen") == "terminal" && $0.bool("connected") == true
+        }
+        let start = Date()
+        var reads = 0, empty = 0, moves = 0, slowest = 0.0
+        var frame: CGRect?
+        while Date().timeIntervalSince(start) < 60 {
+            let readStart = Date()
+            let state = qa.read()
+            slowest = max(slowest, Date().timeIntervalSince(readStart))
+            reads += 1
+            guard let state else {
+                empty += 1
+                continue
+            }
+            let now = state.windowFrame(QAIds.sidebarCurrentAgent)
+            if now != frame {
+                moves += 1
+                frame = now
+            }
+        }
+        print(String(format: "QAAX marks-move reads=%ld empty=%ld current-agent-moves=%ld slowest=%.3f s",
+                     reads, empty, moves, slowest))
+        // Without movement the check proves nothing: fail rather than pass vacuously.
+        XCTAssertGreaterThanOrEqual(moves, 20, "qa.sidebar.current-agent moved only \(moves) times in 60 s")
+        XCTAssertEqual(empty, 0, "\(empty) of \(reads) qa.state reads were empty while marked controls moved")
+    }
 }
