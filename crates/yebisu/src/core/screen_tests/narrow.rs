@@ -93,11 +93,13 @@ fn the_band_just_under_568_pt_is_one_pane() -> crate::Result<()> {
         let live = publish_for(&screens, &saved(1, false)?, size, (1, 1, 0), narrow);
         assert!(symbols(&live).iter().all(|s| s == "B"), "{width}");
     }
-    for width in [568., 651.] {
+    // The 8 pt inner padding (Q3 B, 2026-11-26) takes 16 pt less for two
+    // panes than the design's 12 pt: they fit from 636 pt, not 652.
+    for width in [568., 635.] {
         let tight = Some(column(width, 600.0, (8.0, 20.0)));
         assert_eq!(pane_size_for(size, 2, false, tight)?, size, "{width}");
     }
-    let wide = Some(column(652., 600.0, (8.0, 20.0)));
+    let wide = Some(column(636., 600.0, (8.0, 20.0)));
     assert_eq!(pane_size_for(size, 2, false, wide)?.cols(), 35);
     Ok(())
 }
