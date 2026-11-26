@@ -150,3 +150,53 @@ fn a_mac_keeps_its_top_row(cx: &mut TestAppContext) {
         );
     }
 }
+
+/// Issue #208: the compact top bar stays below the top safe area, clear of
+/// the status bar, so it keeps only the controls' own clearance, not the
+/// status icons' 121 pt.
+#[gpui::test]
+fn a_compact_window_keeps_its_top_bar_free_of_the_status_icons(cx: &mut TestAppContext) {
+    let (view, cx) = terminal(cx);
+    // A narrow iPad window (Split View or a small window): the compact frame.
+    let width = 320.0;
+    cx.simulate_resize(size(px(width), px(HEIGHT)));
+    for controls in [CONTROLS, CONTROLS_RIGHT] {
+        // Clear of the screen's top edge there is no status bar in the band.
+        draw(&view, cx, CLEAR_TOP, controls, false, true);
+        let selectors = [
+            "shell-compact-menu",
+            "shell-compact-tab-switcher",
+            "shell-compact-more-actions",
+        ];
+        let clear: Vec<_> = selectors.iter().map(|s| bounds(cx, s)).collect();
+        draw(&view, cx, WINDOW_TOP, controls, false, true);
+        assert_eq!(
+            bounds(cx, "shell-compact-top-bar").top(),
+            px(WINDOW_TOP),
+            "the compact bar stays below the status bar's band"
+        );
+        for (selector, clear) in selectors.iter().zip(clear) {
+            assert_eq!(
+                bounds(cx, selector).size,
+                clear.size,
+                "{selector} keeps the size it has without the status bar ({controls:?})"
+            );
+            assert_eq!(
+                bounds(cx, selector).left(),
+                clear.left(),
+                "{selector} keeps its place ({controls:?})"
+            );
+        }
+        let switcher = bounds(cx, "shell-compact-tab-switcher");
+        assert!(
+            switcher.size.width > px(STATUS_ICONS_REACH),
+            "the tab switcher keeps its room, {:?} wide ({controls:?})",
+            switcher.size.width
+        );
+    }
+    // The controls' own clearance stays (positive control).
+    draw(&view, cx, WINDOW_TOP, CONTROLS, false, true);
+    assert!(bounds(cx, "shell-compact-menu").left() >= px(CONTROLS.0));
+    draw(&view, cx, WINDOW_TOP, CONTROLS_RIGHT, false, true);
+    assert!(bounds(cx, "shell-compact-more-actions").right() <= px(width - CONTROLS_RIGHT.1));
+}
