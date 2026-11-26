@@ -76,6 +76,9 @@ pub(crate) struct DocSnapshot {
     pub(crate) read: Read,
     /// The live terminals listed with the read.
     pub(crate) live: Vec<String>,
+    /// The live terminals that run a program or an agent (`running`): a
+    /// Close Space of theirs asks first (#231).
+    pub(crate) busy: Vec<String>,
     /// Automatic space names by folder (owner decision 9).
     pub(crate) names: BTreeMap<String, String>,
     pub(crate) stats: WriteStats,
@@ -239,6 +242,7 @@ impl DocSync {
             held: None,
             doc: None,
             live: Vec::new(),
+            busy: Vec::new(),
             names: BTreeMap::new(),
             asked: None,
             period: plan.period,
@@ -329,6 +333,7 @@ struct Reader {
     /// refuses every write (D-5).
     doc: Option<(Value, u64)>,
     live: Vec<String>,
+    busy: Vec<String>,
     names: BTreeMap<String, String>,
     /// The folders last asked about, and when.
     #[cfg_attr(not(all(target_os = "ios", not(test))), allow(dead_code))]
@@ -393,6 +398,12 @@ impl Reader {
         // is not dropped for it, and no space is removed.
         let listing = core.list(true).ok().map(|list| {
             let listing = Listing::new(&list.terminals);
+            self.busy = list
+                .terminals
+                .iter()
+                .filter(|terminal| super::running::runs_program(terminal))
+                .map(|terminal| terminal.address.clone())
+                .collect();
             self.live = list
                 .terminals
                 .into_iter()
@@ -420,6 +431,7 @@ impl Reader {
             version: self.held.unwrap_or_default(),
             read,
             live: self.live.clone(),
+            busy: self.busy.clone(),
             names: self.names.clone(),
             stats: self.stats.clone(),
         };

@@ -22,6 +22,8 @@ use std::collections::{BTreeMap, HashSet};
 const NO_DOCUMENT: &str = "Can't read the herdr-app layout; New space needs it";
 /// Why Rename Space or Rename Tab is refused: nothing can be written.
 pub(crate) const NO_RENAME_DOCUMENT: &str = "Can't read the herdr-app layout; Rename needs it";
+/// Why Close Space is refused: the document cannot be written (#231).
+pub(crate) const NO_CLOSE_DOCUMENT: &str = "Can't read the herdr-app layout; Close needs it";
 /// Why a rename of something the document no longer holds is refused.
 pub(crate) const NOT_IN_DOCUMENT: &str = "It is no longer in the herdr-app layout";
 /// Why a split is refused: the tree is not one yebisu draws (Design F).
@@ -31,6 +33,7 @@ enum Taken {
     Readable {
         view: View,
         live: HashSet<String>,
+        busy: HashSet<String>,
         names: BTreeMap<String, String>,
     },
     Unreadable,
@@ -68,6 +71,7 @@ impl DocTabs {
             Read::Readable(view) => Some(Taken::Readable {
                 view,
                 live: snapshot.live.into_iter().collect(),
+                busy: snapshot.busy.into_iter().collect(),
                 names: snapshot.names,
             }),
             Read::Unreadable => Some(Taken::Unreadable),
@@ -250,6 +254,48 @@ impl DocTabs {
             return Err(crate::Error::Ssh(NOT_IN_DOCUMENT.into()));
         }
         writer.send(intent)
+    }
+
+    /// Close Space (#231): the space leaves the document, then its live
+    /// terminals end, in the official app's order (`window.rs`
+    /// `space.close`: `remove_space`, then `close_terminals`). A terminal
+    /// whose kill fails keeps running in no document block, so it shows as
+    /// an iPad-only tab rather than going unseen; the error says so.
+    pub(super) fn close_space(
+        &self,
+        backend: &CoreBackend,
+        writer: Option<&DocWriter>,
+        id: &str,
+    ) -> crate::Result<()> {
+        let writer = writer
+            .filter(|_| self.view().is_some())
+            .ok_or_else(|| crate::Error::Ssh(NO_CLOSE_DOCUMENT.into()))?;
+        let space = self
+            .space(id)
+            .ok_or_else(|| crate::Error::Ssh(NOT_IN_DOCUMENT.into()))?;
+        let Some(Taken::Readable { live, .. }) = &self.taken else {
+            return Err(crate::Error::Ssh(NO_CLOSE_DOCUMENT.into()));
+        };
+        let mut ending = Vec::new();
+        for address in space.tabs.iter().flat_map(|tab| &tab.terminals) {
+            if live.contains(address) && !ending.contains(address) {
+                ending.push(address.clone());
+            }
+        }
+        writer.send(Intent::RemoveSpace { id: id.to_owned() })?;
+        let mut failed = 0;
+        for address in &ending {
+            if let Err(error) = backend.core().kill(address) {
+                tracing::warn!(%error, "Herdr 2 Close Space kill");
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            return Err(crate::Error::Ssh(format!(
+                "Could not end {failed} of the space's terminals"
+            )));
+        }
+        Ok(())
     }
 
     /// The terminal a split starts: with the drawn tab's labels in a
@@ -441,11 +487,13 @@ impl DocTabs {
     pub(super) fn catalog(&self, workspace: &Workspace) -> Option<DocCatalog> {
         let state = match self.taken.as_ref()? {
             Taken::Unreadable => DocRows::Unreadable,
-            Taken::Readable { view, names, .. } => DocRows::Readable(
+            Taken::Readable {
+                view, names, busy, ..
+            } => DocRows::Readable(
                 view.spaces
                     .iter()
                     .filter(|space| !space.id.is_empty())
-                    .map(|space| doc_space(space, names))
+                    .map(|space| doc_space(space, names, busy))
                     .collect(),
             ),
         };
@@ -659,7 +707,11 @@ fn tab_name(name: &str, index: usize) -> String {
     }
 }
 
-fn doc_space(space: &SpaceView, names: &BTreeMap<String, String>) -> DocSpace {
+fn doc_space(
+    space: &SpaceView,
+    names: &BTreeMap<String, String>,
+    busy: &HashSet<String>,
+) -> DocSpace {
     let name = one_line(&space.name);
     let auto_name = name.is_empty();
     DocSpace {
@@ -684,6 +736,13 @@ fn doc_space(space: &SpaceView, names: &BTreeMap<String, String>) -> DocSpace {
                 focused_pane: 0,
                 vertical: matches!(tab.drawable, Drawable::Two { vertical: true }),
             })
+            .collect(),
+        busy: space
+            .tabs
+            .iter()
+            .flat_map(|tab| &tab.terminals)
+            .filter(|address| busy.contains(*address))
+            .cloned()
             .collect(),
     }
 }

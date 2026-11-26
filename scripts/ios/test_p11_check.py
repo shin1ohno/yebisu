@@ -42,9 +42,17 @@ class PositiveOracle(unittest.TestCase):
         spec=importlib.util.spec_from_file_location("p8_fixture",Path(__file__).with_name("test_p8_native_check.py"))
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         r,m=module.NativeOracleTests().fixture()
-        r += [{"kind":"native-consumer","action":a,"modal":False} for a in ["Paste","Copy","Cut","SelectAll"]*4]
+        r += [{"kind":"native-consumer","action":a,"modal":False} for a in ["Paste","Copy","Cut"]*4]
         return r,m
     def test_outside_receiving_shape(self):p11.validate_positive(*self.fixture())
+    def test_refused_select_all_reaching_consumer_fails(self):
+        # Issue #233: the policy refuses SelectAll, so a consumer receipt for it is a dispatch leak.
+        r,m=self.fixture();r.append({"kind":"native-consumer","action":"SelectAll","modal":False})
+        with self.assertRaisesRegex(ValueError,"consumer receipts"):p11.validate_positive(r,m)
+    def test_missing_one_setting_fails(self):
+        r,m=self.fixture();r=[x for x in r if x.get("kind")!="native-consumer"]
+        r += [{"kind":"native-consumer","action":a,"modal":False} for a in ["Paste","Copy","Cut"]*3]
+        with self.assertRaisesRegex(ValueError,"consumer receipts"):p11.validate_positive(r,m)
     def test_no_consumer_not_scheduled_success(self):
         r,m=self.fixture();r=[x for x in r if x.get("kind")!="native-consumer"]
         with self.assertRaisesRegex(ValueError,"consumer receipts"):p11.validate_positive(r,m)

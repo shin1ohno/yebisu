@@ -13,6 +13,8 @@ mod ended_spaces_tests;
 // The document write path (#144 D4) uses `apply`, `check_write` and `new_id`.
 #[cfg_attr(not(test), allow(dead_code))]
 mod herdr_doc;
+#[cfg(test)]
+mod herdr_doc_close_tests;
 mod herdr_doc_prune;
 #[cfg(test)]
 mod herdr_doc_prune_tests;
@@ -35,6 +37,7 @@ mod poll;
 pub(crate) mod publication_probe;
 #[cfg(test)]
 mod regression_tests;
+mod running;
 #[cfg(all(test, unix))]
 mod saved_space_tests;
 mod screen;
@@ -52,6 +55,7 @@ mod vacate_tests;
 mod worker;
 
 use crate::{live::Live, terminal_input::Destination};
+pub(crate) use doc_tabs::NO_CLOSE_DOCUMENT;
 use sheprd_backend::{ClientPaneInputEvent, Size};
 use std::sync::{
     Arc, Mutex,
@@ -93,6 +97,9 @@ pub(crate) enum Command {
         id: String,
         name: String,
     },
+    /// Close Space (#231): space `id` leaves the `default` core's document
+    /// and its terminals end.
+    CloseDocSpace(String),
     /// Renames a tab of the `default` core's document; "" is its position.
     RenameTab {
         id: String,
@@ -162,6 +169,9 @@ pub(crate) struct DocSpace {
     pub(crate) folder: String,
     /// Every tab of the space; `panes` are all its terminals in order.
     pub(crate) tabs: Vec<TabInfo>,
+    /// Its live terminals that run a program or an agent: Close Space
+    /// asks first when there is one (#231).
+    pub(crate) busy: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

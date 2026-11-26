@@ -527,3 +527,84 @@ fn rename_is_refused_where_nothing_can_be_written() {
     });
     assert!(worker.host.doc().sets().is_empty());
 }
+
+/// Whether the mock core still lists each of `addresses`, on a connection
+/// of its own.
+fn listed(host: &Host, addresses: &[&str]) -> Vec<bool> {
+    let (probe, _) = host
+        .recorded(false)
+        .unwrap_or_else(|e| panic!("probe: {e}"));
+    let list = probe
+        .core()
+        .list(false)
+        .unwrap_or_else(|e| panic!("list: {e}"));
+    addresses
+        .iter()
+        .map(|address| list.terminals.iter().any(|t| t.address == *address))
+        .collect()
+}
+
+/// #231: Close Space through the worker writes the document once, without
+/// the space and with the other space and its tabs as they were, and ends
+/// the space's terminals, and no other.
+#[test]
+fn close_space_removes_it_and_ends_its_terminals() {
+    let worker = worker(seeded("two-spaces"));
+    let (before, _) = worker.host.doc().doc();
+    let other = worker.host.recorded(false).map(|(probe, _)| probe);
+    let other = other.unwrap_or_else(|e| panic!("probe: {e}"));
+    let kept = other
+        .core()
+        .run(&Default::default())
+        .unwrap_or_else(|e| panic!("run: {e}"));
+    worker.send(Command::CloseDocSpace(B1.into()));
+    wait_until("the closed space", || {
+        worker.host.doc().doc().0["spaces"]
+            .as_array()
+            .is_some_and(|spaces| spaces.len() == 1)
+    });
+    let (after, _) = worker.host.doc().doc();
+    let mut undone = after.clone();
+    if let Some(spaces) = undone["spaces"].as_array_mut() {
+        spaces.insert(0, before["spaces"][0].clone());
+    }
+    assert_eq!(undone, before, "only the closed space left the document");
+    assert_eq!(after["spaces"][0], before["spaces"][1], "the other space");
+    wait_until("t1 and t2 ended", || {
+        listed(&worker.host, &["t1", "t2"]) == [false, false]
+    });
+    assert_eq!(
+        listed(&worker.host, &[kept.address.as_str()]),
+        [true],
+        "a terminal of no closed space keeps running"
+    );
+    assert_eq!(worker.host.doc().sets().len(), 1, "one write");
+}
+
+/// Close Space is refused with a reason, and nothing is written or ended,
+/// when the document cannot be read or no longer holds the space.
+#[test]
+fn close_space_is_refused_where_nothing_can_be_written() {
+    let worker = worker(seeded("unreadable-root"));
+    worker.send(Command::CloseDocSpace(B1.into()));
+    wait_until("the refusal", || {
+        worker
+            .live()
+            .status
+            .contains("Can't read the herdr-app layout; Close needs it")
+    });
+    assert!(worker.host.doc().sets().is_empty());
+    assert_eq!(listed(&worker.host, &["t1", "t2"]), [true, true]);
+    let worker = self::worker(seeded("two-spaces"));
+    worker.send(Command::CloseDocSpace(
+        "sp000000000000000000000000000000ff".into(),
+    ));
+    wait_until("the refusal of an unknown space", || {
+        worker
+            .live()
+            .status
+            .contains("no longer in the herdr-app layout")
+    });
+    assert!(worker.host.doc().sets().is_empty());
+    assert_eq!(listed(&worker.host, &["t1", "t2"]), [true, true]);
+}

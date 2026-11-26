@@ -306,6 +306,11 @@ pub(super) fn run(
                         command_error = Some(error.to_string());
                     }
                 }
+                Command::CloseDocSpace(id) => {
+                    if let Err(error) = doc.close_space(&backend, doc_writer.as_ref(), &id) {
+                        command_error = Some(error.to_string());
+                    }
+                }
                 Command::RenameTab { id, name } => {
                     let intent = herdr_doc::Intent::RenameTab { id, name };
                     if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
