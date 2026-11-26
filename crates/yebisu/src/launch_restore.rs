@@ -9,7 +9,9 @@
 //!
 //! The record is written off the UI thread whenever what is open changes
 //! while the app is active (`store::Writer`), so a process that is suspended
-//! and killed has already left it.
+//! and killed has already left it. A launch with no record, or one that
+//! cannot be read, opens Herdr 2 `default` instead (`no_record.rs`).
+mod no_record;
 mod store;
 
 use crate::{
@@ -104,6 +106,15 @@ fn qa_environment(keys: impl IntoIterator<Item = std::ffi::OsString>) -> bool {
         .any(|key| key.to_str().is_some_and(|key| key.starts_with("YEBISU_")))
 }
 
+/// A record that cannot be read counts as no record: the launch opens
+/// `default` (`no_record.rs`) rather than nothing.
+fn usable(result: crate::Result<Option<Record>>) -> Option<Record> {
+    result
+        .inspect_err(|error| tracing::warn!(%error, "launch record unreadable"))
+        .ok()
+        .flatten()
+}
+
 fn probe_spaces(host: &str) -> crate::Result<BTreeSet<String>> {
     #[cfg(target_os = "ios")]
     {
@@ -138,11 +149,7 @@ impl Smoke {
         cx.spawn(async move |weak, cx| {
             let result = read.await;
             let _ = weak.update(cx, |this, _| {
-                let record = result
-                    .inspect_err(|error| tracing::warn!(%error, "launch record unreadable"))
-                    .ok()
-                    .flatten();
-                this.launch.phase = Phase::Loaded(record);
+                this.launch.phase = Phase::Loaded(usable(result));
             });
         })
         .detach();
@@ -160,8 +167,9 @@ impl Smoke {
                 else {
                     return;
                 };
-                if let Some(record) = record {
-                    self.restore_launch(record, cx);
+                match record {
+                    Some(record) => self.restore_launch(record, cx),
+                    None => self.open_default_spaces(cx),
                 }
             }
             Phase::Done if self.launch.pending == 0 => self.save_launch_snapshot(),
@@ -298,19 +306,7 @@ impl Smoke {
             self.open_restored_space(&host, space, None, place, cx);
             return;
         }
-        #[cfg(test)]
-        let probe = self.launch.probe.clone();
-        let listed = {
-            let host = host.clone();
-            cx.background_executor().spawn(async move {
-                #[cfg(test)]
-                if let Some(probe) = probe {
-                    return probe(&host);
-                }
-                probe_spaces(&host)
-            })
-        };
-        self.launch.pending += 1;
+        let listed = self.list_spaces(&host, cx);
         cx.spawn(async move |weak, cx| {
             let listed = listed.await;
             let _ = weak.update(cx, |this, cx| {
@@ -337,6 +333,26 @@ impl Smoke {
             });
         })
         .detach();
+    }
+
+    /// The spaces `host` lists, read off the UI thread. The record is not
+    /// rewritten until the caller handles the answer and lowers `pending`.
+    fn list_spaces(
+        &mut self,
+        host: &str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<crate::Result<BTreeSet<String>>> {
+        #[cfg(test)]
+        let probe = self.launch.probe.clone();
+        let host = host.to_owned();
+        self.launch.pending += 1;
+        cx.background_executor().spawn(async move {
+            #[cfg(test)]
+            if let Some(probe) = probe {
+                return probe(&host);
+            }
+            probe_spaces(&host)
+        })
     }
 
     fn still_waiting(&self, host: &str, place: Place) -> bool {

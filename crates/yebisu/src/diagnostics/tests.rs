@@ -274,6 +274,10 @@ fn herdr2_link_codes_reach_the_log() {
         "herdr2_doc_readable",
         "herdr2_doc_unreadable",
         "herdr2_doc_unavailable",
+        "herdr2_launch_default",
+        "herdr2_launch_default_none",
+        "herdr2_launch_default_failed",
+        "herdr2_launch_default_tap",
     ];
     let (sender, receiver) = sync_channel(codes.len());
     tracing::subscriber::with_default(

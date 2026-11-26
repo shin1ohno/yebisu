@@ -52,6 +52,13 @@ const CODES: &[&str] = &[
     "herdr2_doc_readable",
     "herdr2_doc_unreadable",
     "herdr2_doc_unavailable",
+    // A launch with no record (`launch_restore/no_record.rs`), per saved
+    // host: `default` dialed, no Herdr 2 space listed, the listing failed;
+    // and once per launch, Return is Tap reconnect so nothing is dialed.
+    "herdr2_launch_default",
+    "herdr2_launch_default_none",
+    "herdr2_launch_default_failed",
+    "herdr2_launch_default_tap",
     "panic",
 ];
 /// `herdr_uikit::DIAGNOSTIC_CODES`, repeated here because the host build of
