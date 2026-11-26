@@ -12,6 +12,9 @@ const P0_TAP_LABEL: &str = "Tap / type";
 pub(crate) struct Smoke {
     pub(crate) find: Option<crate::find_view::FindBar>,
     pub(crate) find_handoff: crate::find::retirement::Handoff,
+    /// A Find request the busy reader mailbox refused, submitted again from
+    /// the next draw (find_view.rs `open_find`).
+    pub(crate) find_open_retry: Option<crate::find_view::OpenRetry>,
     pub(crate) forwards: crate::forwards::Forwards,
     pub(crate) notifications: crate::notification_view::State,
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
@@ -124,6 +127,7 @@ impl Smoke {
         Self {
             find: None,
             find_handoff: Default::default(),
+            find_open_retry: None,
             forwards: crate::forwards::Forwards::new(),
             notifications: Default::default(),
             #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
@@ -193,6 +197,7 @@ impl Render for Smoke {
                 }));
         }
         self.prepare_new_space(window, cx);
+        self.schedule_find_open_retry(window, cx);
         let rendered = self.render_screen(window, cx);
         self.publish_native_edits(window);
         let screen = div()
