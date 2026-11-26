@@ -142,6 +142,7 @@ impl Smoke {
             size,
             &self.platform_insets(window),
             self.platform_window_controls(window),
+            self.platform_window_fills_screen(window),
         )
     }
 
@@ -166,20 +167,67 @@ impl Smoke {
     }
 
     /// `frame_layout` for a window `size` with the platform's `platform`
-    /// insets (safe area and keyboard) and the reach of its window
-    /// `controls` past the safe area (all zero without controls).
+    /// insets (safe area and keyboard), the reach of its window `controls`
+    /// past the safe area (all zero without controls), and whether it
+    /// `fills_screen` (herdr-uikit `window_fills_screen`).
     pub(crate) fn layout_for(
         &self,
         size: Size,
         platform: &gpui::WindowInsets,
         controls: ControlsReach,
+        fills_screen: bool,
     ) -> Layout {
         let safe = platform.safe_area;
         // An iPad window showing its window controls; never full screen
         // (no controls) or a Mac (traffic lights, whose own rules apply).
-        let windowed =
-            !self.platform_traffic_lights_over_content() && controls.clearance().shows_controls();
-        let top = layout::top_band(f32::from(safe.top), windowed);
+        // A window filling its screen is not one either, even with its
+        // controls (#221, owner decision 2026-11-26): herdr-uikit hides the
+        // status bar there, and the top row keeps to the safe area UIKit
+        // reports, below the status bar if UIKit still shows it.
+        let windowed = !fills_screen
+            && !self.platform_traffic_lights_over_content()
+            && controls.clearance().shows_controls();
+        let reported_top = f32::from(safe.top);
+        let top = layout::top_band(reported_top, windowed);
+        let in_band = self.layout_in_band(size, platform, controls, windowed, top);
+        if top.status_icons <= 0.0 {
+            return in_band;
+        }
+        // Issue #209 (owner decision A, 2026-11-26): a row too short beside
+        // the status icons for the switcher's full width, a tab, + and the
+        // pinned buttons stays below the band, as the compact bar does
+        // (#208), when that gives it more room.
+        let switcher =
+            !self.terminal.core_mode && (self.actions.board_hidden || in_band.sidebar_collapsed);
+        let content = |layout: &Layout| layout.tab_row.width - layout.controls.tab_row_trailing;
+        if content(&in_band) >= super::tab_row::tab_row_min_content(switcher) {
+            return in_band;
+        }
+        let below = self.layout_in_band(
+            size,
+            platform,
+            controls,
+            windowed,
+            layout::top_band(reported_top, false),
+        );
+        if content(&below) > content(&in_band) {
+            below
+        } else {
+            in_band
+        }
+    }
+
+    /// `layout_for` with the top row at `top`: in the band (`top_band`) or
+    /// below it.
+    fn layout_in_band(
+        &self,
+        size: Size,
+        platform: &gpui::WindowInsets,
+        controls: ControlsReach,
+        windowed: bool,
+        top: layout::TopBand,
+    ) -> Layout {
+        let safe = platform.safe_area;
         let insets = Insets {
             safe_top: top.safe_top,
             safe_left: f32::from(safe.left),
@@ -225,6 +273,10 @@ impl Smoke {
         let layout = self.frame_layout(window);
         self.shell.frame.withdrawn = layout.withdrawn.len();
         self.record_window_controls(self.platform_window_controls(window), layout.controls);
+        self.record_window_fill(
+            self.platform_window_fills_screen(window),
+            f32::from(self.platform_insets(window).safe_area.top),
+        );
         self.observe_frame_bounds(window, cx);
         if self.shell.frame.sidebar_collapsed != layout.sidebar_collapsed {
             self.shell.frame.sidebar_collapsed = layout.sidebar_collapsed;
@@ -256,6 +308,7 @@ impl Smoke {
                     .children(self.render_tab_row(
                         tab_row_leading,
                         layout.controls.tab_row_trailing,
+                        geometry.tab_row.width,
                         cx,
                     ))
                     .child(rule()),
@@ -432,3 +485,11 @@ mod bottom_band_tests;
 #[cfg(test)]
 #[path = "frame_hidden_sidebar_tests.rs"]
 mod hidden_sidebar_tests;
+
+#[cfg(test)]
+#[path = "frame_trailing_clearance_tests.rs"]
+mod trailing_clearance_tests;
+
+#[cfg(test)]
+#[path = "frame_fill_screen_tests.rs"]
+mod fill_screen_tests;

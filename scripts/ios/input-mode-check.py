@@ -9,15 +9,24 @@ the test printed (qa.state.input_mode at each step) and its screenshots. Prints 
 screenshots into --out. A Simulator result does not prove real IME or hardware keyboard
 behaviour (AGENTS.md); the owner's iPad checks (D1-D7) do.
 
+An app that never reports idle to XCUITest makes each action wait minutes (#212: the G14
+mutation ran 5.5 h), so the test has an overall limit (--timeout, seconds). Past it, or once the
+test printed the step --stop-after names, xcodebuild gets SIGTERM and the cases are judged from
+what it printed by then; summary.json's `stopped` says which, and the run exits 1.
+
   input-mode-check.py [--out DIR] [--label L]      # just ios-input-mode; DIR: target/ios-input-mode
+  input-mode-check.py --stop-after s2-h2-after     # a mutation leg judged by T-IM-S2 alone
 """
 import argparse
 import importlib.util
 import json
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 
 KEYBOARDS = ['en_US@sw=QWERTY;hw=Automatic', 'ja_JP-Romaji@sw=QWERTY-Japanese;hw=Automatic']
 CASES = ('T-IM-S1', 'T-IM-S2', 'T-IM-S3', 'T-IM-S4', 'T-IM-S5', 'T-IM-S6', 'T-IM-S7', 'T-IM-S8')
@@ -25,6 +34,11 @@ CASES = ('T-IM-S1', 'T-IM-S2', 'T-IM-S3', 'T-IM-S4', 'T-IM-S5', 'T-IM-S6', 'T-IM
 # and Hosts & keys pages, and the command palette (the ... menu's "Command palette" row).
 # Find is not run here (AC5 does not list it; owner check D6 covers it).
 OFF_WHILE_OPEN = ('s5-settings', 's5-shortcuts', 's5-hosts', 's5-palette')
+# The whole test's limit. An unmutated run took 69 s at a load average near 130 (#153 run 11);
+# the G14 mutation's first action alone waited 120 s.
+TIMEOUT = 1800
+# How long xcodebuild gets to end after SIGTERM before SIGKILL; it ended in about 10 s (#153).
+GRACE = 60
 
 
 def observations(stdout):
@@ -245,6 +259,56 @@ def judge(obs, screenshots):
     }
 
 
+def printed_step(line, step):
+    """Whether `line` is the INPUT_MODE_OBS line of `step`."""
+    return step in observations(line)
+
+
+def run_test(command, cwd, timeout, stop_after=None, grace=GRACE):
+    """Runs `command` as subprocess.run(capture_output=True) would, but sends SIGTERM once
+    `timeout` seconds pass or stdout has the INPUT_MODE_OBS line of `stop_after`, and SIGKILL
+    `grace` seconds later. Returns (returncode, stdout, stderr, stopped): `stopped` is None for
+    a test that ended by itself, else {'reason': 'timeout'|'step', 'step', 'after_s'}."""
+    started = time.monotonic()
+    process = subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err, reached = [], [], threading.Event()
+
+    def read_out():
+        for line in process.stdout:
+            out.append(line)
+            if stop_after and printed_step(line, stop_after):
+                reached.set()
+
+    def read_err():
+        err.extend(process.stderr)
+
+    readers = [threading.Thread(target=read_out, daemon=True), threading.Thread(target=read_err, daemon=True)]
+    for reader in readers:
+        reader.start()
+    stopped = None
+    while process.poll() is None:
+        if reached.wait(0.2):
+            stopped = {'reason': 'step', 'step': stop_after}
+        elif time.monotonic() - started >= timeout:
+            stopped = {'reason': 'timeout', 'step': None}
+        if stopped is None:
+            continue
+        stopped['after_s'] = round(time.monotonic() - started, 1)
+        process.send_signal(signal.SIGTERM)
+        try:
+            process.wait(grace)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        break
+    # A child xcodebuild left behind can hold the pipes open: keep what was read by then.
+    for reader, stream in zip(readers, (process.stdout, process.stderr)):
+        reader.join(grace if stopped else None)
+        if not reader.is_alive():
+            stream.close()
+    return process.returncode, ''.join(out), ''.join(err), stopped
+
+
 def run(*command, **kwargs):
     print('INPUT_MODE COMMAND', list(command), flush=True)
     return subprocess.run(command, check=True, text=True, **kwargs)
@@ -254,6 +318,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, default=Path('target/ios-input-mode'))
     parser.add_argument('--label', default='local')
+    parser.add_argument('--timeout', type=float, default=TIMEOUT,
+                        help=f'seconds the test may run before SIGTERM (default {TIMEOUT})')
+    parser.add_argument('--stop-after', metavar='STEP',
+                        help='SIGTERM the test once it printed this INPUT_MODE_OBS step, e.g. s2-h2-after')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     out = (args.out if args.out.is_absolute() else root / args.out).resolve()
@@ -281,13 +349,17 @@ def main():
     result = out / 'result.xcresult'
     if result.exists():
         shutil.rmtree(result)
-    test = subprocess.run(['xcodebuild', 'test', '-project', str(spec / 'SmokeOracle.xcodeproj'), '-scheme', 'SmokeOracle',
-                           '-destination', 'id=' + device, '-derivedDataPath', str(root / 'target/ios-smoke/build'),
-                           '-resultBundlePath', str(result), 'CODE_SIGNING_ALLOWED=NO',
-                           '-only-testing:SmokeOracle/SmokeQA/testInputModeIndicator'],
-                          text=True, capture_output=True, cwd=root)
-    (out / 'xctest.stdout').write_text(test.stdout)
-    (out / 'xctest.stderr').write_text(test.stderr)
+    returncode, stdout, stderr, stopped = run_test(
+        ['xcodebuild', 'test', '-project', str(spec / 'SmokeOracle.xcodeproj'), '-scheme', 'SmokeOracle',
+         '-destination', 'id=' + device, '-derivedDataPath', str(root / 'target/ios-smoke/build'),
+         '-resultBundlePath', str(result), 'CODE_SIGNING_ALLOWED=NO',
+         '-only-testing:SmokeOracle/SmokeQA/testInputModeIndicator'],
+        root, args.timeout, args.stop_after)
+    (out / 'xctest.stdout').write_text(stdout)
+    (out / 'xctest.stderr').write_text(stderr)
+    if stopped:
+        print('INPUT_MODE STOPPED', stopped['reason'], stopped['step'] or f'{args.timeout:g} s',
+              f"after {stopped['after_s']} s", flush=True)
     subprocess.run(['xcrun', 'simctl', 'terminate', device, 'com.shin1ohno.yebisu'], text=True, capture_output=True)
     export = out / 'attachments'
     if export.exists():
@@ -304,16 +376,16 @@ def main():
                 shutil.copyfile(export / attachment['exportedFileName'], target)
                 if name.startswith('input-mode-s8-'):
                     shots.append(target)
-    obs = observations(test.stdout)
+    obs = observations(stdout)
     verdicts = judge(obs, load_screenshots(sorted(shots)))
     for case in CASES:
         ok, reason = verdicts[case]
         print('INPUT_MODE', case, 'PASS' if ok else 'FAIL', reason, flush=True)
-    summary = {'label': args.label, 'xcodebuild_exit': test.returncode, 'observations': obs,
+    summary = {'label': args.label, 'xcodebuild_exit': returncode, 'stopped': stopped, 'observations': obs,
                'cases': {case: {'pass': ok, 'reason': reason} for case, (ok, reason) in verdicts.items()},
                'scope': 'Simulator only; not proof of real IME or hardware keyboard behaviour'}
     (out / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-    sys.exit(0 if test.returncode == 0 and all(ok for ok, _ in verdicts.values()) else 1)
+    sys.exit(0 if returncode == 0 and not stopped and all(ok for ok, _ in verdicts.values()) else 1)
 
 
 if __name__ == '__main__':
