@@ -146,18 +146,20 @@ class LifecycleWaits(unittest.TestCase):
 
 
 class SelectionAfterScroll(unittest.TestCase):
-    """Issue #142 stage 3: QAAx no longer sends a press again once its touch reached the app, and the first tap
-    after SH1-151's scroll reaches the app untaken; the test proves taps are taken before pressing Double tap."""
+    """Issue #161: the scroll in SH1-151 ends in a fling that reaches the content's end. The gpui-pre fork ends
+    such a fling, so the first tap after the drag must press Double tap itself: no touch-ready press, no pause."""
 
-    def test_taps_are_proven_taken_after_the_scroll_before_the_edit(self):
+    def test_the_first_tap_after_the_scroll_is_the_edit(self):
         test = statements(body(swift_source(), "func testSH1151SelectionSettings("))
         drag = next(at for at, line in enumerate(test) if "thenDragTo:" in line)
-        ready = test.index('try qa.touchReady(QAIds.startDrag, what: "Settings › Input after the scroll")')
         press = next(at for at, line in enumerate(test) if line.startswith("try qa.press(QAIds.startDoubleTap"))
-        self.assertEqual((drag + 1, ready + 1), (ready, press), "drag, then touch-ready on the selected Drag option, then the edit")
-        self.assertNotIn("sleep(", "\n".join(test[drag:press]))
-        ids = (TESTS / "QAIds.swift").read_text()
-        self.assertIn('static let startDrag = "qa.settings.start-selection.drag"', ids)
+        self.assertEqual(drag + 1, press, "the drag, then at once the Double tap press")
+        self.assertNotIn("touchReady", "\n".join(test[drag:press + 1]))
+        self.assertNotIn("sleep(", "\n".join(test[drag:press + 1]))
+        # The drag must stay a fling (released while moving), or this would not exercise #161.
+        self.assertNotIn("thenHoldForDuration", test[drag])
+        manifest = (Path(__file__).resolve().parents[2] / "Cargo.toml").read_text()
+        self.assertIn('gpui-pre = { git = "https://github.com/shin1ohno/gpui-pre", rev = ', manifest)
 
 
 class P9Timeout(unittest.TestCase):
