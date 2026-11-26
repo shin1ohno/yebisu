@@ -3,14 +3,19 @@
 //! The layer is one transparent UIView over the owner window's UIWindow (the
 //! window of the GPUI view that publishes, `layer::Windows`) with user
 //! interaction off, so every touch falls through to the GPUI view. Its
-//! `accessibilityElements` are the marked controls plus `qa.state`. When
-//! another window takes the layer over (the second E5 scene), the view moves
-//! to that window and its elements are rebuilt there.
+//! `accessibilityElements` are the marked controls plus `qa.state`. A
+//! control keeps its element while it stays marked; a moved one gets its new
+//! frame in place (`layer::reuse`). When another window takes the layer over
+//! (the second E5 scene), the view moves to that window and its elements are
+//! made anew there.
 #![allow(
     unsafe_code,
     reason = "main-thread QA calls public UIKit accessibility methods"
 )]
-use super::{ids::STATE, layer::Control};
+use super::{
+    ids::STATE,
+    layer::{Control, reuse},
+};
 use objc2::{
     class,
     encode::{Encode, Encoding},
@@ -81,6 +86,8 @@ struct Layer {
     window: Retained<AnyObject>,
     view: Retained<AnyObject>,
     state: Option<Retained<AnyObject>>,
+    /// The controls' elements as last published, by identifier.
+    elements: Vec<(&'static str, Retained<AnyObject>)>,
 }
 
 thread_local! {
@@ -141,18 +148,26 @@ unsafe fn element(
         let element: Retained<AnyObject> =
             msg_send![element, initWithAccessibilityContainer: container];
         let _: () = msg_send![&*element, setAccessibilityIdentifier: &*NSString::from_str(id)];
-        let _: () = msg_send![&*element, setAccessibilityLabel: &*NSString::from_str(label)];
         let _: () = msg_send![&*element, setAccessibilityTraits: traits];
-        let _: () = msg_send![&*element, setAccessibilityFrameInContainerSpace: frame];
+        update(&element, label, frame);
         element
+    }
+}
+
+/// Gives a kept element its control's current label and frame.
+unsafe fn update(element: &AnyObject, label: &str, frame: Rect) {
+    unsafe {
+        let _: () = msg_send![element, setAccessibilityLabel: &*NSString::from_str(label)];
+        let _: () = msg_send![element, setAccessibilityFrameInContainerSpace: frame];
     }
 }
 
 /// Publishes `controls` and the `qa.state` value in the UIWindow of `view`
 /// (the publishing window's GPUI view; the key window without one). With
 /// `layout_changed`, or in a window the layer was not in, the element list
-/// is rebuilt and UIKit is told the layout changed; otherwise only the state
-/// value is replaced. False when there is no window to attach the layer to.
+/// is published again, keeping the element of every control still marked,
+/// and UIKit is told the layout changed; otherwise only the state value is
+/// replaced. False when there is no window to attach the layer to.
 pub(crate) fn apply(
     view: Option<NonNull<c_void>>,
     controls: &[Control],
@@ -180,6 +195,7 @@ pub(crate) fn apply(
                 window,
                 view,
                 state: None,
+                elements: Vec::new(),
             });
         }
         let Some(layer) = layer.as_mut() else {
@@ -188,28 +204,43 @@ pub(crate) fn apply(
         // SAFETY: main thread, as above; every object is a live UIKit object.
         unsafe {
             if layout_changed || layer.state.is_none() {
-                let mut elements = Vec::with_capacity(controls.len() + 1);
-                for control in controls {
-                    elements.push(element(
-                        &layer.view,
-                        control.id,
-                        control.label,
-                        UIAccessibilityTraitButton,
-                        rect(control.frame),
-                    ));
+                let published: Vec<&'static str> =
+                    layer.elements.iter().map(|(id, _)| *id).collect();
+                let mut kept = Vec::with_capacity(controls.len());
+                for (control, found) in controls.iter().zip(reuse(&published, controls)) {
+                    let frame = rect(control.frame);
+                    let control_element = match found {
+                        Some(index) => {
+                            let kept_element = layer.elements[index].1.clone();
+                            update(&kept_element, control.label, frame);
+                            kept_element
+                        }
+                        None => element(
+                            &layer.view,
+                            control.id,
+                            control.label,
+                            UIAccessibilityTraitButton,
+                            frame,
+                        ),
+                    };
+                    kept.push((control.id, control_element));
                 }
-                let state_element = element(
-                    &layer.view,
-                    STATE,
-                    "QA state",
-                    UIAccessibilityTraitStaticText,
-                    rect([0.0, 0.0, 1.0, 1.0]),
-                );
-                elements.push(state_element.clone());
-                layer.state = Some(state_element);
-                let refs: Vec<&AnyObject> = elements.iter().map(|e| &**e).collect();
+                let state_element = match layer.state.take() {
+                    Some(state) => state,
+                    None => element(
+                        &layer.view,
+                        STATE,
+                        "QA state",
+                        UIAccessibilityTraitStaticText,
+                        rect([0.0, 0.0, 1.0, 1.0]),
+                    ),
+                };
+                let mut refs: Vec<&AnyObject> = kept.iter().map(|(_, e)| &**e).collect();
+                refs.push(&state_element);
                 let array = NSArray::from_slice(&refs);
                 let _: () = msg_send![&*layer.view, setAccessibilityElements: &*array];
+                layer.elements = kept;
+                layer.state = Some(state_element);
                 if let Some(superview) = {
                     let s: Option<Retained<AnyObject>> = msg_send![&*layer.view, superview];
                     s
