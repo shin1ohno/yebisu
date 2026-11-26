@@ -22,9 +22,12 @@
 //! - that read is complete: a readable document and a list that answered
 //!   (a failed read forgets every candidate);
 //! - its terminal finished as `exited` or `killed`, or as `server_stop`
-//!   while not kept, or is absent from the full list and belongs to this
+//!   while not kept, or is absent from the full list, belongs to this
 //!   machine (an address of another machine, `box/t7`, is never judged
-//!   absent here);
+//!   absent here) and herdr-core then answers `terminal.get` for it on the
+//!   same connection with a `not_found` refusal, as the official app asks
+//!   (`checked_closed`); any other answer, an error or a timeout keeps it
+//!   (issue 222);
 //! - its tab holds nothing but terminal blocks in rows and columns (a tab
 //!   with a stack, a floating block, a mod or an agent stays whole);
 //! - a later read of the same boot, at least one poll period after the
@@ -39,7 +42,7 @@
 //! `hc server stop` ended goes as well. `holder_lost` and any other reason
 //! are not ends.
 use super::{
-    herdr_doc::{Intent, View},
+    herdr_doc::{Intent, SpaceView, View},
     herdr_doc_prune::{plain, prune_space},
 };
 use serde_json::Value;
@@ -54,11 +57,13 @@ const CLOSED: [&str; 2] = ["exited", "killed"];
 /// The server stopped under it (`hc server stop`, a restart).
 const STOPPED: &str = "server_stop";
 
-/// One full `terminal.list` (`all: true`): every terminal herdr-core knows.
+/// One full `terminal.list` (`all: true`): every terminal herdr-core knows,
+/// and the ones it left out that `terminal.get` then did not find.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Listing {
     closed: HashSet<String>,
     known: HashSet<String>,
+    gone: HashSet<String>,
 }
 
 impl Listing {
@@ -79,9 +84,49 @@ impl Listing {
         listing
     }
 
-    fn ended(&self, address: &str) -> bool {
-        self.closed.contains(address) || (!self.known.contains(address) && !address.contains('/'))
+    /// Left out of the list and of this machine: to ask about.
+    fn unlisted(&self, address: &str) -> bool {
+        !self.known.contains(address) && !address.contains('/')
     }
+
+    /// `terminal.get` answered `not_found` for `address`, left out of the
+    /// list.
+    pub(crate) fn not_found(&mut self, address: &str) {
+        if self.unlisted(address) {
+            self.gone.insert(address.to_owned());
+        }
+    }
+
+    fn ended(&self, address: &str) -> bool {
+        self.closed.contains(address) || self.gone.contains(address)
+    }
+}
+
+/// The terminals of plain tabs of `space`: the only ones a prune takes.
+fn plain_terminals<'a>(raw: &'a Value, space: &'a SpaceView) -> impl Iterator<Item = &'a String> {
+    raw.get("tabs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .zip(&space.tabs)
+        .filter(|(tab, _)| tab.get("root").is_none_or(plain))
+        .flat_map(|(_, tab)| &tab.terminals)
+}
+
+/// The terminals of `value`'s plain tabs that the full list left out, each
+/// once, in the document's order: those to confirm with `terminal.get`.
+pub(crate) fn unlisted(value: &Value, view: &View, listing: &Listing) -> Vec<String> {
+    let spaces = value.get("spaces").and_then(Value::as_array);
+    let mut seen = HashSet::new();
+    view.spaces
+        .iter()
+        .enumerate()
+        .filter(|(_, space)| !space.id.is_empty())
+        .filter_map(|(i, space)| Some((spaces?.get(i)?, space)))
+        .flat_map(|(raw, space)| plain_terminals(raw, space))
+        .filter(|address| listing.unlisted(address) && seen.insert(address.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// A space of the document with something to remove.
@@ -105,12 +150,7 @@ pub(crate) fn ended(value: &Value, view: &View, listing: &Listing) -> Vec<Candid
         .filter_map(|(i, space)| {
             let raw = spaces?.get(i)?;
             let tabs = raw.get("tabs").and_then(Value::as_array);
-            let ended = tabs
-                .into_iter()
-                .flatten()
-                .zip(&space.tabs)
-                .filter(|(tab, _)| tab.get("root").is_none_or(plain))
-                .flat_map(|(_, tab)| &tab.terminals)
+            let ended = plain_terminals(raw, space)
                 .filter(|address| listing.ended(address))
                 .cloned()
                 .collect::<BTreeSet<_>>();

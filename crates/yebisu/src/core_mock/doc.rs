@@ -50,6 +50,25 @@ struct State {
     held: bool,
     /// `doc.set`s waiting now.
     waiting: usize,
+    /// How `terminal.get` answers for an address, in place of the default.
+    get_answers: BTreeMap<String, Get>,
+    /// Every `terminal.get` received: its address.
+    #[cfg(test)]
+    gets: Vec<String>,
+}
+
+/// How the mock core answers `terminal.get` for one address, in place of
+/// the default: the live terminal, the finished one, or `not_found`.
+// Only tests choose an answer; the Simulator QA mode keeps the default.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Get {
+    /// A live terminal, though `terminal.list` leaves it out.
+    Live,
+    /// A refusal of this kind.
+    Fail(&'static str),
+    /// No answer at all: the client's call times out.
+    Silent,
 }
 
 /// One host's documents, shared by every connection to it.
@@ -265,6 +284,31 @@ impl Store {
             .cloned()
             .unwrap_or_else(|| json!({}))
     }
+
+    /// The answer to `terminal.get` for `address`, or `None` for no answer.
+    /// `live` is the terminal's record when it is live; otherwise a
+    /// finished terminal is its finished record and any other is
+    /// `not_found`, as herdr-core answers.
+    pub(crate) fn get(&self, address: &str, live: Option<Value>) -> Option<Result<Value, Value>> {
+        let finished = self
+            .finished()
+            .into_iter()
+            .find(|terminal| terminal["address"] == address);
+        #[cfg(test)]
+        self.lock().gets.push(address.to_owned());
+        let answer = self.lock().get_answers.get(address).copied();
+        match answer {
+            Some(Get::Silent) => None,
+            Some(Get::Fail(kind)) => Some(Err(refusal(kind, "the get failed"))),
+            Some(Get::Live) => Some(Ok(json!({"address": address, "labels": {},
+                "argv": ["sh"], "cwd": "/tmp", "state": "live", "created_ms": 1,
+                "screen": "", "cols": 80, "rows": 24}))),
+            None => Some(
+                live.or(finished)
+                    .ok_or_else(|| refusal("not_found", &format!("no terminal {address}"))),
+            ),
+        }
+    }
 }
 
 /// Test hooks: other apps, lost events, and what the mock received.
@@ -322,6 +366,21 @@ impl Store {
     /// `doc.set`s waiting for `release_sets` now.
     pub(crate) fn waiting_sets(&self) -> usize {
         self.lock().waiting
+    }
+
+    /// `terminal.get` for `address` answers as `answer` from now on;
+    /// `None` is the default answer again.
+    pub(crate) fn answer_get(&self, address: &str, answer: Option<Get>) {
+        let mut state = self.lock();
+        match answer {
+            Some(answer) => state.get_answers.insert(address.to_owned(), answer),
+            None => state.get_answers.remove(address),
+        };
+    }
+
+    /// Every `terminal.get` received, in order.
+    pub(crate) fn gets(&self) -> Vec<String> {
+        self.lock().gets.clone()
     }
 }
 
