@@ -177,6 +177,7 @@ class P12QASourceTests(unittest.TestCase):
     def test_runner_includes_the_executable_menu_bar_geometry_tests(self):
         driver = (HERE / "p12-check.py").read_text()
         self.assertIn('"-only-testing:P12Oracle/P12MenuBarGeometryTests"', driver)
+        self.assertIn('"-only-testing:P12Oracle/P12RevealGestureTests"', driver)
 
     def test_pick_and_dismiss_are_touches_again(self):
         """Issue #142 stage 3 (Owner decision 4): no XCTest pointer in P12; the pick and both
