@@ -8,11 +8,15 @@
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+    time::Duration,
 };
 
 /// herdr-core refuses larger values with `invalid_params`.
 const MAX_VALUE: usize = 1_048_576;
+/// The longest a held `doc.set` waits (`hold_sets`): a test that never
+/// releases it still ends.
+const HOLD_LIMIT: Duration = Duration::from_secs(10);
 /// The document the official app keeps its layout in.
 #[cfg(any(test, all(target_os = "ios", target_abi = "sim")))]
 const APP: &str = "herdr-app";
@@ -42,15 +46,31 @@ struct State {
     finished: BTreeMap<String, String>,
     /// `terminal.list`s still to fail.
     list_failures: usize,
+    /// `doc.set`s wait unanswered until `release_sets` (`hold_sets`).
+    held: bool,
+    /// `doc.set`s waiting now.
+    waiting: usize,
 }
 
 /// One host's documents, shared by every connection to it.
 #[derive(Clone, Default)]
-pub(crate) struct Store(Arc<Mutex<State>>);
+pub(crate) struct Store(Arc<(Mutex<State>, Condvar)>);
 
 impl Store {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.0.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Waits while `hold_sets` holds the writes, at most `HOLD_LIMIT`.
+    fn wait_held(&self) {
+        let mut state = self.lock();
+        state.waiting += 1;
+        let (mut state, _) = self
+            .0
+            .1
+            .wait_timeout_while(state, HOLD_LIMIT, |state| state.held)
+            .unwrap_or_else(PoisonError::into_inner);
+        state.waiting -= 1;
     }
 
     /// The store a Simulator QA run starts with: `YEBISU_CORE_DOC_QA`
@@ -140,6 +160,7 @@ impl Store {
     }
 
     fn set(&self, name: &str, value: Value, version: u64, bytes: usize) -> Result<Value, Value> {
+        self.wait_held();
         self.external(name);
         let mut state = self.lock();
         state.sets.push((value.clone(), version));
@@ -284,6 +305,23 @@ impl Store {
     /// The next `count` `terminal.list`s fail.
     pub(crate) fn fail_lists(&self, count: usize) {
         self.lock().list_failures = count;
+    }
+
+    /// From now on a `doc.set` gets no answer, and is not applied, until
+    /// `release_sets`: a write herdr-core is still taking (#210).
+    pub(crate) fn hold_sets(&self) {
+        self.lock().held = true;
+    }
+
+    /// The held `doc.set`s are taken, and later ones at once.
+    pub(crate) fn release_sets(&self) {
+        self.lock().held = false;
+        self.0.1.notify_all();
+    }
+
+    /// `doc.set`s waiting for `release_sets` now.
+    pub(crate) fn waiting_sets(&self) -> usize {
+        self.lock().waiting
     }
 }
 
