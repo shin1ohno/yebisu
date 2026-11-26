@@ -228,3 +228,42 @@ class StructureTests(unittest.TestCase):
 
 
 if __name__ == "__main__":unittest.main()
+
+
+class BlackRestartEvidence(unittest.TestCase):
+    """Issue #197: the restarted window's second picture and the app's frame receipts are evidence;
+    the verdict stays the first picture's."""
+
+    def test_attachments_are_matched_by_exact_name(self):
+        manifest = [{"attachments": [
+            {"suggestedHumanReadableName": "p2-restarted_0_A.png", "exportedFileName": "a.png"},
+            {"suggestedHumanReadableName": "p2-restarted-later_0_B.png", "exportedFileName": "b.png"},
+        ]}]
+        self.assertEqual([a["exportedFileName"] for a in p2.attachments_named(manifest, "p2-restarted")], ["a.png"])
+        self.assertEqual([a["exportedFileName"] for a in p2.attachments_named(manifest, "p2-restarted-later")], ["b.png"])
+
+    def test_restart_frames_come_after_the_last_launch_only(self):
+        records = [
+            {"kind": "launch", "pid": 1},
+            {"kind": "input-receipt", "receipt": "frame", "outcome": "presented", "previous": "none", "previous_count": 0},
+            {"kind": "launch", "pid": 2},
+            {"kind": "lifecycle", "phase": "Active", "generation": 0},
+            {"kind": "lifecycle", "phase": "Inactive", "generation": 0},
+            {"kind": "input-receipt", "receipt": "touch", "stage": "began"},
+            {"kind": "input-receipt", "receipt": "frame", "outcome": "zero_size", "previous": "none", "previous_count": 0},
+        ]
+        self.assertEqual(p2.restart_frames(records), [
+            {"kind": "lifecycle", "phase": "Active"},
+            {"kind": "lifecycle", "phase": "Inactive"},
+            {"kind": "input-receipt", "outcome": "zero_size", "previous": "none", "previous_count": 0},
+        ])
+
+    def test_a_black_restart_is_explained_then_still_fails(self):
+        text = (HERE / "p2-check.py").read_text()
+        main = text[text.index("def main():"):]
+        check = main.index('str(destination / "screenshot.png"), "101419", "--min", "0.4")')
+        handler = main[check:main.index("expected_line = validate_records(records)")]
+        self.assertIn("except subprocess.CalledProcessError:", handler)
+        self.assertLess(handler.index("explain_black_restart(records, destination)"), handler.index("raise"))
+        swift = (HERE / "smoke-qa/Tests/SmokeQA+Keys.swift").read_text()
+        self.assertLess(swift.index('save("p2-restarted")'), swift.index('save("p2-restarted-later")'))

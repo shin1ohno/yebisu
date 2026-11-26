@@ -302,3 +302,47 @@ fn a_heartbeat_every_heartbeat_ticks() {
     let beating: Vec<u64> = (1..=10).filter(|tick| beats(*tick)).collect();
     assert_eq!(beating, [2, 4, 6, 8, 10]);
 }
+
+#[test]
+fn every_frame_outcome_is_recorded_and_kept_as_the_last_one() {
+    for (outcome, previous) in [
+        ("presented", "none"),
+        ("zero_size", "presented"),
+        ("paths_not_ready", "zero_size"),
+        ("no_drawable", "paths_not_ready"),
+        ("render_failed", "no_drawable"),
+    ] {
+        let receipt = one(|| {
+            tracing::info!(target: "herdr_uikit::qa_input", receipt = "frame", outcome, previous,
+                previous_count = 42_u64);
+        });
+        assert_eq!(
+            record_json(&receipt),
+            json!({"kind": "input-receipt", "receipt": "frame", "outcome": outcome,
+                "previous": previous, "previous_count": 42})
+        );
+        let counters = applied(&receipt);
+        assert_eq!(counters.last_frame, Some(outcome));
+        assert_eq!(state_json(&counters)["frame_last"], json!(outcome));
+        // A frame receipt is not a touch or a menu command.
+        assert_eq!((counters.touch_began, counters.menu_perform, counters.menu_dropped), (0, 0, 0));
+    }
+    assert_eq!(state_json(&Counters::default())["frame_last"], Value::Null);
+}
+
+#[test]
+fn a_frame_receipt_with_an_unknown_or_missing_value_is_not_taken() {
+    let (taken, unknown) = captured(|| {
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "frame", outcome = "secret-outcome",
+            previous = "none", previous_count = 1_u64);
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "frame", outcome = "presented",
+            previous = "secret-previous", previous_count = 1_u64);
+        // A menu outcome is not a draw's outcome.
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "frame", outcome = "delivered",
+            previous = "none", previous_count = 1_u64);
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "frame", outcome = "presented",
+            previous = "none");
+    });
+    assert!(taken.is_empty(), "{taken:?}");
+    assert_eq!(unknown, 4);
+}
