@@ -189,8 +189,8 @@ impl Smoke {
         // the status icons for the switcher's full width, a tab, + and the
         // pinned buttons stays below the band, as the compact bar does
         // (#208), when that gives it more room.
-        let switcher = !self.terminal.core_mode
-            && (self.actions.board_hidden || in_band.sidebar_collapsed);
+        let switcher =
+            !self.terminal.core_mode && (self.actions.board_hidden || in_band.sidebar_collapsed);
         let content = |layout: &Layout| layout.tab_row.width - layout.controls.tab_row_trailing;
         if content(&in_band) >= super::tab_row::tab_row_min_content(switcher) {
             return in_band;

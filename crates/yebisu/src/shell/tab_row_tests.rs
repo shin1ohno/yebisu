@@ -304,7 +304,10 @@ fn the_space_switcher_gives_way_to_the_pinned_buttons() {
     assert_eq!(space_switcher_max_width(reserved + 10.0), min);
     assert_eq!(space_switcher_max_width(0.0), min);
     assert_eq!(space_switcher_max_width(f32::NAN), min);
-    assert_eq!(space_switcher_max_width(f32::INFINITY), SPACE_SWITCHER_WIDTH);
+    assert_eq!(
+        space_switcher_max_width(f32::INFINITY),
+        SPACE_SWITCHER_WIDTH
+    );
 }
 
 #[test]
