@@ -28,10 +28,12 @@ fn shown(view: &Entity<Smoke>, cx: &mut VisualTestContext, panes: Vec<PaneSurfac
     cx.run_until_parked();
 }
 
-fn moving(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
-    view.read_with(cx, |this, _| {
-        this.terminal.presentation.scroll.moving(Instant::now())
-    })
+/// Whether a slide is under way as of `at`. Pass an instant taken before
+/// the wheel event, not `Instant::now()` after it: the slide lasts only
+/// `SPREAD` (48 ms) of wall clock, which a loaded test runner can spend
+/// between the event and the read (main CI run 45740346789).
+fn moving(view: &Entity<Smoke>, cx: &mut VisualTestContext, at: Instant) -> bool {
+    view.read_with(cx, |this, _| this.terminal.presentation.scroll.moving(at))
 }
 
 /// T22: the smooth path asks Herdr for each row the motion enters and
@@ -43,13 +45,14 @@ fn smooth_scroll_asks_for_entered_rows_and_drops_the_whole_line_remainder(cx: &m
     shown(&view, cx, scrollback(|_| {}));
     let at = over(&view, cx, FOCUSED);
     let row = cell_height(&view, cx);
+    let before = Instant::now();
     scroll(&view, cx, at, pixels(0., 0.75 * row), TouchPhase::Started);
     assert_eq!(
         wheels(&view, cx, &wire),
         [up(FOCUSED, 1)],
         "the row entered"
     );
-    assert!(moving(&view, cx), "the fraction is drawn, not sent");
+    assert!(moving(&view, cx, before), "the fraction is drawn, not sent");
     scroll(&view, cx, at, pixels(0., 0.1 * row), TouchPhase::Moved);
     assert_eq!(wheels(&view, cx, &wire), [], "still inside the asked row");
     // The program starts reading the mouse: whole steps from here on, and
