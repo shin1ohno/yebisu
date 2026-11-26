@@ -109,6 +109,29 @@ fn collapse_keeps_the_first_mark_of_an_identifier() {
     assert_eq!(duplicates, vec![ID]);
 }
 
+#[test]
+fn a_moved_control_keeps_its_published_element() {
+    let other = |frame: f32| Control {
+        id: "qa.test.other",
+        label: "Other",
+        frame: [frame; 4],
+    };
+    let published = [ID, "qa.test.gone", "qa.test.other"];
+    // Every control another control's move republishes keeps its element;
+    // the moved one keeps its own too, and only a new identifier gets one.
+    let fresh = Control {
+        id: "qa.test.fresh",
+        label: "Fresh",
+        frame: [0.0; 4],
+    };
+    assert_eq!(
+        reuse(&published, &[other(5.0), control(1.0), fresh.clone()]),
+        vec![Some(2), Some(0), None]
+    );
+    assert_eq!(reuse(&[], &[control(1.0)]), vec![None], "a new layer");
+    assert_eq!(reuse(&published, &[]), Vec::<Option<usize>>::new());
+}
+
 /// A control at (100, 100, 80, 40) with the mark, an optional occluding
 /// layer over the whole window that takes one press and goes away (like
 /// the ... menu's backdrop), and the root publisher.
