@@ -21,6 +21,7 @@ pub(crate) mod herdr2_frame;
 pub(crate) mod host_menus;
 pub(crate) mod hosts_sheet;
 pub(crate) mod key_band;
+pub(crate) mod mod_dock;
 pub(crate) mod mods;
 pub(crate) mod overflow_menu;
 pub(crate) mod overlay;
@@ -157,4 +158,6 @@ pub(crate) struct ShellState {
     pub(crate) forward_sheet: forward_sheet::ForwardSheetState,
     /// Issue #137 PR 5: the scroll thumb of each list.
     pub(crate) indicators: scroll_indicator::Indicators,
+    /// #238 E-1 spike: the mod scene drawn in M2.
+    pub(crate) mod_view: crate::mod_view::ModViewState,
 }
