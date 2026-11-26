@@ -123,6 +123,7 @@ fn serve(
         "pane.close",
         "tab.close",
         "workspace.rename",
+        "workspace.close",
         "tab.rename",
         "pane.rename"
     ]);
@@ -371,12 +372,17 @@ fn serve(
                 let _ = gate.recv_timeout(Duration::from_secs(10));
             }
             let method = request["method"].as_str().unwrap_or_default();
+            // #231: Close Space takes the workspace out, as Herdr 1 does,
+            // and the focus goes to a space that is left.
+            let closed = close_workspace(&mut board_snapshot, method, &request["params"]);
             let pane = if method == "workspace.focus" {
                 if request["params"]["workspace_id"] == "w2" {
                     "w2:p2"
                 } else {
                     "w1:p1"
                 }
+            } else if let Some(left) = closed {
+                left
             } else {
                 request["params"]["pane_id"].as_str().unwrap_or("w1:p1")
             };
@@ -621,6 +627,27 @@ fn insert_agent_above(snapshot: &mut ClientShellSnapshot) {
     agent.focused = false;
     snapshot.agents.insert(0, agent);
     snapshot.revision += 1;
+}
+
+/// `workspace.close`: the workspace and its tabs, panes and agents go; the
+/// first pane left is focused ("w1:p1" when none is left).
+fn close_workspace(
+    snapshot: &mut ClientShellSnapshot,
+    method: &str,
+    params: &serde_json::Value,
+) -> Option<&'static str> {
+    if method != "workspace.close" {
+        return None;
+    }
+    let id = params["workspace_id"].as_str().unwrap_or_default();
+    snapshot.workspaces.retain(|w| w.workspace_id != id);
+    snapshot.tabs.retain(|t| t.workspace_id != id);
+    snapshot.panes.retain(|p| p.workspace_id != id);
+    snapshot.agents.retain(|a| a.workspace_id != id);
+    Some(match snapshot.panes.first().map(|p| p.pane_id.as_str()) {
+        Some("w2:p2") => "w2:p2",
+        _ => "w1:p1",
+    })
 }
 
 fn initial_snapshot() -> Result<String, serde_json::Error> {

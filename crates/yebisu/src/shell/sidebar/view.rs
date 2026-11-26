@@ -22,7 +22,10 @@ use crate::{
     },
     terminal_view::TerminalView,
 };
-use gpui::{AnyElement, Context, Hsla, Role, div, prelude::*, px, rgb};
+use gpui::{
+    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, Role, div, prelude::*, px,
+    rgb,
+};
 
 /// The list's heading and Simulator scroll anchor.
 pub(crate) const HOSTS_HEADING: &str = "HOSTS";
@@ -426,7 +429,11 @@ impl Smoke {
         }
         let menu = self.render_long_press_menu(cx);
         let agent_menu = self.render_agent_menu(cx);
-        list.children(menu).children(agent_menu).into_any_element()
+        let close = self.render_space_close_confirm(cx);
+        list.children(menu)
+            .children(agent_menu)
+            .children(close)
+            .into_any_element()
     }
 
     fn host_row(&self, host: &ListHost, cx: &mut Context<Self>) -> AnyElement {
@@ -595,14 +602,38 @@ impl Smoke {
                             .flex_1(),
                     ),
             )
-            .when(kind == HerdrKind::Herdr1, |row| {
-                row.child(long_press_layer(press, cx))
-            })
-            .on_click(cx.listener(move |this, _, window, cx| match kind {
-                HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
-                HerdrKind::Herdr2 => {
-                    window.dismiss_virtual_keyboard();
-                    this.tap_core_row(&host, &boot, generation, core_target.clone(), cx);
+            // Herdr 1 and Herdr 2 rows open the same menu (#231): a long
+            // press, a secondary click or a Control-click.
+            .child(long_press_layer(press.clone(), cx))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let press = press.clone();
+                    move |this, event: &MouseDownEvent, _, cx| {
+                        this.secondary_row_press(press.clone(), event.position);
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                // iPadOS treats a Control-click as a secondary click.
+                if let ClickEvent::Mouse(click) = event
+                    && crate::edit_menu_gestures::secondary_press(
+                        click.down.button,
+                        &click.down.modifiers,
+                    )
+                {
+                    this.secondary_row_press(press.clone(), click.down.position);
+                    cx.notify();
+                    return;
+                }
+                match kind {
+                    HerdrKind::Herdr1 => this.tap_row(tap.clone(), window, cx),
+                    HerdrKind::Herdr2 => {
+                        window.dismiss_virtual_keyboard();
+                        this.tap_core_row(&host, &boot, generation, core_target.clone(), cx);
+                    }
                 }
             }))
             .into_any_element()

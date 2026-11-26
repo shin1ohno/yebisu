@@ -148,6 +148,12 @@ pub(crate) enum Intent {
         space: Value,
         ended: Vec<String>,
     },
+    /// Close Space (#231): space `id` goes with all its tabs, as the
+    /// official app's `space.close` removes it (`model.rs` `remove_space`).
+    /// Its terminals are ended by the caller.
+    RemoveSpace {
+        id: String,
+    },
     /// The iPad's saved `default` tabs, moved once into one new space
     /// named "iPad" (Design G, owner decision 4).
     Migrate {
@@ -446,6 +452,16 @@ pub(crate) fn apply(value: &Value, intent: &Intent) -> Result<Applied, DocError>
             }
             Ok(Applied::Changed(next))
         }
+        Intent::RemoveSpace { id } => {
+            let Some(i) = view.spaces.iter().position(|known| known.id == *id) else {
+                return Ok(Applied::Unchanged);
+            };
+            let Some(Value::Array(spaces)) = next.get_mut("spaces") else {
+                return Err(DocError::Missing("space"));
+            };
+            spaces.remove(i);
+            Ok(Applied::Changed(next))
+        }
         Intent::Migrate { space_id, tabs } => {
             // A terminal the document already names stays where it is, so
             // a migration that landed once adds nothing the second time.
@@ -698,6 +714,11 @@ fn only_intended(original: &Value, candidate: &Value, intent: &Intent) -> bool {
             .iter()
             .position(|space| space.id == *id)
             .is_some_and(|i| unprune(original, &mut undone, i, ended)),
+        Intent::RemoveSpace { id } => view
+            .spaces
+            .iter()
+            .position(|space| space.id == *id)
+            .is_some_and(|i| unremove(original, &mut undone, i)),
         Intent::NewSpace { .. } | Intent::Migrate { .. } => {
             let undone_top = unpush(original, &mut undone, &[], "spaces");
             if original.is_null() && undone.as_object().is_some_and(Map::is_empty) {
@@ -791,6 +812,21 @@ fn unprune(original: &Value, undone: &mut Value, i: usize, ended: &[String]) -> 
             true
         }
         None => false,
+    }
+}
+
+/// Undoes a removal of the original's space `i`: it is put back where it
+/// was, so the candidate must hold every other space as it was.
+fn unremove(original: &Value, undone: &mut Value, i: usize) -> bool {
+    let Some(space) = locate(original, &["spaces".into(), i.into()]).cloned() else {
+        return false;
+    };
+    match undone.get_mut("spaces") {
+        Some(Value::Array(spaces)) if i <= spaces.len() => {
+            spaces.insert(i, space);
+            true
+        }
+        _ => false,
     }
 }
 

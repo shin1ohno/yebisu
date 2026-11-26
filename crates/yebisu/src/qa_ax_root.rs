@@ -172,6 +172,36 @@ impl Smoke {
                         })
                     }),
             ),
+            // #231: the space row whose menu is open (its row id).
+            (
+                "row_menu_space",
+                self.shell
+                    .sidebar
+                    .long_press
+                    .as_ref()
+                    .and_then(|menu| match &menu.row {
+                        crate::shell::sidebar::long_press::PressedRow::Space { id, .. } => {
+                            Some(json!(id))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(Value::Null),
+            ),
+            // #231: the open Close Space confirmation, with what it closes.
+            (
+                "space_close",
+                self.shell
+                    .sidebar
+                    .close_confirm
+                    .as_ref()
+                    .map_or(Value::Null, |confirm| {
+                        json!({
+                            "space": confirm.target.space,
+                            "tabs": confirm.question.tabs,
+                            "title": confirm.question.title(),
+                        })
+                    }),
+            ),
         ]
     }
 

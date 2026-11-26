@@ -37,6 +37,7 @@ fn space(id: &str, name: &str, tabs: Vec<TabInfo>) -> DocSpace {
         auto_name: false,
         folder: String::new(),
         tabs,
+        busy: Vec::new(),
     }
 }
 
