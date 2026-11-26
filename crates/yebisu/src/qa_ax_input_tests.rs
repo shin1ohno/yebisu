@@ -353,3 +353,74 @@ fn a_frame_receipt_with_an_unknown_or_missing_value_is_not_taken() {
     assert!(taken.is_empty(), "{taken:?}");
     assert_eq!(unknown, 4);
 }
+
+#[test]
+fn edit_menu_receipts_are_recorded_from_closed_lists() {
+    for responder in ["drawing", "text", "none"] {
+        let receipt = one(|| {
+            tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+                outcome = "presented", token = 7_u64, active = true, responder);
+        });
+        assert_eq!(
+            record_json(&receipt),
+            json!({"kind": "input-receipt", "receipt": "edit-menu-present", "outcome": "presented",
+                "token": 7, "active": true, "responder": responder})
+        );
+    }
+    for reason in [
+        "replaced",
+        "dismissed",
+        "unavailable",
+        "closed",
+        "inactive",
+        "resigned_outside",
+        "switch_left_no_responder",
+        "unknown",
+    ] {
+        let receipt = one(|| {
+            tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+                outcome = "skipped", token = 8_u64, reason);
+        });
+        assert_eq!(
+            record_json(&receipt),
+            json!({"kind": "input-receipt", "receipt": "edit-menu-present", "outcome": "skipped",
+                "token": 8, "reason": reason})
+        );
+    }
+    for decision in ["items", "empty", "passthrough"] {
+        let receipt = one(|| {
+            tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-menu", decision,
+                owned = false);
+        });
+        assert_eq!(
+            record_json(&receipt),
+            json!({"kind": "input-receipt", "receipt": "edit-menu-menu", "decision": decision,
+                "owned": false})
+        );
+        // An edit menu receipt moves no input counter.
+        assert_eq!(applied(&receipt), Counters::default());
+    }
+}
+
+#[test]
+fn an_edit_menu_receipt_with_an_unknown_or_missing_value_is_not_taken() {
+    let (taken, unknown) = captured(|| {
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+            outcome = "presented", token = 1_u64, active = true, responder = "secret-view");
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+            outcome = "skipped", token = 1_u64, reason = "secret-reason");
+        // A skip carries a reason, a present its activity and responder.
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+            outcome = "skipped", token = 1_u64);
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+            outcome = "presented", token = 1_u64, responder = "text");
+        // A draw's outcome is not a present's.
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-present",
+            outcome = "no_drawable", token = 1_u64, reason = "closed");
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-menu",
+            decision = "secret-decision", owned = true);
+        tracing::info!(target: "herdr_uikit::qa_input", receipt = "edit-menu-menu", decision = "items");
+    });
+    assert!(taken.is_empty(), "{taken:?}");
+    assert_eq!(unknown, 7);
+}

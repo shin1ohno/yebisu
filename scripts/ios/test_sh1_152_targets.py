@@ -75,6 +75,14 @@ class TraceTests(unittest.TestCase):
                 + '{"kind": "edit-menu-trace", "tok').encode()
         self.assertEqual(targets.traces(data), [trace])
 
+    def test_edit_menu_receipts_join_the_trace(self):
+        present = {"kind": "input-receipt", "receipt": "edit-menu-present", "outcome": "presented",
+                   "token": 1, "active": True, "responder": "text"}
+        menu = {"kind": "input-receipt", "receipt": "edit-menu-menu", "decision": "items", "owned": True}
+        touch = {"kind": "input-receipt", "receipt": "touch", "stage": "began"}
+        data = "".join(json.dumps(r) + "\n" for r in (touch, present, menu)).encode()
+        self.assertEqual(targets.traces(data), [present, menu])
+
     def test_a_file_the_app_cut_short_still_yields_its_traces(self):
         trace = {"kind": "edit-menu-trace", "token": 1, "after_ms": 30, "status": "Current", "windows": []}
         data = (json.dumps(trace) + "\n" + json.dumps({"kind": "observation-limit", "written": 8192}) + "\n").encode()
