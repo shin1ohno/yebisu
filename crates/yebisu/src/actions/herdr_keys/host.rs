@@ -3,7 +3,7 @@ use super::{DEFAULTS, Fallback, MAX_BYTES, Prefix, Profile, Route, matches, ui_k
 use crate::{
     app::Smoke, live::Live, settings_pages::Page, setup::Setup, terminal_view::TerminalView,
 };
-use gpui::{Context, KeyDownEvent};
+use gpui::{Context, KeyDownEvent, Keystroke};
 use sheprd_commands::Command;
 use std::sync::{
     Arc, Mutex, Weak,
@@ -196,6 +196,15 @@ impl HostKeys {
     pub(crate) fn clear_press(&mut self) {
         self.prefix.clear();
         self.press_owner = None;
+    }
+
+    /// The host's first Herdr prefix (its `[keys].prefix`, or Herdr's
+    /// default while that is unknown), for the keyboard bar's prefix entry.
+    pub(crate) fn prefix_keystroke(&self, terminal: &TerminalView) -> Option<Keystroke> {
+        self.profile(terminal)
+            .prefixes
+            .first()
+            .map(|(keystroke, _)| keystroke.clone())
     }
 
     /// A prefix waits for its second key.

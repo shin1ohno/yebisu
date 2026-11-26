@@ -212,7 +212,7 @@ impl Smoke {
         let mut model = self.current_status_bar_model(&state);
         let mods = mods::mods_item(self.shell.frame.withdrawn);
         let layout = self.frame_layout(window);
-        let software_keyboard = layout.key_band.is_some();
+        let software_keyboard = self.key_surface_now(window) != super::key_band::bar::Surface::None;
         let available_for_sidebar = layout.status_bar.width
             - BAR_PADDING
             - MIN_LINE_WIDTH

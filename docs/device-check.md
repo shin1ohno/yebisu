@@ -933,3 +933,21 @@ source and the paths, not of real IME behavior.
 | D16 | Open in Slide Over or a 1/3 split (below 352 pt); swipe it down, then open it again and let a swipe go halfway | A sheet; the field stays visible with the keyboard up; swipe down closes it and keeps the filter; the abandoned swipe leaves it up |
 | D17 | Disconnect a host, then tap its result | The panel stays and shows "This space is no longer available." |
 
+
+## #229 — terminal keys on the keyboard's own bar (owner, physical iPad)
+
+The keys (ctrl, alt, esc, tab, `` ` `` ^ \ [ ] < >, the arrows, ⌘, and a … menu with Paste,
+the Herdr prefix, | ~ / - and Hide keyboard) are on the software keyboard's shortcuts bar. A
+floating keyboard has no such bar, so the in-app band shows the same keys at the window's
+bottom. The Simulator covers docked, floating and hardware-only (keyboard-bar-check.py); it
+cannot make a split keyboard (herdr-uikit docs/keyboard-bar.md).
+
+| # | Action | Expected |
+|---|---|---|
+| K1 | Split the keyboard, then tap ctrl on the bar and c | The keys are on the halves' bars; the terminal receives Control-C, and the latch clears |
+| K2 | Split keyboard: alt, then x; the … menu's Paste | Alt-x arrives; Paste pastes |
+| K3 | Docked keyboard with two panes | The keys are on the keyboard's bar, the pager band above the keyboard switches panes, no 76 pt key band |
+| K4 | Float the keyboard; tap the band's ctrl, then c on the floating keyboard | The band is at the window's bottom; Control-C arrives |
+| K5 | Magic Keyboard attached, no software keyboard | No yebisu keys on the minimized bar, no band |
+| K6 | ⌘ on the bar, then t | The same as a hardware ⌘T (a new tab, or the terminal under Shortcut priority Terminal) |
+| K7 | Japanese kana input: compose, then tap esc and an arrow on the bar | The composition is not disturbed by the bar's presence; the keys reach the terminal after the commit |

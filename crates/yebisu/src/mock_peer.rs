@@ -838,6 +838,15 @@ fn record(
             ClientPaneInputEvent::Paste(text) => Some(text.as_str()),
             _ => None,
         }));
+        crate::qa_ax::peer::keys(events.iter().filter_map(|event| match event {
+            ClientPaneInputEvent::Key {
+                code,
+                modifiers,
+                kind: ClientKeyKind::Press,
+                ..
+            } => Some(format!("{code:?}/{modifiers}")),
+            _ => None,
+        }));
     }
     #[cfg(all(target_os = "ios", target_abi = "sim", feature = "test-support"))]
     if std::env::var_os("YEBISU_TERMINAL_QA").is_some() {

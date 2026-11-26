@@ -78,11 +78,17 @@ Later moves, oldest first:
   `frame` receipt (how a window's draws end) and PR 40's `edit-menu-present`
   and `edit-menu-menu` receipts (where a native edit menu stops), all
   Simulator-only.
+- The keyboard bar (#229) moved it to the PR 39 merge commit
+  8339e132e004a05119e4fddf4fb637b997e4cdcb, a descendant of 75234cd:
+  `set_keyboard_bar`, `keyboard_bar_presses`, `keyboard_placement` (the
+  drawing view's keyboard guide now follows undocked keyboards; the bottom
+  inset policy is unchanged) and the Simulator-only
+  `keyboard_placement_sample`.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to 75234cd. A later bump appends its move to this list.
+identical from 99d7928 to 8339e13. A later bump appends its move to this list.
 
-The current pin is herdr-uikit 75234cd3029120b29afcfb067da3fb822be6d011.
+The current pin is herdr-uikit 8339e132e004a05119e4fddf4fb637b997e4cdcb.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
