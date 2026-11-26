@@ -1115,7 +1115,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "windows 0.62.2",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -2458,7 +2458,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "herdr-ssh"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "base64 0.23.1",
  "russh",
@@ -2657,7 +2657,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -5432,7 +5432,7 @@ dependencies = [
 [[package]]
 name = "sheprd-backend"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "serde",
  "sheprd-protocol",
@@ -5442,7 +5442,7 @@ dependencies = [
 [[package]]
 name = "sheprd-chat-protocol"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "serde",
  "serde_json",
@@ -5453,7 +5453,7 @@ dependencies = [
 [[package]]
 name = "sheprd-client"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "base64 0.23.1",
  "crossbeam-channel",
@@ -5474,7 +5474,7 @@ dependencies = [
 [[package]]
 name = "sheprd-commands"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "serde",
  "serde_json",
@@ -5484,7 +5484,7 @@ dependencies = [
 [[package]]
 name = "sheprd-core-client"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "base64 0.23.1",
  "crossbeam-channel",
@@ -5502,7 +5502,7 @@ dependencies = [
 [[package]]
 name = "sheprd-credentials"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "core-foundation 0.10.0",
  "futures-lite",
@@ -5520,7 +5520,7 @@ dependencies = [
 [[package]]
 name = "sheprd-i18n"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "fluent",
  "fluent-langneg 0.14.2",
@@ -5534,7 +5534,7 @@ dependencies = [
 [[package]]
 name = "sheprd-protocol"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "base64 0.23.1",
  "bincode",
@@ -5546,7 +5546,7 @@ dependencies = [
 [[package]]
 name = "sheprd-terminal"
 version = "0.1.0"
-source = "git+https://github.com/shin1ohno/herdr-gpui?rev=bf716d8a16ebc88690370726c78430d930f48930#bf716d8a16ebc88690370726c78430d930f48930"
+source = "git+https://github.com/shin1ohno/herdr-gpui?rev=c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83#c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83"
 dependencies = [
  "alacritty_terminal",
  "sheprd-backend",
