@@ -82,7 +82,8 @@ fn pane_borders_draw_the_name_above_a_one_point_border(cx: &mut TestAppContext) 
     assert_eq!(right.outline.left() - left.outline.right(), px(8.));
     assert_eq!(
         left.body.origin - left.outline.origin,
-        point(px(13.), px(15.))
+        // The 8 / 10 pt inner padding and the 1 pt border (Q3 B, 2026-11-26).
+        point(px(9.), px(11.))
     );
     let gap = point(
         (left.outline.right() + right.outline.left()) / 2.,
