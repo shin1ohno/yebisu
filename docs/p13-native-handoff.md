@@ -59,15 +59,15 @@ Later moves, oldest first:
   0e92db609502a03ecc2dd94721702a90d4fc031d (deployment target 26.0, and the
   iOS 26.0 selector check in `corner_region` removed), a descendant of
   b488c18.
-- The external-display window resize fix moved it to the PR 32 head
-  e4bef656da63a7870088b5015179638f45ea4c9a (a window or root view that a
+- The external-display window resize fix moved it to the PR 32 merge commit
+  9b3538a93f05eba007a25d9ca8e077d8592bbc33 (a window or root view that a
   scene geometry change left at its old frame is fitted to the scene), a
   descendant of 0e92db6.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to e4bef65. A later bump appends its move to this list.
+identical from 99d7928 to 9b3538a. A later bump appends its move to this list.
 
-The current pin is herdr-uikit e4bef656da63a7870088b5015179638f45ea4c9a.
+The current pin is herdr-uikit 9b3538a93f05eba007a25d9ca8e077d8592bbc33.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
