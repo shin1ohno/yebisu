@@ -55,11 +55,15 @@ Later moves, oldest first:
   b488c1856e0318878248afc5b1ce4e32e40f5e5c (Mac keyboard hides are not user
   dismissals, printable presses take the text responder back, and the input
   diagnostic codes), a descendant of 4486cb1.
+- The minimum iOS 26.0 change moved it to the PR 31 merge commit
+  0e92db609502a03ecc2dd94721702a90d4fc031d (deployment target 26.0, and the
+  iOS 26.0 selector check in `corner_region` removed), a descendant of
+  b488c18.
 
 None of these moves changes the helper: `src/window/text_input/probe/` is
-identical from 99d7928 to b488c18. A later bump appends its move to this list.
+identical from 99d7928 to 0e92db6. A later bump appends its move to this list.
 
-The current pin is herdr-uikit b488c1856e0318878248afc5b1ce4e32e40f5e5c.
+The current pin is herdr-uikit 0e92db609502a03ecc2dd94721702a90d4fc031d.
 
 The SDK permanently fences the old captured object before the callback, then
 installs its distinct replacement. Its receipt is not an OS cancellation ack.
