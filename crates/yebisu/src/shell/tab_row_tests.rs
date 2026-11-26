@@ -290,3 +290,26 @@ fn the_tab_strip_ignores_vertical_swipes(cx: &mut gpui::TestAppContext) {
         "a sideways swipe must move the overflowing strip"
     );
 }
+
+/// Issue #209: the switcher's width follows the row's content between its
+/// minimum (name cut away) and its 180 pt, after +, split, ... and a tab's
+/// minimum.
+#[test]
+fn the_space_switcher_gives_way_to_the_pinned_buttons() {
+    let min = SPACE_SWITCHER_MIN_WIDTH;
+    assert_eq!(min, 57.0);
+    let reserved = pinned_width() + MIN_TAB_STRIP_WIDTH;
+    assert_eq!(space_switcher_max_width(2000.0), SPACE_SWITCHER_WIDTH);
+    assert_eq!(space_switcher_max_width(reserved + 100.0), 100.0);
+    assert_eq!(space_switcher_max_width(reserved + 10.0), min);
+    assert_eq!(space_switcher_max_width(0.0), min);
+    assert_eq!(space_switcher_max_width(f32::NAN), min);
+    assert_eq!(space_switcher_max_width(f32::INFINITY), SPACE_SWITCHER_WIDTH);
+}
+
+#[test]
+fn the_tab_row_minimum_holds_a_whole_switcher_and_a_tab() {
+    // A tab's 12 pt padding and 32 pt ×, then +, split and ... at 44 pt.
+    assert_eq!(tab_row_min_content(false), 44.0 + 3.0 * 44.0);
+    assert_eq!(tab_row_min_content(true), 180.0 + 44.0 + 3.0 * 44.0);
+}

@@ -20,7 +20,7 @@ mod width;
 
 #[cfg(test)]
 pub use controls::STATUS_ICONS_REACH;
-pub use controls::{ControlsClearance, ControlsReach, top_band};
+pub use controls::{ControlsClearance, ControlsReach, TopBand, top_band};
 
 /// Expanded sidebar width.
 pub const SIDEBAR_WIDTH: f32 = 300.0;
