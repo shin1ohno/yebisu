@@ -148,6 +148,9 @@ impl Smoke {
             ),
             ("second", json!(second)),
             ("peer", super::peer::field()),
+            // #229: where the terminal keys show, the keyboard's placement,
+            // the drawn latch and the keyboard bar's button count.
+            ("key_bar", self.qa_key_bar_field(window)),
             // UI test redesign S6: the P0 smoke screen's input text (what
             // the field draws), the terminal's font size, the local theme
             // and the selected host (P11, P15).

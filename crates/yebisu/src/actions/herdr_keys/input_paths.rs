@@ -4,7 +4,7 @@
 //! key band's Control latch.
 use crate::{app::Smoke, core::Session, mock_peer, shell::HerdrKind};
 use gpui::{
-    Bounds, Edges, Entity, EntityInputHandler, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke,
+    Bounds, Entity, EntityInputHandler, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke,
     Modifiers, TestAppContext, VisualTestContext, WindowInsets, point, px, size,
 };
 use sheprd_client::protocol::{ClientKeyCode, ClientKeyKind, ClientMessage, ClientPaneInputEvent};
@@ -112,15 +112,12 @@ fn herdr1(
 }
 
 fn software_keyboard(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
+    // A floating software keyboard: its keys are the in-app band's (#229),
+    // which these tests tap; the keyboard bar presses the same keys.
     view.update(cx, |this, cx| {
-        this.shell.fit.insets = Some(WindowInsets {
-            ime: Edges {
-                bottom: px(498.),
-                ..Edges::default()
-            },
-            ..WindowInsets::default()
-        });
+        this.shell.fit.insets = Some(WindowInsets::default());
         this.shell.fit.hardware_keyboard_attached = false;
+        this.shell.fit.keyboard_placement = crate::shell::key_band::bar::Placement::Floating;
         cx.notify();
     });
     cx.run_until_parked();

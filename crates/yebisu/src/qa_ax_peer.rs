@@ -29,6 +29,9 @@ pub(crate) struct Received {
     pub(crate) inputs: u64,
     /// The last `KEEP` pasted texts, from either peer.
     pub(crate) pastes: VecDeque<String>,
+    /// The last `KEEP` key presses the Herdr 1 mock peer received, as
+    /// `<code>/<modifiers>` (#229: a latch and a letter, `Char('c')/2`).
+    pub(crate) keys: VecDeque<String>,
 }
 
 impl Received {
@@ -40,15 +43,23 @@ impl Received {
         }
     }
 
+    pub(crate) fn key(&mut self, key: String) {
+        self.keys.push_back(key);
+        while self.keys.len() > KEEP {
+            self.keys.pop_front();
+        }
+    }
+
     #[cfg(any(all(target_os = "ios", target_abi = "sim"), test))]
     pub(crate) fn field(&self) -> Value {
-        json!({"inputs": self.inputs, "pastes": self.pastes})
+        json!({"inputs": self.inputs, "pastes": self.pastes, "keys": self.keys})
     }
 }
 
 static RECEIVED: Mutex<Received> = Mutex::new(Received {
     inputs: 0,
     pastes: VecDeque::new(),
+    keys: VecDeque::new(),
 });
 
 fn update(change: impl FnOnce(&mut Received)) {
@@ -70,6 +81,23 @@ pub(crate) fn input<'a>(pastes: impl IntoIterator<Item = &'a str>) {
         received.inputs += 1;
         for text in pastes {
             received.paste(text);
+        }
+    });
+}
+
+/// The Herdr 1 mock peer received these key presses. Any thread. Does
+/// nothing unless the layer is on.
+pub(crate) fn keys(keys: impl IntoIterator<Item = String>) {
+    if !super::enabled() {
+        return;
+    }
+    let keys: Vec<String> = keys.into_iter().collect();
+    if keys.is_empty() {
+        return;
+    }
+    update(|received| {
+        for key in keys {
+            received.key(key);
         }
     });
 }

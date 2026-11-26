@@ -4,9 +4,8 @@ import XCTest
 // saves Shortcut style = Herdr prefix in the settings file before this test launches the app,
 // and reads the wire peer's p4-peer.jsonl after it stops the app. Each step ends with a marker
 // letter, so the peer log splits into the steps: z, y after the software keyboard steps, 0, 1,
-// 2, 3 after the hardware ones. The key band has no accessibility element, so its ctrl key is
-// pressed at its layout position (shell/key_band/mod.rs: 8 pt row gap, 4 pt group padding,
-// esc and tab 52 pt wide with 2 pt gaps; the 76 pt band sits on the keyboard).
+// 2, 3 after the hardware ones. The ctrl latch is the software keyboard's own bar button
+// (`key-bar-ctrl`, #229; the docked keyboard has no in-app key band any more).
 extension SmokeQA {
     private static let prefixEnvironment = [
         "YEBISU_TERMINAL_QA": "1",
@@ -24,13 +23,12 @@ extension SmokeQA {
         usleep(600_000)
     }
 
-    /// `keyboard` is the inset the app reports (qa.state); XCUITest's keyboard frame leaves out
-    /// the shortcut bar above the keys.
+    /// The keyboard bar's ctrl button; `keyboard` is the inset the app reports (qa.state).
     private func bandControl(_ app: XCUIApplication, keyboard: Double) {
-        let y = app.frame.height - keyboard - 38
-        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
-        print(String(format: "PREFIX band ctrl at (146, %.0f), keyboard inset %.0f", y, keyboard))
-        origin.withOffset(CGVector(dx: 146, dy: y)).tap()
+        let ctrl = app.descendants(matching: .any).matching(identifier: "key-bar-ctrl").firstMatch
+        let found = ctrl.waitForExistence(timeout: 5)
+        print(String(format: "PREFIX bar ctrl exists=%@, keyboard inset %.0f", found ? "true" : "false", keyboard))
+        ctrl.tap()
         usleep(600_000)
     }
 

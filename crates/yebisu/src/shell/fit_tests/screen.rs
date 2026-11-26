@@ -244,8 +244,8 @@ fn docked_keyboard_shortens_terminal_through_frame_layout(cx: &mut TestAppContex
         },
     );
     assert!(
-        (bare - docked - 396.).abs() < 1.,
-        "a docked 320 pt keyboard and its 76 pt band left the terminal at {docked} (bare {bare})"
+        (bare - docked - 372.).abs() < 1.,
+        "a docked 320 pt keyboard and its 52 pt pager band (#229) left the terminal at {docked} (bare {bare})"
     );
     let floating = terminal_height(
         &view,
@@ -304,8 +304,8 @@ fn docked_keyboard_shortens_terminal_on_screen(cx: &mut TestAppContext) {
     redraw(&view, cx);
     let shortened = bounds(cx, "shell-terminal");
     assert!(
-        (f32::from(bare.size.height - shortened.size.height) - 396.).abs() < 1.,
-        "a docked 320 pt keyboard and its 76 pt band left the terminal {shortened:?} (bare {bare:?})"
+        (f32::from(bare.size.height - shortened.size.height) - 372.).abs() < 1.,
+        "a docked 320 pt keyboard and its 52 pt pager band (#229) left the terminal {shortened:?} (bare {bare:?})"
     );
     let mut floating = docked(320.);
     floating.ime.left = px(500.);

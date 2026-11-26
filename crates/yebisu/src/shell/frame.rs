@@ -19,6 +19,8 @@ pub(crate) struct FrameState {
     /// The tab row's ... menu is open.
     pub(crate) overflow_open: bool,
     pub(crate) key_band: key_band::State,
+    /// The keyboard bar's last buttons and its press reader (#229).
+    pub(crate) key_bar: key_band::sync::BarSync,
     /// L0 collapsed the sidebar in the last frame. `board_in_band` reads it
     /// before the body is built, so the board moves in the same frame as the
     /// body; only a resize across the collapse width takes one more frame.
@@ -146,24 +148,43 @@ impl Smoke {
         )
     }
 
-    /// The key band's height now: none while a native field (the search
-    /// panel's or the rename field) is up and owns the keyboard, else the
-    /// fit rule.
+    /// The in-app band's height now (#229): the full key band for a
+    /// keyboard that shows no shortcuts bar (a floating one), and the thin
+    /// pager-only band above a docked software keyboard, whose bar has the
+    /// keys (owner, 2026-11-26). None while a native field (the search
+    /// panel's or the rename field) owns the keyboard.
     pub(in crate::shell) fn key_band_now(
         &self,
         size: Size,
         ime: &gpui::Edges<gpui::Pixels>,
     ) -> f32 {
-        if self.native_field_open() {
-            0.0
-        } else {
-            fit::key_band_height(size, ime, self.hardware_keyboard_attached())
+        match self.key_surface(size, ime) {
+            key_band::bar::Surface::Band => key_band::HEIGHT,
+            key_band::bar::Surface::Bar => self.pager_band_now(size, ime),
+            key_band::bar::Surface::None => 0.0,
         }
     }
 
+    /// The pager-only band's height: above a docked software keyboard,
+    /// where the keyboard limits space and one pane shows at a time.
+    pub(in crate::shell) fn pager_band_now(
+        &self,
+        size: Size,
+        ime: &gpui::Edges<gpui::Pixels>,
+    ) -> f32 {
+        let docked = fit::software_keyboard_docked(size, ime);
+        if docked && self.key_surface(size, ime) == key_band::bar::Surface::Bar {
+            key_band::PAGER_HEIGHT
+        } else {
+            0.0
+        }
+    }
+
+    /// A latch applies while its keys show, on the keyboard's bar or the band.
     #[cfg(any(target_os = "ios", test))]
     pub(crate) fn key_band_can_apply(&self, window: &Window) -> bool {
-        self.shell.frame.key_band.is_armed() && self.frame_layout(window).key_band.is_some()
+        self.shell.frame.key_band.is_armed()
+            && self.key_surface_now(window) != key_band::bar::Surface::None
     }
 
     /// `frame_layout` for a window `size` with the platform's `platform`
@@ -357,7 +378,7 @@ impl Smoke {
                 )
             })
             .child(column);
-        if layout.key_band.is_none() {
+        if self.key_surface_now(window) == key_band::bar::Surface::None {
             self.shell.frame.key_band.clear();
         }
         div()
@@ -370,8 +391,12 @@ impl Smoke {
             .text_color(rgb(color::TEXT))
             .child(columns)
             .when_some(layout.key_band, |frame, band| {
-                let pager = self.render_pane_pager(cx);
-                frame.child(key_band::render_band(self, band.height, pager, cx))
+                if self.key_surface_now(window) == key_band::bar::Surface::Band {
+                    frame.child(key_band::render_band(self, band.height, cx))
+                } else {
+                    let pager = self.render_pane_pager(cx);
+                    frame.child(key_band::render_pager_band(band.height, pager))
+                }
             })
             .into_any_element()
     }
