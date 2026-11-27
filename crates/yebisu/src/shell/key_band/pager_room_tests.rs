@@ -66,6 +66,9 @@ fn layout(
     )
 }
 
+/// (case, width, height, keyboard, band, terminal height).
+type Case = (&'static str, f32, f32, Keyboard, Option<Rect>, Option<f32>);
+
 fn pager(width: f32, height: f32, keyboard: f32) -> Option<Rect> {
     Some(Rect::new(
         0.,
@@ -81,7 +84,7 @@ fn pager(width: f32, height: f32, keyboard: f32) -> Option<Rect> {
 fn the_pager_band_gives_way_only_to_the_terminal_minimum(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, cx| Smoke::new(cx));
     // (case, width, height, keyboard) -> (band, terminal height)
-    let cases: [(&str, f32, f32, Keyboard, Option<Rect>, Option<f32>); 10] = [
+    let cases: [Case; 10] = [
         // The issue: 744 - 428 - 52 - 82 = 182 < 206 with the band, so the
         // band goes and the terminal keeps 234.
         (
