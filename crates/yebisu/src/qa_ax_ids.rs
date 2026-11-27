@@ -460,6 +460,14 @@ pub(crate) const SIDEBAR_SPACE_RENAME: &str = "qa.sidebar.space-rename";
 pub(crate) const SIDEBAR_SPACE_CLOSE: &str = "qa.sidebar.space-close";
 pub(crate) const SIDEBAR_SPACE_CLOSE_CONFIRM: &str = "qa.sidebar.space-close-confirm";
 pub(crate) const SIDEBAR_SPACE_CLOSE_CANCEL: &str = "qa.sidebar.space-close-cancel";
+/// Delete Host (#250, shell/hosts_sheet/delete_view.rs): the saved-host
+/// fixture's Hosts row (a left swipe on it shows its Delete), that Delete,
+/// the Edit sheet's Delete Host, and the confirmation's two buttons.
+pub(crate) const HOSTS_ROW_QA_ALPHA: &str = "qa.hosts.row.qa-alpha";
+pub(crate) const HOSTS_DELETE_QA_ALPHA: &str = "qa.hosts.delete.qa-alpha";
+pub(crate) const HOSTS_EDIT_DELETE: &str = "qa.hosts.edit-delete";
+pub(crate) const HOSTS_DELETE_CONFIRM: &str = "qa.hosts.delete-confirm";
+pub(crate) const HOSTS_DELETE_CANCEL: &str = "qa.hosts.delete-cancel";
 pub(crate) const SIDEBAR_AGENT_RENAME: &str = "qa.sidebar.agent-rename";
 pub(crate) const RAIL_MENU_RENAME: &str = "qa.rail.menu-rename";
 pub(crate) const TAB_MENU_RENAME: &str = "qa.tab.menu-rename";

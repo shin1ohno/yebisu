@@ -41,6 +41,13 @@ impl Pins {
         self.revision += 1;
     }
 
+    /// Drops every pin of a deleted saved host (#250).
+    pub(super) fn forget_host(&mut self, host: &str) {
+        let len = self.newest_first.len();
+        self.newest_first.retain(|pin| pin.id.host != host);
+        self.revision += u64::from(self.newest_first.len() != len);
+    }
+
     pub(super) fn reconcile(&mut self, host: &str, snapshot: &ClientShellSnapshot) {
         let len = self.newest_first.len();
         self.newest_first.retain(|pin| {
@@ -186,6 +193,13 @@ impl Smoke {
         self.flush_sidebar_pins(cx);
         cx.notify();
         Ok(())
+    }
+
+    /// A deleted saved host (#250): the sidebar forgets it and the pin file
+    /// is rewritten without its pins.
+    pub(crate) fn forget_sidebar_host(&mut self, host: &str, cx: &mut Context<Self>) {
+        self.shell.sidebar.forget_host(host);
+        self.flush_sidebar_pins(cx);
     }
 
     pub(super) fn flush_sidebar_pins(&mut self, cx: &mut Context<Self>) {

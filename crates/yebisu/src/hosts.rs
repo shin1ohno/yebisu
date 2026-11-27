@@ -1,6 +1,8 @@
 //! Container-local endpoint persistence; host fingerprints are always read from pins.
+mod delete;
 mod display;
 
+pub(crate) use delete::next_selection;
 pub(crate) use display::HostName;
 
 use crate::{Error, Result};
@@ -80,6 +82,13 @@ impl Store {
             }
         }
         hosts.selected = target.to_owned();
+        self.write(&hosts)
+    }
+
+    /// Replaces `yebisu-hosts.json` with `hosts`: written to a pending file,
+    /// flushed, renamed over the old one and the directory flushed, so a
+    /// crash leaves either the old file or the new one, never a mix.
+    fn write(&self, hosts: &SavedHosts) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         let path = self.root.join("yebisu-target.pending");
         let result = (|| -> Result<()> {
@@ -136,12 +145,14 @@ fn parse(target: &str) -> Result<Target> {
     Target::parse(target).map_err(|e| Error::Ssh(e.to_string()))
 }
 
+#[cfg(all(test, not(target_os = "ios")))]
+mod delete_tests;
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(all(test, not(target_os = "ios")))]
 mod tests;
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SavedHosts {
     pub targets: Vec<String>,
     pub selected: String,
