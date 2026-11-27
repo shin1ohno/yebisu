@@ -70,14 +70,24 @@ impl Default for PollPlan {
 
 impl PollPlan {
     /// The listing for `backend`, or `None` when this plan has no poll.
-    pub(super) fn listing(self, backend: &sheprd_core_client::CoreBackend) -> Option<List> {
+    /// The application's listing also keeps in `mailbox` which live
+    /// terminals run a program or an agent, for Close Space (#249).
+    pub(super) fn listing(
+        self,
+        backend: &sheprd_core_client::CoreBackend,
+        mailbox: &StatusMailbox,
+    ) -> Option<List> {
         match self.source {
             StatusSource::Core => {
                 let backend = backend.clone();
+                let busy = mailbox.busy.clone();
                 Some(Box::new(move || {
                     // A failed list only skips this poll; the worker's own
                     // reads end the connection when the link is gone.
-                    backend.statuses().ok()
+                    let list = backend.core().list(false).ok()?;
+                    *busy.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(super::running::busy(&list.terminals));
+                    Some(list.terminals.iter().map(CoreStatus::from).collect())
                 }))
             }
             #[cfg(test)]
@@ -91,19 +101,41 @@ impl PollPlan {
 /// The latest statuses a session listed. `None` until the first list
 /// answers: the sidebar draws no Herdr 2 list without one.
 #[derive(Clone, Default)]
-pub(crate) struct StatusMailbox(Arc<Mutex<Option<Vec<CoreStatus>>>>);
+pub(crate) struct StatusMailbox {
+    statuses: Arc<Mutex<Option<Vec<CoreStatus>>>>,
+    /// The live terminals of the same list that run a program or an agent
+    /// (`running::busy`); `None` until a list answered.
+    busy: Arc<Mutex<Option<Vec<String>>>>,
+}
 
 impl StatusMailbox {
     pub(crate) fn latest(&self) -> Option<Vec<CoreStatus>> {
-        self.0
+        self.statuses
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
+    /// The busy terminals of the last list, or `None` when none is known.
+    pub(crate) fn busy(&self) -> Option<Vec<String>> {
+        self.busy
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_busy(&self, busy: Vec<String>) {
+        *self.busy.lock().unwrap_or_else(PoisonError::into_inner) = Some(busy);
+    }
+
     /// Forgets the statuses (the list keeps failing); true when there were some.
     pub(crate) fn clear(&self) -> bool {
-        self.0
+        self.busy
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        self.statuses
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()
@@ -112,7 +144,7 @@ impl StatusMailbox {
 
     /// Stores `next`; true when it differs from what was there.
     pub(crate) fn publish(&self, next: Vec<CoreStatus>) -> bool {
-        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut slot = self.statuses.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.as_ref() == Some(&next) {
             return false;
         }
