@@ -311,6 +311,13 @@ pub(super) fn run(
                         command_error = Some(error.to_string());
                     }
                 }
+                // Its terminals end here; the vacancy check below stops the
+                // server once the last tab is gone (#249).
+                Command::CloseNamedSpace { asked } => {
+                    if let Err(error) = super::named_close::end_terminals(&backend, &name, &asked) {
+                        command_error = Some(error.to_string());
+                    }
+                }
                 Command::RenameTab { id, name } => {
                     let intent = herdr_doc::Intent::RenameTab { id, name };
                     if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
