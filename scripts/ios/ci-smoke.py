@@ -13,10 +13,14 @@ wait grew by about the time the install saved.
 import json
 import os
 from pathlib import Path
+import importlib.util
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+_ready_spec = importlib.util.spec_from_file_location('sim_ready', Path(__file__).resolve().parent / 'sim_ready.py')
+sim_ready = importlib.util.module_from_spec(_ready_spec)
+_ready_spec.loader.exec_module(sim_ready)
 # The UDID that a passing `ci-smoke.py --p9` leaves for p12-ci.py in the same job.
 HANDOVER = ROOT / 'target' / 'ci-smoke-simulator.txt'
 
@@ -53,20 +57,25 @@ def main(p9=False):
     ).strip()
     print(f'CI SMOKE simulator={device} type={device_type} runtime={runtime}', flush=True)
     passed = False
+    # Issue #256: lib.sh keeps the boot-task daemons out of this disposable device when it boots it,
+    # and the watch reports whether they run anyway.
+    stop_watch = sim_ready.start_boot_task_watch(device)
+    env = {**os.environ, 'HERDR_IOS_SIMULATOR': device, 'HERDR_IOS_QUIET_BOOT_TASKS': '1'}
     try:
         # smoke-check.py builds, boots, installs, launches and calls smoke_oracle.
         # It uses ad-hoc simulator signing and the local P0 screen, with no peer.
         subprocess.run(
             [sys.executable, str(Path(__file__).with_name('smoke-check.py'))],
-            env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True,
+            env=env, check=True,
         )
         if p9:
             subprocess.run(
                 [sys.executable, str(Path(__file__).with_name('p9-check.py'))],
-                env={**os.environ, 'HERDR_IOS_SIMULATOR': device}, check=True,
+                env=env, check=True,
             )
         passed = True
     finally:
+        stop_watch.set()
         if passed and hands_over(p9):
             HANDOVER.parent.mkdir(parents=True, exist_ok=True)
             HANDOVER.write_text(device + '\n')

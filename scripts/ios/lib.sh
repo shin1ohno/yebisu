@@ -65,6 +65,43 @@ ios_sim_boot() {
       return 1
     fi
     echo "Simulator $udid booted" >&2
+    if [[ ${HERDR_IOS_QUIET_BOOT_TASKS:-} == 1 ]]; then
+      ios_sim_quiet_boot_tasks "$udid"
+    fi
   fi
   printf '%s\n' "$udid"
+}
+
+# Issue #256: an iOS 27.2 runtime schedules one-shot background tasks 120 s and
+# 300 s after boot (the daemons' launchd plists, NonRepeatingTask ScheduleAfter).
+# Their launch, remotemanagementd with its 15 subscriber processes among them,
+# comes 270-500 s after boot on the xcode-27 runner, the same window in which
+# the runner's free memory falls to 15-18 % and the guard probe stops for up to
+# 250 s. None of the six is a part of the app the checks drive.
+IOS_QUIET_BOOT_TASKS=(
+  com.apple.remotemanagementd
+  com.apple.finhealthd
+  com.apple.DeviceConfigurationAgent
+  com.apple.healthcontentd
+  com.apple.email.maild
+  com.apple.intelligencetasksd
+)
+
+# Keeps the six daemons above from launching in the just-booted simulator $1:
+# on a local Mac, `launchctl disable system/<label>` alone left them launching
+# at +276 s, while disable in both domains plus bootout kept them out past
+# +480 s. Prints one line per label with each call's exit status, and never
+# fails: the CI step reports whether they started (sim_ready.watch_boot_tasks).
+# Only the hosted jobs' disposable devices set HERDR_IOS_QUIET_BOOT_TASKS=1,
+# because a disabled service stays disabled on that device.
+ios_sim_quiet_boot_tasks() {
+  local udid=$1 label call line
+  for label in "${IOS_QUIET_BOOT_TASKS[@]}"; do
+    line="SIM BOOT TASK off $label"
+    for call in "disable system/" "disable user/foreground/" "bootout system/"; do
+      xcrun simctl spawn "$udid" launchctl "${call% *}" "${call#* }$label" >/dev/null 2>&1
+      line+=" ${call% *}:${call#* }=$?"
+    done
+    echo "$line" >&2
+  done
 }

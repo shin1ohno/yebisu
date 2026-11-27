@@ -11,16 +11,27 @@ and never fails, and runs it through `run_test`, which sends the same
 `xcodebuild test` once more only when the device was not found and no test ran. That resend is a
 `QA-RESEND destination-retry` line, counted in the job's budget (resend_budget.py); a second miss is
 the check's failure. It never boots, erases or deletes a Simulator.
+
+`watch_boot_tasks` (issue #256) reports, at fixed times after a device is first seen booted, which of the
+boot-task daemons that lib.sh's ios_sim_quiet_boot_tasks keeps out are running. Also a report only.
 """
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import subprocess
+import threading
 import time
 
 LIMIT = 60.0
 POLL = 3.0
 MISSING = "Unable to find a device matching the provided destination specifier"
+# The programs of lib.sh's IOS_QUIET_BOOT_TASKS; remotemanagementd starts the *Subscriber processes.
+BOOT_TASK_PROGRAMS = ("remotemanagementd", "finhealthd", "DeviceConfigurationAgent", "healthcontentd", "maild",
+                      "intelligencetasksd")
+# Seconds after the device is first seen booted: before, inside and after the window (+270-500 s
+# after boot on the xcode-27 runner) in which these daemons launched.
+BOOT_TASK_CHECKPOINTS = (300, 480, 700)
 
 
 def listed(output, udid):
@@ -89,3 +100,54 @@ def run_test(command, runner, wait=wait_for_destination):
     again = runner()
     again.stdout = line + "\n" + (again.stdout or "")
     return again
+
+
+def boot_task_processes(ps_output):
+    """Sorted names of the Simulator processes in `ps -axo comm=` output that are boot-task daemons or
+    remotemanagementd subscribers. A Simulator process runs from a path inside a runtime's RuntimeRoot."""
+    names = set()
+    for line in ps_output.splitlines():
+        if "/RuntimeRoot/" not in line:
+            continue
+        name = line.strip().rsplit("/", 1)[-1]
+        if name in BOOT_TASK_PROGRAMS or name.endswith("Subscriber"):
+            names.add(name)
+    return sorted(names)
+
+
+def booted(udid, run=subprocess.run):
+    """Whether `xcrun simctl list devices` shows the device `udid` booted."""
+    result = run(["xcrun", "simctl", "list", "devices"], capture_output=True, text=True)
+    return any(udid in line and "(Booted)" in line for line in (result.stdout or "").splitlines())
+
+
+def watch_boot_tasks(udid, checkpoints=BOOT_TASK_CHECKPOINTS, run=subprocess.run, clock=time.monotonic,
+                     sleep=time.sleep, stop=None, poll=5.0, limit=1800.0):
+    """Waits until `udid` is booted (at most `limit` s), then at each checkpoint prints
+    `SIM BOOT TASKS <udid> +<s> s after booted: running <n>: <names>`. A report only: it never fails, and it
+    stops early when `stop` (a threading.Event) is set."""
+    stop = stop or threading.Event()
+    start = clock()
+    while not booted(udid, run):
+        if stop.is_set() or clock() - start >= limit:
+            return
+        sleep(poll)
+    seen = clock()
+    print(f"SIM BOOT TASKS {udid} booted seen at {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+          flush=True)
+    for checkpoint in checkpoints:
+        while clock() - seen < checkpoint:
+            if stop.is_set():
+                return
+            sleep(min(poll, checkpoint - (clock() - seen)))
+        result = run(["ps", "-axo", "comm="], capture_output=True, text=True)
+        names = boot_task_processes(result.stdout or "")
+        print(f"SIM BOOT TASKS {udid} +{clock() - seen:.0f} s after booted: running {len(names)}: "
+              f"{', '.join(names) or '-'}", flush=True)
+
+
+def start_boot_task_watch(udid):
+    """Runs watch_boot_tasks in a daemon thread; set the returned event to stop it."""
+    stop = threading.Event()
+    threading.Thread(target=watch_boot_tasks, args=(udid,), kwargs={"stop": stop}, daemon=True).start()
+    return stop
