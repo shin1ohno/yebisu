@@ -270,10 +270,14 @@ impl Smoke {
             ..frame_input(size, insets, self.find.is_some())
         };
         let band = self.key_band_now(size, &platform.ime);
-        if band > 0.0 {
-            layout::compute_with_key_band(&input, band)
-        } else {
+        if band <= 0.0 {
             layout::compute(&input)
+        } else if self.key_surface(size, &platform.ime) == key_band::bar::Surface::Bar {
+            // The pager band above a docked keyboard gives way to the
+            // terminal's minimum (#265); the full key band never does.
+            layout::compute_with_pager_band(&input, band)
+        } else {
+            layout::compute_with_key_band(&input, band)
         }
     }
 
