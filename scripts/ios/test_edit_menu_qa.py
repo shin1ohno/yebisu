@@ -292,8 +292,8 @@ class TouchReadyAfterEveryLaunch(unittest.TestCase):
         self.assertLess(launch.index("if relaunched {"), launch.index("relaunched = true"))
         self.assertIn('XCTFail("SH1-152 no touch reached GPUI after launch \\(name), also after one relaunch: \\(error)")', launch)
         resend = launch.index('QAAx.resend(kind: "relaunch-retry"')
-        self.assertLess(resend, launch.index("app.terminate()", resend))
-        self.assertLess(launch.index("app.terminate()", resend), launch.index("ax = try start(app, name", resend))
+        self.assertLess(resend, launch.index("try terminate(app)", resend))
+        self.assertLess(launch.index("try terminate(app)", resend), launch.index("ax = try start(app, name", resend))
         self.assertEqual(launch.count("try start(app, name"), 2, "the first launch and the one relaunch")
 
     def test_a_launch_that_never_started_is_launched_once_more(self):
@@ -330,6 +330,47 @@ class TouchReadyAfterEveryLaunch(unittest.TestCase):
         for token in ("stop_propagation", "on_mouse_down", "on_mouse_up", "on_click", "ids::SH1_152_EMPTY"):
             self.assertIn(token, strip)
         self.assertNotIn("sh1_152_command", strip)
+
+
+class SlowTerminate(unittest.TestCase):
+    """Issue #247 (class T-reap): the OS reported a killed app gone 13-52 s late, XCTest recorded
+    "Failed to terminate <bundle>:<pid>" after 60 s, and the next launch found the old process. Every
+    EditMenuQA terminate goes through `terminate(_:)`, which takes that issue and waits for the
+    process to go, failing by the class's name only when it never goes."""
+
+    def test_every_terminate_goes_through_the_wait(self):
+        source = code(EDIT_MENU)
+        self.assertEqual(source.count("app.terminate()"), 1, "only terminate(_:) calls XCTest's terminate")
+        wrapper = body(source, "private func terminate(")
+        self.assertIn("app.terminate()", wrapper)
+        self.assertGreaterEqual(source.count("try terminate(app)"), 7, "each case's end and every launch path")
+
+    def test_the_terminate_issue_is_taken_and_waited_for(self):
+        source = code(EDIT_MENU)
+        record = body(source, "override func record(")
+        self.assertIn("terminateIssues?.append(issue)", record)
+        self.assertLess(record.index("terminateIssues?.append(issue)"), record.index("super.record(issue)"))
+        wrapper = body(source, "private func terminate(")
+        self.assertLess(wrapper.index("terminateIssues = []"), wrapper.index("app.terminate()"))
+        self.assertLess(wrapper.index("app.terminate()"), wrapper.index("terminateIssues = nil"))
+        self.assertIn("for issue in issues where !TerminateWait.isFailedTerminate(issue.compactDescription) { record(issue) }", wrapper)
+        self.assertIn("if failed.isEmpty { return }", wrapper)
+        wait = wrapper.index("TerminateWait.wait {")
+        self.assertIn("app.state != .notRunning || pids.contains(where: TerminateWait.processExists)", wrapper[wait:])
+        self.assertIn('"SH1-152 TERMINATE SLOW %@ %.1f"', wrapper)
+        self.assertIn("XCTFail(TerminateWait.neverEndedMessage(", wrapper)
+        self.assertIn("throw SetupError.terminateNeverEnded", wrapper)
+
+    def test_the_wait_is_bounded_and_its_negative_control_runs_with_the_logic_tests(self):
+        helper = (TESTS / "TerminateWait.swift").read_text()
+        self.assertIn("static let timeout: TimeInterval = 180", helper)
+        self.assertIn("(class T-reap)", helper)
+        self.assertIn("kill(pid, 0) == 0 || errno == EPERM", helper)
+        logic = (TESTS / "QAAxLogicTests+TerminateWait.swift").read_text()
+        self.assertIn("extension QAAxLogicTests {", logic)
+        self.assertIn("func testTerminateWaitGivesUpOnAStubThatNeverEnds()", logic)
+        docs = (Path(__file__).resolve().parents[2] / "docs/ci-simulator.md").read_text()
+        self.assertIn("| T-reap | `Failed to terminate com.shin1ohno.yebisu:<pid>`", docs)
 
 
 if __name__ == "__main__":
