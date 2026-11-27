@@ -369,6 +369,22 @@ class P12QASourceTests(unittest.TestCase):
         needs = body(swift, "static func needsWindow(")
         self.assertIn("gesture == .appNameTap && fillsScreen && !nameShown", needs)
 
+    def test_a_drag_that_left_the_window_filling_the_screen_is_done_again(self):
+        """yebisu#242 main run 45907938365: one drag sprang back to full screen. The drag is repeated
+        while the window still fills the screen with no app name, at most windowDragAttempts times."""
+        swift = code(SWIFT)
+        window = body(swift, "private func windowForTheMenuBar(")
+        loop = window.index("for attempt in 1...Self.windowDragAttempts {")
+        self.assertLess(loop, window.index(".press(forDuration: 0.2, thenDragTo:"))
+        self.assertLess(window.index("named = name.waitForExistence(timeout: Self.revealTimeout)"),
+                        window.index("guard Self.dragsAgain(attempt: attempt, fillsScreen: fillsAfter, nameShown: named) else { break }"))
+        self.assertIn('let short = attempt == 1 && faults.remove("short-drag") != nil', window)
+        self.assertIn('record["drags"] = drags', window)
+        self.assertLess(window.index('record["drags"] = drags'), window.index("guard named else {"))
+        self.assertIn("static let windowDragAttempts = 3", swift)
+        again = body(swift, "static func dragsAgain(")
+        self.assertIn("attempt < windowDragAttempts && fillsScreen && !nameShown", again)
+
     def test_the_rename_cancel_tap_lands_left_of_the_p12_panel(self):
         """yebisu#242: in the dragged 899 pt window the fixed (0.7, 0.15) point of the app element (whose
         frame stays the screen's) fell above the window, so S9-tab's field never closed. The point is

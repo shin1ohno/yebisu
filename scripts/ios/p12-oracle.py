@@ -332,13 +332,29 @@ def validate_menu_retries(records, ui):
 EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "tap lost (class A2)"}
 # Negative controls on a choose() case; drop-tap names a fixture step instead.
 CASE_FAULTS = ("skip-swipe", "drop-pick", "drop-open", *EXPECTED_FAILURES)
+SHORT_DRAG = "short-drag"
+
+
+def short_drag_retried(ui):
+    """yebisu#242: the one window-mode record shows that the injected short drag left the window
+    filling the screen with no app name, and that a later drag showed the name."""
+    modes = [r for r in ui if r.get("kind") == "window-mode"]
+    drags = modes[0].get("drags") if len(modes) == 1 else None
+    if not isinstance(drags, list) or len(drags) < 2:
+        return False
+    first, last = drags[0], drags[-1]
+    return (first.get("injectedShort") is True and first.get("fillsScreen") is True and first.get("nameShown") is False
+            and not any(d.get("injectedShort") for d in drags[1:]) and last.get("nameShown") is True)
 
 
 def valid_fault(spec):
     """True when spec is empty or a comma list of negative controls: `drop-tap:<step>`, and
-    `skip-swipe:`, `drop-pick:`, `drop-open:`, `drop-pick-twice:` or `offset-pick:` with a choose() case."""
+    `skip-swipe:`, `drop-pick:`, `drop-open:`, `drop-pick-twice:` or `offset-pick:` with a choose() case,
+    or `short-drag` (yebisu#242: the first window drag is too short to leave full screen)."""
     items = [item for item in spec.split(",") if item]
     def one(item):
+        if item == SHORT_DRAG:
+            return True
         kind, _, target = item.partition(":")
         return target in STEPS if kind == "drop-tap" else kind in CASE_FAULTS and target in CHOOSES
     return all(one(item) for item in items)
@@ -373,6 +389,9 @@ def validate_faults(spec, ui):
     no fault asked for is not hidden by this check (it stays in the verdict)."""
     retry_kinds = {"drop-tap": "fixture-retry", "skip-swipe": "reveal-retry", "drop-pick": "pick-retry", "drop-open": "open-retry"}
     for item in [item for item in spec.split(",") if item]:
+        if item == SHORT_DRAG:
+            require(short_drag_retried(ui), "injected fault short-drag did not force a logged second window drag")
+            continue
         kind, _, target = item.partition(":")
         if kind in EXPECTED_FAILURES:
             continue  # judged by failed_as_expected
