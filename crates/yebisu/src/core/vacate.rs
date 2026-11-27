@@ -57,10 +57,13 @@ pub(crate) struct Expect {
     /// it is that old), if known.
     pub(crate) min_uptime_ms: Option<u64>,
     /// Close Space of a space this client is not connected to (#249): the
-    /// live terminals that were seen, which the stop ends first in its one
-    /// checked connection. Another live terminal refuses the stop (`Busy`).
-    /// Empty for an empty space: nothing is ended.
-    pub(crate) end: Vec<String>,
+    /// live terminals that were seen, each with the pid of what the question
+    /// judged it by (`named_close::judged_pid`: its foreground program, else
+    /// its own program; `None`: neither reported), which the stop ends first in
+    /// its one checked connection. Another live terminal, or a seen one whose
+    /// foreground changed, refuses the stop (`Busy`): the question was not
+    /// about what runs there now. Empty for an empty space: nothing ends.
+    pub(crate) end: Vec<(String, Option<i32>)>,
 }
 
 impl Expect {
@@ -190,7 +193,7 @@ pub(crate) fn stop_command(session: &str, expect: &Expect) -> crate::Result<Stri
         return Err(crate::Error::Ssh("Herdr 2 core id is unusable".into()));
     }
     let number = |value: Option<u64>| value.map_or_else(|| "-".to_owned(), |n| n.to_string());
-    if expect.end.iter().any(|address| {
+    if expect.end.iter().any(|(address, _)| {
         address.is_empty()
             || !address
                 .chars()
@@ -203,7 +206,15 @@ pub(crate) fn stop_command(session: &str, expect: &Expect) -> crate::Result<Stri
     let end = if expect.end.is_empty() {
         "-".to_owned()
     } else {
-        expect.end.join(",")
+        expect
+            .end
+            .iter()
+            .map(|(address, pid)| match pid {
+                Some(pid) => format!("{address}={pid}"),
+                None => format!("{address}=-"),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     };
     Ok(format!(
         r#"if ! command -v python3 >/dev/null 2>&1; then

@@ -1,10 +1,13 @@
 """Stop one POSIX herdr-core server if it is still the one that was seen and runs nothing.
 
 Arguments: session, core id, pid ('-' for any), least uptime in ms ('-' for any), and
-optionally the comma-separated live terminals that were seen ('-' or absent: none). With
-seen terminals (Close Space of a space this client is not connected to, #249), the same
-checked connection ends them first and refuses if a live terminal that was not seen is
-there.
+optionally the comma-separated live terminals that were seen, each `address=pid` with the
+pid the question judged it by: its foreground program, else the program it was started
+with (the terminal's own pid); `address=-` when neither was reported ('-' or absent: none).
+With seen terminals (Close Space of a space this client is not connected to, #249), the
+same checked connection ends them first. Before ending anything it refuses (status 4) if
+a live terminal that was not seen is there, or a seen one's judged program changed: the
+question that was asked was not about what runs there now.
 Never starts a server: it talks to the session's socket directly (no `hc`, whose
 `server status` starts a core on Unix). Exit status: 0 stopped, or no server
 (printed `absent`); 3 another server than the one seen (id, pid, or younger than
@@ -75,16 +78,31 @@ if least_uptime != "-" and uptime < int(least_uptime):
     print("restarted since it was seen")
     sys.exit(3)
 if end != "-" and live != 0:
-    seen = set(end.split(","))
+    seen = {}
+    for item in end.split(","):
+        address, _, pid = item.partition("=")
+        seen[address] = pid or "-"
     try:
         listed = rpc("terminal.list", {"all": False})["terminals"]
-        running = [t["address"] for t in listed if t.get("state") == "live"]
-    except (OSError, ValueError, KeyError, TypeError):
+        now = {}
+        for terminal in listed:
+            if terminal.get("state") != "live":
+                continue
+            foreground = terminal.get("foreground")
+            pid = foreground.get("pid") if isinstance(foreground, dict) else None
+            if pid is None:
+                pid = terminal.get("pid")
+            now[terminal["address"]] = "-" if pid is None else str(pid)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         print("unknown")
         sys.exit(5)
-    if any(address not in seen for address in running):
+    if any(address not in seen for address in now):
         print("a terminal is running")
         sys.exit(4)
+    if any(seen[address] != pid for address, pid in now.items()):
+        print("a terminal changed")
+        sys.exit(4)
+    running = list(now)
     for address in running:
         try:
             rpc("terminal.kill", {"terminal": address})

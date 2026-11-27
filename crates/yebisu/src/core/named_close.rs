@@ -115,7 +115,7 @@ pub(super) fn observe_listed(
         expect.end = terminals
             .iter()
             .filter(|terminal| terminal.state == TerminalState::Live)
-            .map(|terminal| terminal.address.clone())
+            .map(|terminal| (terminal.address.clone(), judged_pid(terminal)))
             .collect();
         next.insert(
             name,
@@ -127,6 +127,18 @@ pub(super) fn observe_listed(
         );
     }
     *listed = next;
+}
+
+/// The pid of what a question judged a terminal by (`running::runs_program`):
+/// its foreground program, else the program it was started with, whose pid
+/// is the terminal's own. A foreground reported only later (herdr-core fills
+/// it in after a terminal starts) is then the same program, not a change.
+pub(super) fn judged_pid(terminal: &Terminal) -> Option<i32> {
+    terminal
+        .foreground
+        .as_ref()
+        .map(|fg| fg.pid)
+        .or(terminal.pid)
 }
 
 /// Whether the listed space `listed` may close at `now`: its server
@@ -141,7 +153,8 @@ pub(crate) fn listed_closable(listed: Option<&Listed>, now: Instant) -> Result<(
 }
 
 /// Closes the listed space `name` through the checked stop, which ends the
-/// terminals in `expect.end` and refuses if another live terminal is there
+/// terminals in `expect.end` and refuses if another live terminal is there,
+/// or a seen one's foreground program changed since the question
 /// (`Busy`): the poll's `retire_vacant`, which forgets the space once its
 /// server stopped. A refusal or a failure is the screen's notice. Blocking:
 /// the worker runs it on a thread of its own.

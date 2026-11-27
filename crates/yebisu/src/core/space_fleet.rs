@@ -219,6 +219,21 @@ impl Fleet {
             .clone()
     }
 
+    /// Another client types `text` into one of the space's terminals and
+    /// presses Enter: `hc send <address> <text>`.
+    pub(super) fn send_elsewhere(&self, space: &str, address: &str, text: &str) {
+        let output = self
+            .command(space)
+            .args(["send", "--force", address, text])
+            .output()
+            .unwrap_or_else(|e| panic!("hc send: {e}"));
+        assert!(
+            output.status.success(),
+            "hc send {address}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     /// Another client ends one of the space's programs: `hc kill <address>`.
     pub(super) fn kill_elsewhere(&self, space: &str, address: &str) {
         let output = self

@@ -218,16 +218,16 @@ fn the_stop_status_tells_stopped_busy_and_another_server() {
 #[test]
 fn the_stop_command_names_the_seen_terminals() {
     let mut expect = Expect::seen("0123abcd-ef".into(), Some(4242));
-    expect.end = vec!["t1".into(), "box/t7".into()];
+    expect.end = vec![("t1".into(), Some(77)), ("box/t7".into(), None)];
     let command = stop_command("space-17", &expect).unwrap_or_else(|e| panic!("command: {e}"));
     assert!(
         command.contains(
-            "exec python3 -I - space-17 0123abcd-ef 4242 - 't1,box/t7' <<'YEBISU_CORE_STOP'"
+            "exec python3 -I - space-17 0123abcd-ef 4242 - 't1=77,box/t7=-' <<'YEBISU_CORE_STOP'"
         ),
         "{command}"
     );
-    expect.end = vec!["t1; rm -rf /".into()];
+    expect.end = vec![("t1; rm -rf /".into(), None)];
     assert!(stop_command("space-17", &expect).is_err());
-    expect.end = vec![String::new()];
+    expect.end = vec![(String::new(), None)];
     assert!(stop_command("space-17", &expect).is_err());
 }

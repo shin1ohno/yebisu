@@ -1,8 +1,8 @@
 //! `named_close`: what a Close Space of the connected `space-<ms>` session
 //! ends, and when it refuses (#249).
 use super::{
-    JUST_STARTED, Listed, NOT_ANSWERING, PROTECTED, STARTED_SINCE, listed_closable, observe_listed,
-    plan,
+    JUST_STARTED, Listed, NOT_ANSWERING, PROTECTED, STARTED_SINCE, judged_pid, listed_closable,
+    observe_listed, plan,
 };
 use crate::core::vacate::GRACE;
 use serde_json::{Value, json};
@@ -112,7 +112,10 @@ fn a_listed_space_keeps_its_server_and_terminals() -> Outcome {
         .unwrap_or_else(|| panic!("not listed"));
     assert_eq!(row.expect.core_id, "core-a");
     assert_eq!(row.expect.pid, Some(40));
-    assert_eq!(row.expect.end, ["t1", "t2"]);
+    assert_eq!(
+        row.expect.end,
+        [("t1".to_owned(), Some(9)), ("t2".to_owned(), None)]
+    );
     assert_eq!(row.busy, ["t1"]);
     assert!(!listed.contains_key("default"), "default never closes");
     // The same server keeps the time it was first seen.
@@ -144,4 +147,19 @@ fn a_listed_space_closes_only_after_grace() {
         Err(JUST_STARTED)
     );
     assert_eq!(listed_closable(Some(&row), since + GRACE), Ok(()));
+}
+
+/// Review of #255: the stop compares each seen terminal's judged program by
+/// pid, its foreground else its own program, so a program started in a seen
+/// shell is a change, and a foreground reported only later is not.
+#[test]
+fn a_terminal_is_judged_by_its_foreground_else_its_own_program() -> Outcome {
+    let both: Terminal = serde_json::from_value(json!({"address": "t1", "state": "live",
+        "pid": 5, "foreground": {"pid": 9, "name": "vim"}}))?;
+    assert_eq!(judged_pid(&both), Some(9));
+    let own: Terminal =
+        serde_json::from_value(json!({"address": "t1", "state": "live", "pid": 5}))?;
+    assert_eq!(judged_pid(&own), Some(5));
+    assert_eq!(judged_pid(&terminal("t1", "live", &["sleep"])?), None);
+    Ok(())
 }
