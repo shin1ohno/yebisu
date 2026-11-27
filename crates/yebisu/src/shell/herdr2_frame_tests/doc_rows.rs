@@ -363,6 +363,12 @@ fn a_document_change_elsewhere_keeps_the_input_epoch(cx: &mut TestAppContext) {
     // a space added on the Mac must update the rows without making it stale.
     let root = std::env::temp_dir().join(format!("yebisu-doc-epoch-{}", std::process::id()));
     let host = Host::default();
+    // Every terminal the document names is live, and the added space has a
+    // tab with a live terminal (issue #269): the reader takes a space without
+    // tabs, or whose terminals ended, out of the document one poll period
+    // after it first reads it (`core/ended_spaces.rs`), so the third row
+    // would otherwise be drawn only until then.
+    host.set_live(&["t1", "t2", "t30", "t40"]);
     let mut doc: serde_json::Value =
         serde_json::from_str(include_str!("../../../fixtures/herdr-app/two-spaces.json"))
             .unwrap_or_else(|e| panic!("fixture: {e}"));
@@ -400,10 +406,18 @@ fn a_document_change_elsewhere_keeps_the_input_epoch(cx: &mut TestAppContext) {
     });
     let epoch = view.update(cx, |this, _| this.terminal.live.input_epoch);
     if let Some(spaces) = doc["spaces"].as_array_mut() {
-        spaces.push(serde_json::json!({"id": "spcc", "name": "Third", "tabs": []}));
+        spaces.push(serde_json::json!({"id": "spcc", "name": "Third", "tabs": [{
+            "id": "tbcc", "name": "", "root": {"id": "tbcc", "type": "row", "children": [
+                {"id": "pcc", "type": "block", "content": {"terminal": "t40"}}
+            ]}
+        }]}));
     }
     host.doc().set_external(doc);
     wait_for(&view, cx, "the third space's row", |this| spaces(this) == 3);
+    assert!(
+        host.doc().sets().is_empty(),
+        "nothing was taken out of the document"
+    );
     view.update(cx, |this, _| {
         assert_eq!(
             this.terminal.live.input_epoch, epoch,
