@@ -10,7 +10,9 @@ so the PR that rewrites a mutated line fails here. Pure file reads; no build.
 """
 
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -58,6 +60,79 @@ class LayoutMutationAnchors(unittest.TestCase):
         with self.assertRaises(SystemExit) as raised:
             self.module.main()
         self.assertIn("gone: source anchor must occur exactly once in layout.rs", str(raised.exception))
+
+
+class LayoutMutationOrder(unittest.TestCase):
+    """main() runs every baseline on the unmodified source first (issue #257),
+    then each mutation, and keeps both gates. `run` is faked; no build."""
+
+    def setUp(self):
+        self.module = load()
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        self.module.SRC = root / "src"
+        self.module.OUT = root / "out"
+        self.module.SRC.mkdir()
+        self.originals = {"a.rs": "fn a() { 1 }\n", "b.rs": "fn b() { 2 }\n"}
+        for filename, text in self.originals.items():
+            (self.module.SRC / filename).write_text(text)
+        self.module.CASES = [("first", "a.rs", "{ 1 }", "{ 0 }", "a::tests::one"),
+                             ("second", "b.rs", "{ 2 }", "{ 0 }", "b::tests::two")]
+        self.calls = []
+        self.fail_baseline = None
+        self.survivor = None
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def sources(self):
+        return {name: (self.module.SRC / name).read_text() for name in self.originals}
+
+    def fake_run(self, name, test):
+        self.calls.append((name, self.sources()))
+        if name.endswith("-baseline"):
+            if name == self.fail_baseline:
+                return 101, f"test {test} ... FAILED\n0 passed; 1 failed", 0.1
+            return 0, f"test {test} ... ok\n1 passed; 0 failed", 0.1
+        if name == self.survivor:
+            return 0, f"test {test} ... ok\n1 passed; 0 failed", 0.2
+        module = test.split("::tests::")[0]
+        return 101, f"test {test} ... FAILED\npanicked at crates/yebisu/src/{module}/tests/x.rs:1:1", 0.2
+
+    def test_every_baseline_runs_on_the_unmodified_source_before_any_mutation(self):
+        self.module.run = self.fake_run
+        self.module.main()
+        self.assertEqual([name for name, _ in self.calls],
+                         ["first-baseline", "second-baseline", "first", "second"])
+        for name, sources in self.calls[:2]:
+            with self.subTest(name):
+                self.assertEqual(sources, self.originals)
+        self.assertEqual(self.calls[2][1], {"a.rs": "fn a() { 0 }\n", "b.rs": "fn b() { 2 }\n"})
+        self.assertEqual(self.calls[3][1], {"a.rs": "fn a() { 1 }\n", "b.rs": "fn b() { 0 }\n"})
+        self.assertEqual(self.sources(), self.originals)
+        verdict = json.loads((self.module.OUT / "verdict.json").read_text())
+        self.assertEqual([(case["mutation"], case["baseline_seconds"], case["mutation_seconds"])
+                          for case in verdict["cases"]], [("first", 0.1, 0.2), ("second", 0.1, 0.2)])
+
+    def test_a_failing_baseline_stops_before_any_mutation(self):
+        # Negative control for the baseline gate: the second test fails on the
+        # original source, so no source is mutated and no mutation runs.
+        self.module.run = self.fake_run
+        self.fail_baseline = "second-baseline"
+        with self.assertRaises(SystemExit) as raised:
+            self.module.main()
+        self.assertEqual(str(raised.exception), "second: baseline did not run and pass the named regression")
+        self.assertEqual([name for name, _ in self.calls], ["first-baseline", "second-baseline"])
+        self.assertEqual(self.sources(), self.originals)
+
+    def test_a_surviving_mutation_still_fails_and_restores_the_source(self):
+        # Negative control for the mutation gate.
+        self.module.run = self.fake_run
+        self.survivor = "second"
+        with self.assertRaises(SystemExit) as raised:
+            self.module.main()
+        self.assertEqual(str(raised.exception), "second: intended assertion failure not observed")
+        self.assertEqual(self.sources(), self.originals)
 
 
 if __name__ == "__main__":

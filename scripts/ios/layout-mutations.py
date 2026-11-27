@@ -5,8 +5,9 @@ L7 Hosts sheet, L8 Herdr 2 frame, L9 keyboards and mod regions), requiring each 
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
-once on the mutation, through scripts/guarded.py. Durations go to the log and
-to target/layout-mutations/verdict.json.
+once on the mutation, through scripts/guarded.py. All baselines run first, on
+the unmodified source, so the original crate is built once. Durations go to
+the log and to target/layout-mutations/verdict.json.
 """
 import json
 from pathlib import Path
@@ -202,20 +203,35 @@ def stale_anchors():
             for name, filename, old, _, _ in CASES if (SRC / filename).read_text().count(old) != 1]
 
 
+def baselines():
+    """Run every case's named test on the unmodified source, before any mutation.
+    Every baseline sees the same source, so only the first one compiles; running
+    each right before its mutation rebuilt the original crate once per case,
+    about half of the step's time (issue #257: 23-24 of 47-48 min on the runs
+    that hit the check job's 60-minute limit)."""
+    seconds = {}
+    for name, _, _, _, test in CASES:
+        code, output, baseline = run(name + "-baseline", test)
+        if code or "1 passed; 0 failed" not in output:
+            raise SystemExit(f"{name}: baseline did not run and pass the named regression")
+        print(f"layout-mutations: {name}: baseline {test} passed in {baseline}s", flush=True)
+        seconds[name] = baseline
+    return seconds
+
+
 def main():
     stale = stale_anchors()
     if stale:
         raise SystemExit("\n".join(stale))
     OUT.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
+    passed = baselines()
+    print(f"layout-mutations: {len(passed)} baselines passed in {round(time.monotonic() - started, 1)}s", flush=True)
     results = []
     for name, filename, old, new, test in CASES:
         path = SRC / filename
         original = path.read_text()
-        code, output, baseline = run(name + "-baseline", test)
-        if code or "1 passed; 0 failed" not in output:
-            raise SystemExit(f"{name}: baseline did not run and pass the named regression")
-        print(f"layout-mutations: {name}: baseline {test} passed in {baseline}s", flush=True)
+        baseline = passed[name]
         try:
             path.write_text(original.replace(old, new))
             code, output, mutated = run(name, test)
