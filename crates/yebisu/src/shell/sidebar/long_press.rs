@@ -69,13 +69,15 @@ impl Smoke {
                     space: Some(id.clone()),
                 };
                 let mut entries = host_menus::space_long_press_for(&state, &shown, &current);
-                // A Herdr 2 row that is no document space (another
-                // session's) can be neither renamed nor closed.
+                // A Herdr 2 row that is no document space (a `space-<ms>`
+                // session's, or `default`'s own) cannot be renamed; only
+                // the connected `space-<ms>` row closes (#249).
                 if self.terminal.core_mode
                     && shown.host == current.host
                     && !self.shown_space_exists(&shown)
                 {
-                    host_menus::refuse_document_items(&mut entries);
+                    let close = self.named_close_unavailable(&shown);
+                    host_menus::refuse_document_items(&mut entries, &state, close);
                 }
                 (shown, entries)
             }
@@ -116,11 +118,9 @@ impl Smoke {
             // Close Space (#231) closes the pressed row's space, which may
             // be any space of the selected host, as Rename does.
             let current = self.current_menu_scope();
-            if !host_menus::rename_scope_valid(
-                &menu.shown,
-                &current,
-                self.shown_space_exists(&menu.shown),
-            ) {
+            let exists = self.shown_space_exists(&menu.shown)
+                || (self.terminal.core_mode && self.named_close_unavailable(&menu.shown).is_none());
+            if !host_menus::rename_scope_valid(&menu.shown, &current, exists) {
                 return Err(crate::Error::NativeMenu("menu target changed"));
             }
             crate::qa_ax::count("space_menu_close");
