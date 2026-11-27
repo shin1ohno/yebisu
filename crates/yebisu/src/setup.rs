@@ -37,6 +37,8 @@ pub(crate) enum Job {
     Scan(String),
     Trust(String, NewHostKey, Option<String>),
     Authenticate(String, Option<String>),
+    /// Forget a saved host and every record of it (#250).
+    Delete(String),
 }
 
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
@@ -58,6 +60,8 @@ pub(crate) enum Reply {
     Authenticated(SavedHosts, String),
     /// Sign-in succeeded; the probe says which Herdr the host runs.
     SignedIn(SavedHosts, String, Probe),
+    /// The saved host (the `String`) is forgotten; what is saved now.
+    Deleted(SavedHosts, String),
 }
 
 #[cfg(target_os = "ios")]
@@ -164,6 +168,10 @@ pub(crate) fn execute(job: Job) -> Result<Reply> {
                 facts,
             ))
         }
+        Job::Delete(target) => {
+            let hosts = store()?.delete(&target, crate::core::workspace_root().as_deref())?;
+            Ok(Reply::Deleted(hosts, target))
+        }
     }
 }
 
@@ -247,11 +255,19 @@ impl Setup {
                 self.set_hosts(hosts);
                 self.status = message;
             }
+            Ok(Reply::Deleted(hosts, target)) => {
+                let name = self.host_names.get(&target).cloned().unwrap_or(target);
+                self.set_hosts(hosts);
+                self.pending = None;
+                self.fingerprints.clear();
+                self.status = format!("Deleted {name}.");
+            }
         }
     }
 }
 
-// Deliberately no credential regeneration or host-key forgetting in P2.
+// Deliberately no credential regeneration in P2. A host key is forgotten
+// only with its saved host (`Job::Delete`, #250).
 
 #[cfg(test)]
 mod tests;

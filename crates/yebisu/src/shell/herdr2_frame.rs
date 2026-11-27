@@ -46,6 +46,11 @@ impl Herdr2State {
         }
     }
 
+    /// A deleted saved host (#250): no space of it is selected any more.
+    pub(crate) fn forget_host(&mut self, host: &str) {
+        self.selected.remove(host);
+    }
+
     pub(crate) fn confirm_session(&mut self, host: &str, session: &str) {
         if self
             .selected
