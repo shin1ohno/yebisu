@@ -26,7 +26,7 @@ use crate::{
         TERMINAL_MIN_WIDTH, TerminalFit, TooSmall,
     },
 };
-use gpui::{AnyElement, Context, Edges, Pixels, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, Edges, Pixels, Window, canvas, div, prelude::*, px, rgb};
 
 /// The title shown in place of the terminal.
 pub(crate) const TOO_SMALL_TITLE: &str = "Window too small";
@@ -252,10 +252,17 @@ pub(crate) fn controls_reach(sample: Edges<Pixels>) -> ControlsReach {
 
 impl Smoke {
     /// "Window too small" in place of the terminal; `None` draws as today.
+    ///
+    /// The screen keeps the terminal's focus and text input handler (#265):
+    /// without them GPUI reports text focus lost, herdr-uikit hands the first
+    /// responder to the drawing view and a docked software keyboard hides,
+    /// the window grows back, the terminal returns with focus and the
+    /// keyboard rises again, about every 0.47 s. Nothing typed meanwhile
+    /// reaches the terminal (`TerminalInput::hold_for_size`).
     pub(crate) fn render_too_small(
         &mut self,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let layout = self.frame_layout(window);
         let compact = self.compact_terminal_fit(window);
@@ -267,10 +274,13 @@ impl Smoke {
         self.shell.fit.too_small = verdict;
         self.terminal.input.hold_for_size(verdict.is_some());
         let verdict = verdict?;
+        let entity = cx.entity();
         Some(
             div()
                 .id("shell-too-small")
                 .debug_selector(|| "shell-too-small".into())
+                .relative()
+                .track_focus(&self.terminal_focus)
                 .size_full()
                 .flex()
                 .flex_col()
@@ -287,6 +297,23 @@ impl Smoke {
                         .text_size(px(text::NAME))
                         .text_color(rgb(color::MUTED))
                         .child(too_small_message(&verdict)),
+                )
+                .child(
+                    canvas(
+                        |_, _, _| (),
+                        move |bounds, (), window, cx| {
+                            let focus = entity.read(cx).terminal_focus.clone();
+                            window.handle_input(
+                                &focus,
+                                crate::actions::herdr_keys::TerminalInputHandler::new(
+                                    bounds, entity,
+                                ),
+                                cx,
+                            );
+                        },
+                    )
+                    .absolute()
+                    .size_full(),
                 )
                 .into_any_element(),
         )
