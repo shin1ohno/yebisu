@@ -7,7 +7,7 @@
 //! -- --ignored --test-threads=1`.
 use super::{
     empty_space_tests::{connect, discover, moved_to, prepare_next, status, throughout, until},
-    named_close::STARTED_SINCE,
+    named_close::{JUST_STARTED, STARTED_SINCE},
     running,
     space_fleet::Fleet,
 };
@@ -16,7 +16,6 @@ use crate::{
     shell::{
         host_menus::{MenuItemId, SpaceMenuItem},
         sidebar::long_press::PressedRow,
-        space_close::OPEN_TO_CLOSE,
     },
 };
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px};
@@ -84,8 +83,8 @@ fn asked(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> bool {
 
 /// A shells-only `space-<ms>` closes at once from its own row's menu: its
 /// server, and only it, is stopped through the checked stop, and the view
-/// moves to the next space. `default`'s row and another session's row
-/// cannot close, each with its own reason.
+/// moves to the next space. `default`'s row cannot close, and another
+/// session's row, seen by the poll only now, waits `vacate::GRACE`.
 #[gpui::test]
 #[ignore = "needs YEBISU_HERDR_CORE_TEST_BINARY"]
 fn named_close_shells_only_stops_only_that_server(cx: &mut TestAppContext) {
@@ -104,7 +103,7 @@ fn named_close_shells_only_stops_only_that_server(cx: &mut TestAppContext) {
     );
     assert_eq!(
         close_entry(&view, cx, host, "space-2"),
-        (false, Some(OPEN_TO_CLOSE))
+        (false, Some(JUST_STARTED))
     );
     assert_eq!(close_entry(&view, cx, host, "space-1"), (true, None));
     let id = fleet.core_id("space-1");
@@ -171,4 +170,97 @@ fn named_close_asks_for_a_program_and_refuses_one_not_asked(cx: &mut TestAppCont
     until(&view, cx, "selection moves", 15, |cx| {
         moved_to(&view, cx, "default")
     });
+}
+
+/// The view's selected host's catalog lists `space`.
+fn lists(view: &Entity<Smoke>, cx: &mut VisualTestContext, space: &str) -> bool {
+    view.update(cx, |this, _| {
+        let epoch = this.terminal.live.input_epoch;
+        this.terminal
+            .core
+            .as_ref()
+            .is_some_and(|core| core.sessions(epoch).iter().any(|row| row.name == space))
+    })
+}
+
+/// #249 B: a `space-<ms>` row this connection does not serve closes from
+/// the discovery poll's snapshot. A server first seen just now waits
+/// `GRACE`; a shell whose foreground runs a program asks; a program started
+/// after the question refuses the stop and ends nothing; confirming again
+/// with a fresh snapshot ends both and stops only that server.
+#[gpui::test]
+#[ignore = "needs YEBISU_HERDR_CORE_TEST_BINARY"]
+fn listed_close_asks_waits_grace_and_refuses_an_unseen_program(cx: &mut TestAppContext) {
+    let mut fleet = Fleet::start();
+    for space in ["default", "space-1", "space-2"] {
+        fleet.add(space);
+    }
+    let host = "listed-close";
+    let (view, cx) = connect(&mut fleet, host, "space-1", cx);
+    // A shell at its prompt runs nothing; its foreground child does (an
+    // interactive shell gives it its own process group, as a terminal's
+    // shell does).
+    let shell = fleet.run_argv_elsewhere("space-2", &["sh", "-ic", "sleep 600; :"]);
+    discover(&view, cx, &fleet, host);
+    assert_eq!(
+        close_entry(&view, cx, host, "space-2"),
+        (false, Some(JUST_STARTED))
+    );
+    std::thread::sleep(super::vacate::GRACE + std::time::Duration::from_millis(200));
+    discover(&view, cx, &fleet, host);
+    assert_eq!(close_entry(&view, cx, host, "space-2"), (true, None));
+    pick_close(&view, cx).unwrap_or_else(|e| panic!("close: {e}"));
+    let question = view.read_with(cx, |this, _| {
+        this.shell.sidebar.close_confirm.clone().map(|c| c.question)
+    });
+    assert_eq!(
+        question.map(|q| q.running),
+        Some(crate::shell::space_close::Running::Programs(1)),
+        "the shell's foreground sleep asks"
+    );
+    // Another client starts a program after the question was asked.
+    let later = fleet.run_elsewhere("space-2");
+    view.update(cx, |this, _| this.confirm_space_close())
+        .unwrap_or_else(|e| panic!("confirm: {e}"));
+    until(&view, cx, "the refusal is shown", 15, |cx| {
+        status(&view, cx).contains(STARTED_SINCE)
+    });
+    let live = |fleet: &Fleet, address: &str| {
+        fleet
+            .list("space-2")
+            .iter()
+            .any(|t| t.address == address && t.state == TerminalState::Live)
+    };
+    assert!(fleet.alive("space-2"), "the stop was refused");
+    assert!(
+        live(&fleet, &shell) && live(&fleet, &later),
+        "nothing ended"
+    );
+    // A fresh snapshot names both: Close asks for 2 and the stop ends them.
+    discover(&view, cx, &fleet, host);
+    let id = fleet.core_id("space-2");
+    assert_eq!(close_entry(&view, cx, host, "space-2"), (true, None));
+    pick_close(&view, cx).unwrap_or_else(|e| panic!("close: {e}"));
+    assert!(asked(&view, cx), "two programs ask first");
+    view.update(cx, |this, _| this.confirm_space_close())
+        .unwrap_or_else(|e| panic!("confirm: {e}"));
+    until(&view, cx, "space-2's server stops", 20, |_| {
+        !fleet.alive("space-2")
+    });
+    assert!(fleet.alive("space-1"), "the connected space keeps running");
+    assert!(fleet.alive("default"), "the default space keeps running");
+    let stops = fleet.stops();
+    assert_eq!(stops.len(), 2, "{stops:?}");
+    assert!(
+        stops
+            .iter()
+            .all(|stop| *stop == ("space-2".to_owned(), id.clone()))
+    );
+    until(&view, cx, "its row leaves the sidebar", 10, |cx| {
+        !lists(&view, cx, "space-2")
+    });
+    assert!(
+        moved_to(&view, cx, "space-1"),
+        "the view stays where it was"
+    );
 }

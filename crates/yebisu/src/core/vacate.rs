@@ -56,6 +56,11 @@ pub(crate) struct Expect {
     /// The server must have run at least this long (the connection that saw
     /// it is that old), if known.
     pub(crate) min_uptime_ms: Option<u64>,
+    /// Close Space of a space this client is not connected to (#249): the
+    /// live terminals that were seen, which the stop ends first in its one
+    /// checked connection. Another live terminal refuses the stop (`Busy`).
+    /// Empty for an empty space: nothing is ended.
+    pub(crate) end: Vec<String>,
 }
 
 impl Expect {
@@ -64,6 +69,7 @@ impl Expect {
             core_id,
             pid,
             min_uptime_ms: None,
+            end: Vec::new(),
         }
     }
 }
@@ -184,12 +190,27 @@ pub(crate) fn stop_command(session: &str, expect: &Expect) -> crate::Result<Stri
         return Err(crate::Error::Ssh("Herdr 2 core id is unusable".into()));
     }
     let number = |value: Option<u64>| value.map_or_else(|| "-".to_owned(), |n| n.to_string());
+    if expect.end.iter().any(|address| {
+        address.is_empty()
+            || !address
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+    }) {
+        return Err(crate::Error::Ssh(
+            "Herdr 2 terminal address is unusable".into(),
+        ));
+    }
+    let end = if expect.end.is_empty() {
+        "-".to_owned()
+    } else {
+        expect.end.join(",")
+    };
     Ok(format!(
         r#"if ! command -v python3 >/dev/null 2>&1; then
     echo 'python3 is needed'
     exit {NO_PYTHON}
 fi
-exec python3 -I - {session} {id} {pid} {uptime} <<'YEBISU_CORE_STOP'
+exec python3 -I - {session} {id} {pid} {uptime} {end} <<'YEBISU_CORE_STOP'
 {script}
 YEBISU_CORE_STOP
 "#,
@@ -197,6 +218,7 @@ YEBISU_CORE_STOP
         id = word(&expect.core_id),
         pid = number(expect.pid),
         uptime = number(expect.min_uptime_ms),
+        end = word(&end),
         script = include_str!("../shell/herdr2_frame/stop.py"),
     ))
 }

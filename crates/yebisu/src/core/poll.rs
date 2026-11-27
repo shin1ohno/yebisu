@@ -68,6 +68,19 @@ pub(super) fn record_discovery_at(
         .iter()
         .filter_map(|(name, row)| Some((name.clone(), row.as_ref()?.pid)))
         .collect::<BTreeMap<_, _>>();
+    // The answering spaces, for Close Space (#249 B).
+    let answering = observed
+        .iter()
+        .filter_map(|(name, row)| {
+            let row = row.as_ref()?;
+            Some((
+                name.clone(),
+                row.core_id.clone(),
+                row.pid,
+                row.terminals.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
     let listed = observed
         .keys()
         .cloned()
@@ -84,6 +97,7 @@ pub(super) fn record_discovery_at(
     let current = guard.current.clone();
     let discovery = &mut guard.discovery;
     discovery.failed = false;
+    super::named_close::observe_listed(&mut discovery.listed, now, answering);
     let mut rows = rows;
     // A space stopped here stays off the rows while its server does not
     // answer, or answers as the one that was stopped (a poll that began before
@@ -170,6 +184,8 @@ fn record_failure(lists: &SessionList) -> bool {
     if !std::mem::replace(&mut discovery.failed, true) {
         return false;
     }
+    // Nothing is known of any space now: none closes from the menu.
+    discovery.listed.clear();
     let Some(rows) = &mut discovery.rows else {
         return false;
     };

@@ -318,6 +318,23 @@ pub(super) fn run(
                         command_error = Some(error.to_string());
                     }
                 }
+                Command::CloseListedSpace {
+                    name: space,
+                    expect,
+                } => {
+                    let outputs = (Arc::clone(session_list), Arc::clone(inbox));
+                    let place = (root.clone(), host.clone());
+                    let stop = Arc::clone(&stopper);
+                    let spawned = super::named_close::spawn_close_listed(
+                        outputs,
+                        place,
+                        (space, expect),
+                        stop,
+                    );
+                    if let Err(error) = spawned {
+                        command_error = Some(error.to_string());
+                    }
+                }
                 Command::RenameTab { id, name } => {
                     let intent = herdr_doc::Intent::RenameTab { id, name };
                     if let Err(error) = doc.rename(doc_writer.as_ref(), intent) {
@@ -643,6 +660,7 @@ fn vacate_space(
         core_id: backend.core().hello().core.id.clone(),
         pid: None,
         min_uptime_ms: Some(age),
+        end: Vec::new(),
     };
     Ok(match stopper(name, &expect) {
         Ok(vacate::Stopped::Done) => Vacated::Removed,

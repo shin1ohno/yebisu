@@ -154,13 +154,14 @@ fn the_stop_command_asks_the_socket_and_never_starts_a_server() {
         core_id: "0123abcd-ef".into(),
         pid: Some(4242),
         min_uptime_ms: Some(900),
+        end: Vec::new(),
     };
     let command =
         stop_command("space-1795252668300", &expect).unwrap_or_else(|e| panic!("command: {e}"));
     // Python on the host, the script on stdin, the arguments after it.
     assert!(
         command.contains(
-            "exec python3 -I - space-1795252668300 0123abcd-ef 4242 900 <<'YEBISU_CORE_STOP'"
+            "exec python3 -I - space-1795252668300 0123abcd-ef 4242 900 - <<'YEBISU_CORE_STOP'"
         ),
         "{command}"
     );
@@ -182,7 +183,7 @@ fn the_stop_command_asks_the_socket_and_never_starts_a_server() {
     let any = Expect::seen("abc".into(), None);
     let command = stop_command("space-1", &any).unwrap_or_else(|e| panic!("command: {e}"));
     assert!(
-        command.contains("space-1 abc - - <<'YEBISU_CORE_STOP'"),
+        command.contains("space-1 abc - - - <<'YEBISU_CORE_STOP'"),
         "{command}"
     );
 }
@@ -209,4 +210,24 @@ fn the_stop_status_tells_stopped_busy_and_another_server() {
         assert!(stop_result(Some(code), b"x").is_err(), "{code}");
     }
     assert!(stop_result(None, b"").is_err());
+}
+
+/// #249: a stop for a space this client is not connected to names the live
+/// terminals that were seen; the script ends them in its checked connection.
+/// An address that is not a plain word is refused before anything runs.
+#[test]
+fn the_stop_command_names_the_seen_terminals() {
+    let mut expect = Expect::seen("0123abcd-ef".into(), Some(4242));
+    expect.end = vec!["t1".into(), "box/t7".into()];
+    let command = stop_command("space-17", &expect).unwrap_or_else(|e| panic!("command: {e}"));
+    assert!(
+        command.contains(
+            "exec python3 -I - space-17 0123abcd-ef 4242 - 't1,box/t7' <<'YEBISU_CORE_STOP'"
+        ),
+        "{command}"
+    );
+    expect.end = vec!["t1; rm -rf /".into()];
+    assert!(stop_command("space-17", &expect).is_err());
+    expect.end = vec![String::new()];
+    assert!(stop_command("space-17", &expect).is_err());
 }
