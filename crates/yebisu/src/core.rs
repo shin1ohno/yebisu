@@ -712,6 +712,12 @@ pub(crate) fn listed_spaces(output: &[u8]) -> std::collections::BTreeSet<String>
     poll::listed_spaces(output)
 }
 
+/// Removes every Herdr 2 layout this iPad saved for `host` under `root`
+/// (`workspace_root`), for a deleted saved host (#250).
+pub(crate) fn forget_host_layouts(root: Option<&std::path::Path>, host: &str) -> crate::Result<()> {
+    store::forget_host(root, host)
+}
+
 #[cfg(target_os = "ios")]
 pub(crate) fn workspace_root() -> Option<std::path::PathBuf> {
     let root = sheprd_client::local_path::state_dir()?.join("herdr2");

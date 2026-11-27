@@ -312,6 +312,44 @@ pub(super) fn remove_workspace(
     }
 }
 
+/// Forgets every layout saved for `host` (#250): each space's file, the
+/// `default` backup and any write a crash interrupted, all of which start
+/// with the host's prefix. Holds the store lock, so a worker that has not
+/// seen its stop flag yet cannot write one back afterwards. A layout that is
+/// already gone is not an error.
+pub(super) fn forget_host(root: Option<&Path>, host: &str) -> crate::Result<()> {
+    let Some(root) = root else {
+        return Ok(());
+    };
+    let _storage = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let files = match std::fs::read_dir(root) {
+        Ok(files) => files,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    // Hex digits never include '-', so one host's prefix is never the start
+    // of another host's.
+    let prefix = prefix(host);
+    let mut removed = false;
+    for file in files {
+        let name = file?.file_name();
+        if !name.to_str().is_some_and(|name| name.starts_with(&prefix)) {
+            continue;
+        }
+        match std::fs::remove_file(root.join(&name)) {
+            Ok(()) => removed = true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if removed {
+        std::fs::File::open(root)?.sync_all()?;
+    }
+    Ok(())
+}
+
 fn save_value(
     root: Option<&Path>,
     host: &str,

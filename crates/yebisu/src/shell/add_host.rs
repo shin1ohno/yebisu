@@ -247,6 +247,9 @@ impl SheetMode {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct AddHostSession {
     pub(crate) mode: SheetMode,
+    /// The saved host the sheet opened for (Edit, Open); its Delete Host
+    /// deletes this one even after the field was edited.
+    pub(crate) saved: String,
     pub(crate) flow: AddHostFlow,
     pub(crate) notice: Option<Notice>,
     pub(crate) signing_in: bool,
@@ -260,6 +263,7 @@ impl AddHostSession {
         };
         Self {
             mode,
+            saved: host.to_owned(),
             flow: AddHostFlow {
                 step,
                 typed_host: host.to_owned(),
