@@ -51,9 +51,11 @@ class WorkflowSelectionTests(unittest.TestCase):
         self.assertEqual(selected, dict.fromkeys((*MACOS_JOBS, "layout-mutations"), True))
 
     def test_main_push_omits_only_the_jobs_named_by_evidence(self):
+        # The push touches one of edit-menu's own files, so only the evidence decides here; a push outside
+        # them skips edit-menu by its own rule (test_ci_sh1_152.PathFilterTests).
         for skipped_jobs in ("", "simulator-smoke", "check edit-menu"):
             with self.subTest(skipped_jobs=skipped_jobs), tempfile.TemporaryDirectory() as tmp:
-                selected = decisions("push", ["docs/ci-simulator.md"], tmp, skipped_jobs=skipped_jobs)
+                selected = decisions("push", ["crates/yebisu/src/edit_menu.rs"], tmp, skipped_jobs=skipped_jobs)
                 expected = {name: name not in skipped_jobs.split() for name in MACOS_JOBS}
                 self.assertEqual(selected, {**expected, "layout-mutations": True})
         self.assertIn("        continue-on-error: true\n        env:\n          GH_TOKEN:", WORKFLOW)

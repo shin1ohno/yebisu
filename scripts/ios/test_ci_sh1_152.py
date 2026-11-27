@@ -107,7 +107,8 @@ def run_filter(event, changed, tmp, *, skipped_jobs="", invalid_diff=False):
     output.write_text("")
     env = {
         **os.environ, "EVENT_NAME": event, "BASE_SHA": "missing" if invalid_diff else base,
-        "HEAD_SHA": head, "RUNNER_TEMP": str(tmp), "GITHUB_OUTPUT": str(output),
+        "HEAD_SHA": head, "PUSH_BEFORE": "missing" if invalid_diff else base,
+        "RUNNER_TEMP": str(tmp), "GITHUB_OUTPUT": str(output),
         "SKIPPED_JOBS": skipped_jobs,
     }
     result = subprocess.run(["bash", str(script)], cwd=repo, env=env, capture_output=True, text=True)
@@ -197,10 +198,42 @@ class PathFilterTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(self.edit_menu(path))
 
-    def test_push_to_main_and_manual_runs_always_run_it(self):
-        self.assertTrue(self.edit_menu("crates/yebisu/src/find/search.rs", event="push"))
-        self.assertTrue(self.edit_menu("docs/ci-simulator.md", event="push"))
-        self.assertTrue(self.edit_menu("docs/ci-simulator.md", event="workflow_dispatch"))
+    def test_a_main_push_runs_it_only_for_its_own_files(self):
+        """Owner decision 2026-11-27, with its negative control: the same push event selects edit-menu for
+        one of its own files and skips it for a file outside them, while nightly and manual runs always run it."""
+        self.assertTrue(self.edit_menu("scripts/ios/smoke-qa/Tests/EditMenuQA.swift", event="push"))
+        self.assertFalse(self.edit_menu("docs/ci-simulator.md", event="push"))
+        self.assertFalse(self.edit_menu("crates/yebisu/src/find/search.rs", event="push"))
+        for event in ("schedule", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertTrue(self.edit_menu("docs/ci-simulator.md", event=event))
+
+    def test_every_own_file_runs_it_on_a_main_push(self):
+        for path in ("scripts/ios/smoke-qa/Tests/EditMenuQA.swift", "scripts/ios/smoke-qa/Tests/EditMenuTargetsQA.swift",
+                     "scripts/ios/smoke-qa/Tests/SmokeQA+Handoff.swift", "scripts/ios/smoke-qa/Tests/SmokeQA+Input.swift",
+                     "scripts/ios/smoke-qa/Tests/SmokeQA+Settings.swift", "scripts/ios/ci-sh1-152.py",
+                     "scripts/ios/sh1-152-check.py", "scripts/ios/sh1-153-check.py", "scripts/ios/sh1-156-check.py",
+                     "scripts/ios/sh1_152_targets.py", "scripts/ios/sh1_152_oracle.py", "scripts/ios/p8-native-check.py",
+                     "scripts/ios/selection-settings-check.py", "crates/yebisu/src/edit_menu.rs",
+                     "crates/yebisu/src/edit_menu_qa_sh1_152.rs", "crates/yebisu/src/native_menus.rs",
+                     "crates/yebisu/src/native_edit_qa.rs", "crates/yebisu/src/native_observer_qa.rs",
+                     "crates/yebisu/src/handoff.rs", "crates/yebisu/src/handoff_view.rs", "crates/yebisu/src/terminal_input.rs"):
+            with self.subTest(path=path):
+                self.assertTrue(self.edit_menu(path, event="push"))
+
+    def test_a_main_push_of_other_menu_area_files_skips_it(self):
+        """Files in the wider pull-request area that are not edit-menu's own: the nightly run covers them."""
+        for path in ("Cargo.lock", ".github/workflows/ci.yml", "scripts/ios/lib.sh", "scripts/ios/sim_ready.py",
+                     "scripts/ios/smoke-qa/Tests/SmokeQA.swift", "scripts/ios/smoke-qa/Tests/SmokeQA+InputMode.swift",
+                     "crates/yebisu/src/terminal_view.rs", "crates/yebisu/src/settings/store.rs"):
+            with self.subTest(path=path):
+                self.assertTrue(self.edit_menu(path), "the pull-request area still names it")
+                self.assertFalse(self.edit_menu(path, event="push"))
+
+    def test_a_main_push_with_an_unavailable_diff_runs_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            selected = decisions("push", ["docs/ci-simulator.md"], tmp, invalid_diff=True)
+        self.assertTrue(selected["edit-menu"])
 
     def test_docs_only_and_p12_only_pull_requests_skip(self):
         self.assertFalse(self.edit_menu("docs/ci-simulator.md", "README.md", "TODO.md"))
@@ -346,11 +379,13 @@ class PullRequestSimulatorTests(unittest.TestCase):
         self.assertEqual(areas, set())
 
     def test_main_push_schedule_and_manual_runs_select_every_simulator_job(self):
+        """Every Simulator job, except that a main push selects edit-menu only for its own files (owner decision
+        2026-11-27, PathFilterTests)."""
         for event in ("push", "schedule", "workflow_dispatch"):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as tmp:
                 selected, log = run_filter(event, ["docs/ci-simulator.md"], tmp)
-            self.assertEqual(selected, {"check": True, "simulator-smoke": True, "edit-menu": True, "layout-smoke": True,
-                                        "layout-mutations": True})
+            self.assertEqual(selected, {"check": True, "simulator-smoke": True, "edit-menu": event != "push",
+                                        "layout-smoke": True, "layout-mutations": True})
             self.assertNotIn("area", log)
 
     def test_the_jobs_themselves_refuse_a_pull_request(self):
