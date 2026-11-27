@@ -59,7 +59,10 @@ mod worker;
 
 use crate::{live::Live, terminal_input::Destination};
 pub(crate) use doc_tabs::NO_CLOSE_DOCUMENT;
-pub(crate) use named_close::PROTECTED as NAMED_CLOSE_PROTECTED;
+pub(crate) use named_close::{
+    Listed, NOT_ANSWERING as NAMED_CLOSE_NOT_ANSWERING, PROTECTED as NAMED_CLOSE_PROTECTED,
+    STARTED_SINCE as NAMED_CLOSE_STARTED_SINCE, listed_closable,
+};
 use sheprd_backend::{ClientPaneInputEvent, Size};
 use std::sync::{
     Arc, Mutex,
@@ -110,6 +113,13 @@ pub(crate) enum Command {
     /// another busy one refuses the close (`named_close.rs`).
     CloseNamedSpace {
         asked: Vec<String>,
+    },
+    /// Close Space on a `space-<ms>` row this connection does not serve
+    /// (#249 B): the checked stop ends the terminals `expect.end` names, on
+    /// a thread of the worker's (`named_close::close_listed`).
+    CloseListedSpace {
+        name: String,
+        expect: vacate::Expect,
     },
     /// Renames a tab of the `default` core's document; "" is its position.
     RenameTab {
@@ -278,6 +288,8 @@ pub(crate) struct Discovery {
     /// Spaces the last successful poll found absent (no socket, nothing
     /// listening) though their state remains: two in a row delete the layout.
     unanswered: std::collections::BTreeSet<String>,
+    /// The answering `space-<ms>` spaces, for Close Space (#249 B).
+    listed: std::collections::BTreeMap<String, Listed>,
 }
 
 pub(crate) struct Session {
@@ -549,6 +561,17 @@ impl Session {
     /// The statuses the poll listed last; `None` before the first list.
     pub(crate) fn statuses(&self) -> Option<Vec<crate::shell::herdr2_frame::CoreStatus>> {
         self.statuses.latest()
+    }
+    /// The listed `space-<ms>` space `name` as the discovery poll last saw
+    /// it, when its server answered (#249 B).
+    pub(crate) fn listed(&self, name: &str) -> Option<Listed> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .discovery
+            .listed
+            .get(name)
+            .cloned()
     }
     /// The live terminals the poll found running a program or an agent;
     /// `None` before the first list (Close Space asks from it, #249).

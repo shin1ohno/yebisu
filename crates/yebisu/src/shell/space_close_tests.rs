@@ -2,7 +2,7 @@
 //! one request a close sends, a secondary click opening the same menu, and
 //! a stale confirmation refused.
 use super::{
-    CLOSE_TARGET_CHANGED, OPEN_TO_CLOSE, Question, Running, herdr1_question, herdr2_question,
+    CLOSE_TARGET_CHANGED, NamedRow, Question, Running, herdr1_question, herdr2_question,
     named_close_gate, named_question,
 };
 use crate::{
@@ -343,17 +343,20 @@ fn a_secondary_click_opens_the_rows_menu(cx: &mut gpui::TestAppContext) {
     assert_eq!(open_row(&view, cx), None);
 }
 
-/// #249: of the Herdr 2 rows the document does not hold, only the
-/// connected `space-<ms>` session's own row closes; `default` never does,
-/// and another session's row says to open it first.
+/// #249: of the Herdr 2 rows the document does not hold, a `space-<ms>`
+/// row closes through this connection when it is the connected session's,
+/// else from the discovery poll's snapshot; `default` never does.
 #[test]
-fn only_the_connected_named_row_closes() {
-    assert_eq!(named_close_gate("space-17", Some("space-17")), Ok(()));
+fn space_rows_close_by_how_they_are_reached() {
+    assert_eq!(
+        named_close_gate("space-17", Some("space-17")),
+        Ok(NamedRow::Connected)
+    );
     assert_eq!(
         named_close_gate("space-17", Some("default")),
-        Err(OPEN_TO_CLOSE)
+        Ok(NamedRow::Listed)
     );
-    assert_eq!(named_close_gate("space-17", None), Err(OPEN_TO_CLOSE));
+    assert_eq!(named_close_gate("space-17", None), Ok(NamedRow::Listed));
     assert_eq!(
         named_close_gate("default", Some("default")),
         Err(crate::core::NAMED_CLOSE_PROTECTED)
@@ -397,9 +400,8 @@ fn close_has_its_own_reason_on_rows_outside_the_document() {
         host: "pro-dev".into(),
         space: Some("space-17".into()),
     };
-    let entries = |connected: Option<&str>| {
+    let entries = |close: Option<&'static str>| {
         let mut entries = host_menus::space_long_press_for(&state, &row, &current);
-        let close = named_close_gate("space-17", connected).err();
         host_menus::refuse_document_items(&mut entries, &state, close);
         entries
     };
@@ -410,7 +412,7 @@ fn close_has_its_own_reason_on_rows_outside_the_document() {
             .cloned()
             .unwrap_or_else(|| panic!("{item:?} not listed"))
     };
-    let elsewhere = entries(Some("default"));
+    let elsewhere = entries(Some(crate::core::NAMED_CLOSE_PROTECTED));
     let rename = find(&elsewhere, SpaceMenuItem::Rename);
     let close = find(&elsewhere, SpaceMenuItem::Close);
     assert!(!rename.enabled && !close.enabled);
@@ -418,8 +420,8 @@ fn close_has_its_own_reason_on_rows_outside_the_document() {
         rename.reason,
         Some(crate::shell::rename::herdr2::NOT_IN_DOCUMENT)
     );
-    assert_eq!(close.reason, Some(OPEN_TO_CLOSE));
-    let own = entries(Some("space-17"));
+    assert_eq!(close.reason, Some(crate::core::NAMED_CLOSE_PROTECTED));
+    let own = entries(None);
     assert!(!find(&own, SpaceMenuItem::Rename).enabled);
     assert!(find(&own, SpaceMenuItem::Close).enabled);
 }
