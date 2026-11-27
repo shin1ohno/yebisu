@@ -97,6 +97,21 @@ impl SidebarState {
         self.collapsed_hosts.remove(host);
     }
 
+    /// A deleted saved host (#250): nothing of it stays in the sidebar's
+    /// memory. Its agent pins go too; the caller saves them.
+    pub(crate) fn forget_host(&mut self, host: &str) {
+        self.forget(host, HerdrKind::Herdr1);
+        self.forget(host, HerdrKind::Herdr2);
+        self.collapsed_hosts.remove(host);
+        self.host_order.retain(|saved| saved != host);
+        if self.selected_host == host {
+            self.selected_host.clear();
+        }
+        if let Ok(mut pins) = self.pins.try_borrow_mut() {
+            pins.forget_host(host);
+        }
+    }
+
     pub(super) fn notice_selected_host(&mut self, host: &str) {
         if self.selected_host != host {
             self.selected_host = host.to_owned();

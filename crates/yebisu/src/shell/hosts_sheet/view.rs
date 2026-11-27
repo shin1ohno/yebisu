@@ -319,7 +319,8 @@ impl Smoke {
                     .shadow(vec![shadow::SHEET.box_shadow()])
                     .overflow_hidden()
                     .child(body),
-            );
+            )
+            .children(self.delete_confirm(cx));
         Some(overlay.into_any_element())
     }
 
@@ -459,8 +460,8 @@ impl Smoke {
                 .setup
                 .saved_name(&host)
                 .map_or_else(|| host.clone(), |_| format!("{display} · {host}"));
-            let open = host.clone();
-            let edit = host.clone();
+            let open_host = host.clone();
+            let edit_host = host.clone();
             // The saved-host QA fixture uses the same host selection identifier
             // in this sheet as in the sidebar.
             let open_mark = (host == "qa@qa-alpha.invalid")
@@ -468,28 +469,18 @@ impl Smoke {
                     crate::qa_ax::mark(crate::qa_ax::ids::SIDEBAR_HOST_QA_ALPHA, HOST_OPEN_LABEL)
                 })
                 .flatten();
-            rows = rows.child(
-                div()
-                    .id(("hosts-row", index))
-                    .flex()
-                    .items_center()
-                    .gap(px(metric::INLINE_GAP))
-                    .child(div().flex_1().min_w_0().overflow_hidden().child(label))
-                    .child(
-                        button(format!("host-open-{index}"), HOST_OPEN_LABEL, !busy, true)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.hosts_open_add(SheetMode::Open, &open, cx);
-                            }))
-                            .children(open_mark),
-                    )
-                    .child(
-                        button(format!("host-edit-{index}"), "Edit", !busy, false).on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.hosts_open_add(SheetMode::Edit, &edit, cx);
-                            }),
-                        ),
-                    ),
-            );
+            let open = button(format!("host-open-{index}"), HOST_OPEN_LABEL, !busy, true)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.hosts_open_add(SheetMode::Open, &open_host, cx);
+                }))
+                .children(open_mark)
+                .into_any_element();
+            let edit = button(format!("host-edit-{index}"), "Edit", !busy, false)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.hosts_open_add(SheetMode::Edit, &edit_host, cx);
+                }))
+                .into_any_element();
+            rows = rows.child(self.hosts_list_row(index, &host, label, [open, edit], cx));
         }
         let mut developer = div().flex().flex_col().gap(px(metric::INLINE_GAP));
         for label in developer_items(DEVELOPER_BUTTONS) {
@@ -531,6 +522,9 @@ impl Smoke {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(self.shell.indicators.hosts_list.handle())
+                    // A row's sideways swipe (its Delete) does not scroll
+                    // the list up or down.
+                    .restrict_scroll_to_axis()
                     .p(px(metric::SIDE))
                     .flex()
                     .flex_col()
@@ -793,6 +787,7 @@ impl Smoke {
                             .child(step_title(3, false, host_done, "Sign in and open Herdr"))
                             .child(sign_in),
                     )
+                    .children(self.edit_delete_button(cx))
                     .child(self.shell.indicators.add_host.thumb()),
             )
             .into_any_element()
