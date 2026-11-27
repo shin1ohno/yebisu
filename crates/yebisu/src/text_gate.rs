@@ -116,6 +116,13 @@ impl Recorder {
             crate::diagnostics::record(code);
         }
     }
+
+    /// The last answer, cleared, so a test can tell whether the next frame
+    /// asked at all: GPUI asks only a handler the frame registered.
+    #[cfg(test)]
+    pub(crate) fn take(&self) -> Option<Gate> {
+        self.0.take()
+    }
 }
 
 #[cfg(test)]
