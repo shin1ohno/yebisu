@@ -38,17 +38,26 @@ new entries.
 - **Pushes to main.** Each macOS job runs unless the GitHub API identifies a
   merged PR with the exact same Git tree and a completed job whose every step
   passed in the latest attempt. Since PRs run no Simulator job, only `check`
-  can be reused this way; main runs `simulator-smoke`, `edit-menu` and
-  `layout-smoke` itself. `edit-menu` also verifies the tree of the
-  synthetic merge commit its runner checked out. Missing or ambiguous evidence
-  leaves the job scheduled. A PR `check` that skipped layout mutations cannot
+  can be reused this way; main runs `simulator-smoke` and `layout-smoke`
+  itself. `edit-menu` runs on a push only when the push touches one of its own
+  files (owner decision 2026-11-27): the XCTest files with the tests its checks
+  select (`EditMenuQA`, `EditMenuTargetsQA`, `SmokeQA+Handoff`, `+Settings`,
+  `+Input`), its driver `ci-sh1-152.py`, its checks and oracles (`sh1-15x`,
+  `sh1_152_*`, `p8-native`, `selection-settings`), and the app code
+  `edit_menu*`, `native_menus*`, `native_edit*`, `native_observer*`,
+  `handoff*` and `terminal_input*` (the `menu_own` pattern in `ci.yml`).
+  Otherwise the `changes` log says
+  `the push touches none of edit-menu's own files; the nightly run runs it`.
+  A push whose diff is unavailable runs it. `edit-menu` also verifies the
+  tree of the synthetic merge commit its runner checked out. Missing or ambiguous evidence
+  leaves a job scheduled. A PR `check` that skipped layout mutations cannot
   replace main's `check`. Whenever `check` runs on main, it runs the mutations.
 - **Nightly on main.** Every day at 03:00 JST (18:00 UTC), all six jobs run,
   including `commit-subjects`, `layout-smoke` and the layout mutations in
   `check`. The nightly run bypasses PR evidence, exercises the current runner
   environment and gives successful jobs a chance to populate main's Cargo cache.
-- **Manual CI.** A manual dispatch on main runs all four macOS jobs. The
-  `layout-smoke` job is restricted to main.
+- **Manual CI.** A manual dispatch on main runs all four macOS jobs, `edit-menu`
+  included, whatever it changes. The `layout-smoke` job is restricted to main.
 
 For a skipped job, open `changes` in the Actions run. On a PR, its
 `Select jobs by changed paths` log lists the changed files, the selection and
