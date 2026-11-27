@@ -33,6 +33,18 @@ final class P12RevealGestureTests: XCTestCase {
         }
     }
 
+    /// yebisu#242 main run 45907938365: one drag left the window filling the screen.
+    func testADragThatLeftFullScreenUnchangedIsDoneAgain() {
+        XCTAssertEqual(P12QA.windowDragAttempts, 3)
+        XCTAssertTrue(P12QA.dragsAgain(attempt: 1, fillsScreen: true, nameShown: false))
+        XCTAssertTrue(P12QA.dragsAgain(attempt: 2, fillsScreen: true, nameShown: false))
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 3, fillsScreen: true, nameShown: false), "at most three drags")
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: true, nameShown: true))
+        // A window that moved but shows no name is not dragged again.
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: false, nameShown: false))
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: false, nameShown: true))
+    }
+
     /// The probe's frames (iPad Pro 13-inch (M5), 2026-11-27): full screen, and the window after the drag.
     func testFillsScreenComparesTheWindowWithTheScreen() {
         let screen = CGRect(x: 0, y: 0, width: 1032, height: 1376)

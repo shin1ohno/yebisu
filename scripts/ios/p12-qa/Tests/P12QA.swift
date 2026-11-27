@@ -24,7 +24,8 @@ final class P12QA: XCTestCase {
     /// name without a resend (p12-check.py then reports the expected failure):
     /// `drop-pick-twice:<case>` skips the pick tap and its resend, and `offset-pick:<case>`
     /// taps the app's empty strip instead of the item; the open menu takes that tap and closes,
-    /// so the case fails as A2 with no pick-retry.
+    /// so the case fails as A2 with no pick-retry. `short-drag` makes the first window drag
+    /// (`windowForTheMenuBar`) too short to leave full screen, so the next drag must do it.
     private var faults = Set((ProcessInfo.processInfo.environment["P12_QA_FAULT"] ?? "").split(separator: ",").map(String.init))
     /// How long a fixture press gets to reach its control (`presses`) before it is pressed once
     /// more, and then to show its setup step in `p12.setup`.
@@ -54,6 +55,15 @@ final class P12QA: XCTestCase {
     /// and a tap on it revealed the menu bar. A user does the same, so P12 does too.
     static func needsWindow(gesture: RevealGesture, fillsScreen: Bool, nameShown: Bool) -> Bool {
         gesture == .appNameTap && fillsScreen && !nameShown
+    }
+    /// yebisu#242, main run 45907938365: after the one drag the window began to shrink and sprang
+    /// back to full screen (its screen recording, 28.4-28.8 s, seconds after XCTest had sent the drag).
+    /// A drag that left the window filling the screen, with no app name, is done
+    /// again, up to `windowDragAttempts` drags; a window that moved but shows no name is not
+    /// dragged again (that would move it, not take it out of full screen).
+    static let windowDragAttempts = 3
+    static func dragsAgain(attempt: Int, fillsScreen: Bool, nameShown: Bool) -> Bool {
+        attempt < windowDragAttempts && fillsScreen && !nameShown
     }
     /// The app window against the screen, as herdr-uikit's screen_fill compares them (0.5 pt).
     static func fillsScreen(_ window: CGRect, _ screen: CGRect) -> Bool {
@@ -518,12 +528,28 @@ final class P12QA: XCTestCase {
             events.append(record)
             return
         }
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
-            .press(forDuration: 0.2, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)),
-                   withVelocity: .slow, thenHoldForDuration: 0.5)
-        let named = name.waitForExistence(timeout: Self.revealTimeout)
-        let after = app.windows.firstMatch.frame
+        var named = false
+        var after = before
+        var drags: [[String: Any]] = []
+        for attempt in 1...Self.windowDragAttempts {
+            let short = attempt == 1 && faults.remove("short-drag") != nil
+            let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            if short {
+                // Negative control: a drag too short to leave full screen; the window springs back.
+                top.press(forDuration: 0.2, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)))
+            } else {
+                top.press(forDuration: 0.2, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)),
+                          withVelocity: .slow, thenHoldForDuration: 0.5)
+            }
+            named = name.waitForExistence(timeout: Self.revealTimeout)
+            after = app.windows.firstMatch.frame
+            let fillsAfter = Self.fillsScreen(after, screen)
+            drags.append(["attempt": attempt, "injectedShort": short, "nameShown": named, "fillsScreen": fillsAfter,
+                          "window": [after.minX, after.minY, after.width, after.height]])
+            guard Self.dragsAgain(attempt: attempt, fillsScreen: fillsAfter, nameShown: named) else { break }
+        }
         record["dragged"] = true
+        record["drags"] = drags
         record["nameShownAfter"] = named
         record["windowAfter"] = [after.minX, after.minY, after.width, after.height]
         record["time"] = Date().timeIntervalSince1970
@@ -532,7 +558,8 @@ final class P12QA: XCTestCase {
             springboardHierarchy("p12-window-mode")
             screenshot("p12-window-mode")
             XCTFail("Status bar shows no app name after the window was dragged out of full screen (class W): "
-                    + "window \(before) -> \(after), screen \(screen), still fills it=\(Self.fillsScreen(after, screen))")
+                    + "window \(before) -> \(after), screen \(screen), still fills it=\(Self.fillsScreen(after, screen)), "
+                    + "drags=\(drags.count)")
             throw NSError(domain: "P12.WindowMode", code: 1)
         }
         try qa.waitState("the P12 fixture is idle in its window", timeout: 20) { self.pending($0) == false }
