@@ -160,7 +160,13 @@ impl Fleet {
     /// Another client starts a program in the space's server, in no tab of
     /// yebisu: `hc run --bg sleep 600`. Returns its address.
     pub(super) fn run_elsewhere(&self, space: &str) -> String {
-        let argv = ["sleep".to_owned(), "600".to_owned()];
+        self.run_argv_elsewhere(space, &["sleep", "600"])
+    }
+
+    /// Another client starts `argv` in the space's server, in no tab of
+    /// yebisu. Returns its address.
+    pub(super) fn run_argv_elsewhere(&self, space: &str, argv: &[&str]) -> String {
+        let argv = argv.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
         self.connect(space)
             .and_then(|core| {
                 Ok(core.run(&Run {
@@ -211,6 +217,21 @@ impl Fleet {
             .core
             .id
             .clone()
+    }
+
+    /// Another client types `text` into one of the space's terminals and
+    /// presses Enter: `hc send <address> <text>`.
+    pub(super) fn send_elsewhere(&self, space: &str, address: &str, text: &str) {
+        let output = self
+            .command(space)
+            .args(["send", "--force", address, text])
+            .output()
+            .unwrap_or_else(|e| panic!("hc send: {e}"));
+        assert!(
+            output.status.success(),
+            "hc send {address}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     /// Another client ends one of the space's programs: `hc kill <address>`.

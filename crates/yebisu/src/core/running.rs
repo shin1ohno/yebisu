@@ -63,6 +63,16 @@ pub(crate) fn runs_program(terminal: &Terminal) -> bool {
     program.is_some_and(|name| !is_shell(&name))
 }
 
+/// The addresses of the live terminals in `terminals` that run a program or
+/// an agent: what Close Space asks about (#231, #249).
+pub(crate) fn busy(terminals: &[Terminal]) -> Vec<String> {
+    terminals
+        .iter()
+        .filter(|terminal| runs_program(terminal))
+        .map(|terminal| terminal.address.clone())
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "running_tests.rs"]
 mod tests;

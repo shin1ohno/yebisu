@@ -1,12 +1,16 @@
 //! Close Space from a space row's menu (#231): which spaces ask first, the
 //! one request a close sends, a secondary click opening the same menu, and
 //! a stale confirmation refused.
-use super::{CLOSE_TARGET_CHANGED, Question, Running, herdr1_question, herdr2_question};
+use super::{
+    CLOSE_TARGET_CHANGED, NamedRow, Question, Running, herdr1_question, herdr2_question,
+    named_close_gate, named_question,
+};
 use crate::{
     app::Smoke,
     core::{DocSpace, TabInfo},
     shell::{
-        host_menus::{MenuItemId, SpaceMenuItem},
+        ChromeState, HerdrKind,
+        host_menus::{self, MenuItemId, MenuScope, SpaceMenuItem},
         search::tests::{Receipts, terminal, wait},
         sidebar::long_press::PressedRow,
     },
@@ -337,4 +341,87 @@ fn a_secondary_click_opens_the_rows_menu(cx: &mut gpui::TestAppContext) {
     // A plain click still moves there, and opens no menu.
     click(cx, at, MouseButton::Left, Modifiers::none());
     assert_eq!(open_row(&view, cx), None);
+}
+
+/// #249: of the Herdr 2 rows the document does not hold, a `space-<ms>`
+/// row closes through this connection when it is the connected session's,
+/// else from the discovery poll's snapshot; `default` never does.
+#[test]
+fn space_rows_close_by_how_they_are_reached() {
+    assert_eq!(
+        named_close_gate("space-17", Some("space-17")),
+        Ok(NamedRow::Connected)
+    );
+    assert_eq!(
+        named_close_gate("space-17", Some("default")),
+        Ok(NamedRow::Listed)
+    );
+    assert_eq!(named_close_gate("space-17", None), Ok(NamedRow::Listed));
+    assert_eq!(
+        named_close_gate("default", Some("default")),
+        Err(crate::core::NAMED_CLOSE_PROTECTED)
+    );
+    assert_eq!(
+        named_close_gate("default\0sp1", Some("default")),
+        Err(CLOSE_TARGET_CHANGED)
+    );
+}
+
+/// The connected `space-<ms>` row asks by #231's rule: shells alone close
+/// at once, a program or an agent asks.
+#[test]
+fn a_named_space_asks_only_when_something_runs() {
+    assert_eq!(named_question(1, &[]), None);
+    assert_eq!(
+        named_question(2, &["t1".into(), "t2".into()]),
+        Some(Question {
+            tabs: 2,
+            running: Running::Programs(2)
+        })
+    );
+}
+
+/// The long-press menu of Herdr 2 rows the document does not hold: Rename
+/// keeps its reason, Close has its own (#249: it said Rename's), and the
+/// connected `space-<ms>` row's Close is enabled.
+#[test]
+fn close_has_its_own_reason_on_rows_outside_the_document() {
+    let state = ChromeState {
+        kind: HerdrKind::Herdr2,
+        connected: true,
+        host_selected: true,
+        ..ChromeState::default()
+    };
+    let current = MenuScope {
+        host: "pro-dev".into(),
+        space: Some("herdr-2".into()),
+    };
+    let row = MenuScope {
+        host: "pro-dev".into(),
+        space: Some("space-17".into()),
+    };
+    let entries = |close: Option<&'static str>| {
+        let mut entries = host_menus::space_long_press_for(&state, &row, &current);
+        host_menus::refuse_document_items(&mut entries, &state, close);
+        entries
+    };
+    let find = |entries: &[host_menus::MenuEntry], item| {
+        entries
+            .iter()
+            .find(|e| e.item == MenuItemId::Space(item))
+            .cloned()
+            .unwrap_or_else(|| panic!("{item:?} not listed"))
+    };
+    let elsewhere = entries(Some(crate::core::NAMED_CLOSE_PROTECTED));
+    let rename = find(&elsewhere, SpaceMenuItem::Rename);
+    let close = find(&elsewhere, SpaceMenuItem::Close);
+    assert!(!rename.enabled && !close.enabled);
+    assert_eq!(
+        rename.reason,
+        Some(crate::shell::rename::herdr2::NOT_IN_DOCUMENT)
+    );
+    assert_eq!(close.reason, Some(crate::core::NAMED_CLOSE_PROTECTED));
+    let own = entries(None);
+    assert!(!find(&own, SpaceMenuItem::Rename).enabled);
+    assert!(find(&own, SpaceMenuItem::Close).enabled);
 }

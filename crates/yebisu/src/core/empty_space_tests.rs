@@ -20,7 +20,7 @@ use std::{
 
 /// Connects a view to `space`'s server and lets it know its host's other
 /// spaces, as the discovery poll does on the iPad.
-fn connect<'a>(
+pub(super) fn connect<'a>(
     fleet: &mut Fleet,
     host: &str,
     space: &str,
@@ -54,7 +54,12 @@ fn connect_with<'a>(
     (view, cx)
 }
 
-fn discover(view: &Entity<Smoke>, cx: &mut VisualTestContext, fleet: &Fleet, host: &str) {
+pub(super) fn discover(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    fleet: &Fleet,
+    host: &str,
+) {
     let output = fleet.discover();
     view.update(cx, |this, _| {
         this.terminal
@@ -68,7 +73,12 @@ fn discover(view: &Entity<Smoke>, cx: &mut VisualTestContext, fleet: &Fleet, hos
 
 /// Where the view goes when its space is removed: a bridge to `space`, ready
 /// for the connection the view then makes.
-fn prepare_next(view: &Entity<Smoke>, cx: &mut VisualTestContext, fleet: &mut Fleet, space: &str) {
+pub(super) fn prepare_next(
+    view: &Entity<Smoke>,
+    cx: &mut VisualTestContext,
+    fleet: &mut Fleet,
+    space: &str,
+) {
     let backend = fleet.bridge(space);
     view.update(cx, |this, _| {
         this.terminal.core_test_backend = Some(backend)
@@ -77,7 +87,7 @@ fn prepare_next(view: &Entity<Smoke>, cx: &mut VisualTestContext, fleet: &mut Fl
 
 /// Polls the view until `done`, for at most `secs`.
 #[track_caller]
-fn until(
+pub(super) fn until(
     view: &Entity<Smoke>,
     cx: &mut VisualTestContext,
     what: &str,
@@ -94,7 +104,7 @@ fn until(
 
 /// Polls the view for `secs`, asserting `holds` every time.
 #[track_caller]
-fn throughout(
+pub(super) fn throughout(
     view: &Entity<Smoke>,
     cx: &mut VisualTestContext,
     what: &str,
@@ -125,11 +135,11 @@ fn own(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> Option<(String, usiz
     })
 }
 
-fn status(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
+pub(super) fn status(view: &Entity<Smoke>, cx: &mut VisualTestContext) -> String {
     view.update(cx, |this, _| this.terminal.live.status.clone())
 }
 
-fn selected(view: &Entity<Smoke>, cx: &mut VisualTestContext, host: &str) -> String {
+pub(super) fn selected(view: &Entity<Smoke>, cx: &mut VisualTestContext, host: &str) -> String {
     view.update(cx, |this, _| {
         this.shell.herdr2.selected_session(host).to_owned()
     })
@@ -145,7 +155,7 @@ fn close_the_tab(view: &Entity<Smoke>, cx: &mut VisualTestContext) {
 }
 
 /// The view moved to `next`'s server and shows it.
-fn moved_to(view: &Entity<Smoke>, cx: &mut VisualTestContext, next: &str) -> bool {
+pub(super) fn moved_to(view: &Entity<Smoke>, cx: &mut VisualTestContext, next: &str) -> bool {
     view.update(cx, |this, _| {
         this.terminal.live.connected
             && this

@@ -256,15 +256,7 @@ impl Smoke {
         .unwrap_or_default();
         next.core_mode = kind == HerdrKind::Herdr2;
         next.input.retain_discard(discarded);
-        if self.settings.is_some() {
-            next.compact = self.terminal.compact;
-            next.font = self.terminal.font.clone();
-            // SH1-157 L1: app-wide Input options and Return (settings_view.rs).
-            next.input.options.option_alt = self.terminal.input.options.option_alt;
-            next.input.options.command_control = self.terminal.input.options.command_control;
-            next.input.options.caret_anchor = self.terminal.input.options.caret_anchor;
-            next.reconnect.automatic = self.terminal.reconnect.automatic;
-        }
+        self.carry_terminal_settings(&mut next);
         let mut previous = std::mem::replace(&mut self.terminal, next);
         previous.input.detach();
         if !previous.reconnect.target.is_empty() {
@@ -283,6 +275,19 @@ impl Smoke {
         self.terminal.restore_keys = true;
         self.board.selection = self.board.selection.wrapping_add(1);
     }
+    /// The app-wide settings a terminal view takes from the one it replaces.
+    pub(crate) fn carry_terminal_settings(&self, next: &mut TerminalView) {
+        if self.settings.is_some() {
+            next.compact = self.terminal.compact;
+            next.font = self.terminal.font.clone();
+            // SH1-157 L1: app-wide Input options and Return (settings_view.rs).
+            next.input.options.option_alt = self.terminal.input.options.option_alt;
+            next.input.options.command_control = self.terminal.input.options.command_control;
+            next.input.options.caret_anchor = self.terminal.input.options.caret_anchor;
+            next.reconnect.automatic = self.terminal.reconnect.automatic;
+        }
+    }
+
     pub(crate) fn record_board(&self, host: &str, live: &Live) {
         // Every reader update reaches here, drawn or not: the sidebar's
         // AGENTS receive order is recorded now, not when the list renders.

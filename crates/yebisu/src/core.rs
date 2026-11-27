@@ -27,6 +27,9 @@ mod herdr_doc_tests;
 mod image_tests;
 #[cfg(all(test, unix))]
 mod live_core_tests;
+mod named_close;
+#[cfg(all(test, unix))]
+mod named_close_live_tests;
 mod paste;
 mod paste_path;
 #[cfg(test)]
@@ -56,6 +59,10 @@ mod worker;
 
 use crate::{live::Live, terminal_input::Destination};
 pub(crate) use doc_tabs::NO_CLOSE_DOCUMENT;
+pub(crate) use named_close::{
+    Listed, NOT_ANSWERING as NAMED_CLOSE_NOT_ANSWERING, PROTECTED as NAMED_CLOSE_PROTECTED,
+    STARTED_SINCE as NAMED_CLOSE_STARTED_SINCE, listed_closable,
+};
 use sheprd_backend::{ClientPaneInputEvent, Size};
 use std::sync::{
     Arc, Mutex,
@@ -100,6 +107,20 @@ pub(crate) enum Command {
     /// Close Space (#231): space `id` leaves the `default` core's document
     /// and its terminals end.
     CloseDocSpace(String),
+    /// Close Space on the connected `space-<ms>` session (#249): its live
+    /// terminals end, then its server is stopped as an empty space is
+    /// (`vacate.rs`). `asked` are the busy terminals the user agreed to end;
+    /// another busy one refuses the close (`named_close.rs`).
+    CloseNamedSpace {
+        asked: Vec<String>,
+    },
+    /// Close Space on a `space-<ms>` row this connection does not serve
+    /// (#249 B): the checked stop ends the terminals `expect.end` names, on
+    /// a thread of the worker's (`named_close::close_listed`).
+    CloseListedSpace {
+        name: String,
+        expect: vacate::Expect,
+    },
     /// Renames a tab of the `default` core's document; "" is its position.
     RenameTab {
         id: String,
@@ -267,6 +288,8 @@ pub(crate) struct Discovery {
     /// Spaces the last successful poll found absent (no socket, nothing
     /// listening) though their state remains: two in a row delete the layout.
     unanswered: std::collections::BTreeSet<String>,
+    /// The answering `space-<ms>` spaces, for Close Space (#249 B).
+    listed: std::collections::BTreeMap<String, Listed>,
 }
 
 pub(crate) struct Session {
@@ -436,7 +459,7 @@ impl Session {
                     // (stopped, joined within status::JOIN_BOUND) when the
                     // worker returns.
                     let period = poll.period;
-                    let _statuses = poll.listing(&backend).and_then(|list| {
+                    let _statuses = poll.listing(&backend, &mailbox).and_then(|list| {
                         status::StatusPoll::start(
                             list,
                             mailbox,
@@ -538,6 +561,22 @@ impl Session {
     /// The statuses the poll listed last; `None` before the first list.
     pub(crate) fn statuses(&self) -> Option<Vec<crate::shell::herdr2_frame::CoreStatus>> {
         self.statuses.latest()
+    }
+    /// The listed `space-<ms>` space `name` as the discovery poll last saw
+    /// it, when its server answered (#249 B).
+    pub(crate) fn listed(&self, name: &str) -> Option<Listed> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .discovery
+            .listed
+            .get(name)
+            .cloned()
+    }
+    /// The live terminals the poll found running a program or an agent;
+    /// `None` before the first list (Close Space asks from it, #249).
+    pub(crate) fn busy(&self) -> Option<Vec<String>> {
+        self.statuses.busy()
     }
     #[cfg(test)]
     pub(crate) fn statuses_mailbox(&self) -> status::StatusMailbox {
@@ -671,6 +710,12 @@ pub(crate) fn probe_spaces(host: &str) -> crate::Result<std::collections::BTreeS
 #[cfg(test)]
 pub(crate) fn listed_spaces(output: &[u8]) -> std::collections::BTreeSet<String> {
     poll::listed_spaces(output)
+}
+
+/// Removes every Herdr 2 layout this iPad saved for `host` under `root`
+/// (`workspace_root`), for a deleted saved host (#250).
+pub(crate) fn forget_host_layouts(root: Option<&std::path::Path>, host: &str) -> crate::Result<()> {
+    store::forget_host(root, host)
 }
 
 #[cfg(target_os = "ios")]
