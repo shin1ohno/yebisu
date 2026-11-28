@@ -292,6 +292,8 @@ impl Smoke {
     ) -> AnyElement {
         // Before any element: the rename field follows its anchor (B-5).
         self.rename_frame_tick(window, cx);
+        // #238 E-1 spike: the QA fixture for M2, read once.
+        self.mod_view_tick(cx);
         if self.compact_window_at(window) {
             return self.render_compact_frame(body, window, cx);
         }
@@ -385,6 +387,8 @@ impl Smoke {
         if self.key_surface_now(window) == key_band::bar::Surface::None {
             self.shell.frame.key_band.clear();
         }
+        // #238 E-1 spike: the mod scene at L0's M2 rectangle.
+        let dock = self.render_mod_dock(layout.m2, cx);
         div()
             .id("shell-frame")
             .size_full()
@@ -393,7 +397,9 @@ impl Smoke {
             .pb(px(window_bottom_inset(&layout, window)))
             .bg(rgb(color::BACKGROUND))
             .text_color(rgb(color::TEXT))
+            .relative()
             .child(columns)
+            .children(dock)
             .when_some(layout.key_band, |frame, band| {
                 if self.key_surface_now(window) == key_band::bar::Surface::Band {
                     frame.child(key_band::render_band(self, band.height, cx))

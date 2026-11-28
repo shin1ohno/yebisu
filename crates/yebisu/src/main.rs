@@ -6,6 +6,11 @@ mod hosts;
 #[cfg(any(target_os = "ios", test))]
 mod keys;
 mod layout;
+// Option E (#238) E-1 spike: mod regions drawn from yebisu-mod-renderer. The
+// line to the runner is not built yet, so its sending half is unused there.
+#[cfg(any(target_os = "ios", test))]
+#[allow(dead_code)]
+mod mod_view;
 #[cfg(any(target_os = "ios", test))]
 mod setup;
 pub use error::{Error, Result};

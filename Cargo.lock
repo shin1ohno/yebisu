@@ -7301,6 +7301,28 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "tracing",
  "unicode-width",
+ "yebisu-mod-renderer",
+ "yebisu-mod-wire",
+]
+
+[[package]]
+name = "yebisu-mod-renderer"
+version = "0.1.0"
+source = "git+https://github.com/shin1ohno/yebisu-modhost?rev=eaa462b792a0a493277da78ddab531ed95166957#eaa462b792a0a493277da78ddab531ed95166957"
+dependencies = [
+ "serde_json",
+ "yebisu-mod-wire",
+]
+
+[[package]]
+name = "yebisu-mod-wire"
+version = "0.1.0"
+source = "git+https://github.com/shin1ohno/yebisu-modhost?rev=eaa462b792a0a493277da78ddab531ed95166957#eaa462b792a0a493277da78ddab531ed95166957"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
 ]
 
 [[package]]
