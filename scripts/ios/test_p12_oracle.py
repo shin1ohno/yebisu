@@ -749,6 +749,27 @@ class P12RetryTests(unittest.TestCase):
                          "no-pid-no-state must fail without a launch retry")
         self.assertFalse(p12.failed_as_expected("no-pid-no-state:launch", "Application 'com.shin1ohno.yebisu' does not have a process ID", []))
 
+    def test_after_a_launch_retry_only_the_second_launchs_peer_messages_count(self):
+        """Dispatch 46098587323: the peer log kept the first launch's start and geometry; the oracle
+        reads from the one p12-peer-start after the retry on, and without a retry it still sees all."""
+        first = [dict(kind="p12-peer-start", transport=1, time=10.0), dict(kind="p12-peer-ingress", transport=1, sequence=1, time=11.0)]
+        second = [dict(kind="p12-peer-start", transport=1, time=30.0), dict(kind="p12-peer-ingress", transport=1, sequence=1, time=31.0)]
+        retry = [dict(kind="launch-retry", case="launch", reason="no-pid-app-running: x", injected=True, time=20.0)]
+        self.assertEqual(p12.after_launch_retry(first + second, retry), second)
+        self.assertEqual(p12.after_launch_retry(first + second, []), first + second)
+        with self.assertRaisesRegex(ValueError, "start missing after the launch retry"):
+            p12.after_launch_retry(first, retry)
+        with self.assertRaisesRegex(ValueError, "peer reconnected or start missing after the launch retry"):
+            p12.after_launch_retry(first + second + [dict(kind="p12-peer-start", transport=1, time=40.0)], retry)
+        records, messages, ui, shots = fixture()
+        start = next(m for m in messages if m.get("kind") == "p12-peer-start")
+        stale = [dict(start, time=start["time"] - 30), dict(kind="p12-peer-ingress", transport=start["transport"], sequence=1,
+                                                             time=start["time"] - 29)]
+        with self.assertRaisesRegex(ValueError, "peer reconnected or start missing"):
+            p12.validate(records, stale + messages, ui, shots)
+        ui.append(dict(kind="launch-retry", case="launch", reason="no-pid-app-running: x", injected=True, time=start["time"] - 1))
+        p12.validate(records, stale + messages, ui, shots)
+
     def test_a_pick_tap_that_reached_the_app_is_named(self):
         def edit(r, m, u, s):
             P12OracleTests.lose_tap(self, "palette")(r, m, u, s)

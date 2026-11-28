@@ -69,7 +69,22 @@ def screenshot_names(name, data):
     return {item for item in expected if attachment_named(name, item)}
 
 
+def after_launch_retry(messages, ui):
+    """The peer messages of the launch the test ran on. A no-pid launch-retry (issue #247) starts the
+    app twice; the app writes a new app.jsonl at each launch, but the peer log keeps the first
+    launch's start and geometry (dispatch 46098587323). So after a retry only the messages from the
+    one p12-peer-start at or after the retry on are evidence; without a retry all of them are."""
+    retries = [r for r in ui if r.get("kind") == "launch-retry"]
+    if not retries:
+        return messages
+    at = retries[-1]["time"]
+    starts = [index for index, m in enumerate(messages) if m.get("kind") == "p12-peer-start" and m.get("time", 0) >= at]
+    require(len(starts) == 1, "peer reconnected or start missing after the launch retry")
+    return messages[starts[0]:]
+
+
 def validate(records, messages, ui, screenshots):
+    messages = after_launch_retry(messages, ui)
     picks = [r for r in ui if r.get("kind") == "os-menu-pick"]
     require([r.get("case") for r in picks] == CASES, "actual OS menu cases missing/duplicated")
     validate_fixture_taps(records, ui)
