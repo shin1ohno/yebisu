@@ -2,8 +2,9 @@
 //! reports its drawn rectangle and the visible area around it every frame
 //! (`slot_canvas`), and `rename_frame_tick` moves the field when it
 //! changed, presents it once the anchor has been drawn, and closes it when
-//! the anchor or the object went away (Q-R5, B-9).
-use super::{Phase, RenameAnchor, RenameObject};
+//! the anchor, the object or the boot went away (Q-R5, B-9). A reconnect to
+//! the same boot keeps it (#270, `reconnect.rs`).
+use super::{Phase, RenameAnchor, RenameObject, reconnect::Bound};
 use crate::{
     app::Smoke,
     board::snapshot,
@@ -126,6 +127,12 @@ enum Step {
     Move(Placed),
     Close(&'static str),
     Unavailable(u64),
+    /// The connection is away: the field stays as it is, and no frame is
+    /// asked for (the next connection's update draws one).
+    Wait,
+    /// The target moved to a new connection: draw once more, so the anchor
+    /// is drawn from the new snapshot before it is checked.
+    Redraw,
 }
 
 impl Smoke {
@@ -153,6 +160,14 @@ impl Smoke {
             }
             return;
         };
+        match step {
+            Step::Wait => return,
+            Step::Redraw => {
+                window.request_animation_frame();
+                return;
+            }
+            _ => {}
+        }
         cx.defer_in(window, move |this, window, cx| {
             match step {
                 Step::Present(id, placed) => this.present_rename(id, placed, window, cx),
@@ -163,6 +178,7 @@ impl Smoke {
                         this.dismiss_rename(super::UNAVAILABLE_HERE);
                     }
                 }
+                Step::Wait | Step::Redraw => {}
             }
             cx.notify();
         });
@@ -173,21 +189,35 @@ impl Smoke {
         if session.phase == Phase::Restoring || session.closing {
             return None;
         }
+        // Another selected host: the field's object is not drawn any more.
+        if self.terminal.reconnect.target != session.target.host {
+            return Some(Step::Close(super::DISCONNECTED));
+        }
+        match self.rebind_rename() {
+            Bound::Current => {}
+            Bound::Waiting => {
+                // Nothing is drawn from a paused connection: no frame counts
+                // as one without the anchor.
+                if let Some(session) = self.shell.rename.session.as_mut() {
+                    session.missed = 0;
+                }
+                return Some(Step::Wait);
+            }
+            Bound::Rebound => return Some(Step::Redraw),
+            Bound::Gone(reason) => return Some(Step::Close(reason)),
+        }
+        let session = self.shell.rename.session.as_ref()?;
         let (anchor, object) = (session.anchor, session.target.object.clone());
         // Herdr 2's spaces and tabs are the document's (`herdr2.rs`).
         let herdr2 = session.target.kind == crate::shell::HerdrKind::Herdr2;
         let live = &self.terminal.live;
-        let gone = if !live.connected || self.terminal.reconnect.target != session.target.host {
-            Some(super::DISCONNECTED)
-        } else {
-            match snapshot(live) {
-                None => Some(super::DISCONNECTED),
-                Some(s) if s.boot_id != session.target.boot => Some(object.closed_text()),
-                Some(_) if herdr2 => (!self.doc_names().is_some_and(|doc| doc.holds(&object)))
-                    .then(|| object.closed_text()),
-                Some(s) if !object.exists_in(s) => Some(object.closed_text()),
-                Some(_) => None,
-            }
+        let gone = match snapshot(live) {
+            None => return Some(Step::Wait),
+            Some(s) if s.boot_id != session.target.boot => Some(object.closed_text()),
+            Some(_) if herdr2 => (!self.doc_names().is_some_and(|doc| doc.holds(&object)))
+                .then(|| object.closed_text()),
+            Some(s) if !object.exists_in(s) => Some(object.closed_text()),
+            Some(_) => None,
         };
         if let Some(reason) = gone {
             return Some(Step::Close(reason));

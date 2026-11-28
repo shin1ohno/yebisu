@@ -26,6 +26,8 @@ mod herdr2;
 mod isolation;
 #[path = "rename_tests/normalize.rs"]
 mod normalize;
+#[path = "rename_tests/reconnect.rs"]
+mod reconnect;
 #[path = "rename_tests/send.rs"]
 mod send;
 #[path = "rename_tests/terminal.rs"]
