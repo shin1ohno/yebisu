@@ -42,6 +42,9 @@ impl Smoke {
         if let Ok(Reply::Hosts(hosts, _)) = &result {
             self.setup_input.set_text(hosts.selected.clone());
         }
+        if let Ok(Reply::Deleted(hosts, deleted)) = &result {
+            self.hosts_after_delete(hosts, deleted);
+        }
         self.setup.apply(result);
     }
 }

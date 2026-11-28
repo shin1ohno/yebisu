@@ -1,4 +1,5 @@
 """Exercise both disk-stop paths without consuming the host's free space."""
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import time
 import signal
+from types import SimpleNamespace
 import unittest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -91,6 +93,67 @@ with open({str(heartbeat)!r}, 'a', buffering=1) as stream:
                         os.killpg(int(leader.read_text()), signal.SIGKILL)
                     except (ProcessLookupError, PermissionError):
                         pass
+
+
+class MachineFieldTests(unittest.TestCase):
+    """Issue #256: each disk probe also records how late it ran, the load, swap and
+    free memory; a missing value is written as such and never stops the guard."""
+
+    def copy_guard(self):
+        temporary = tempfile.TemporaryDirectory(dir=REPO / "target")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        (root / "scripts").mkdir()
+        script = root / "scripts/guarded.py"
+        shutil.copyfile(REPO / "scripts/guarded.py", script)
+        return root, script
+
+    def load_guard(self):
+        _, script = self.copy_guard()
+        spec = importlib.util.spec_from_file_location("guarded_copy", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_probe_line_keeps_the_disk_fields_and_adds_the_machine_fields(self):
+        root, script = self.copy_guard()
+        result = subprocess.run([sys.executable, str(script), sys.executable, "-c", "pass"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = (root / "target/disk.log").read_text().splitlines()[0]
+        self.assertRegex(line, r"^disk \S+ free_bytes=\d+ free_GiB=[0-9.]+ late_s=0\.0 load1=[0-9.]+ "
+                               r"(swap_used_MiB=[0-9.]+ memory_free_pct=\d+|memory=unavailable)$")
+
+    def test_sysctl_values_are_parsed(self):
+        guard = self.load_guard()
+        output = "total = 2048.00M  used = 1059.25M  free = 988.75M  (encrypted)\n42\n"
+        guard.subprocess = SimpleNamespace(run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=output),
+                                           SubprocessError=subprocess.SubprocessError)
+        self.assertRegex(guard.machine(), r"^load1=[0-9.]+ swap_used_MiB=1059\.25 memory_free_pct=42$")
+
+    def test_a_failing_or_odd_sysctl_is_recorded_as_unavailable(self):
+        # Negative controls: no sysctl, a timeout, an error exit, an unexpected answer.
+        def raises(error):
+            def run(*_, **__):
+                raise error
+            return run
+        answers = {
+            "missing": raises(FileNotFoundError("sysctl")),
+            "timeout": raises(subprocess.TimeoutExpired("sysctl", 2)),
+            "error": lambda *a, **k: SimpleNamespace(returncode=1, stdout=""),
+            "odd": lambda *a, **k: SimpleNamespace(returncode=0, stdout="no swap here\nlots\n"),
+        }
+        for name, run in answers.items():
+            with self.subTest(name):
+                guard = self.load_guard()
+                guard.subprocess = SimpleNamespace(run=run, SubprocessError=subprocess.SubprocessError)
+                self.assertRegex(guard.machine(), r"^load1=[0-9.]+ memory=unavailable$")
+
+    def test_a_late_probe_records_its_delay(self):
+        guard = self.load_guard()
+        guard.machine = lambda: "load1=0.00 memory=unavailable"
+        self.assertTrue(guard.probe(late=181.94))
+        self.assertIn(" late_s=181.9 load1=0.00 memory=unavailable", (guard.ROOT / "disk.log").read_text())
 
 
 if __name__ == "__main__":

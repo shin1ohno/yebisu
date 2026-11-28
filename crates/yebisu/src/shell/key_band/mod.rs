@@ -577,4 +577,6 @@ impl Smoke {
 #[cfg(test)]
 mod bar_tests;
 #[cfg(test)]
+mod pager_room_tests;
+#[cfg(test)]
 mod tests;

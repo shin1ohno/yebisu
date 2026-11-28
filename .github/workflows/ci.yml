@@ -175,14 +175,20 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
           SKIPPED_JOBS: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.jobs || '' }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed.txt"
           all=false
           diff_available=false
+          push_diff=false
           if [[ "$EVENT_NAME" != pull_request ]]; then
             all=true
+            # A main push still lists its files, for edit-menu's own-files rule below.
+            if [[ "$EVENT_NAME" == push ]] && git diff --no-renames --name-only "$PUSH_BEFORE" HEAD > "$changed" 2>/dev/null; then
+              push_diff=true
+            fi
           elif ! git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$changed"; then
             echo "Could not diff $BASE_SHA...$HEAD_SHA; running PR jobs without path filters."
             all=true
@@ -322,6 +328,24 @@ jobs:
           # other scripts/ios files or other crates/yebisu code (find, hosts,
           # notifications, ...) is outside edit-menu's area.
           menu='^(\.github/workflows/ci\.yml$|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|assets/|justfile$|scripts/guarded\.py$|scripts/ios/(bundle\.sh|Info\.plist|lib\.sh|live_jsonl\.py|app_stderr\.py|ci-smoke\.py|ci-sh1-152\.py|sh1-152-check\.py|sh1-153-check\.py|p8-native-check\.py|selection-settings-check\.py|sh1-156-check\.py|search-check\.py|test_search_check\.py|sh1_152_[a-z]+\.py|sim_ready\.py|resend_budget\.py|smoke-qa/)|crates/yebisu/(Cargo\.toml$|fixtures/|src/((main|app|native_menus|native_edit_qa|native_observer_qa|terminal_controls|terminal_input|terminal_jump|terminal_view|terminal_wheel|input|input_geometry|text_gate|mock_peer|core|core_mock|core_view|core_paste_view|handoff|handoff_view|handoff_clipboard|handoff_ticket|live|actions|animation_qa|mock_commands|mock_notifications|link|theme|board|i18n|settings|settings_view|settings_sheet|observation|qa_stderr|qa_ax|qa_ax_core|qa_ax_ids|qa_ax_keys|qa_ax_layer|qa_ax_native|qa_ax_peer|qa_ax_root|diagnostics|qa_ax_input|input_retirement|native_retirement|sh1_156_qa|layout|shell|edit_menu[a-z0-9_]*)\.rs$|notifications/preferences\.rs$|(core|core_mock|live|animation_qa|settings|settings_pages|settings_sheet|theme_picker|observation|layout|shell)/)))'
+          # edit-menu's own files (owner decision 2026-11-27). A push to main
+          # selects edit-menu only when it touches one of them; the nightly run
+          # and a manual dispatch select it every time, and a pull request still
+          # reports the wider $menu area to the local gate. The files:
+          #   smoke-qa/Tests    EditMenuQA, EditMenuTargetsQA, and the SmokeQA
+          #                     files holding the tests the checks select:
+          #                     +Handoff (testSH1153EditMenu, testP8NativeEditing),
+          #                     +Settings (testSH1151SelectionSettings),
+          #                     +Input (testSH1156)
+          #   scripts/ios       the driver ci-sh1-152.py, its checks sh1-15x-check,
+          #                     p8-native-check, selection-settings-check, and the
+          #                     sh1_152_* oracles
+          #   crates/yebisu     edit_menu*, native_menus*, native_edit*,
+          #                     native_observer*, handoff* and terminal_input*:
+          #                     the menu, native editing, the selection strip and
+          #                     the terminal input the checks drive
+          # A push whose diff is unavailable selects edit-menu.
+          menu_own='^(scripts/ios/smoke-qa/Tests/(EditMenu[^/]*|SmokeQA\+(Handoff|Input|Settings)\.swift)$|scripts/ios/(sh1-15[0-9][^/]*|sh1_152[^/]*|p8-native[^/]*|selection-settings[^/]*|ci-sh1-152\.py)$|crates/yebisu/src/(edit_menu|native_menus|native_edit|native_observer|handoff|terminal_input)[^/]*(/|$))'
           # Plan section 4.2: mutation targets, their tests and build inputs.
           mutations='^(crates/yebisu/src/(layout|shell|settings|settings_pages|core/screen|terminal_input)(\.rs$|/|_tests)|scripts/ios/layout-mutations\.py$|scripts/guarded\.py$|\.github/workflows/ci\.yml$|Cargo\.(lock|toml)$|crates/yebisu/Cargo\.toml$|rust-toolchain\.toml$|\.cargo/|justfile$)'
           emit() {
@@ -356,7 +380,12 @@ jobs:
           }
           decide check "$check"
           simulator simulator-smoke "$smoke"
-          simulator edit-menu "$menu"
+          if [[ "$EVENT_NAME" == push && "$push_diff" == true ]] && ! grep -Eq "$menu_own" "$changed"; then
+            emit edit-menu false
+            echo "  the push touches none of edit-menu's own files; the nightly run runs it"
+          else
+            simulator edit-menu "$menu"
+          fi
           if [[ "$EVENT_NAME" == pull_request ]]; then
             emit layout-smoke false
             if [[ "$diff_available" == true ]] && grep -Eq "$mutations" "$changed"; then

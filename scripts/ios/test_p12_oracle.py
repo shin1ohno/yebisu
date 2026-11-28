@@ -570,6 +570,25 @@ class P12RetryTests(unittest.TestCase):
         for bad in ("drop-tap:idle", "skip-swipe:finish", "drop-tap", "drop-tap:remote,x", "tap:remote"):
             self.assertFalse(p12.valid_fault(bad), bad)
 
+    def test_short_drag_needs_a_second_window_drag_that_shows_the_name(self):
+        """yebisu#242: `short-drag` passes only when its window-mode record logs the injected short
+        drag, still filling the screen, and a later drag that showed the app name."""
+        self.assertTrue(p12.valid_fault("short-drag"))
+        self.assertTrue(p12.valid_fault("short-drag,drop-tap:remote"))
+        self.assertFalse(p12.valid_fault("short-drag:remote"))
+        short = dict(attempt=1, injectedShort=True, nameShown=False, fillsScreen=True)
+        good = dict(attempt=2, injectedShort=False, nameShown=True, fillsScreen=False)
+        mode = lambda drags: [dict(kind="window-mode", dragged=True, drags=drags)]
+        p12.validate_faults("short-drag", mode([short, good]))
+        for drags in ([short], [good, good], [dict(short, fillsScreen=False), good],
+                      [short, dict(good, nameShown=False)], [short, dict(good, injectedShort=True)]):
+            with self.subTest(drags=drags), self.assertRaisesRegex(ValueError, "short-drag did not force"):
+                p12.validate_faults("short-drag", mode(drags))
+        with self.assertRaisesRegex(ValueError, "short-drag did not force"):
+            p12.validate_faults("short-drag", mode([short, good]) * 2)
+        with self.assertRaisesRegex(ValueError, "short-drag did not force"):
+            p12.validate_faults("short-drag", [])
+
     def test_negative_control_needs_the_injected_retry(self):
         records, messages, ui, shots = fixture()
         with self.assertRaisesRegex(ValueError, "drop-tap:remote did not force exactly one logged retry"):

@@ -46,6 +46,7 @@ incremental = false
 
 # Zed's GPUI as published (gpui-pre 0.3.12, zed@d2a4fb6) plus the changes
 # listed in the fork's README: issue #161, touch momentum that ends at the
-# edge of its content so the next tap presses.
+# edge of its content so the next tap presses; issue #258, no fling against
+# a pan's own last movement.
 [patch.crates-io]
-gpui-pre = { git = "https://github.com/shin1ohno/gpui-pre", rev = "60bd9f537760dda05c31861ad6bac03c4d3c81e4" }
+gpui-pre = { git = "https://github.com/shin1ohno/gpui-pre", rev = "fb53487295ce2034d42db1c8c4c52062c7d9d176" }

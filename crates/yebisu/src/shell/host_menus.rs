@@ -316,14 +316,27 @@ pub(crate) fn space_long_press_for(
     entries
 }
 
-/// Rename and Close disabled for a Herdr 2 row the document does not hold.
-pub(crate) fn refuse_document_items(entries: &mut [MenuEntry]) {
+/// A Herdr 2 row the document does not hold: Rename disabled with its
+/// reason; Close disabled with `close`, its own reason, or, for the
+/// connected `space-<ms>` row (`close` is `None`, #249), enabled while the
+/// host is connected.
+pub(crate) fn refuse_document_items(
+    entries: &mut [MenuEntry],
+    state: &ChromeState,
+    close: Option<&'static str>,
+) {
     for e in entries.iter_mut() {
-        if matches!(
-            e.item,
-            MenuItemId::Space(SpaceMenuItem::Rename | SpaceMenuItem::Close)
-        ) {
-            *e = entry(e.item, false, super::rename::herdr2::NOT_IN_DOCUMENT);
+        match e.item {
+            MenuItemId::Space(SpaceMenuItem::Rename) => {
+                *e = entry(e.item, false, super::rename::herdr2::NOT_IN_DOCUMENT);
+            }
+            MenuItemId::Space(SpaceMenuItem::Close) => {
+                *e = match close {
+                    Some(reason) => entry(e.item, false, reason),
+                    None => entry(e.item, state.connected, NOT_CONNECTED),
+                };
+            }
+            _ => {}
         }
     }
 }

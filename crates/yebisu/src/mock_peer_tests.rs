@@ -33,3 +33,25 @@ fn a_name_that_is_not_a_plain_identifier_is_unclassified() {
         "Resize"
     );
 }
+
+/// Issue #163: a board tick's surface keeps the size the client asked for, so
+/// the client need not resize again (its input is not ready meanwhile).
+#[test]
+fn a_board_tick_sends_the_surface_at_the_clients_size() {
+    let snapshot: ClientShellSnapshot =
+        serde_json::from_str(&initial_snapshot().unwrap_or_else(|e| panic!("{e}")))
+            .unwrap_or_else(|e| panic!("{e}"));
+    let mut serial = 1;
+    let resized = tick_surface(&snapshot, &mut serial, Some((83, 62)));
+    assert_eq!((resized.frame.width, resized.frame.height), (83, 62));
+    assert_eq!(resized.frame.cells.len(), 83 * 62);
+    assert_eq!(resized.surface_revision, 2);
+    let first = focused_surface(&snapshot, &mut serial);
+    assert_eq!(resized.frame.cells[0].symbol, first.frame.cells[0].symbol);
+    // Before the client's first resize the fixture's own size stays.
+    let before_resize = tick_surface(&snapshot, &mut serial, None);
+    assert_eq!(
+        (before_resize.frame.width, before_resize.frame.height),
+        (first.frame.width, first.frame.height)
+    );
+}

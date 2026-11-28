@@ -105,6 +105,7 @@ fn a_restarted_server_with_the_same_core_id_is_not_stopped_by_an_old_observation
         core_id: id,
         pid: None,
         min_uptime_ms: Some(600_000),
+        end: Vec::new(),
     };
     assert!(stop("s1", &old).is_err());
     assert!(fleet.alive("s1"));

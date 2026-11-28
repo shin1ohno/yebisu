@@ -225,7 +225,7 @@ fn serve(
                 )?;
                 write_message(
                     &mut server,
-                    &ServerMessage::PaneSurface(focused_surface(&board_snapshot, &mut serial)),
+                    &ServerMessage::PaneSurface(tick_surface(&board_snapshot, &mut serial, size)),
                     MAX_FRAME_SIZE,
                 )?;
                 continue;
@@ -734,6 +734,23 @@ fn focused_surface(snapshot: &ClientShellSnapshot, serial: &mut u64) -> PaneSurf
                 cell.skip = false;
             }
         }
+    }
+    frame
+}
+
+/// The surface a board tick sends: the focused one at the size the client last
+/// asked for. Sending it at the fixture's own 80 x 24 made the client resize
+/// again after every tick, and its input was not ready for that round trip
+/// (about 13% of the time), so a secondary click then found Paste disabled
+/// and UIKit dropped the empty edit menu (issue #163).
+fn tick_surface(
+    snapshot: &ClientShellSnapshot,
+    serial: &mut u64,
+    size: Option<(u16, u16)>,
+) -> PaneSurfaceFrame {
+    let mut frame = focused_surface(snapshot, serial);
+    if let Some((cols, rows)) = size {
+        resize_frame(&mut frame.frame, cols, rows);
     }
     frame
 }

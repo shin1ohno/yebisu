@@ -13,6 +13,9 @@ final class EditMenuQA: XCTestCase {
     /// taking it here lets `start` launch once more when the app provably never started.
     /// pr4 probe: the test goes on after launch() returns when the issue is not passed on.
     private var launchIssues: [XCTIssue]?
+    /// The issues XCTest records while one app.terminate() runs (class T-reap, issue #247): a killed
+    /// app the OS reports gone only after XCTest's 60 s is "Failed to terminate <bundle>:<pid>".
+    private var terminateIssues: [XCTIssue]?
 
     override func record(_ issue: XCTIssue) {
         if launchIssues != nil {
@@ -20,7 +23,41 @@ final class EditMenuQA: XCTestCase {
             print("SH1-152 LAUNCH ISSUE \(issue.compactDescription)")
             return
         }
+        if terminateIssues != nil {
+            terminateIssues?.append(issue)
+            print("SH1-152 TERMINATE ISSUE \(issue.compactDescription)")
+            return
+        }
         super.record(issue)
+    }
+
+    /// app.terminate(), then, when XCTest gave up on the app ending (class T-reap), a wait of up to
+    /// TerminateWait.timeout until the OS has no such process and XCTest sees it not running, so the
+    /// next launch() starts a new process instead of finding the old one. A slow end is printed as
+    /// `SH1-152 TERMINATE SLOW <case> <seconds>`; an app that never ends fails by the class's name.
+    /// Any other issue is recorded as XCTest recorded it.
+    private func terminate(_ app: XCUIApplication) throws {
+        let started = Date()
+        terminateIssues = []
+        app.terminate()
+        let issues = terminateIssues ?? []
+        terminateIssues = nil
+        let failed = issues.filter { TerminateWait.isFailedTerminate($0.compactDescription) }
+        for issue in issues where !TerminateWait.isFailedTerminate(issue.compactDescription) { record(issue) }
+        if failed.isEmpty { return }
+        let pids = failed.flatMap { TerminateWait.pids(in: $0.compactDescription, bundle: "com.shin1ohno.yebisu") }
+        let outcome = TerminateWait.wait {
+            app.state != .notRunning || pids.contains(where: TerminateWait.processExists)
+        }
+        let total = Date().timeIntervalSince(started)
+        switch outcome {
+        case .ended:
+            print(String(format: "SH1-152 TERMINATE SLOW %@ %.1f", caseName, total))
+        case .neverEnded:
+            // One named failure that quotes XCTest's issues, so the class is what the job log greps.
+            XCTFail(TerminateWait.neverEndedMessage(caseName, seconds: total, issues: failed.map(\.compactDescription)))
+            throw SetupError.terminateNeverEnded
+        }
     }
 
     /// app.launch() with its recorded issues taken (`launchIssues`); returns them.
@@ -36,6 +73,7 @@ final class EditMenuQA: XCTestCase {
         case portraitScreenUnavailable
         case fullScreenWindowUnavailable
         case launchFailed
+        case terminateNeverEnded
     }
 
     // The case the app was launched with; markers and clipboard texts carry it.
@@ -60,7 +98,7 @@ final class EditMenuQA: XCTestCase {
                 try end(QAIds.sh152End, app, ax)
             }
             save(name)
-            app.terminate()
+            try terminate(app)
         }
     }
 
@@ -112,7 +150,7 @@ final class EditMenuQA: XCTestCase {
             try menu(app, ax, name, selected: false)
             choose("Paste", app, ax)
             try end(QAIds.sh152End, app, ax)
-            app.terminate()
+            try terminate(app)
         }
     }
 
@@ -138,7 +176,7 @@ final class EditMenuQA: XCTestCase {
                 wait("\(name) typed input at peer", ax) { $0.peerInputs > inputs }
             }
             try end(QAIds.sh152End, app, ax)
-            app.terminate()
+            try terminate(app)
         }
     }
 
@@ -177,14 +215,14 @@ final class EditMenuQA: XCTestCase {
                 // more after close-other; the next launch must not restore it.
                 sleep(3)
             }
-            app.terminate()
+            try terminate(app)
         }
     }
 
     private func launch(_ name: String, useWindowFrames: Bool = false,
                         automaticMarkers: Bool = false) throws -> (XCUIApplication, QAAx) {
         let app = XCUIApplication(bundleIdentifier: "com.shin1ohno.yebisu")
-        app.terminate()
+        try terminate(app)
         caseName = name
         app.launchEnvironment["YEBISU_SH1_152_CASE"] = name
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
@@ -212,7 +250,7 @@ final class EditMenuQA: XCTestCase {
                 relaunched = true
                 QAAx.resend(kind: "relaunch-retry", id: name, reason: "no touch reached GPUI after launch: \(error)")
                 print("SH1-152 RELAUNCH \(name): no touch reached GPUI; launching once more")
-                app.terminate()
+                try terminate(app)
                 ax = try start(app, name, useWindowFrames: useWindowFrames, automaticMarkers: automaticMarkers)
             }
         }
@@ -233,7 +271,7 @@ final class EditMenuQA: XCTestCase {
             let reason = "the launch failed and the app is not running, without qa.state: "
                 + issues.map(\.compactDescription).joined(separator: "; ")
             QAAx.resend(kind: "launch-retry", id: name, reason: reason)
-            app.terminate()
+            try terminate(app)
             let again = Date()
             issues = launchTakingIssues(app)
             print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(again)))")

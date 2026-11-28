@@ -38,17 +38,26 @@ new entries.
 - **Pushes to main.** Each macOS job runs unless the GitHub API identifies a
   merged PR with the exact same Git tree and a completed job whose every step
   passed in the latest attempt. Since PRs run no Simulator job, only `check`
-  can be reused this way; main runs `simulator-smoke`, `edit-menu` and
-  `layout-smoke` itself. `edit-menu` also verifies the tree of the
-  synthetic merge commit its runner checked out. Missing or ambiguous evidence
-  leaves the job scheduled. A PR `check` that skipped layout mutations cannot
+  can be reused this way; main runs `simulator-smoke` and `layout-smoke`
+  itself. `edit-menu` runs on a push only when the push touches one of its own
+  files (owner decision 2026-11-27): the XCTest files with the tests its checks
+  select (`EditMenuQA`, `EditMenuTargetsQA`, `SmokeQA+Handoff`, `+Settings`,
+  `+Input`), its driver `ci-sh1-152.py`, its checks and oracles (`sh1-15x`,
+  `sh1_152_*`, `p8-native`, `selection-settings`), and the app code
+  `edit_menu*`, `native_menus*`, `native_edit*`, `native_observer*`,
+  `handoff*` and `terminal_input*` (the `menu_own` pattern in `ci.yml`).
+  Otherwise the `changes` log says
+  `the push touches none of edit-menu's own files; the nightly run runs it`.
+  A push whose diff is unavailable runs it. `edit-menu` also verifies the
+  tree of the synthetic merge commit its runner checked out. Missing or ambiguous evidence
+  leaves a job scheduled. A PR `check` that skipped layout mutations cannot
   replace main's `check`. Whenever `check` runs on main, it runs the mutations.
 - **Nightly on main.** Every day at 03:00 JST (18:00 UTC), all six jobs run,
   including `commit-subjects`, `layout-smoke` and the layout mutations in
   `check`. The nightly run bypasses PR evidence, exercises the current runner
   environment and gives successful jobs a chance to populate main's Cargo cache.
-- **Manual CI.** A manual dispatch on main runs all four macOS jobs. The
-  `layout-smoke` job is restricted to main.
+- **Manual CI.** A manual dispatch on main runs all four macOS jobs, `edit-menu`
+  included, whatever it changes. The `layout-smoke` job is restricted to main.
 
 For a skipped job, open `changes` in the Actions run. On a PR, its
 `Select jobs by changed paths` log lists the changed files, the selection and
@@ -83,6 +92,22 @@ actions, screenshots and receiving-side paint/input/counter validation all
 must succeed. It attempts shutdown and deletes its own Simulator on success or
 failure. A cleanup line records the shutdown exit code and successful deletion;
 a failed shutdown does not prevent deletion.
+
+One exception keeps the job inside its 40 minutes (issue #235). On the
+`xcode-27` image a freshly booted Simulator blocks its first install for
+3.5-8.9 minutes after `simctl bootstatus` returns, against 1.0-2.3 minutes on
+`macos-26`; later installs on the same device take seconds. The job paid that
+twice, once for P0 and once for P12's own Simulator. So in GitHub Actions with
+`--p9` a passing `ci-smoke.py` run writes the UDID to
+`target/ci-smoke-simulator.txt` and prints `CI SMOKE handover` instead of the
+cleanup line. `p12-ci.py` takes that Simulator, uninstalls the app (P12 reads
+the app's Documents, so P0 and P9 leave nothing there), runs `p12-check.py` on
+it and deletes it. It prints `P12 CI reusing simulator=...`; without a usable
+handover it says why and creates its own Simulator as before. A failed P0 or P9
+check still deletes the Simulator in `ci-smoke.py`. Booting the Simulator before
+the build was tried and dropped: in run 45856917743 the build took 6.9 minutes
+(0.7-3.7 before) and the readiness wait before `xcodebuild test` 152 s (14-33 s
+before), about what the faster install saved.
 
 Unlike the local default, CI supplies a fresh Simulator UDID rather than relying
 on a pre-existing M5 Simulator name or saved app data. The simulator bundle uses
@@ -200,6 +225,7 @@ as new defects. L19 and L20 track work on L15 and A/B.
 | S | `press on qa.menu.select-text reached it but 'typing is paused (Select on)' did not hold within 10 ...` (SH1-156) | 1 (1 on main) | XCTest waited 60 s for the app to idle and the connection broke `[unproven]` | Reported, not fixed: heartbeat gaps as for Q | — |
 | M | `Native command did not become actionable`, `Native command missing` or `availability wait expired ... exists=false` | 3 (0 on main) | The tap that opens the menu was lost `[unproven]` | When no menu item appeared and the app shows no touch and no screen change since the swipe, the open tap is sent once more (`open-retry`, PR #158); anything else fails with `not tapped again: <why>` | Local negative control `drop-open:<case>` in PR #158 |
 | L | `Failed to launch com.shin1ohno.yebisu: Timed out attempting to launch app`, `... does not have a process ID`, `Timed out waiting for AX loaded notification`, `qa.state wait 'launch ...' timed out` | 3 (0 on main) | `[unproven]` | XCTest records a failed `app.launch()` as issues that `record(_:)` can take (PR #164 probe: all four launch issues arrive and the test goes on after `launch()`, which returns after 235-300 s). EditMenuQA launches once more only when the app is not running and has no `qa.state` (`launch-retry`), and `sh1-152-check.py` checks `app-stderr.log`'s launch lines prove no process started; `Timed out waiting for AX loaded notification` happens before test code and stays reported, as does a `launch` wait on `qa.state` once the app runs | PR #164 text |
+| T-reap | `Failed to terminate com.shin1ohno.yebisu:<pid>` (edit-menu, `EditMenuQA.swift` after a case), then `Lost connection to the application (pid <pid>)` in the next test; since issue #247 `SH1-152 TERMINATE SLOW <case> <seconds>` (passed) or `SH1-152 TERMINATE NEVER ENDED (class T-reap)` (failed) | A terminate over 20 s in 3 of 9 edit-menu jobs on the xcode-27 image with the gpui-pre fork (2 failed it), 0 of 8 without it, 0 of 180 on macos-26 (2026-11-20 to 11-27; all 3 slow ends 16:57-21:00 UTC on image 20261123.0387.2, so fork and runner load are not separated) | The OS killed the app (runningboardd `terminate_with_reason() success`) and launchd reported it gone 13.4, 46.4 and 51.5 s later, against 0.0-1.1 s for every other kill of those runs; the app wrote nothing after the kill, so the delay is in the kernel or the hosted VM `[unproven]`. Locally 0 of 150 kills took over 0.03 s (d3c1742 and 2e4418b interleaved, 3 runs each) | `EditMenuQA.terminate` takes the issue as `start` takes launch issues and waits up to 180 s (`TerminateWait.timeout`) until `kill(<pid>, 0)` finds no process and `app.state` is `notRunning`, so the next launch starts a new process; an app still running then fails by the class name (issue #247, owner decision 2026-11-27). Negative control: `QAAxLogicTests.testTerminateWaitGivesUpOnAStubThatNeverEnds` | run 45890478629 (3cd39a6, pid 16999), run 45864283800 (5a92e08, pid 18054), run 45846870924 (2e4418b, pid 27486), each from the artifact's exported `system.logarchive` |
 | SH1-152 portrait confirmation | `testSH1152Basic` fails before launching E1-text with `Timed out waiting for confirmation of orientation change` in `xctest.log` | 1 observed job on 2026-11-20 | XCTest reported a portrait interface before the test. The unconditional pre-launch device orientation request at 1.54 s failed before its 14.57 s notification. The same source passed when the notification arrived at 1.53 s after a request at 1.06 s | Launch and wait for `qa.state`, then require a portrait SpringBoard frame before the first touch. Request portrait once only if a landscape frame was observed | run 44765771959/1 job 136389954788 (artifact 14647790317) and passing control 44757970198/1 job 136362684853 (artifact 14652096259) |
 
 Resolved (issue #142 Class table, 2026-11-20 to 11-23; no change needed in issue #142):

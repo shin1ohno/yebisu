@@ -14,6 +14,8 @@ use gpui::{AnyElement, Context, Window};
 use sheprd_client::ssh::HostKeyScan;
 
 mod actions;
+pub(crate) mod delete;
+mod delete_view;
 mod name_field;
 #[path = "../nearby/mod.rs"]
 mod nearby;
@@ -57,6 +59,10 @@ pub(crate) struct HostsSheetState {
     pub(crate) saw_terminal: bool,
     /// Sign-in found a Herdr to open; the view opens it after the reply.
     pub(crate) pending_open: Option<HerdrKind>,
+    /// The open Delete Host confirmation (#250).
+    pub(crate) delete: Option<delete::DeleteConfirm>,
+    /// Each Hosts row's sideways scroll (a left swipe shows its Delete).
+    pub(crate) swipes: delete::Swipes,
 }
 
 impl HostsSheetState {
@@ -65,6 +71,8 @@ impl HostsSheetState {
     }
 
     pub(crate) fn open_add(&mut self, mode: SheetMode, host: &str) {
+        self.delete = None;
+        self.swipes.close_all();
         self.name = None;
         self.nearby = nearby_view::NearbySheet::default();
         self.add = Some(AddHostSession::new(mode, host));
@@ -73,6 +81,8 @@ impl HostsSheetState {
     pub(crate) fn close(&mut self) {
         self.list_open = false;
         self.add = None;
+        self.delete = None;
+        self.swipes.close_all();
         self.name = None;
         self.nearby = nearby_view::NearbySheet::default();
         self.over_terminal = false;

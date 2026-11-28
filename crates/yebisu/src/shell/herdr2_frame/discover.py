@@ -46,8 +46,16 @@ def list_terminals(endpoint):
                 pid = rpc(connection, replies, "server.status", {}).get("pid")
         rows = []
         for terminal in terminals:
-            row = {k: terminal[k] for k in ("address", "state", "name", "title", "status") if k in terminal}
+            row = {k: terminal[k] for k in ("address", "state", "name", "title", "status", "pid") if k in terminal}
             row["argv"] = terminal.get("argv", [])[:1]
+            # What runs in it now (Close Space asks for a program, #249).
+            foreground = terminal.get("foreground")
+            if isinstance(foreground, dict) and "pid" in foreground:
+                row["foreground"] = {
+                    "pid": foreground["pid"],
+                    "name": foreground.get("name", ""),
+                    "argv": foreground.get("argv", [])[:1],
+                }
             rows.append(row)
         return [core_id, rows, pid]
     except (OSError, ValueError, KeyError, TypeError, AttributeError):

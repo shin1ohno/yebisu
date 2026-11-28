@@ -5,8 +5,9 @@ L7 Hosts sheet, L8 Herdr 2 frame, L9 keyboards and mod regions), requiring each 
 pass on the original source and fail with an assertion on the mutation.
 
 Same shape as p12-mutations.py: each test runs once on the original source and
-once on the mutation, through scripts/guarded.py. Durations go to the log and
-to target/layout-mutations/verdict.json.
+once on the mutation, through scripts/guarded.py. All baselines run first, on
+the unmodified source, so the original crate is built once. Durations go to
+the log and to target/layout-mutations/verdict.json.
 """
 import json
 from pathlib import Path
@@ -161,11 +162,13 @@ CASES = [
     ("l6-catalog-filter", "shell/shortcuts.rs", "    catalog\n        .into_iter()\n",
      "    catalog\n        .into_iter()\n        .skip(1)\n",
      "shell::shortcuts::tests::rows::shortcuts_rows_come_from_catalog"),
-    # L6: long press of a space row lists the Space menu's items (Q8).
+    # L6: long press of a space row lists the Space menu's items (Q8), plus the
+    # row-only Close Space (#231); dropping Rename leaves the menus unequal.
     ("l6-long-press-match", "shell/host_menus.rs",
+     "const SPACE_LONG_PRESS: [SpaceMenuItem; 4] = [\n    SpaceMenuItem::NewTab,\n"
+     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Rename,\n    SpaceMenuItem::Close,\n];",
      "const SPACE_LONG_PRESS: [SpaceMenuItem; 3] = [\n    SpaceMenuItem::NewTab,\n"
-     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Rename,\n];",
-     "const SPACE_LONG_PRESS: [SpaceMenuItem; 2] = [SpaceMenuItem::NewTab, SpaceMenuItem::Detach];",
+     "    SpaceMenuItem::Detach,\n    SpaceMenuItem::Close,\n];",
      "shell::host_menus::tests::long_press::menu_items_match_long_press"),
     # L8 (plan v2 7.14): a status-less Herdr 2 terminal listed in AGENTS (Q4).
     ("l8-status-less", "shell/herdr2_frame/session.rs", ".filter(|(_, status)| status.is_agent())",
@@ -192,19 +195,43 @@ def run(name, test):
     return result.returncode, output, seconds
 
 
-def main():
-    OUT.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    results = []
-    for name, filename, old, new, test in CASES:
-        path = SRC / filename
-        original = path.read_text()
-        if original.count(old) != 1:
-            raise SystemExit(f"{name}: source anchor must occur exactly once in {filename}")
+def stale_anchors():
+    """Cases whose anchor does not occur exactly once in today's source. Checked
+    before any build, so a feature PR that rewrote a mutated line fails in
+    seconds instead of after the cases before it (#244: 31 cases, 43 min)."""
+    return [f"{name}: source anchor must occur exactly once in {filename}"
+            for name, filename, old, _, _ in CASES if (SRC / filename).read_text().count(old) != 1]
+
+
+def baselines():
+    """Run every case's named test on the unmodified source, before any mutation.
+    Every baseline sees the same source, so only the first one compiles; running
+    each right before its mutation rebuilt the original crate once per case,
+    about half of the step's time (issue #257: 23-24 of 47-48 min on the runs
+    that hit the check job's 60-minute limit)."""
+    seconds = {}
+    for name, _, _, _, test in CASES:
         code, output, baseline = run(name + "-baseline", test)
         if code or "1 passed; 0 failed" not in output:
             raise SystemExit(f"{name}: baseline did not run and pass the named regression")
         print(f"layout-mutations: {name}: baseline {test} passed in {baseline}s", flush=True)
+        seconds[name] = baseline
+    return seconds
+
+
+def main():
+    stale = stale_anchors()
+    if stale:
+        raise SystemExit("\n".join(stale))
+    OUT.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    passed = baselines()
+    print(f"layout-mutations: {len(passed)} baselines passed in {round(time.monotonic() - started, 1)}s", flush=True)
+    results = []
+    for name, filename, old, new, test in CASES:
+        path = SRC / filename
+        original = path.read_text()
+        baseline = passed[name]
         try:
             path.write_text(original.replace(old, new))
             code, output, mutated = run(name, test)

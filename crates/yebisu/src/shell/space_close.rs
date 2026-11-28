@@ -17,6 +17,14 @@
 //! the `herdr-app` document through the checked write path
 //! (`Intent::RemoveSpace`) before its terminals end (`doc_tabs.rs`
 //! `close_space`).
+//!
+//! A Herdr 2 `space-<ms>` row is a server of its own (#249). The connected
+//! one closes: its live terminals end and its server is stopped as an empty
+//! space's is (`core/named_close.rs`, `core/vacate.rs`), asking first by the
+//! same rule from the status poll's busy terminals. Another `space-<ms>` row
+//! closes from the discovery poll's snapshot: the checked stop ends the live
+//! terminals that were seen, and refuses if another one runs. `default`
+//! never closes.
 use super::{
     HerdrKind,
     herdr2_frame::session::split_space_identity,
@@ -35,6 +43,8 @@ const CONFIRM_WIDTH: f32 = 280.;
 pub(crate) const NO_CLOSE_METHOD: &str = "This host can't close spaces";
 /// Why a close shown for a space that is gone or moved is refused.
 pub(crate) const CLOSE_TARGET_CHANGED: &str = "This space changed; open its menu again";
+/// Why a connected `space-<ms>` row's close waits: no list answered yet.
+pub(crate) const NO_LIST_YET: &str = "Waiting for this space's terminals; try again";
 
 /// What may be lost, as the confirmation says it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +114,49 @@ pub(crate) fn herdr2_question(space: &DocSpace) -> Option<Question> {
     })
 }
 
+/// Which `space-<ms>` row a Herdr 2 row that is no document space is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NamedRow {
+    /// The session this connection serves.
+    Connected,
+    /// Another session of the host, known from the discovery poll.
+    Listed,
+}
+
+/// Which `space-<ms>` row `row` is while `connected` is the session this
+/// connection serves (#249), or why it is none: `default` never closes.
+pub(crate) fn named_close_gate(
+    row: &str,
+    connected: Option<&str>,
+) -> Result<NamedRow, &'static str> {
+    match split_space_identity(row) {
+        (_, Some(_)) => Err(CLOSE_TARGET_CHANGED),
+        (session, None) if session == super::herdr2_frame::HERDR2_SESSION => {
+            Err(crate::core::NAMED_CLOSE_PROTECTED)
+        }
+        (session, None) if connected == Some(session) => Ok(NamedRow::Connected),
+        _ => Ok(NamedRow::Listed),
+    }
+}
+
+/// How a `space-<ms>` row closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NamedClose {
+    /// Through this connection's worker (`Command::CloseNamedSpace`).
+    Connected,
+    /// Through the checked stop, as the discovery poll last saw it.
+    Listed(crate::core::Listed),
+}
+
+/// A connected `space-<ms>` session with `tabs` tabs: `None` closes at once
+/// (shells only), else the question about its `busy` terminals.
+pub(crate) fn named_question(tabs: usize, busy: &[String]) -> Option<Question> {
+    (!busy.is_empty()).then_some(Question {
+        tabs,
+        running: Running::Programs(busy.len()),
+    })
+}
+
 /// The space a Close was shown for, on the connection it was shown on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CloseTarget {
@@ -114,6 +167,12 @@ pub(crate) struct CloseTarget {
     /// The row's id: Herdr 1's workspace id, Herdr 2's `default\0<space>`.
     pub(crate) space: String,
     pub(crate) name: String,
+    /// A `space-<ms>` close: the busy terminals the question named, which
+    /// the worker may end (`Command::CloseNamedSpace`).
+    pub(crate) asked: Vec<String>,
+    /// A listed `space-<ms>` close: the server and live terminals seen when
+    /// the question was asked, which the stop checks and ends.
+    pub(crate) listed: Option<crate::core::vacate::Expect>,
 }
 
 /// An open confirmation.
@@ -125,6 +184,41 @@ pub(crate) struct CloseConfirm {
 }
 
 impl Smoke {
+    /// Why Close Space cannot run on the Herdr 2 row `shown` that the
+    /// document does not hold, or `None` when it is the connected
+    /// `space-<ms>` session's row.
+    pub(crate) fn named_close_unavailable(&self, shown: &MenuScope) -> Option<&'static str> {
+        self.named_close(shown).err()
+    }
+
+    /// How the Herdr 2 row `shown` that the document does not hold closes,
+    /// or why it cannot: a listed space's server must answer, and have been
+    /// seen for `vacate::GRACE` (#249 B).
+    pub(crate) fn named_close(&self, shown: &MenuScope) -> Result<NamedClose, &'static str> {
+        let row = shown.space.as_deref().ok_or(CLOSE_TARGET_CHANGED)?;
+        let core = self.terminal.core.as_ref();
+        match named_close_gate(row, core.map(|core| core.name()))? {
+            NamedRow::Connected => Ok(NamedClose::Connected),
+            NamedRow::Listed => {
+                let listed = core.and_then(|core| core.listed(row));
+                crate::core::listed_closable(listed.as_ref(), std::time::Instant::now())?;
+                listed
+                    .map(NamedClose::Listed)
+                    .ok_or(crate::core::NAMED_CLOSE_NOT_ANSWERING)
+            }
+        }
+    }
+
+    /// The tabs the selected host's catalog lists for the session `name`.
+    fn listed_tabs(&self, name: &str) -> usize {
+        self.terminal.core.as_ref().map_or(0, |core| {
+            core.sessions(self.terminal.live.input_epoch)
+                .iter()
+                .find(|row| row.name == name)
+                .map_or(0, |row| row.tabs.len())
+        })
+    }
+
     /// The document space a Herdr 2 row names, as the drawn `default`
     /// session last read it.
     fn doc_space(&self, identity: &str) -> Option<DocSpace> {
@@ -155,17 +249,44 @@ impl Smoke {
         let changed = || crate::Error::Ssh(CLOSE_TARGET_CHANGED.into());
         let shown_snapshot = snapshot(&self.terminal.live).ok_or_else(changed)?;
         let kind = self.terminal.herdr_kind();
-        let target = CloseTarget {
+        let mut target = CloseTarget {
             host: shown.host.clone(),
             kind,
             boot: shown_snapshot.boot_id.clone(),
             generation: self.terminal.link.generation,
             space: space.clone(),
             name: name.to_owned(),
+            asked: Vec::new(),
+            listed: None,
         };
         let question = match kind {
             HerdrKind::Herdr1 => herdr1_question(shown_snapshot, &space),
-            HerdrKind::Herdr2 => herdr2_question(&self.doc_space(&space).ok_or_else(changed)?),
+            HerdrKind::Herdr2 => match self.doc_space(&space) {
+                Some(doc) => herdr2_question(&doc),
+                None => {
+                    let named = self
+                        .named_close(shown)
+                        .map_err(|reason| crate::Error::Ssh(reason.into()))?;
+                    let (tabs, busy) = match named {
+                        NamedClose::Connected => (
+                            crate::actions::current_core_session(&self.terminal)
+                                .map_or(0, |row| row.tabs.len()),
+                            self.terminal
+                                .core
+                                .as_ref()
+                                .and_then(|core| core.busy())
+                                .ok_or_else(|| crate::Error::Ssh(NO_LIST_YET.into()))?,
+                        ),
+                        NamedClose::Listed(listed) => {
+                            let tabs = self.listed_tabs(&space).max(1);
+                            target.listed = Some(listed.expect);
+                            (tabs, listed.busy)
+                        }
+                    };
+                    target.asked = busy.clone();
+                    named_question(tabs, &busy)
+                }
+            },
         };
         match question {
             None => self.close_space_now(&target),
@@ -203,12 +324,44 @@ impl Smoke {
         }
         match target.kind {
             HerdrKind::Herdr1 => self.input_transition(|this| this.close_workspace(target))?,
-            HerdrKind::Herdr2 => {
-                let space = self
-                    .doc_space(&target.space)
-                    .ok_or_else(|| crate::Error::Ssh(CLOSE_TARGET_CHANGED.into()))?;
-                self.try_core_command(crate::core::Command::CloseDocSpace(space.id))?;
-            }
+            HerdrKind::Herdr2 => match self.doc_space(&target.space) {
+                Some(space) => {
+                    self.try_core_command(crate::core::Command::CloseDocSpace(space.id))?;
+                }
+                None => {
+                    let shown = MenuScope {
+                        host: target.host.clone(),
+                        space: Some(target.space.clone()),
+                    };
+                    let named = self
+                        .named_close(&shown)
+                        .map_err(|reason| crate::Error::Ssh(reason.into()))?;
+                    let command = match (named, &target.listed) {
+                        (NamedClose::Connected, None) => crate::core::Command::CloseNamedSpace {
+                            asked: target.asked.clone(),
+                        },
+                        (NamedClose::Listed(now), Some(seen)) => {
+                            // The same server, and nothing busy that the
+                            // question did not name; the stop itself
+                            // refuses a live terminal it was not told of.
+                            if now.expect.core_id != seen.core_id || now.expect.pid != seen.pid {
+                                return Err(crate::Error::Ssh(CLOSE_TARGET_CHANGED.into()));
+                            }
+                            if now.busy.iter().any(|t| !target.asked.contains(t)) {
+                                return Err(crate::Error::Ssh(
+                                    crate::core::NAMED_CLOSE_STARTED_SINCE.into(),
+                                ));
+                            }
+                            crate::core::Command::CloseListedSpace {
+                                name: target.space.clone(),
+                                expect: seen.clone(),
+                            }
+                        }
+                        _ => return Err(crate::Error::Ssh(CLOSE_TARGET_CHANGED.into())),
+                    };
+                    self.try_core_command(command)?;
+                }
+            },
         }
         crate::qa_ax::count("space_close_sent");
         self.observation.record(serde_json::json!({

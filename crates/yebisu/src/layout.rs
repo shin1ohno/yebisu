@@ -368,6 +368,26 @@ pub fn compute(input: &Input) -> Layout {
     compute_with_key_band(input, 0.0)
 }
 
+/// Lays out the window with the pager-only band of `band_height` above a
+/// docked software keyboard, unless that band is what leaves the terminal
+/// below its minimum: then the band gives way (#265, owner decision
+/// 2026-11-27), as on an iPad mini in landscape, where 52 pt of band leave
+/// 182 pt of the 206 pt the terminal needs. The pager then stays hidden
+/// while the keyboard is up. A terminal too small even without the band
+/// keeps it, so only the band's own shortage changes the layout.
+pub(crate) fn compute_with_pager_band(input: &Input, band_height: f32) -> Layout {
+    let with_band = compute_with_key_band(input, band_height);
+    if with_band.terminal.rect().is_some() {
+        return with_band;
+    }
+    let without = compute(input);
+    if without.terminal.rect().is_some() {
+        without
+    } else {
+        with_band
+    }
+}
+
 pub(crate) fn usable_width(width: f32, safe_left: f32, safe_right: f32) -> f32 {
     (width - safe_left.max(0.0) - safe_right.max(0.0)).max(0.0)
 }

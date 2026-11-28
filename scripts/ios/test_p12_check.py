@@ -349,6 +349,65 @@ class P12QASourceTests(unittest.TestCase):
         self.assertIn("override func tearDown()", SWIFT)
         self.assertNotIn("defer {", SWIFT)
 
+    def test_a_full_screen_window_is_dragged_out_of_full_screen_before_the_fixtures(self):
+        """yebisu#242: a window that fills its screen hides the status bar, whose app name the iPadOS 27
+        reveal taps; P12 drags the window down by touch, as a user would, before any frame is kept."""
+        swift = code(SWIFT)
+        for test in ("func testInstalledTerminalMenu(", "func testRenameMenus("):
+            with self.subTest(test=test):
+                method = body(swift, test)
+                self.assertLess(method.index("try windowForTheMenuBar()"), method.index("try locateFixtures()"))
+        window = body(swift, "private func windowForTheMenuBar(")
+        self.assertIn("guard revealGesture == .appNameTap else { return }", window)
+        self.assertIn("guard Self.needsWindow(gesture: revealGesture, fillsScreen: fills, nameShown: shown) else {", window)
+        self.assertLess(window.index("Self.needsWindow("), window.index(".press(forDuration: 0.2, thenDragTo:"))
+        self.assertIn("withVelocity: .slow, thenHoldForDuration: 0.5)", window)
+        self.assertEqual(window.count('"kind": "window-mode"'), 1)
+        self.assertIn("(class W)", window)
+        self.assertIn("throw NSError(", window)
+        self.assertNotIn("hover", window)
+        needs = body(swift, "static func needsWindow(")
+        self.assertIn("gesture == .appNameTap && fillsScreen && !nameShown", needs)
+
+    def test_a_drag_that_left_the_window_filling_the_screen_is_done_again(self):
+        """yebisu#242 main run 45907938365: one drag sprang back to full screen. The drag is repeated
+        while the window still fills the screen with no app name, at most windowDragAttempts times."""
+        swift = code(SWIFT)
+        window = body(swift, "private func windowForTheMenuBar(")
+        loop = window.index("for attempt in 1...Self.windowDragAttempts {")
+        self.assertLess(loop, window.index(".press(forDuration: 0.2, thenDragTo:"))
+        self.assertLess(window.index("named = name.waitForExistence(timeout: Self.revealTimeout)"),
+                        window.index("guard Self.dragsAgain(attempt: attempt, fillsScreen: fillsAfter, nameShown: named) else { break }"))
+        self.assertIn('let short = attempt == 1 && faults.remove("short-drag") != nil', window)
+        self.assertIn('record["drags"] = drags', window)
+        self.assertLess(window.index('record["drags"] = drags'), window.index("guard named else {"))
+        self.assertIn("static let windowDragAttempts = 3", swift)
+        again = body(swift, "static func dragsAgain(")
+        self.assertIn("attempt < windowDragAttempts && fillsScreen && !nameShown", again)
+
+    def test_the_rename_cancel_tap_lands_left_of_the_p12_panel(self):
+        """yebisu#242: in the dragged 899 pt window the fixed (0.7, 0.15) point of the app element (whose
+        frame stays the screen's) fell above the window, so S9-tab's field never closed. The point is
+        found before any field opens, from the window's frame and the P12 panel's empty strip."""
+        method = body(code(SWIFT), "func testRenameMenus(")
+        found = method.index("let strip = try qa.find(Self.emptySpace, timeout: 10).frame")
+        self.assertLess(method.index("try touchReady()"), found)
+        self.assertLess(found, method.index("for (step, menu, title) in"))
+        self.assertIn("let window = app.windows.firstMatch.frame", method)
+        self.assertIn("CGVector(dx: strip.minX - 80 - origin.x, dy: window.minY + window.height * 0.15 - origin.y)", method)
+        self.assertIn("app.coordinate(withNormalizedOffset: .zero).withOffset(cancel).tap()", method)
+        self.assertNotIn("CGVector(dx: 0.7, dy: 0.15)", method)
+
+    def test_the_p12_fixture_sends_no_zoom_of_its_own(self):
+        """yebisu#242: in the dragged window the column is narrower than a split needs, and L2c would
+        send pane.zoom; P12's peer holds the first requests for its cases and the oracle allows only
+        the two pane.split requests, so the fixture skips the automatic zoom (Simulator only)."""
+        rust = code((HERE.parents[1] / "crates/yebisu/src/shell/single_pane.rs").read_text())
+        guard = rust.index('std::env::var_os("YEBISU_P12_QA").is_some()')
+        self.assertLess(rust.index("if self.auto_zoom_would_discard_input() {"), guard)
+        self.assertLess(guard, rust.index("let Some(request) = herdr1_zoom_request("))
+        self.assertIn('if cfg!(all(target_os = "ios", target_abi = "sim"))', rust[guard - 120:guard])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,42 @@ final class P12RevealGestureTests: XCTestCase {
         }
     }
 
+    /// yebisu#242: only the app-name tap needs the status bar, and only a window that fills its screen
+    /// with no app name shown is dragged out of full screen first.
+    func testOnlyAFullScreenWindowWithNoAppNameIsTakenOutOfFullScreen() {
+        XCTAssertTrue(P12QA.needsWindow(gesture: .appNameTap, fillsScreen: true, nameShown: false))
+        XCTAssertFalse(P12QA.needsWindow(gesture: .appNameTap, fillsScreen: true, nameShown: true))
+        XCTAssertFalse(P12QA.needsWindow(gesture: .appNameTap, fillsScreen: false, nameShown: false))
+        XCTAssertFalse(P12QA.needsWindow(gesture: .appNameTap, fillsScreen: false, nameShown: true))
+        for fills in [true, false] {
+            for shown in [true, false] {
+                XCTAssertFalse(P12QA.needsWindow(gesture: .topEdgeSwipe, fillsScreen: fills, nameShown: shown))
+            }
+        }
+    }
+
+    /// yebisu#242 main run 45907938365: one drag left the window filling the screen.
+    func testADragThatLeftFullScreenUnchangedIsDoneAgain() {
+        XCTAssertEqual(P12QA.windowDragAttempts, 3)
+        XCTAssertTrue(P12QA.dragsAgain(attempt: 1, fillsScreen: true, nameShown: false))
+        XCTAssertTrue(P12QA.dragsAgain(attempt: 2, fillsScreen: true, nameShown: false))
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 3, fillsScreen: true, nameShown: false), "at most three drags")
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: true, nameShown: true))
+        // A window that moved but shows no name is not dragged again.
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: false, nameShown: false))
+        XCTAssertFalse(P12QA.dragsAgain(attempt: 1, fillsScreen: false, nameShown: true))
+    }
+
+    /// The probe's frames (iPad Pro 13-inch (M5), 2026-11-27): full screen, and the window after the drag.
+    func testFillsScreenComparesTheWindowWithTheScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1032, height: 1376)
+        XCTAssertTrue(P12QA.fillsScreen(screen, screen))
+        XCTAssertTrue(P12QA.fillsScreen(CGRect(x: 0, y: 0, width: 1032.4, height: 1375.6), screen))
+        XCTAssertFalse(P12QA.fillsScreen(CGRect(x: 67, y: 207, width: 899, height: 1209.5), screen))
+        XCTAssertFalse(P12QA.fillsScreen(CGRect(x: 0, y: 0, width: 1032, height: 1300), screen))
+        XCTAssertFalse(P12QA.fillsScreen(.zero, screen))
+    }
+
     /// The Simulator this test runs on: the gesture P12QA sends there.
     func testThisSystemUsesItsGesture() {
         let system = ProcessInfo.processInfo.operatingSystemVersion

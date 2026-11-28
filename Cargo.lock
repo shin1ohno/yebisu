@@ -2187,7 +2187,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 [[package]]
 name = "gpui-pre"
 version = "0.3.12"
-source = "git+https://github.com/shin1ohno/gpui-pre?rev=60bd9f537760dda05c31861ad6bac03c4d3c81e4#60bd9f537760dda05c31861ad6bac03c4d3c81e4"
+source = "git+https://github.com/shin1ohno/gpui-pre?rev=fb53487295ce2034d42db1c8c4c52062c7d9d176#fb53487295ce2034d42db1c8c4c52062c7d9d176"
 dependencies = [
  "accesskit",
  "anyhow",

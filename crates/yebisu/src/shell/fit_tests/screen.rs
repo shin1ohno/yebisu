@@ -80,6 +80,58 @@ fn too_small_screen_holds_terminal_input(cx: &mut TestAppContext) {
     assert!(typed(&view, cx), "the hold outlived the small window");
 }
 
+/// #265: the too-small screen keeps the terminal's text input focus. GPUI
+/// reports text focus lost when no frame's input handler accepts text, and
+/// herdr-uikit then hands the first responder to the drawing view, which
+/// hides a docked software keyboard; the terminal fits again, focus comes
+/// back and the keyboard rises, in a loop. GPUI asks `accepts_text_input`
+/// only of a handler the frame registered, so the gate's fresh answer is the
+/// decision it hands the platform.
+#[gpui::test]
+fn too_small_screen_keeps_terminal_text_focus(cx: &mut TestAppContext) {
+    use crate::text_gate::Gate;
+    use std::{cell::Cell, rc::Rc};
+    let (view, cx) = terminal(cx, 1200., 1000.);
+    view.update_in(cx, |this, window, cx| this.terminal_focus.focus(window, cx));
+    redraw(&view, cx);
+    let asked = |view: &Entity<Smoke>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |this, _| this.text_gate.take())
+    };
+    assert_eq!(
+        asked(&view, cx),
+        Some(Gate::Accepts),
+        "fixture: the terminal takes text"
+    );
+    let blurs = Rc::new(Cell::new(0_usize));
+    let counter = blurs.clone();
+    let _blur = view.update_in(cx, |this, window, cx| {
+        cx.on_blur(&this.terminal_focus, window, move |_, _, _| {
+            counter.set(counter.get() + 1);
+        })
+    });
+    cx.run_until_parked();
+    for (width, height) in [(320., 300.), (1133., 280.), (250., 1000.)] {
+        cx.simulate_resize(size(px(width), px(height)));
+        redraw(&view, cx);
+        assert!(painted(cx, "shell-too-small").is_some(), "{width}×{height}");
+        assert_eq!(
+            asked(&view, cx),
+            Some(Gate::Accepts),
+            "{width}×{height}: the too-small screen dropped the text input focus"
+        );
+        assert_eq!(
+            blurs.get(),
+            0,
+            "{width}×{height}: the too-small screen blurred the terminal"
+        );
+    }
+    cx.simulate_resize(size(px(1200.), px(1000.)));
+    redraw(&view, cx);
+    assert!(painted(cx, "shell-too-small").is_none());
+    assert_eq!(asked(&view, cx), Some(Gate::Accepts));
+    assert!(view.update_in(cx, |this, window, _| this.terminal_focus.is_focused(window)));
+}
+
 /// A floating keyboard (here: the platform's visible viewport shrinking
 /// without a docked keyboard inset) does not change the terminal's size.
 #[gpui::test]

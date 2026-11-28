@@ -3,6 +3,7 @@
 import codecs
 import os
 from pathlib import Path
+import re
 import selectors
 import signal
 import subprocess
@@ -13,11 +14,34 @@ ROOT = Path(__file__).resolve().parent.parent / "target"
 ROOT.mkdir(exist_ok=True)
 
 
-def probe():
+SWAP_USED = re.compile(r'used = ([0-9.]+)M')
+
+
+def machine():
+    """Load, swap and free-memory level beside each disk probe (issue #256). A hosted
+    runner job was cancelled after this loop ran 74-218 s late; these fields tell CPU
+    from memory pressure next time. A missing value never stops the guard."""
+    fields = [f'load1={os.getloadavg()[0]:.2f}']
+    try:
+        result = subprocess.run(['sysctl', '-n', 'vm.swapusage', 'kern.memorystatus_level'],
+                                capture_output=True, text=True, timeout=2)
+        lines = result.stdout.splitlines()
+        swap = SWAP_USED.search(lines[0]) if result.returncode == 0 and len(lines) == 2 else None
+        if swap and lines[1].strip().isdigit():
+            fields += [f'swap_used_MiB={swap.group(1)}', f'memory_free_pct={lines[1].strip()}']
+        else:
+            fields.append('memory=unavailable')
+    except (OSError, subprocess.SubprocessError):
+        fields.append('memory=unavailable')
+    return ' '.join(fields)
+
+
+def probe(late=0.0):
     disk = os.statvfs(ROOT)
     free = disk.f_bavail * disk.f_frsize
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     with (ROOT / 'disk.log').open('a') as log:
-        log.write(f'disk {time.strftime("%Y-%m-%dT%H:%M:%S%z")} free_bytes={free} free_GiB={free / 2**30:.3f}\n')
+        log.write(f'disk {stamp} free_bytes={free} free_GiB={free / 2**30:.3f} late_s={late:.1f} {machine()}\n')
     return free >= 6 * 2**30
 
 
@@ -96,8 +120,8 @@ def main(arguments):
                     sys.stdout.flush()
                     log.write(text)
                     log.flush()
-                if time.monotonic() >= next_probe:
-                    if not probe():
+                if (now := time.monotonic()) >= next_probe:
+                    if not probe(late=now - next_probe):
                         terminate_group(process, log)
                         # No blocking reader/join: a retained pipe cannot hold the guard open.
                         return stop()
