@@ -561,6 +561,9 @@ jobs:
         run: just guarded python3 scripts/ios/ci-smoke.py --p9
       - name: Verify installed keyless native menus
         run: just guarded python3 scripts/ios/p12-ci.py
+        # TEMP (issue #247 negative control, reverted before review): inject the no-pid fault.
+        env:
+          P12_QA_FAULT: no-pid:launch
       # Issue #142 stage 4 (Owner decision 5): more than 3 proven resends in this job fail it.
       - name: Simulator input resend budget
         if: always()
