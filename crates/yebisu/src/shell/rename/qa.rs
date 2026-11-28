@@ -50,6 +50,10 @@ pub(crate) fn snapshot(app: &Smoke) -> Value {
             RenameAnchor::TabLabel => "TabLabel",
         }),
         "object": session.map(|s| object(&s.target.object)),
+        // #270: the connection the target is on, and the terminal's hold
+        // after a field that closed under the user.
+        "generation": session.map(|s| s.target.generation),
+        "tap_hold": app.terminal.input.held_until_tap(),
         "slot": slot.map(|p| rect(p.frame)),
         "pending": rename.pending.as_ref().map(|p| json!({
             "object": object(&p.object),
