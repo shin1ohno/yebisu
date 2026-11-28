@@ -779,7 +779,10 @@ fn tap_hold_ends_only_with_a_gesture() {
     assert!(input.commit("c").is_none(), "text passed the hold");
     assert!(input.key_down(&key("d", false), false).is_none());
     input.mark("に", None);
-    assert!(input.composition.marked.is_none(), "composed under the hold");
+    assert!(
+        input.composition.marked.is_none(),
+        "composed under the hold"
+    );
     let revision = input.retirement_revision();
     input.acknowledge_retirement(revision);
     input.detach();

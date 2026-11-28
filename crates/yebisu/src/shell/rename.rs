@@ -652,7 +652,12 @@ impl Smoke {
                 let refused = if !first {
                     None
                 } else if self.terminal.reconnect.target
-                    != self.shell.rename.session.as_ref().map_or("", |s| &s.target.host)
+                    != self
+                        .shell
+                        .rename
+                        .session
+                        .as_ref()
+                        .map_or("", |s| &s.target.host)
                 {
                     Some(DISCONNECTED)
                 } else {
