@@ -580,6 +580,7 @@ jobs:
             target/ios-smoke/*/
             target/ios-p9/*/
             target/sim-resends.jsonl
+            target/disk.log
             !target/ios-smoke/build/
   check:
     needs: changes

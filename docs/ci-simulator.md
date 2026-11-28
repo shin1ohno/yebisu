@@ -130,7 +130,10 @@ successful capture and `target/ios-smoke/build/` holds derived build data.
 In CI, an `if: always()` step uploads the capture directories as the
 `simulator-smoke-evidence` Actions artifact even after a failed smoke step,
 provided evidence was produced. The artifact excludes `build/` and the local
-`latest.json` pointer. Download it from the workflow run; the runner's local
+`latest.json` pointer. It also carries the guard's `target/disk.log`, as the
+`edit-menu-evidence` and `layout-smoke-evidence` artifacts do, so a cancelled
+smoke step still leaves the probe delays, load, swap and free memory before the
+cancel (#256). Download it from the workflow run; the runner's local
 files disappear when the job finishes. This checks Simulator
 rendering and lifecycle behavior, not physical IME or hardware keyboard behavior.
 
