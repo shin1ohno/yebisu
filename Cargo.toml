@@ -20,6 +20,10 @@ herdr-uikit = { git = "https://github.com/shin1ohno/herdr-uikit", rev = "8339e13
 "sheprd-commands" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
 "sheprd-i18n" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
 "sheprd-terminal" = { "git" = "https://github.com/shin1ohno/herdr-gpui", "rev" = "c5d57dd395a11d3888fcd4cbddc03bd03fc5cb83" }
+# Option E (#238): the GPUI-free receiving core of the mod renderer, pinned by
+# revision like the other sibling repositories (never a path dependency).
+yebisu-mod-renderer = { git = "https://github.com/shin1ohno/yebisu-modhost", rev = "eaa462b792a0a493277da78ddab531ed95166957" }
+yebisu-mod-wire = { git = "https://github.com/shin1ohno/yebisu-modhost", rev = "eaa462b792a0a493277da78ddab531ed95166957" }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 serde_json = "1"
 unicode-width = "0.2"

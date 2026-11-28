@@ -154,6 +154,7 @@ its module. "New" means the stream creates it.
 | L7 | `shell/hosts_sheet.rs`, `shell/hosts_sheet/**`, `shell/hosts_sheet_tests/**`, `shell/add_host.rs`, `app_setup.rs`, `setup.rs`, `setup/**`, `hosts.rs`, `hosts/**`, `scripts/ios/p2-check.py` |
 | L8 | `shell/herdr2_frame.rs`, `core.rs`, `core/store.rs`, `core_view.rs`, `core_mock.rs`, `core_mock/**`, `scripts/ios/p9-check.py` |
 | L9 | `shell/fit.rs`, `shell/mods.rs`, `shell/overlay.rs`, `shell/disconnect.rs`, `terminal_input.rs`, `terminal_input_tests.rs` |
+| E-1 (#238, spike) | new `mod_view.rs`, `mod_view/**`, `shell/mod_dock.rs`, `shell/mod_dock_tests.rs`; in `shell/frame.rs` only the `mod_view_tick` call and the M2 dock child |
 
 Paths without a directory are under `crates/yebisu/src/`. Files not in the
 table (for example `edit_menu*.rs`, `input.rs`, `live.rs`, `handoff*.rs`,
