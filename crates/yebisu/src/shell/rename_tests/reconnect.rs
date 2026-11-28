@@ -184,6 +184,19 @@ fn boot_change_closes_field(cx: &mut gpui::TestAppContext) {
     restarted(&view, cx);
     let receipts = back(&view, cx);
     assert_eq!(fake.dismissed(), 1, "a boot change kept the field");
+    view.read_with(cx, |this, _| {
+        let moved = this
+            .shell
+            .rename
+            .session
+            .as_ref()
+            .map(|s| s.target.generation == this.terminal.link.generation);
+        assert_eq!(
+            moved,
+            Some(false),
+            "the target moved to a connection of another boot"
+        );
+    });
     close(&fake, cx, FieldDismiss::Requested, FieldRestored::Text);
     // The connection's own status replaced the text; the hold keeps it.
     assert_eq!(
