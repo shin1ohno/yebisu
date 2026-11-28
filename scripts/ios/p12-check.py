@@ -160,7 +160,7 @@ def main():
     derived = directory / "xcode-derived"
     fault = os.environ.get("P12_QA_FAULT", "")
     oracle.require(oracle.valid_fault(fault), "P12_QA_FAULT must be drop-tap:<step>, or skip-swipe, drop-open, drop-pick, "
-                   f"drop-pick-twice or offset-pick:<case> items, got {fault!r}")
+                   f"drop-pick-twice or offset-pick:<case>, short-drag, or no-pid or no-pid-no-state:launch items, got {fault!r}")
     expected = oracle.expected_failure(fault)
     try:
         tested = run("xctest", ["xcodebuild", "test", "-project", str(project / "P12Oracle.xcodeproj"),

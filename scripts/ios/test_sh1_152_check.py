@@ -148,6 +148,24 @@ class CheckReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "launch-retry not proven: 3 app starts for 3 launch attempts"):
             check.launch_retries_proven(attempts, two_starts + "app-stderr launch pid=13\n")
 
+    def test_a_no_pid_launch_retry_needs_the_failed_launch_to_have_started_the_app(self):
+        """Issue #247: the no-pid launch ran the app (qa.state was read), so both attempts start a
+        process; a no-pid retry with one start fewer is not proven, nor is a not-started retry with
+        the start the no-pid kind would have."""
+        no_pid = ('QA-RESEND {"id": "E3c", "kind": "launch-retry", "reason": "no-pid-app-running: XCTest has no pid '
+                  'for the launched app while its qa.state was read: Application \'com.shin1ohno.yebisu\' does not have '
+                  'a process ID", "time": 1.0}')
+        attempts = "SH1-152 LAUNCH E3b 4.2\nSH1-152 LAUNCH E3c 134.7\n" + no_pid + "\nSH1-152 LAUNCH E3c 5.1\n"
+        three = "app-stderr launch pid=11\napp-stderr launch pid=12\napp-stderr launch pid=13\n"
+        self.assertEqual(check.launch_retries_proven(attempts, three),
+                         "1 launch-retry proven: 3 app starts for 3 attempts (1 no-pid-app-running)")
+        with self.assertRaisesRegex(ValueError, "launch-retry not proven: 2 app starts for 3 launch attempts, 0 retries "
+                                                "of a launch that started nothing and 1 no-pid-app-running retries"):
+            check.launch_retries_proven(attempts, "app-stderr launch pid=11\napp-stderr launch pid=12\n")
+        not_started = attempts.replace('"reason": "no-pid-app-running: ', '"reason": "the launch failed: ')
+        with self.assertRaisesRegex(ValueError, "launch-retry not proven: 3 app starts"):
+            check.launch_retries_proven(not_started, three)
+
     def test_the_check_writes_its_ledger_line_before_any_verdict_and_also_on_failure(self):
         source = (Path(__file__).with_name("sh1-152-check.py")).read_text()
         main = source[source.index("def main("):]

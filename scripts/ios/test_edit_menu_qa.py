@@ -308,12 +308,38 @@ class TouchReadyAfterEveryLaunch(unittest.TestCase):
         self.assertLess(taking.index("launchIssues = []"), taking.index("app.launch()"))
         self.assertLess(taking.index("app.launch()"), taking.index("launchIssues = nil"))
         start = body(source, "private func start(")
-        guard_ = start.index("if !issues.isEmpty && app.state == .notRunning && ax.read() == nil {")
+        self.assertIn("let readable = !issues.isEmpty && ax.read() != nil", start)
+        self.assertIn("LaunchIssue.decide(issues: texts, notRunning: app.state == .notRunning, stateReadable: readable)", start)
+        guard_ = start.index("if decision == .retryNotStarted || decision == .retryNoPidAppRunning {")
         self.assertEqual(start.count('QAAx.resend(kind: "launch-retry"'), 1)
         self.assertEqual(start.count("launchTakingIssues(app)"), 2, "the launch and its one repeat")
         self.assertLess(guard_, start.index('QAAx.resend(kind: "launch-retry"'))
         self.assertLess(start.index("for issue in issues { record(issue) }"), start.index("if !issues.isEmpty { throw SetupError.launchFailed }"))
         self.assertLess(start.index("for issue in issues { record(issue) }"), start.index('try ax.waitState("launch'))
+
+    def test_a_no_pid_launch_is_repeated_only_with_qa_state_and_has_its_negative_controls(self):
+        """Issue #247 (controller decision 2026-11-28): XCTest's 'does not have a process ID' is
+        repeated once, as a launch-retry named no-pid-app-running, only when qa.state was read; the
+        no-pid and no-pid-no-state faults are injected after the real launch, spent once, and the
+        second one launches without the QA layer so nothing proves the app runs."""
+        helper = code((TESTS / "QAAx.swift").read_text())
+        decide = body(helper, "static func decide(")
+        self.assertLess(decide.index("if notRunning && !stateReadable { return .retryNotStarted }"),
+                        decide.index("if stateReadable && issues.allSatisfy(isNoProcessID) { return .retryNoPidAppRunning }"))
+        self.assertIn("return .record", decide)
+        self.assertIn('static let noPidAppRunning = "no-pid-app-running"', helper)
+        source = code(EDIT_MENU)
+        self.assertIn('LaunchIssue.Faults(ProcessInfo.processInfo.environment["SH1_152_QA_FAULT"] ?? "")', source)
+        start = body(source, "private func start(")
+        fault = start.index('for kind in ["no-pid", "no-pid-no-state"] where faults.spend(kind, name) {')
+        self.assertLess(start.index("var issues = launchTakingIssues(app)"), fault)
+        self.assertLess(fault, start.index("LaunchIssue.decide("))
+        launch = body(source, "private func launch(")
+        self.assertIn('if !faults.pending("no-pid-no-state", name) { app.launchEnvironment["YEBISU_QA_AX"] = "1" }', launch)
+        logic = (TESTS / "QAAxLogicTests+LaunchIssue.swift").read_text()
+        for test in ("testNoPidWithQAStateIsLaunchedOnceMore", "testNoPidWithoutQAStateIsRecorded",
+                     "testNoPidBesideAnotherIssueIsRecorded", "testLaunchThatStartedNothingIsLaunchedOnceMore"):
+            self.assertIn(f"func {test}()", logic)
 
     def test_touch_ready_presses_until_gpui_counts_it(self):
         qaax = code((TESTS / "QAAx.swift").read_text())

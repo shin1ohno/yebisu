@@ -717,3 +717,86 @@ struct QAAx {
         }
     }
 }
+
+// MARK: - Class L launch issues (issue #247)
+
+/// Class L (issues #142 and #247): what EditMenuQA and P12QA do with the issues XCTest recorded
+/// while one `app.launch()` ran. Pure, so QAAxLogicTests decides every row without an app.
+///
+/// "Application '<bundle>' does not have a process ID" is a launch whose app did start: in CI runs
+/// 45846870924, 46037705458 and 46089691282 runningboardd tracked the new process 0.08-2.22 s after
+/// the request, but testmanagerd handed its pid to the test session only 68.8-95.3 s later (in run
+/// 45800164150 never), against at most 17.0 s for the other 60 launches of those runs. In nightly
+/// 46089691282 that delay fell inside a 99 s stall of the hosted VM (guard probes 58 s and 41 s
+/// apart, load 771, 1.4 GiB swapped). Such a launch is repeated once, but only when the app's own
+/// `qa.state` can be read, which proves the app runs; without it the issue fails the test as before.
+enum LaunchIssue {
+    /// The `reason` prefix of the `launch-retry` resend a no-pid launch is repeated with, which
+    /// sh1-152-check.py and p12-oracle.py tell from a launch that started no process.
+    static let noPidAppRunning = "no-pid-app-running"
+
+    enum Decision: Equatable {
+        /// No issue: the launch went through.
+        case none
+        /// The app is not running and has no qa.state: the launch started nothing (class L since
+        /// #142 stage 4, Owner decision 5); launched once more.
+        case retryNotStarted
+        /// Every issue is "does not have a process ID" and qa.state was read, so the app runs and
+        /// only XCTest lacks its pid (issue #247); launched once more.
+        case retryNoPidAppRunning
+        /// Anything else: each issue is recorded as XCTest recorded it.
+        case record
+    }
+
+    /// XCTest's issue for a launched app it holds no pid for (run 46089691282, EditMenuQA.swift:66).
+    static func isNoProcessID(_ text: String) -> Bool {
+        text.hasPrefix("Application '") && text.hasSuffix("' does not have a process ID")
+    }
+
+    /// The issue text XCTest records for `bundle`; the `no-pid` negative controls inject it.
+    static func noProcessID(bundle: String) -> String {
+        "Application '\(bundle)' does not have a process ID"
+    }
+
+    /// `notRunning`: XCTest's `app.state == .notRunning` after launch() returned; `stateReadable`:
+    /// one read of the app's `qa.state` returned a value.
+    static func decide(issues: [String], notRunning: Bool, stateReadable: Bool) -> Decision {
+        if issues.isEmpty { return .none }
+        if notRunning && !stateReadable { return .retryNotStarted }
+        if stateReadable && issues.allSatisfy(isNoProcessID) { return .retryNoPidAppRunning }
+        return .record
+    }
+
+    /// The `launch-retry` reason for a decision that repeats the launch.
+    static func retryReason(_ decision: Decision, issues: [String]) -> String {
+        let quoted = issues.joined(separator: "; ")
+        switch decision {
+        case .retryNoPidAppRunning:
+            return "\(noPidAppRunning): XCTest has no pid for the launched app while its qa.state was read: \(quoted)"
+        default:
+            return "the launch failed and the app is not running, without qa.state: \(quoted)"
+        }
+    }
+
+    /// The negative controls of one test (`<kind>:<target>` items, comma separated): `no-pid:<target>`
+    /// adds the no-pid issue to that target's first launch while the app runs, and
+    /// `no-pid-no-state:<target>` adds it to a first launch made without YEBISU_QA_AX, so no qa.state
+    /// proves the app runs. Each is spent by its first launch.
+    struct Faults {
+        private var items: Set<String>
+
+        init(_ spec: String) {
+            items = Set(spec.split(separator: ",").map(String.init))
+        }
+
+        /// Whether `kind:target` was asked for and not yet spent; spends it.
+        mutating func spend(_ kind: String, _ target: String) -> Bool {
+            items.remove("\(kind):\(target)") != nil
+        }
+
+        /// Whether `kind:target` was asked for and not yet spent, without spending it.
+        func pending(_ kind: String, _ target: String) -> Bool {
+            items.contains("\(kind):\(target)")
+        }
+    }
+}
