@@ -136,6 +136,12 @@ impl Smoke {
         {
             return status.text.clone();
         }
+        // #270: a field that closed under the user holds typing until a tap.
+        if self.terminal.live.connected
+            && let Some(reason) = self.terminal.input.held_until_tap()
+        {
+            return format!("{reason} · tap terminal to type");
+        }
         if self.terminal.live.connected && self.terminal.input.requires_gesture() {
             if let Some(reason) = self.retirement.reason {
                 return reason.into();

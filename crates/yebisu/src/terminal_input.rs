@@ -91,6 +91,11 @@ pub(crate) struct TerminalInput {
     /// The window is too small for one pane (L9, Q1): nothing is queued or
     /// sent until it grows again.
     size_hold: bool,
+    /// A native field closed under the user (#270: the rename field after a
+    /// boot change): no key or text reaches the terminal until a terminal
+    /// gesture (`fresh_gesture`). Unlike a discard fence, native retirement
+    /// never ends it, and a detach, a sync or a reconnect keeps it.
+    tap_hold: Option<&'static str>,
 }
 
 impl TerminalInput {
@@ -127,6 +132,7 @@ impl TerminalInput {
         let cancelled = self.cancelled;
         let key_resumes = self.key_resumes;
         let size_hold = self.size_hold;
+        let tap_hold = self.tap_hold;
         let options = std::mem::take(&mut self.options);
         *self = Self::default();
         self.options = options;
@@ -134,6 +140,7 @@ impl TerminalInput {
         self.key_resumes = key_resumes;
         self.retirement_revision = revision;
         self.size_hold = size_hold;
+        self.tap_hold = tap_hold;
     }
     /// L9: while `hold` is true the window is too small for one pane (Q1,
     /// D2), so no input reaches the terminal. Entering the hold drops what
@@ -148,6 +155,19 @@ impl TerminalInput {
             self.held = HeldKeys::default();
         }
         self.size_hold = hold;
+    }
+    /// #270: hold keys and text away from the terminal until it is tapped,
+    /// for `reason` (the closed field's status text). What is queued or held
+    /// is dropped, so nothing typed before the hold leaves later either.
+    pub fn hold_until_tap(&mut self, reason: &'static str) {
+        self.discard();
+        self.pending = None;
+        self.held = HeldKeys::default();
+        self.tap_hold = Some(reason);
+    }
+    /// Why keys and text wait for a terminal tap, if they do.
+    pub fn held_until_tap(&self) -> Option<&'static str> {
+        self.tap_hold
     }
     /// The native text client is shared across hosts, unlike terminal queues.
     pub fn retain_discard(&mut self, cancelled: bool) {
@@ -184,7 +204,9 @@ impl TerminalInput {
     /// Records once per reason why typed text cannot reach a terminal. Without it a
     /// positive control that never arrives looks the same as no input at all.
     pub fn report_drop(&self, observation: &crate::observation::Observation) {
-        let reason = if self.destination.is_none() {
+        let reason = if self.tap_hold.is_some() {
+            Some("held-for-tap")
+        } else if self.destination.is_none() {
             Some(self.gap.unwrap_or("no-destination"))
         } else if self.cancelled {
             Some("fenced")
@@ -237,9 +259,10 @@ impl TerminalInput {
     pub fn fresh_gesture(&mut self) {
         self.cancelled = false;
         self.key_resumes = false;
+        self.tap_hold = None;
     }
     pub fn mark(&mut self, text: &str, selected: Option<std::ops::Range<usize>>) {
-        if self.destination.is_none() || self.cancelled {
+        if self.destination.is_none() || self.cancelled || self.tap_hold.is_some() {
             self.reject_mark(text);
             return;
         }
@@ -268,7 +291,8 @@ impl TerminalInput {
     }
     pub fn commit(&mut self, text: &str) -> Option<GeneratedInput> {
         self.composition = Input::default();
-        if self.cancelled || self.destination.is_none() || text.is_empty() {
+        if self.cancelled || self.tap_hold.is_some() || self.destination.is_none() || text.is_empty()
+        {
             return None;
         }
         self.generated(ClientPaneInputEvent::TextCommit(text.into()))
@@ -282,7 +306,7 @@ impl TerminalInput {
             self.key_resumes = false;
         }
         self.destination.as_ref()?;
-        if !self.composition.text.is_empty() {
+        if self.tap_hold.is_some() || !self.composition.text.is_empty() {
             return None;
         }
         let mut mapped = event.clone();

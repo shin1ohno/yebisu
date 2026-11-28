@@ -49,7 +49,7 @@ CASES = [
      'serde_json::json!({ "tab": id, "label": label })', T + "send::shapes"),
     # A second commit of one session is sent too.
     ("second-commit-sent", "shell/rename.rs",
-     "(!std::mem::replace(&mut s.committed, true)).then(|| s.target.clone())", "Some(s.target.clone())",
+     ".is_some_and(|s| !std::mem::replace(&mut s.committed, true));", ".is_some_and(|_| true);",
      T + "send::one_request_per_commit"),
     # B-7: another request's rejection ends the rename.
     ("reject-any-request", "shell/rename/send.rs", ".filter(|t| Some(t.request.as_str()) == request_id)",
@@ -93,8 +93,8 @@ CASES = [
      "        self.terminal.input.detach();\n        let revision_at_open",
      "        let revision_at_open", T + "terminal::detach_before_open"),
     # B-6: the handle is dropped at the commit, before Dismissed.
-    ("drop-at-commit", "shell/rename.rs", "                if let Some(target) = target {\n",
-     "                if let Some(target) = target {\n                    self.with_rename(|s| s.control = None);\n",
+    ("drop-at-commit", "shell/rename.rs", "                    self.send_rename(&target, &text, cx);\n",
+     "                    self.with_rename(|s| s.control = None);\n                    self.send_rename(&target, &text, cx);\n",
      T + "terminal::order_committed_dismissed_restored"),
     # #138's gate widened: the rename field no longer blocks a text retirement.
     ("retirement-ignores-rename", "input_retirement.rs",
@@ -117,6 +117,32 @@ CASES = [
     ("palette-reason-gone", "action_view.rs",
      "        if !rename || enabled || !self.terminal.core_mode {\n            return None;",
      "        if true {\n            return None;", T + "herdr2::pane_rename_disabled_on_herdr2"),
+    # #270: going to another app closes the field (the connection pauses).
+    ("background-closes-field", "shell/rename/reconnect.rs",
+     "        if self.terminal.reconnect.suspended {\n            return Bound::Waiting;",
+     "        if self.terminal.reconnect.suspended {\n            return Bound::Gone(super::DISCONNECTED);",
+     T + "reconnect::same_boot_reconnect_keeps_field"),
+    # #270: the target is not moved to the new connection of its boot.
+    ("no-rebind", "shell/rename/reconnect.rs", "                    session.target.generation = generation;\n", "",
+     T + "reconnect::commit_after_same_boot_reconnect"),
+    # #270: a new connection of another boot keeps the field.
+    ("rebind-ignores-boot", "shell/rename/reconnect.rs",
+     "    if shown.boot_id != target.boot || !target.object.exists_in(shown) {",
+     "    if !target.object.exists_in(shown) {", T + "reconnect::boot_change_closes_field"),
+    # #270: a Return while away is sent on the old target.
+    ("commit-while-away-sent", "shell/rename.rs", "reconnect::Bound::Waiting => Some(NOT_CONNECTED),",
+     "reconnect::Bound::Waiting => None,", T + "reconnect::commit_while_away_refused"),
+    # #270: a field that closed under the user lets the next keys reach the shell.
+    ("no-tap-hold", "shell/rename.rs", "                    self.terminal.input.hold_until_tap(reason);\n", "",
+     T + "reconnect::typing_after_close_waits_for_tap"),
+    ("hold-ignored-by-commit", "terminal_input.rs",
+     "if self.cancelled || self.tap_hold.is_some() || self.destination.is_none()",
+     "if self.cancelled || self.destination.is_none()", T + "reconnect::typing_after_target_removed_waits_for_tap"),
+    # #270: a native retirement receipt ends the hold without a tap.
+    ("retirement-ends-hold", "terminal_input.rs",
+     "        if self.cancelled {\n            self.composition = Input::default();\n            self.cancelled = false;",
+     "        self.tap_hold = None;\n        if self.cancelled {\n            self.composition = Input::default();\n            self.cancelled = false;",
+     "terminal_input::tests::tap_hold_ends_only_with_a_gesture"),
     # B-7: a name is no longer cut to 160 characters.
     ("no-160-cut", "shell/rename/normalize.rs", "line.trim().chars().take(MAX_CHARS).collect()",
      "line.trim().chars().collect()", T + "normalize::cuts_to_160_characters"),

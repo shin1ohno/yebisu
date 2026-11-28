@@ -768,3 +768,27 @@ fn release_after_native_search_needs_the_revision_at_open() {
     assert!(!input.release_after_native_search(u64::MAX));
     assert!(input.requires_gesture());
 }
+/// #270: a field that closed under the user holds keys and text until a
+/// terminal tap. A native retirement receipt, a detach and a resync to a new
+/// connection keep it; only `fresh_gesture` ends it.
+#[test]
+fn tap_hold_ends_only_with_a_gesture() {
+    let mut input = ready();
+    input.hold_until_tap("This space was closed.");
+    assert_eq!(input.held_until_tap(), Some("This space was closed."));
+    assert!(input.commit("c").is_none(), "text passed the hold");
+    assert!(input.key_down(&key("d", false), false).is_none());
+    input.mark("に", None);
+    assert!(input.composition.marked.is_none(), "composed under the hold");
+    let revision = input.retirement_revision();
+    input.acknowledge_retirement(revision);
+    input.detach();
+    input.sync(&live(), 2, None);
+    assert!(
+        input.commit("c").is_none(),
+        "retirement, a detach or a resync ended the hold"
+    );
+    input.fresh_gesture();
+    assert_eq!(input.held_until_tap(), None);
+    assert!(input.commit("z").is_some(), "the tap did not end the hold");
+}

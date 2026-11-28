@@ -36,11 +36,33 @@ drawn yet), `Presenting`, `Open`, `Restoring`. The anchor element draws a
 slot canvas (`shell/rename/slot.rs`) that reports its rectangle and the
 visible area; each frame `rename_frame_tick` presents the field once the
 anchor was drawn, moves it when the rectangle changed (`set_frame`), scrolls
-the sidebar list to show a row's field, and closes it when the object, the
-connection or the boot went away ("This space was closed.", "Host
+the sidebar list to show a row's field, and closes it when the object or the
+boot went away ("This space was closed."), another host was selected ("Host
 disconnected.") or the anchor was not drawn twice in a row ("Rename
 cancelled"; never drawn: "Rename unavailable here"). The SDK is called only
 from deferred work, never inside a render.
+
+A reconnect to the same boot keeps the field (#270, #143 D13). Going to
+another app and back pauses the connection and dials a new one; meanwhile the
+field stays open with its text and takes more typing, and no frame counts
+against the anchor, since a paused connection draws nothing. When the new
+connection's snapshot arrives (`shell/rename/reconnect.rs`, read from the
+link's inbox, which is replaced with the generation), the target is checked
+against it: the same boot with the object still in it moves the target to the
+new generation, and a commit is sent there; another boot (Herdr restarted) or
+a missing object closes the field with "This … was closed.". The target keeps
+the boot it was opened on and moves only to a connection of that boot. A
+Return before that check is refused ("Rename failed: … Not connected"), and a
+Return for an object that is gone with the existing "Rename failed: … This …
+was closed."; nothing is sent later.
+
+When the field closes under the user (its object, boot or host went away, the
+anchor was lost, or a Return was refused for one of those), the terminal takes
+no key or text after the restore until it is tapped
+(`TerminalInput::hold_until_tap`; the status reads "<reason> · tap terminal to
+type"). A native retirement receipt, a detach and a reconnect keep the hold;
+only a terminal gesture (`fresh_gesture`) ends it, so text meant as a name
+never lands in a shell.
 
 Return sends one request in herdr-gpui's own shape: `workspace.rename
 {workspace_id, label}`, `tab.rename {tab_id, label}`, `pane.rename {pane_id,
@@ -57,8 +79,9 @@ menu header, tab row, space switcher and list, pane chip, Space menu), muted
 (`#acb2bb`); accepted, it is drawn in the normal color until a snapshot newer
 than the one it was sent at names it. An error or rejection shows "Rename
 failed: <reason>"; no answer within 10 s shows "Rename not confirmed; showing
-the host's name"; a disconnect or boot change drops it. The snapshot is never
-rewritten.
+the host's name"; a disconnect or boot change drops the sent name (its answer
+cannot come back on another connection; the field itself is kept across a
+same-boot reconnect, above). The snapshot is never rewritten.
 
 The terminal gives up what it was composing before the field opens
 (`terminal.input.detach`), a Paste being prepared is cancelled, the key band
@@ -116,4 +139,6 @@ revealed by P12's swipe, which can flake (issue #142).
 | Paste from the field's edit menu | R4 (the word in the field, none at the peer); the Simulator's long press only moves the caret, so R4 opens the menu with a double tap; the long press itself is a device check (#213) |
 | Outside tap with a finger, Pencil or trackpad | R3 (finger); device D5 |
 | Software keyboard covering a row | device D11 |
-| Stage Manager resize, app switch | device D13 |
+| Home and back with the field open (Background, same-boot reconnect) | host `shell::rename::tests::reconnect`; Simulator #270 D13 run; device D13 |
+| Typing after a close for a boot change stays out of the terminal | host `reconnect::typing_after_close_waits_for_tap`; device |
+| Stage Manager resize, Slide Over (Inactive only, no reconnect) | device D13 |
