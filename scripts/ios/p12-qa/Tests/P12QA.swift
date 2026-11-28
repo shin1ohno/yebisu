@@ -114,15 +114,77 @@ final class P12QA: XCTestCase {
         super.tearDown()
     }
 
+    /// The issues XCTest records while one app.launch() runs (class L, issue #247), taken by `record`.
+    private var launchIssues: [XCTIssue]?
+
+    override func record(_ issue: XCTIssue) {
+        if launchIssues != nil {
+            launchIssues?.append(issue)
+            print("P12 LAUNCH ISSUE \(issue.compactDescription)")
+            return
+        }
+        super.record(issue)
+    }
+
+    /// app.launch() with its recorded issues taken (`launchIssues`); returns them.
+    private func launchTakingIssues() -> [XCTIssue] {
+        launchIssues = []
+        app.launch()
+        let issues = launchIssues ?? []
+        launchIssues = nil
+        return issues
+    }
+
+    /// Launches the app once (class L, issue #247): when every issue XCTest recorded is "does not
+    /// have a process ID" and the app's qa.state is read, the app runs and only XCTest lacks its pid,
+    /// so it is terminated and launched once more, logged as a launch-retry resend named
+    /// `no-pid-app-running` (controller decision 2026-11-28). Any other issue, a second launch's
+    /// issues and a no-pid launch without qa.state are recorded as XCTest recorded them. The
+    /// `no-pid:launch` and `no-pid-no-state:launch` faults (P12_QA_FAULT) add the no-pid issue after
+    /// the first launch; the second also launched it without YEBISU_QA_AX (see the caller).
+    private func launchOnce() {
+        let started = Date()
+        var issues = launchTakingIssues()
+        print("P12 LAUNCH \(String(format: "%.1f", Date().timeIntervalSince(started)))")
+        var injected = false
+        for kind in ["no-pid", "no-pid-no-state"] where faults.remove("\(kind):launch") != nil {
+            print("P12 FAULT \(kind) launch: XCTest's no-pid issue added to this launch")
+            issues.append(XCTIssue(type: .system, compactDescription: LaunchIssue.noProcessID(bundle: "com.shin1ohno.yebisu")))
+            injected = true
+        }
+        let texts = issues.map(\.compactDescription)
+        // qa.state is read only when the launch left an issue.
+        let readable = !issues.isEmpty && qa.read() != nil
+        let decision: LaunchIssue.Decision = issues.isEmpty ? .none
+            : LaunchIssue.decide(issues: texts, notRunning: app.state == .notRunning, stateReadable: readable)
+        if decision != .retryNoPidAppRunning && texts.contains(where: LaunchIssue.isNoProcessID) {
+            // Named for the no-pid-no-state control (p12-oracle.py EXPECTED_FAILURES); the issues fail below.
+            print("P12 LAUNCH NO-PID not launched once more (class L), case launch: qa.state read \(readable), "
+                  + "app state \(app.state.rawValue): " + texts.joined(separator: "; "))
+        }
+        if decision == .retryNoPidAppRunning {
+            let reason = LaunchIssue.retryReason(decision, issues: texts)
+            QAAx.resend(kind: "launch-retry", id: "launch", reason: reason)
+            events.append(["kind": "launch-retry", "case": "launch", "reason": reason, "injected": injected,
+                           "time": Date().timeIntervalSince1970])
+            app.terminate()
+            let again = Date()
+            issues = launchTakingIssues()
+            print("P12 LAUNCH \(String(format: "%.1f", Date().timeIntervalSince(again)))")
+        }
+        for issue in issues { record(issue) }
+    }
+
     func testInstalledTerminalMenu() throws {
         continueAfterFailure = false
         app.terminate()
         app.launchEnvironment["YEBISU_TERMINAL_QA"] = "1"
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
         app.launchEnvironment["YEBISU_P12_QA"] = "1"
-        app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        // The no-pid-no-state control launches without the QA layer, so no qa.state can prove the app runs.
+        if !faults.contains("no-pid-no-state:launch") { app.launchEnvironment["YEBISU_QA_AX"] = "1" }
         XCUIDevice.shared.orientation = .portrait
-        app.launch()
+        launchOnce()
         // Before S5: sleep(3), then a check that the app's p0-smoke.jsonl was readable.
         do {
             try qa.waitState("the P12 fixture is up: the terminal is connected and the panel idle", timeout: 60) {

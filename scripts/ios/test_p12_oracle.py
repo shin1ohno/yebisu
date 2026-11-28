@@ -717,6 +717,38 @@ class P12RetryTests(unittest.TestCase):
         self.assertFalse(p12.failed_as_expected("offset-pick:palette", observed.replace("palette", "sidebar"), []))
         self.assertFalse(p12.failed_as_expected("offset-pick:palette", "Native menu disappeared in case palette", []))
 
+    def test_launch_faults_and_the_no_pid_launch_retry(self):
+        """Issue #247: the one launch may be repeated once, only as no-pid-app-running; `no-pid:launch`
+        must force exactly that retry, and `no-pid-no-state:launch` must fail by its named line
+        without one."""
+        for good in ("no-pid:launch", "no-pid-no-state:launch", "no-pid:launch,drop-tap:remote"):
+            self.assertTrue(p12.valid_fault(good), good)
+        for bad in ("no-pid", "no-pid:sidebar", "no-pid-no-state:remote", "no-pid-twice:launch"):
+            self.assertFalse(p12.valid_fault(bad), bad)
+        _, _, ui, _ = fixture()
+        self.assertEqual(p12.validate_retries(ui)["launch"], [])
+        with self.assertRaisesRegex(ValueError, "no-pid:launch did not force exactly one logged retry"):
+            p12.validate_faults("no-pid:launch", ui)
+        reason = "no-pid-app-running: XCTest has no pid for the launched app while its qa.state was read: x"
+        ui.append(dict(kind="launch-retry", case="launch", reason=reason, injected=True, time=1))
+        p12.validate_faults("no-pid:launch", ui)
+        self.assertEqual(p12.validate_retries(ui)["launch"], [dict(case="launch", reason=reason, injected=True)])
+        ui.append(dict(kind="launch-retry", case="launch", reason=reason, injected=False, time=2))
+        with self.assertRaisesRegex(ValueError, "more than one launch retry"):
+            p12.validate_retries(ui)
+        _, _, other, _ = fixture()
+        other.append(dict(kind="launch-retry", case="launch", reason="the launch failed: x", injected=False, time=1))
+        with self.assertRaisesRegex(ValueError, "launch retry without its no-pid-app-running reason"):
+            p12.validate_retries(other)
+        words = "LAUNCH NO-PID not launched once more (class L)"
+        self.assertEqual(p12.expected_failure("no-pid-no-state:launch"), (words, "launch"))
+        line = f"P12 {words}, case launch: qa.state read false, app state 4: Application 'com.shin1ohno.yebisu' does not have a process ID"
+        self.assertTrue(p12.failed_as_expected("no-pid-no-state:launch", line, []))
+        self.assertFalse(p12.failed_as_expected("no-pid-no-state:launch", line,
+                                                [dict(kind="launch-retry", case="launch", reason=reason, injected=True, time=1)]),
+                         "no-pid-no-state must fail without a launch retry")
+        self.assertFalse(p12.failed_as_expected("no-pid-no-state:launch", "Application 'com.shin1ohno.yebisu' does not have a process ID", []))
+
     def test_a_pick_tap_that_reached_the_app_is_named(self):
         def edit(r, m, u, s):
             P12OracleTests.lose_tap(self, "palette")(r, m, u, s)

@@ -16,6 +16,10 @@ final class EditMenuQA: XCTestCase {
     /// The issues XCTest records while one app.terminate() runs (class T-reap, issue #247): a killed
     /// app the OS reports gone only after XCTest's 60 s is "Failed to terminate <bundle>:<pid>".
     private var terminateIssues: [XCTIssue]?
+    /// Negative controls for class L (issue #247; TEST_RUNNER_SH1_152_QA_FAULT, comma separated, empty
+    /// in CI): `no-pid:<case>` and `no-pid-no-state:<case>` (LaunchIssue.Faults). The first must be
+    /// launched once more and pass; the second must fail by XCTest's own issue, with no launch-retry.
+    private var faults = LaunchIssue.Faults(ProcessInfo.processInfo.environment["SH1_152_QA_FAULT"] ?? "")
 
     override func record(_ issue: XCTIssue) {
         if launchIssues != nil {
@@ -226,7 +230,8 @@ final class EditMenuQA: XCTestCase {
         caseName = name
         app.launchEnvironment["YEBISU_SH1_152_CASE"] = name
         app.launchEnvironment["YEBISU_SMOKE_OBSERVE"] = "1"
-        app.launchEnvironment["YEBISU_QA_AX"] = "1"
+        // The no-pid-no-state control launches without the QA layer, so no qa.state can prove the app runs.
+        if !faults.pending("no-pid-no-state", name) { app.launchEnvironment["YEBISU_QA_AX"] = "1" }
         if useWindowFrames { app.launchEnvironment["YEBISU_QA_AX_FRAMES"] = "1" }
         if automaticMarkers { app.launchEnvironment["YEBISU_SH1_152_AUTO_MARKERS"] = "1" }
         app.launchEnvironment[name.contains("core") ? "YEBISU_CORE_QA" : "YEBISU_TERMINAL_QA"] = "1"
@@ -264,13 +269,26 @@ final class EditMenuQA: XCTestCase {
         let launchStarted = Date()
         var issues = launchTakingIssues(app)
         print("SH1-152 LAUNCH \(name) \(String(format: "%.1f", Date().timeIntervalSince(launchStarted)))")
+        for kind in ["no-pid", "no-pid-no-state"] where faults.spend(kind, name) {
+            print("SH1-152 FAULT \(kind) \(name): XCTest's no-pid issue added to this launch")
+            issues.append(XCTIssue(type: .system, compactDescription: LaunchIssue.noProcessID(bundle: "com.shin1ohno.yebisu")))
+        }
         let ax = QAAx(app, useWindowFrames: useWindowFrames)
-        if !issues.isEmpty && app.state == .notRunning && ax.read() == nil {
-            // Class L: the launch failed and the app never started (not running, no qa.state), so it is
-            // launched once more (Owner decision 5); sh1-152-check.py checks app-stderr.log's launch lines.
-            let reason = "the launch failed and the app is not running, without qa.state: "
-                + issues.map(\.compactDescription).joined(separator: "; ")
-            QAAx.resend(kind: "launch-retry", id: name, reason: reason)
+        let texts = issues.map(\.compactDescription)
+        // qa.state is read only when the launch left an issue, as before issue #247.
+        let readable = !issues.isEmpty && ax.read() != nil
+        let decision: LaunchIssue.Decision = issues.isEmpty ? .none
+            : LaunchIssue.decide(issues: texts, notRunning: app.state == .notRunning, stateReadable: readable)
+        if decision == .record && texts.contains(where: LaunchIssue.isNoProcessID) {
+            // Nothing proves the app runs (the no-pid-no-state control): the issues fail below as XCTest recorded them.
+            print("SH1-152 LAUNCH NO-PID not launched once more (class L) \(name): qa.state read \(readable), "
+                  + "app state \(app.state.rawValue): " + texts.joined(separator: "; "))
+        }
+        if decision == .retryNotStarted || decision == .retryNoPidAppRunning {
+            // Class L, launched once more: the app never started (not running, no qa.state; Owner decision 5),
+            // or it runs and shows qa.state while XCTest has no pid for it (issue #247). sh1-152-check.py
+            // proves each from app-stderr.log's launch lines, and both count in the job's resend budget.
+            QAAx.resend(kind: "launch-retry", id: name, reason: LaunchIssue.retryReason(decision, issues: texts))
             try terminate(app)
             let again = Date()
             issues = launchTakingIssues(app)

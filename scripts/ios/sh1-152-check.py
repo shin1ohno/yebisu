@@ -133,19 +133,27 @@ def main():
     if failures:
         raise SystemExit("SH1-152 FAIL\n" + "\n".join(failures))
 
+NO_PID_APP_RUNNING = "no-pid-app-running"  # LaunchIssue.noPidAppRunning (smoke-qa/Tests/QAAx.swift)
+
+
 def launch_retries_proven(xctest_output, stderr_text):
-    """A launch-retry (EditMenuQA, class L) is proven only when the failed launch started no process:
-    every process start writes one `app-stderr launch pid=` line (crates/yebisu/src/qa_stderr.rs), and
-    every attempt prints `SH1-152 LAUNCH <case> <seconds>`, so starts = attempts - launch retries."""
+    """A launch-retry (EditMenuQA, class L) is proven by the app's own process starts: every start
+    writes one `app-stderr launch pid=` line (crates/yebisu/src/qa_stderr.rs), and every attempt prints
+    `SH1-152 LAUNCH <case> <seconds>`. A retry of a launch that started no process adds an attempt
+    but no start; a retry whose reason is `no-pid-app-running` (issue #247: the app ran and showed
+    qa.state, XCTest had no pid) adds both. So starts = attempts - the retries of the first kind."""
     retries = [r for r in resend_budget.parse(xctest_output) if r.get("kind") == "launch-retry"]
     if not retries:
         return "no launch-retry"
+    no_pid = [r for r in retries if str(r.get("reason", "")).startswith(NO_PID_APP_RUNNING + ":")]
     attempts = len(re.findall(r"^SH1-152 LAUNCH \S+ [0-9.]+$", xctest_output, re.M))
     starts = stderr_text.count("app-stderr launch pid=")
-    if starts != attempts - len(retries):
-        raise ValueError(f"launch-retry not proven: {starts} app starts for {attempts} launch attempts and "
-                         f"{len(retries)} launch retries ({[r.get('id') for r in retries]})")
-    return f"{len(retries)} launch-retry proven: {starts} app starts for {attempts} attempts"
+    if starts != attempts - (len(retries) - len(no_pid)):
+        raise ValueError(f"launch-retry not proven: {starts} app starts for {attempts} launch attempts, "
+                         f"{len(retries) - len(no_pid)} retries of a launch that started nothing and {len(no_pid)} "
+                         f"{NO_PID_APP_RUNNING} retries ({[r.get('id') for r in retries]})")
+    return (f"{len(retries)} launch-retry proven: {starts} app starts for {attempts} attempts "
+            f"({len(no_pid)} {NO_PID_APP_RUNNING})")
 
 
 def heartbeat_report(directory):

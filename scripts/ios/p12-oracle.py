@@ -279,6 +279,14 @@ def validate_retries(ui):
             require(retry.get("case") in CHOOSES and isinstance(retry.get("injected"), bool), f"{kind} record incomplete")
         require(len({r.get("case") for r in found}) == len(found), f"more than one {kind} for a case")
         menus[key] = [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in found]
+    # Issue #247: the one launch may be repeated once, only as no-pid-app-running (P12QA.launchOnce).
+    launches = [r for r in ui if r.get("kind") == "launch-retry"]
+    for retry in launches:
+        require(isinstance(retry.get("reason"), str) and retry["reason"].startswith(NO_PID_APP_RUNNING + ":"),
+                "launch retry without its no-pid-app-running reason")
+        require(retry.get("case") == LAUNCH and isinstance(retry.get("injected"), bool), "launch retry record incomplete")
+    require(len(launches) <= 1, "more than one launch retry")
+    menus["launch"] = [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in launches]
     return {"fixture": [{"step": r["step"], "reason": r["reason"], "injected": r["injected"]} for r in taps],
             "reveal": [{"case": r["case"], "reason": r["reason"], "injected": r["injected"]} for r in swipes], **menus}
 
@@ -329,7 +337,13 @@ def validate_menu_retries(records, ui):
 # Negative controls that must fail by name without a resend, with the words the failure must say. A tap
 # beside the item never reaches the app: SpringBoard's open menu takes it and closes, so offset-pick fails
 # as A2 (issue #142 stage 3; receipts in PR-3's text). `pick tap reached the app` stays as an A2 stage.
-EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "tap lost (class A2)"}
+EXPECTED_FAILURES = {"drop-pick-twice": "pick lost twice", "offset-pick": "tap lost (class A2)",
+                     "no-pid-no-state": "LAUNCH NO-PID not launched once more (class L)"}
+# Class L negative controls on the one launch (issue #247): `no-pid:launch` must force one logged
+# launch-retry named no-pid-app-running and pass; `no-pid-no-state:launch` must fail without one.
+LAUNCH_FAULTS = ("no-pid", "no-pid-no-state")
+LAUNCH = "launch"
+NO_PID_APP_RUNNING = "no-pid-app-running"  # LaunchIssue.noPidAppRunning (smoke-qa/Tests/QAAx.swift)
 # Negative controls on a choose() case; drop-tap names a fixture step instead.
 CASE_FAULTS = ("skip-swipe", "drop-pick", "drop-open", *EXPECTED_FAILURES)
 SHORT_DRAG = "short-drag"
@@ -356,6 +370,8 @@ def valid_fault(spec):
         if item == SHORT_DRAG:
             return True
         kind, _, target = item.partition(":")
+        if kind in LAUNCH_FAULTS:
+            return target == LAUNCH
         return target in STEPS if kind == "drop-tap" else kind in CASE_FAULTS and target in CHOOSES
     return all(one(item) for item in items)
 
@@ -378,7 +394,8 @@ def failed_as_expected(spec, failure_text, ui):
     offset-pick at all."""
     words, case = expected_failure(spec)
     named = any(words in line and f"case {case}" in line for line in failure_text.splitlines())
-    resends = len([r for r in ui if r.get("kind") == "pick-retry" and r.get("case") == case])
+    retried = "launch-retry" if case == LAUNCH else "pick-retry"
+    resends = len([r for r in ui if r.get("kind") == retried and r.get("case") == case])
     return named and resends == (1 if words == EXPECTED_FAILURES["drop-pick-twice"] else 0)
 
 
@@ -387,7 +404,8 @@ def validate_faults(spec, ui):
 
     A fault that leaves no retry means the retry path was not exercised; a retry that
     no fault asked for is not hidden by this check (it stays in the verdict)."""
-    retry_kinds = {"drop-tap": "fixture-retry", "skip-swipe": "reveal-retry", "drop-pick": "pick-retry", "drop-open": "open-retry"}
+    retry_kinds = {"drop-tap": "fixture-retry", "skip-swipe": "reveal-retry", "drop-pick": "pick-retry", "drop-open": "open-retry",
+                   "no-pid": "launch-retry"}
     for item in [item for item in spec.split(",") if item]:
         if item == SHORT_DRAG:
             require(short_drag_retried(ui), "injected fault short-drag did not force a logged second window drag")

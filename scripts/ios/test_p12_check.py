@@ -53,6 +53,23 @@ class P12CheckEnvTests(unittest.TestCase):
         self.assertIn('environment["P12_QA_FAULT"]', SWIFT)
         self.assertNotIn('environment["TEST_RUNNER_', SWIFT)
 
+    def test_the_menu_test_launches_through_the_no_pid_decision(self):
+        """Issue #247: testInstalledTerminalMenu launches once through launchOnce, which takes XCTest's
+        launch issues, repeats a no-pid launch only as LaunchIssue decides (qa.state read), and names
+        the no-pid-no-state control's failure with p12-oracle.py's words."""
+        source = code(SWIFT)
+        test = body(source, "func testInstalledTerminalMenu(")
+        self.assertIn("launchOnce()", test)
+        self.assertNotIn("app.launch()", test)
+        self.assertIn('if !faults.contains("no-pid-no-state:launch") { app.launchEnvironment["YEBISU_QA_AX"] = "1" }', test)
+        once = body(source, "private func launchOnce(")
+        self.assertIn("LaunchIssue.decide(issues: texts, notRunning: app.state == .notRunning, stateReadable: readable)", once)
+        self.assertEqual(once.count('QAAx.resend(kind: "launch-retry"'), 1)
+        self.assertEqual(once.count("launchTakingIssues()"), 2, "the launch and its one repeat")
+        self.assertIn('"kind": "launch-retry", "case": "launch"', once)
+        self.assertIn(oracle.EXPECTED_FAILURES["no-pid-no-state"], once)
+        self.assertLess(once.index("if decision == .retryNoPidAppRunning {"), once.index("for issue in issues { record(issue) }"))
+
     def test_the_qa_layer_helper_is_built_into_the_p12_bundle(self):
         driver = (HERE / "p12-check.py").read_text()
         self.assertIn('shutil.copyfile(ROOT / "scripts/ios/smoke-qa/Tests/QAAx.swift", project / "Tests/QAAx.swift")', driver)
