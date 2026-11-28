@@ -27,6 +27,7 @@ pub(crate) mod normalize;
     all(target_os = "ios", target_abi = "sim", feature = "test-support")
 ))]
 pub(crate) mod qa;
+pub(crate) mod reconnect;
 pub(crate) mod send;
 pub(crate) mod slot;
 
@@ -309,6 +310,10 @@ pub(crate) struct RenameSession {
     pub(crate) committed: bool,
     /// yebisu asked the field to close; the frame tick waits for `Dismissed`.
     pub(crate) closing: bool,
+    /// The field closed under the user (its object, connection or boot
+    /// went, #270), with that text: after the restore the terminal takes no
+    /// key or text until it is tapped, so a name never lands in a shell.
+    pub(crate) held: Option<&'static str>,
     /// The rectangle and clip the field was last given.
     pub(crate) placed: Option<slot::Placed>,
     /// The one FIFO receiver of the session's events.
@@ -512,6 +517,7 @@ impl Smoke {
             missed: 0,
             committed: false,
             closing: false,
+            held: None,
             placed: None,
             events: None,
         });
@@ -635,10 +641,44 @@ impl Smoke {
         match event {
             FieldEvent::Opened => self.with_rename(|s| s.phase = Phase::Open),
             FieldEvent::Committed(text) => {
-                let target = self.shell.rename.session.as_mut().and_then(|s| {
-                    (!std::mem::replace(&mut s.committed, true)).then(|| s.target.clone())
-                });
-                if let Some(target) = target {
+                let first = self
+                    .shell
+                    .rename
+                    .session
+                    .as_mut()
+                    .is_some_and(|s| !std::mem::replace(&mut s.committed, true));
+                // A Return right after coming back: the target is checked
+                // against the new connection before anything is sent (#270).
+                let refused = if !first {
+                    None
+                } else if self.terminal.reconnect.target
+                    != self
+                        .shell
+                        .rename
+                        .session
+                        .as_ref()
+                        .map_or("", |s| &s.target.host)
+                {
+                    Some(DISCONNECTED)
+                } else {
+                    match self.rebind_rename() {
+                        reconnect::Bound::Current | reconnect::Bound::Rebound => None,
+                        reconnect::Bound::Waiting => Some(NOT_CONNECTED),
+                        reconnect::Bound::Gone(reason) => Some(reason),
+                    }
+                };
+                if let Some(reason) = refused {
+                    self.terminal.live.status =
+                        format!("Rename failed: {}", crate::Error::Ssh(reason.into()));
+                    self.with_rename(|s| s.held = Some(reason));
+                } else if let Some(target) = self
+                    .shell
+                    .rename
+                    .session
+                    .as_ref()
+                    .filter(|_| first)
+                    .map(|s| s.target.clone())
+                {
                     self.send_rename(&target, &text, cx);
                 }
             }
@@ -665,6 +705,9 @@ impl Smoke {
                     self.terminal
                         .input
                         .release_after_native_search(session.revision_at_open);
+                }
+                if let Some(reason) = session.held {
+                    self.terminal.input.hold_until_tap(reason);
                 }
                 self.refresh_terminal_input();
                 window.notify_text_input_changed(&self.terminal_focus);
@@ -699,7 +742,11 @@ impl Smoke {
         {
             tracing::warn!(?error, id, "rename field not dismissed");
         }
-        self.with_rename(|s| s.closing = true);
+        // The frame tick closes it: the user did not ask for it (#270).
+        self.with_rename(|s| {
+            s.closing = true;
+            s.held = Some(reason);
+        });
         self.terminal.live.status = reason.into();
     }
 }
