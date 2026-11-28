@@ -291,7 +291,10 @@ impl TerminalInput {
     }
     pub fn commit(&mut self, text: &str) -> Option<GeneratedInput> {
         self.composition = Input::default();
-        if self.cancelled || self.tap_hold.is_some() || self.destination.is_none() || text.is_empty()
+        if self.cancelled
+            || self.tap_hold.is_some()
+            || self.destination.is_none()
+            || text.is_empty()
         {
             return None;
         }
